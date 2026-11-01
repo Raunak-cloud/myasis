@@ -179,7 +179,7 @@ try {
     recent.find((row) => row.sessionId === 'customer-session')?.email,
     'visitor@example.test',
   );
-  assert.equal(parseMarket(null), 'all');
+  assert.equal(parseMarket(null), 'home');
   // A returning visitor keeps the same browser-session ID when an old tab is
   // reopened. A heartbeat must bring that visit above a newer, inactive visit,
   // including when LIMIT would otherwise hide it from the report.

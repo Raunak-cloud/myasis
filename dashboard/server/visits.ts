@@ -28,8 +28,8 @@ const ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 const PAGE_PATTERN = /^[a-z][a-z0-9_-]{0,39}$/;
 
 /**
- * The market the product serves. All countries are shown by default; home and other-country filters
- * are explicit subsets, including unknown locations in the latter.
+ * The market the product serves, selected by default. Other-country visits
+ * include unknown locations; the all-country view remains available explicitly.
  */
 function homeCountry(): string {
   const code = (process.env.VISIT_HOME_COUNTRY ?? readEnv().VISIT_HOME_COUNTRY ?? 'AU').trim().toUpperCase();
@@ -225,14 +225,14 @@ type VisitorRange = 'today' | '7d' | '30d' | '90d';
 const RANGE_DAYS: Record<Exclude<VisitorRange, 'today'>, number> = { '7d': 7, '30d': 30, '90d': 90 };
 
 export function parseRange(value: string | null): VisitorRange {
-  return value === 'today' || value === '30d' || value === '90d' ? value : '7d';
+  return value === '7d' || value === '30d' || value === '90d' ? value : 'today';
 }
 
 /** Visits from the home country, or from everywhere else (which includes visits with no known place). */
 type VisitorMarket = 'all' | 'home' | 'abroad';
 
 export function parseMarket(value: string | null): VisitorMarket {
-  return value === 'home' || value === 'abroad' ? value : 'all';
+  return value === 'all' || value === 'abroad' ? value : 'home';
 }
 
 interface VisitorScope {

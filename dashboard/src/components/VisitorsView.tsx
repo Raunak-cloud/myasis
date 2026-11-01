@@ -234,8 +234,8 @@ function BreakdownList({ title, rows }: { title: string; rows: Breakdown[] }) {
   );
 }
 export function VisitorsView() {
-  const [range, setRange] = useState<VisitorRange>('7d');
-  const [market, setMarket] = useState<VisitorMarket>('all');
+  const [range, setRange] = useState<VisitorRange>('today');
+  const [market, setMarket] = useState<VisitorMarket>('home');
   const report = useReport<VisitorReport>(
     `/visitors?range=${range}&market=${market}`,
     30_000,
