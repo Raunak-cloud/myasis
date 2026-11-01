@@ -14,7 +14,7 @@ test('a repair is an isolated proposal, with explicit source access and bounded 
   assert.deepEqual(proposal.files, { [file]: 'new code' });
   assert.equal(source[file], 'old code');
   await proposeRepair(incident,source,async turns=>{
-    assert.match(turns[2].content,/old code/);assert.doesNotMatch(turns[2].content,/SECRET|protected policy/);
+    assert.match(turns[1].content,/old code/);assert.doesNotMatch(turns[1].content,/SECRET|protected policy/);
     return {calls:[{name:'replace_source',args:{path:file,old:'old',replacement:'new'}}],costUsd:0};
   });
 });

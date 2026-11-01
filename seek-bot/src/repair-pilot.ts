@@ -9,6 +9,32 @@ export interface RepairDiagnostic {
   tool?: unknown;
   message?: unknown;
   failureKind?: unknown;
+  sourceSite?: unknown;
+}
+
+export const REPAIR_EDITABLE_FILES = [
+  'seek-bot/src/agent/agent-files.ts', 'seek-bot/src/agent/native-browser.ts',
+  'seek-bot/src/agent/browser-target.ts', 'seek-bot/src/agent/observe.ts',
+] as const;
+export interface RepairSourceSite { path: typeof REPAIR_EDITABLE_FILES[number]; function?: string }
+function checkedSourceSite(input:unknown):RepairSourceSite|undefined {
+  if(!input||typeof input!=='object')return undefined;
+  const site=input as Record<string,unknown>;
+  if(!(REPAIR_EDITABLE_FILES as readonly unknown[]).includes(site.path))return undefined;
+  const name=typeof site.function==='string'&&/^[A-Za-z_$][\w$]{0,79}$/.test(site.function)?site.function:undefined;
+  return {path:site.path as RepairSourceSite['path'],...(name?{function:name}:{})};
+}
+/** Extract only a fixed internal module and identifier; never forward a stack,
+ * message, absolute filesystem path, employer text or candidate values. */
+export function repairSourceSite(error:unknown):RepairSourceSite|undefined {
+  if(!(error instanceof Error)||typeof error.stack!=='string')return undefined;
+  for(const frame of error.stack.split('\n').slice(1,12)){
+    const module=frame.replaceAll('\\','/').match(/\/(?:dist|src)\/agent\/(agent-files|native-browser|browser-target|observe)\.[cm]?[jt]s:\d+:\d+\)?$/);
+    if(!module)continue;
+    const name=frame.match(/^\s*at (?:async )?([A-Za-z_$][\w$]*) \(/)?.[1];
+    return checkedSourceSite({path:`seek-bot/src/agent/${module[1]}.ts`,function:name});
+  }
+  return undefined;
 }
 
 export interface RepairIncident {
@@ -18,6 +44,7 @@ export interface RepairIncident {
   tool?: string;
   code?: 'approved_document_bundle_rejected' | 'target_missing' | 'target_ambiguous' | 'pointer_blocked' | 'outside_viewport' | 'question_capture_rejected' | 'tool_arguments_rejected' | 'runtime_reference_error';
   count: number;
+  sourceSite?: RepairSourceSite;
 }
 
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
@@ -69,6 +96,7 @@ export class RepairPilotDetector {
       : /employer quote is not present|complete question labels/i.test(message) ? 'question_capture_rejected' as const
       : /Cannot read propert(?:y|ies).*\b(?:undefined|null)\b|\b\w+ is (?:undefined|not defined)\b/i.test(message) ? 'runtime_reference_error' as const
       : /Invalid tool input/i.test(message) ? 'tool_arguments_rejected' as const : undefined;
-    return { runId, attemptId, category: fatal ? 'application_exception' : execution ? 'tool_execution_failure' : 'repeated_tool_failure', ...(tool ? { tool } : {}), ...(code ? { code } : {}), count };
+    const sourceSite=checkedSourceSite(input.sourceSite);
+    return { runId, attemptId, category: fatal ? 'application_exception' : execution ? 'tool_execution_failure' : 'repeated_tool_failure', ...(tool ? { tool } : {}), ...(code ? { code } : {}), ...(sourceSite?{sourceSite}:{}), count };
   }
 }

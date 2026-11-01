@@ -1,10 +1,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { RepairPilotDetector,waitingRepairCheckpoint } from './repair-pilot.js';
+import { RepairPilotDetector,waitingRepairCheckpoint,repairSourceSite } from './repair-pilot.js';
 
 const attemptId = 'e9cf35f9-b0c0-4209-95c6-849c51a774a5';
 const event = { id: 'a9cf35f9-b0c0-4209-95c6-849c51a774a5', runStartId: '1081', attemptId, severity: 'warning', category: 'tool_error', tool: 'create_file', message: 'untrusted employer data and private information' };
 const next = { ...event, id: 'b9cf35f9-b0c0-4209-95c6-849c51a774a5' };
+
+test('repair context retains only the failing internal module and function, never raw stacks or unrelated paths',()=>{
+  const error=new Error('private candidate value');
+  error.stack='Error: private candidate value\n    at browserTarget (file:///private/account/seek-bot/dist/agent/browser-target.js:50:24)\n    at act (file:///private/account/seek-bot/dist/agent/agent-only.js:90:2)';
+  const site=repairSourceSite(error);
+  assert.deepEqual(site,{path:'seek-bot/src/agent/browser-target.ts',function:'browserTarget'});
+  const incident=new RepairPilotDetector('1','raunak.vision@gmail.com',true).observe('1081',{...event,failureKind:'execution',sourceSite:{...site,stack:error.stack}});
+  assert.deepEqual(incident?.sourceSite,site);assert.doesNotMatch(JSON.stringify(incident),/private|account\/|stack/);
+  error.stack='Error: private\n    at anything (https://employer.test/agent/browser-target.js:1:2)';
+  assert.equal(repairSourceSite(error),undefined);
+  assert.equal(new RepairPilotDetector('1','raunak.vision@gmail.com',true).observe('1081',{...event,failureKind:'execution',sourceSite:{path:'seek-bot/.env',function:'secret'}})?.sourceSite,undefined);
+});
 
 test('the pilot only emits bounded metadata for repeated failures in the exact admin account', () => {
   for (const detector of [new RepairPilotDetector('183', 'raunak.vision@gmail.com', true), new RepairPilotDetector('1', 'other@example.com', true), new RepairPilotDetector('1', 'raunak.vision@gmail.com', false)]) {

@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { config } from '../config.js';
 import { applicationModelEnvironment, withApplicationModel } from '../application-model.js';
 import { captchaDiagnosticSecrets, safeCaptchaDiagnostic } from '../captcha/diagnostics.js';
+import { repairSourceSite, type RepairSourceSite } from '../repair-pilot.js';
 
 interface AttemptIdentity {
   attemptId: string; runStartId?: string; jobId: string; title: string; company: string;
@@ -27,6 +28,7 @@ export function recordDiagnostic(input: {
   disposition?: string; outcome?: string; retry?: number;
   repairCaseId?: string; relatedAttemptId?: string;
   failureKind?: 'execution' | 'arguments' | 'validation' | 'external';
+  sourceSite?: RepairSourceSite;
 }): void {
   try {
     const { error, message, ...fields } = input;
@@ -34,7 +36,7 @@ export function recordDiagnostic(input: {
     const clean = (text: string) => String(safeCaptchaDiagnostic(text, secrets).message ?? '');
     const identity = currentAttempt();
     const event = { id: randomUUID(), at: new Date().toISOString(), runStartId: diagnosticRunId(), ...identity,
-      ...fields, message: clean(message), error: error ? safeCaptchaDiagnostic(error, secrets) : undefined,
+      ...fields, sourceSite:repairSourceSite(error)??fields.sourceSite, message: clean(message), error: error ? safeCaptchaDiagnostic(error, secrets) : undefined,
       stack: error instanceof Error ? error.stack?.split('\n').slice(0, 9).map(clean) : undefined };
     const dir = resolve(config.dataDir, 'traces');
     mkdirSync(dir, { recursive: true });
@@ -75,7 +77,7 @@ export async function withApplicationAttempt<T extends { outcome: { status: stri
 /** Use structured dispositions and batch entries, including stale refs that are not thrown. */
 export function recordToolDiagnostic(step: number, tool: string, message: string, disposition?: string, error?: unknown,
   failureKind?: 'execution' | 'arguments' | 'validation' | 'external'): void {
-  let entries: Array<{ index?: number; error?: string; kind?: string; message?: string; failureKind?: 'execution' | 'arguments' | 'validation' }> = [];
+  let entries: Array<{ index?: number; error?: string; kind?: string; message?: string; failureKind?: 'execution' | 'arguments' | 'validation';sourceSite?:RepairSourceSite }> = [];
   try { const body = JSON.parse(message); if (Array.isArray(body.results)) entries = body.results; } catch { /* Plain tool response. */ }
   const failed = entries.filter(entry => entry.error || entry.kind === 'error' || entry.kind === 'failed');
   for (const entry of entries) {
@@ -84,7 +86,7 @@ export function recordToolDiagnostic(step: number, tool: string, message: string
   }
   if (failed.length) {
     for (const entry of failed) recordDiagnostic({ severity: 'warning', category: 'tool_error', stage: 'tool', step, tool,
-      batchIndex: entry.index, disposition: 'failed', failureKind:entry.failureKind??failureKind, message: String(entry.error || entry.message || 'Batch action failed.') });
+      batchIndex: entry.index, disposition: 'failed', failureKind:entry.failureKind??failureKind, sourceSite:entry.sourceSite, message: String(entry.error || entry.message || 'Batch action failed.') });
   } else if (disposition === 'failed' || disposition === 'invalid-arguments' || /^Observed ref .*no longer on the page|^Browser\/tool error:/.test(message)) {
     recordDiagnostic({ severity: 'warning', category: /^Observed ref .*no longer on the page/.test(message) ? 'stale_target' : 'tool_error', stage: 'tool', step, tool,
       disposition, error, failureKind:disposition==='invalid-arguments'?'arguments':failureKind, message: message.split('FRESH FAILURE EVIDENCE')[0] });
