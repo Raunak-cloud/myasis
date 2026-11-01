@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, chmodSync, symlinkSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { RepairPilotDetector, waitingRepairCheckpoint, type RepairIncident } from '../server/repair-pilot.js';
+import { RepairPilotDetector, waitingRepairCheckpoint, deploymentAllowsLiveRepair, type RepairIncident } from '../server/repair-pilot.js';
 import { REPAIR_EDITABLE_FILES, proposeRepair, type RepairProposal } from '../server/repair-coder.js';
 import { miniMaxRepairModel, reviewRepair } from '../server/repair-model.js';
 import { validateRepairProposal, traceProvesNoSend } from '../server/repair-validation.js';
@@ -33,8 +33,12 @@ async function ownerAvailable(){
   const r=await pool.query('SELECT email FROM users WHERE id=1 AND blocked_at IS NULL');
   return r.rows[0]?.email?.toLowerCase()==='raunak.vision@gmail.com'&&(env.ADMIN_EMAILS??'').toLowerCase().split(',').map(x=>x.trim()).includes('raunak.vision@gmail.com');
 }
+function deploymentBlocksRepair(){
+  try{return !deploymentAllowsLiveRepair(readFileSync(APP+'/.deploying','utf8'));}
+  catch(error:any){return error.code!=='ENOENT';}
+}
 async function caseActive(runId:string){
-  if(!config()||existsSync(APP+'/.deploying')||!await ownerAvailable())return false;
+  if(!config()||deploymentBlocksRepair()||!await ownerAvailable())return false;
   const r=await pool.query('SELECT r.finished_at,r.stopped,r.trigger,s.enabled FROM run_starts r LEFT JOIN application_schedules s ON s.user_id=r.user_id WHERE r.id=$1 AND r.user_id=1',[runId]);
   const expired=runDiagnostics(runId).some(e=>['repair_expired','repair_cancelled'].includes(e.category));
   return Boolean(r.rows[0]&&!r.rows[0].finished_at&&!r.rows[0].stopped&&!expired&&(r.rows[0].trigger!=='auto'||r.rows[0].enabled===true));
@@ -85,7 +89,7 @@ async function validate(id:string){
   catch(error:any){writeFileSync(log,String(error.stdout??'')+'\n'+String(error.stderr??''),{mode:0o600});throw Error('Isolated validation failed; no release published.');}
 }
 async function publish(row:any){
-  if(existsSync(APP+'/.deploying'))return;
+  if(deploymentBlocksRepair())return;
   if(!config()||!await ownerAvailable())throw Error('Pilot paused or owner unavailable.');
   const current=String((await git(['rev-parse','HEAD'])).stdout).trim();
   if(current!==row.base_sha)throw Error('Production revision changed; validated repair is stale.');
@@ -150,7 +154,7 @@ async function advance(){
   await publish(row);
 }
 async function discover(){
-  if(existsSync(APP+'/.deploying'))return;
+  if(deploymentBlocksRepair())return;
   const c=config();if(!c||!await ownerAvailable())return;
   const daily=await pool.query("SELECT count(*)::int n FROM repair_pilot_cases WHERE user_id=1 AND (created_at AT TIME ZONE 'Australia/Sydney')::date=(now() AT TIME ZONE 'Australia/Sydney')::date");
   if(daily.rows[0].n>=c.maxCasesPerDay)return;

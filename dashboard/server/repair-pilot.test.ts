@@ -1,10 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { RepairPilotDetector,waitingRepairCheckpoint,repairSourceSite } from './repair-pilot.js';
+import { RepairPilotDetector,waitingRepairCheckpoint,repairSourceSite,deploymentAllowsLiveRepair } from './repair-pilot.js';
 
 const attemptId = 'e9cf35f9-b0c0-4209-95c6-849c51a774a5';
 const event = { id: 'a9cf35f9-b0c0-4209-95c6-849c51a774a5', runStartId: '1081', attemptId, severity: 'warning', category: 'tool_error', tool: 'create_file', message: 'untrusted employer data and private information' };
 const next = { ...event, id: 'b9cf35f9-b0c0-4209-95c6-849c51a774a5' };
+
+test('existing workers may recover while deployment drains, but never while shared files change',()=>{
+  assert.equal(deploymentAllowsLiveRepair(null),true);
+  assert.equal(deploymentAllowsLiveRepair('draining\n'),true);
+  for(const marker of ['', 'building', 'unknown', 'draining building'])assert.equal(deploymentAllowsLiveRepair(marker),false);
+});
 
 test('repair context retains only the failing internal module and function, never raw stacks or unrelated paths',()=>{
   const error=new Error('private candidate value');

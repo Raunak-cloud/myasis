@@ -54,6 +54,7 @@ as_app "cd $APP && git fetch -q origin main"
 
 as_app "touch $LOCK"
 trap 'as_app "rm -f $LOCK"' EXIT
+as_app "printf '%s\n' draining > $LOCK"
 
 for ((i = 0; i < WAIT_MINUTES * 6; i++)); do
   [ "$(active_runs)" = 0 ] && break
@@ -64,6 +65,7 @@ if [ "$(active_runs)" != 0 ]; then
   echo "runs still active after $WAIT_MINUTES minutes; not deploying"
   exit 1
 fi
+as_app "printf '%s\n' building > $LOCK"
 
 # A deployment may wait while new commits arrive. Freeze the release only
 # after runs drain, then use that same revision for checks and fast-forwarding.
