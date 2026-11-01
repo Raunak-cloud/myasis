@@ -1,3 +1,4 @@
+import { isApplicationModel, type ApplicationModel } from '../../seek-bot/src/application-model-catalog.js';
 import type {IncomingMessage,ServerResponse} from 'node:http';
 import {spawn} from 'node:child_process';
 import {createHash,randomBytes,randomUUID,timingSafeEqual} from 'node:crypto';
@@ -22,7 +23,7 @@ import {FormLab,formCatalog} from './form-lab/engine.mjs';
 import {formsPage} from './form-lab/page.js';
 
 const identifier=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
-interface Metadata {id:string;owner:string;key:string;email:string;seed:number;model:'celeris'|'minimax';status:string;createdAt:string;finishedAt?:string;error?:string;agent:boolean}
+interface Metadata {id:string;owner:string;key:string;email:string;seed:number;model:ApplicationModel;status:string;createdAt:string;finishedAt?:string;error?:string;agent:boolean}
 interface Entry {meta:Metadata;lab:FormLab;directory:string;secret:string;token?:string;stop?:()=>void;finished?:Promise<void>;stopped?:boolean;busy?:boolean}
 const entries=new Map<string,Entry>();
 const safeRead=(file:string):any=>{try{return JSON.parse(readFileSync(file,'utf8'));}catch{return null;}};
@@ -114,7 +115,7 @@ export async function formAdminAction(actor:SessionUser,path:string,method:strin
  }
  if(path==='/forms'&&method==='POST'){
   const definition=formCatalog.find(form=>form.key===body.key);
-  if(!definition||!['preview','run'].includes(body.action)||!['celeris','minimax'].includes(body.model))return {status:400,body:{error:'Choose a form, model and test action.'}};
+  if(!definition||!['preview','run'].includes(body.action)||!isApplicationModel(body.model))return {status:400,body:{error:'Choose a form, model and test action.'}};
   if(rateLimited('form-lab-create:'+actor.id,20,60*60_000))return {status:429,body:{error:'The hourly form-test limit was reached.'}};
   if(body.action==='run'&&body.confirm!==true)return {status:400,body:{error:'Confirm the model spending allowance before starting this test.'}};
   const access=await gmailAccess(actor.id);

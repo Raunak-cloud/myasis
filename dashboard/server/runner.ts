@@ -13,6 +13,7 @@ import { browserRunEnvironment } from './browser-run-policy.js';
 import { browserBenchmarkInProgress } from './browser-benchmark-lock.js';
 import { applicationWorkerEnvironment } from './application-worker-policy.js';
 import { loadUserSettings } from './settings.js';
+import { isApplicationModel, applicationModelLabel } from '../../seek-bot/src/application-model-catalog.js';
 import { applicationModelForAccount } from './application-model-policy.js';
 import { applicationAgentModeForAccount, applicationScreenshotsForAccount } from './application-agent-policy.js';
 import { accountUnavailable, AccountDeletionError } from './account-lifecycle.js';
@@ -47,12 +48,12 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
     const operators = await query<{ email: string }>(
       `SELECT actor.email FROM run_starts run JOIN users actor ON actor.id=run.started_by
        WHERE run.id=$1 AND run.user_id=$2 AND run.trigger='admin' AND actor.blocked_at IS NULL`, [runStartId,userId]);
-    if (!isAdmin(operators[0]?.email) || !['celeris','minimax'].includes(selectedSettings.ADMIN_APPLICATION_MODEL)) throw new Error('This run has no valid administrator model authorization.');
-    selected = selectedSettings.ADMIN_APPLICATION_MODEL as 'celeris' | 'minimax';
+    if (!isAdmin(operators[0]?.email) || !isApplicationModel(selectedSettings.ADMIN_APPLICATION_MODEL)) throw new Error('This run has no valid administrator model authorization.');
+    selected = selectedSettings.ADMIN_APPLICATION_MODEL;
   }
   const agentMode = applicationAgentModeForAccount(selectedSettings.APPLICATION_AGENT_MODE, admin);
   if (selected === 'celeris' && !serverEnv.CELERIS_API_KEY?.trim()) throw new Error('Celeris is not configured. Add CELERIS_API_KEY in Admin settings before starting a run.');
-  if (selected === 'minimax' && !serverEnv.OPENROUTER_API_KEY?.trim()) throw new Error('MiniMax is not configured. Add OPENROUTER_API_KEY in Admin settings before starting a run.');
+  if (selected !== 'celeris' && !serverEnv.OPENROUTER_API_KEY?.trim()) throw new Error(`${applicationModelLabel(selected)} is not configured. Add OPENROUTER_API_KEY in Admin settings before starting a run.`);
   const queuePolicy = Object.fromEntries(['CELERIS_WORKSPACE_ID', 'CELERIS_QUEUE_FILE', 'CELERIS_MAX_CONCURRENT_REQUESTS', 'CELERIS_MIN_INTERVAL_MS']
     .flatMap(key => serverEnv[key]?.trim() ? [[key, serverEnv[key]!]] : []));
   return { ...queuePolicy, DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
@@ -61,7 +62,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
     CELERIS_API_KEY: selected === 'celeris' ? serverEnv.CELERIS_API_KEY! : '',
     // Explicitly blank the unselected credential: the worker loads .env with
     // dotenv, which otherwise restores a key omitted from its inherited env.
-    OPENROUTER_API_KEY: selected === 'minimax' ? serverEnv.OPENROUTER_API_KEY! : '' };
+    OPENROUTER_API_KEY: selected !== 'celeris' ? serverEnv.OPENROUTER_API_KEY! : '' };
 }
 
 /** Retired experiment settings and credentials never reach a new worker. */

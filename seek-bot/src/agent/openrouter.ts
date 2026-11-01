@@ -1,5 +1,6 @@
 import { setTimeout as pause } from 'node:timers/promises';
-import { applicationModelEnvironment, MINIMAX_APPLICATION_MODEL } from '../application-model.js';
+import { applicationModelEnvironment, applicationAgentIdentity } from '../application-model.js';
+import { OPENROUTER_APPLICATION_MODELS } from '../application-model-catalog.js';
 import { beginCostRequest, recordCost } from '../cost-ledger.js';
 import { providerOutOfCredit } from '../run-health.js';
 import { metric } from '../pipeline.js';
@@ -10,9 +11,16 @@ import { ApplicationBudgetExhaustedError, ReplyUnusableError, type CelerisReply,
 import { boundedReasoningEffort, GenerationRecovery, GenerationWindowError, generationFailure } from './generation-recovery.js';
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
-// Published non-discounted rates, USD/token, checked 2026-10-31. Actual usage.cost
+// Published non-discounted rates, USD/token, checked 2026-11-02. Actual usage.cost
 // takes precedence, including time-dependent prices and cache discounts.
-const RATES = { prompt: 0.00000015, cached: 0.000000015, completion: 0.0000006 };
+function ratesFor(model: string, prompt: number) {
+  // Qwen's published context tiers; actual provider charges always win.
+  if (model === OPENROUTER_APPLICATION_MODELS.qwen.model) return prompt >= 256_000
+    ? { prompt: 0.0000002, cached: 0.00000004, completion: 0.0000008 }
+    : prompt >= 32_000 ? { prompt: 0.0000001, cached: 0.00000002, completion: 0.0000004 }
+    : { prompt: 0.00000003, cached: 0.000000006, completion: 0.00000013 };
+  return { prompt: 0.00000015, cached: 0.000000015, completion: 0.0000006 };
+}
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 type AssistantMessage = Extract<ChatMessage, { role: 'assistant' }>;
 interface Payload {
@@ -29,9 +37,10 @@ function recordUsage(request: CelerisRequest, body: Record<string, unknown>, usa
   const cached = measured && finite(usage?.prompt_tokens_details?.cached_tokens)
     ? Math.min(prompt, usage!.prompt_tokens_details!.cached_tokens!) : 0;
   const exact = finite(usage?.cost);
-  const amountUsd = exact ? usage!.cost! : (prompt - cached) * RATES.prompt + cached * RATES.cached + completion * RATES.completion;
+  const rates = ratesFor(String(body.model), prompt);
+  const amountUsd = exact ? usage!.cost! : (prompt - cached) * rates.prompt + cached * rates.cached + completion * rates.completion;
   request.meter?.recordProvider({ prompt, cached, completion, amountUsd });
-  recordCost({ provider: 'OpenRouter', model: MINIMAX_APPLICATION_MODEL, amountUsd: exact || measured ? amountUsd : null,
+  recordCost({ provider: 'OpenRouter', model: String(body.model), amountUsd: exact || measured ? amountUsd : null,
     basis: exact ? 'provider' : measured ? 'estimated' : 'unknown',
     detail: exact ? `Provider-reported charge; ${prompt} input (${cached} cached), ${completion} output tokens including reasoning.`
       : measured ? `Published undiscounted rates; ${prompt} input (${cached} cached), ${completion} output tokens. Provider charge unavailable.`
@@ -42,11 +51,14 @@ function recordUsage(request: CelerisRequest, body: Record<string, unknown>, usa
  * and budgets are the same applying-agent loop used by Celeris. No provider
  * fallback changes the selected model, and no browser action is retried here. */
 export async function openrouterChat(request: CelerisRequest): Promise<CelerisReply> {
+  const identity = applicationAgentIdentity();
+  if (identity.provider !== 'OpenRouter') throw new Error('Select an OpenRouter application model first.');
+  const model = OPENROUTER_APPLICATION_MODELS[identity.selection];
   const key = applicationModelEnvironment().OPENROUTER_API_KEY?.trim();
-  if (!key) throw new Error('OPENROUTER_API_KEY is required for the MiniMax application agent.');
+  if (!key) throw new Error('OPENROUTER_API_KEY is required for the selected application agent.');
   if (request.forceTool && !request.tools?.some(tool => tool.name === request.forceTool)) throw new Error('Forced tool is not in the offered tools.');
   const body: Record<string, unknown> = {
-    model: MINIMAX_APPLICATION_MODEL, messages: request.messages,
+    model: model.model, messages: request.messages,
     temperature: request.temperature ?? 0, max_tokens: request.maxTokens ?? 8192,
     reasoning: { effort: boundedReasoningEffort(request.reasoningEffort, 'medium') },
     provider: { require_parameters: true },
@@ -56,19 +68,27 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
     body.tool_choice = request.forceTool ? { type: 'function', function: { name: request.forceTool } }
       : request.requireTool ? 'required' : 'auto';
   }
-  if (request.responseSchema) body.response_format = {
-    type: 'json_schema', json_schema: { name: 'reply', schema: request.responseSchema },
-  };
-  const recovery = new GenerationRecovery(request, 60_000, Number(body.max_tokens));
+  if (request.responseSchema) {
+    if (model.structuredOutput === 'json_schema') body.response_format = {
+      type: 'json_schema', json_schema: { name: 'reply', schema: request.responseSchema },
+    };
+    else {
+      // Qwen supports JSON mode, not provider-enforced JSON Schema. Existing
+      // callers still validate the returned object against their typed schema.
+      body.response_format = { type: 'json_object' };
+      body.messages = [{ role: 'system', content: 'Return only a JSON object matching this schema: ' + JSON.stringify(request.responseSchema) }, ...request.messages];
+    }
+  }
+  const recovery = new GenerationRecovery({ ...request, messages: body.messages as ChatMessage[] }, 60_000, Number(body.max_tokens));
   const started = performance.now();
   let lastError: unknown, unusableReply: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (request.meter?.exhausted) throw new ApplicationBudgetExhaustedError();
     let status: number | undefined, retryAfter: string | null = null, sent = false, recorded = false;
-    const endCost = beginCostRequest('OpenRouter', MINIMAX_APPLICATION_MODEL);
+    const endCost = beginCostRequest('OpenRouter', model.model);
     try {
       recovery.assertWindow(attempt);
-      recordDiagnostic({ severity: 'info', category: 'generation_attempt', stage: 'model_request', tool: MINIMAX_APPLICATION_MODEL,
+      recordDiagnostic({ severity: 'info', category: 'generation_attempt', stage: 'model_request', tool: model.model,
         retry: attempt + 1, message: JSON.stringify({ maxTokens: body.max_tokens, timeoutMs: recovery.timeoutMs,
           remainingMs: Math.max(0, recovery.deadline - Date.now()), reasoning: body.reasoning }) });
       sent = true;
@@ -82,7 +102,7 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
       const payload = await response.json().catch(() => null) as Payload | null;
       if (!response.ok || payload?.error) {
         if (payload?.usage) recordUsage(request, body, payload.usage);
-        else recordCost({ provider: 'OpenRouter', model: MINIMAX_APPLICATION_MODEL, amountUsd: null, basis: 'unknown',
+        else recordCost({ provider: 'OpenRouter', model: String(body.model), amountUsd: null, basis: 'unknown',
           detail: `HTTP ${status}: rejected or failed request; provider charge not reported.` });
         recorded = true;
         endCost();
@@ -106,7 +126,7 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
         catch { args = { __parseError: call.function.arguments }; }
         return { id: call.id, name: call.function.name, args };
       });
-      metric('model', performance.now() - started, { model: MINIMAX_APPLICATION_MODEL, attempts: attempt + 1,
+      metric('model', performance.now() - started, { model: String(body.model), attempts: attempt + 1,
         usage: payload?.usage });
       return { text: message.content ?? '', toolCalls, message: {
         role: 'assistant', content: message.content ?? null, tool_calls: message.tool_calls,
@@ -118,7 +138,7 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
       if (sent && !recorded) recordUsage(request, body);
       endCost();
       if (!(error instanceof ApplicationBudgetExhaustedError)) recordDiagnostic({ severity: 'warning', category: 'provider_error',
-        stage: 'model_request', tool: MINIMAX_APPLICATION_MODEL, retry: attempt + 1,
+        stage: 'model_request', tool: model.model, retry: attempt + 1,
         message: error instanceof Error ? error.message : String(error), error });
       if (error instanceof GenerationWindowError) throw generationFailure('OpenRouter', lastError ?? error, unusableReply);
       lastError = error;

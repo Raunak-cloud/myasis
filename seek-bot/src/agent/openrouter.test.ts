@@ -57,6 +57,29 @@ test('a charged truncated response cannot resample past the application budget',
   assert.equal(calls, 1);
 }));
 
+test('Qwen shares browser tools and screenshots, uses JSON mode for structured replies, and meters its own model', async () => isolated(async () => {
+  const seen: any[] = [];
+  globalThis.fetch = (async (_url, init) => {
+    const body = JSON.parse(String(init?.body)); seen.push(body);
+    const payload: any = reply(); delete payload.usage.cost;
+    return Response.json(payload);
+  }) as typeof fetch;
+  await withApplicationModel({ APPLICATION_AI_MODEL: 'qwen', OPENROUTER_API_KEY: 'fictional-qwen' }, async () => {
+    const messages: ChatMessage[] = [{ role: 'user', content: [{ type: 'image_url', image_url: { url: 'data:image/png;base64,fixture' } }] }];
+    const meter = new CostMeter(1);
+    await applicationChat({ model: 'celeris-1-magnus', messages, tools: [tool], forceTool: tool.name, meter });
+    assert.equal(seen[0].model, 'qwen/qwen3.7-flash');
+    assert.deepEqual(seen[0].messages, messages);
+    assert.deepEqual(seen[0].tools, [{ type: 'function', function: tool }]);
+    assert.deepEqual(seen[0].tool_choice, { type: 'function', function: { name: tool.name } });
+    assert.ok(Math.abs(meter.totals.costUsd - 0.000031) < 1e-12);
+    await applicationChat({ model: 'celeris-1-magnus', messages, responseSchema: { type: 'object', required: ['answer'] } });
+    assert.deepEqual(seen[1].response_format, { type: 'json_object' });
+    assert.match(seen[1].messages[0].content, /"required":\["answer"\]/);
+    assert.equal(seen[1].model, 'qwen/qwen3.7-flash');
+  });
+}));
+
 test('one incomplete generation is retried without replaying tool actions and preserves its cost', async () => isolated(async () => {
   const requests: any[] = [];
   globalThis.fetch = (async (_url, options) => {

@@ -31,6 +31,11 @@ test('MiniMax credentials are added only after rechecking the admin owner and se
   pool.query = (async (_sql: string, params: unknown[]) => ({ rows: [{ id: params[0], email: params[0] === 'admin' ? 'admin@fixture.invalid' : 'customer@fixture.invalid' }] })) as typeof originalQuery;
   try {
     const settings = { APPLICATION_AI_MODEL: 'minimax', OPENROUTER_API_KEY: 'forged-client-key' };
+    const qwen = await accountApplicationEnvironment('admin', { APPLICATION_AI_MODEL: 'qwen', OPENROUTER_API_KEY: 'forged-client-key' });
+    assert.equal(qwen.APPLICATION_AI_MODEL, 'qwen');
+    assert.equal(qwen.OPENROUTER_API_KEY, 'fictional-openrouter');
+    assert.equal(qwen.CELERIS_API_KEY, '');
+    assert.equal((await accountApplicationEnvironment('customer', { APPLICATION_AI_MODEL: 'qwen' })).APPLICATION_AI_MODEL, 'celeris');
     const [admin, customer] = await Promise.all(['admin', 'customer'].map(id => accountApplicationEnvironment(id, settings)));
     assert.equal(admin.APPLICATION_AI_MODEL, 'minimax');
     assert.equal(admin.OPENROUTER_API_KEY, 'fictional-openrouter');
@@ -52,7 +57,7 @@ test('MiniMax credentials are added only after rechecking the admin owner and se
     assert.equal((await accountApplicationEnvironment('admin', settings)).APPLICATION_AI_MODEL, 'minimax', 'MiniMax does not depend on the unselected provider credential');
     process.env.CELERIS_API_KEY = 'fictional-celeris';
     process.env.OPENROUTER_API_KEY = '';
-    await assert.rejects(accountApplicationEnvironment('admin', settings), /MiniMax is not configured/);
+    await assert.rejects(accountApplicationEnvironment('admin', settings), /MiniMax M3.1 is not configured/);
   } finally {
     pool.query = originalQuery;
     for (const name of names) { if (previous[name] === undefined) delete process.env[name]; else process.env[name] = previous[name]; }
@@ -144,5 +149,8 @@ test('model selection persists while retired form-review controls stay hidden', 
     const minimax = await saveUserSettings('owner-account', { APPLICATION_AI_MODEL: 'minimax' });
     assert.equal(minimax.APPLICATION_AI_MODEL, 'minimax', 'a selected admin model must survive the settings read');
     assert.equal((await runSettingsForUser('owner-account')).APPLICATION_AI_MODEL, 'minimax');
+    const qwen = await saveUserSettings('owner-account', { APPLICATION_AI_MODEL: 'qwen' });
+    assert.equal(qwen.APPLICATION_AI_MODEL, 'qwen');
+    assert.equal((await runSettingsForUser('owner-account')).APPLICATION_AI_MODEL, 'qwen');
   } finally { pool.query = originalQuery; }
 });

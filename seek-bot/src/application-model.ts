@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { OPENROUTER_APPLICATION_MODELS } from './application-model-catalog.js';
 
 type ApplicationEnvironment = Readonly<Record<string, string | undefined>>;
 const contexts = new AsyncLocalStorage<ApplicationEnvironment>();
@@ -15,30 +16,30 @@ export function withApplicationModel<T>(env: ApplicationEnvironment, work: () =>
 /** Stable provider identity also separates established caches from retired
  * experiments without deleting account history. */
 export function applicationModelIdentity(env: ApplicationEnvironment = applicationModelEnvironment()) {
-  return env.APPLICATION_AI_MODEL === 'minimax'
-    ? { selection: 'minimax', model: MINIMAX_APPLICATION_MODEL, protocol: 'openrouter-chat-v1', provider: 'OpenRouter' } as const
+  const selection = env.APPLICATION_AI_MODEL;
+  return selection === 'minimax' || selection === 'qwen'
+    ? { selection, model: OPENROUTER_APPLICATION_MODELS[selection].model, protocol: 'openrouter-chat-v1', provider: 'OpenRouter' } as const
     : { selection: 'celeris', model: 'celeris', protocol: 'celeris-chat-v1', provider: 'Celeris' } as const;
 }
 
 export function applicationModelAvailable(env: ApplicationEnvironment = applicationModelEnvironment()): boolean {
-  return Boolean((env.APPLICATION_AI_MODEL === 'minimax' ? env.OPENROUTER_API_KEY : env.CELERIS_API_KEY)?.trim());
+  return Boolean((applicationModelIdentity(env).provider === 'OpenRouter' ? env.OPENROUTER_API_KEY : env.CELERIS_API_KEY)?.trim());
 }
 
 export function assertApplicationModelConfigured(env: ApplicationEnvironment = applicationModelEnvironment()): void {
-  if (!applicationModelAvailable(env)) throw new Error(`${env.APPLICATION_AI_MODEL === 'minimax' ? 'OPENROUTER_API_KEY' : 'CELERIS_API_KEY'} is required for application AI.`);
+  if (!applicationModelAvailable(env)) throw new Error(`${applicationModelIdentity(env).provider === 'OpenRouter' ? 'OPENROUTER_API_KEY' : 'CELERIS_API_KEY'} is required for application AI.`);
 }
 
-export const MINIMAX_APPLICATION_MODEL = 'minimax/minimax-m3.1-flash';
+export const MINIMAX_APPLICATION_MODEL = OPENROUTER_APPLICATION_MODELS.minimax.model;
 
 /** Account authorization and credential selection happen in the dashboard. */
 export function applicationAgentIdentity(env: ApplicationEnvironment = applicationModelEnvironment()) {
-  return env.APPLICATION_AI_MODEL === 'minimax'
-    ? { selection: 'minimax', model: MINIMAX_APPLICATION_MODEL, protocol: 'openrouter-chat-v1', provider: 'OpenRouter' } as const
+  const identity = applicationModelIdentity(env);
+  return identity.provider === 'OpenRouter'
+    ? identity
     : { selection: 'celeris', model: 'celeris-1-magnus', protocol: 'celeris-chat-v1', provider: 'Celeris' } as const;
 }
 
 export function assertApplicationBrowserConfigured(env: ApplicationEnvironment = applicationModelEnvironment()): void {
-  if (applicationAgentIdentity(env).selection === 'minimax') {
-    if (!env.OPENROUTER_API_KEY?.trim()) throw new Error('OPENROUTER_API_KEY is required for the MiniMax application agent.');
-  } else assertApplicationModelConfigured(env);
+  assertApplicationModelConfigured(env);
 }

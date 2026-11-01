@@ -4,5 +4,5 @@ import { openrouterChat } from './openrouter.js';
 
 /** All run model requests use the selected provider, without cross-provider fallback. */
 export function applicationChat(request: CelerisRequest): Promise<CelerisReply> {
-  return applicationAgentIdentity().selection === 'minimax' ? openrouterChat(request) : celerisChat(request);
+  return applicationAgentIdentity().provider === 'OpenRouter' ? openrouterChat(request) : celerisChat(request);
 }

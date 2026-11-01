@@ -24,6 +24,11 @@ test('application AI requires a nonempty Celeris credential', () => {
 });
 
 test('MiniMax selection routes matching and applications to the selected identity', () => {
+  const qwen = { APPLICATION_AI_MODEL: 'qwen', OPENROUTER_API_KEY: 'fictional-openrouter' };
+  assert.equal(applicationAgentIdentity(qwen).model, 'qwen/qwen3.7-flash');
+  assert.equal(applicationModelIdentity(qwen).selection, 'qwen');
+  assert.equal(applicationModelAvailable(qwen), true);
+  assert.throws(() => assertApplicationBrowserConfigured({ APPLICATION_AI_MODEL: 'qwen', CELERIS_API_KEY: 'fixture' }), /OPENROUTER_API_KEY/);
   const env = { APPLICATION_AI_MODEL: 'minimax', OPENROUTER_API_KEY: 'fictional-openrouter' };
   assert.equal(applicationAgentIdentity(env).model, 'minimax/minimax-m3.1-flash');
   assert.equal(applicationModelIdentity(env).selection, 'minimax');
