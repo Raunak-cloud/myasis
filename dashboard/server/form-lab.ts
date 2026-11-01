@@ -75,7 +75,7 @@ async function execute(entry:Entry){
    let port:number|undefined;
    if(access.provider==='browser'){
     const route=await browserRoute(entry.meta.owner);
-    desktop=new SigninDesktop({profileDir:userChromeDir(entry.meta.owner),chromePath:readEnv().CHROME_PATH?.trim()||'/usr/bin/google-chrome',routeArgs:route.args,startUrl:'https://mail.google.com/mail/u/?authuser='+encodeURIComponent(entry.meta.email),password:randomBytes(20).toString('hex')});
+    desktop=new SigninDesktop({profileDir:userChromeDir(entry.meta.owner),chromePath:readEnv().CHROME_PATH?.trim()||'/usr/bin/google-chrome',routeArgs:route.args,startUrl:'about:blank',password:randomBytes(20).toString('hex')});
     await desktop.start();port=desktop.debugPort;
     const {chromium}=createRequire(new URL('../../seek-bot/package.json',import.meta.url))('patchright');
     transport=await chromium.connectOverCDP('http://127.0.0.1:'+port,{timeout:30000});

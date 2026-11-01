@@ -48,7 +48,26 @@ test('an explicitly empty Gmail search stays empty after its render window', { t
   const context=await chromium.launchPersistentContext(dir,{headless:true,args:[`--remote-debugging-port=${port}`,'--remote-debugging-address=127.0.0.1'],...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
   const stop=registerGmailBrowser('empty-search-fixture',port,'candidate@fixture.invalid');
   try {
-    await context.route('**/*',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><a aria-label="Google Account: candidate@fixture.invalid"></a><main role="main"><p>No conversations found.</p></main>'}));
+    await context.route('**/*',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><a aria-label="Google Account: candidate@fixture.invalid"></a><main role="main"><div role="grid"><p>No conversations found.</p></div></main>'}));
     assert.deepEqual(await searchBrowserGmail('empty-search-fixture','fictional absent verification'),[]);
+  } finally { stop();await context.close();assert.ok(resolve(dir).startsWith(resolve(tmpdir())+sep));rmSync(dir,{recursive:true,force:true}); }
+});
+
+
+test('a false empty compound query is verified without accepting Trash, Sent or Draft messages', { timeout: 18_000 }, async () => {
+  const listener=createServer();await new Promise<void>(done=>listener.listen(0,'127.0.0.1',done));
+  const port=(listener.address() as {port:number}).port;await new Promise<void>(done=>listener.close(()=>done()));
+  const dir=mkdtempSync(join(tmpdir(),'owtomate-mail-folder-search-'));
+  const context=await chromium.launchPersistentContext(dir,{headless:true,args:[`--remote-debugging-port=${port}`,'--remote-debugging-address=127.0.0.1'],...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
+  const stop=registerGmailBrowser('folder-search-fixture',port,'candidate@fixture.invalid');const seen:string[]=[];
+  try {
+    context.on('page',page=>page.on('framenavigated',frame=>{if(frame===page.mainFrame()&&frame.url().includes('#search/'))seen.push(decodeURIComponent(new URL(frame.url()).hash.slice(8)));}));
+    await context.route('**/*',route=>route.fulfill({contentType:'text/html',body:`<!doctype html><a aria-label="Google Account: candidate@fixture.invalid"></a><main role="main"><div role="grid"></div></main><script>
+      const query=decodeURIComponent(location.hash.slice(8));
+      const ids=query.includes('-in:trash')?[]:query.startsWith('in:trash ')?['trashthread']:query.startsWith('in:sent ')?['sentthread']:query.startsWith('in:draft ')?['draftthread']:['sentthread','spamthread','trashthread','inboxthread','draftthread'];
+      document.querySelector('[role="grid"]').innerHTML=ids.length?'<table>'+ids.map(id=>'<tr data-legacy-thread-id="'+id+'"><td>Fictional verification</td></tr>').join('')+'</table>':'<p>No conversations found.</p>';
+    </script>`}));
+    assert.deepEqual(await searchBrowserGmail('folder-search-fixture','fictional code'),[{id:'spamthread'},{id:'inboxthread'}]);
+    assert.equal(seen.length,5);assert.ok(seen.every(q=>q.includes('after:')&&q.includes('(fictional code)')));
   } finally { stop();await context.close();assert.ok(resolve(dir).startsWith(resolve(tmpdir())+sep));rmSync(dir,{recursive:true,force:true}); }
 });

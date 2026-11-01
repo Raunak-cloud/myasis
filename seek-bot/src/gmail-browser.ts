@@ -1,10 +1,10 @@
 /// <reference lib="dom" />
 import { chromium, type Browser, type Page } from 'patchright';
-import type { GmailMessage, GmailThread } from './gmail-mcp-client.js';
+import { GMAIL_IO_TIMEOUT_MS, type GmailMessage, type GmailThread } from './gmail-mcp-client.js';
 import { GmailServiceError } from './gmail-mcp-service.js';
 import type { PreparedApplication } from './application-review-types.js';
 import { browserDeadline, browserCleanup, assertBrowserOperationActive } from './browser-deadline.js';
-import { verificationMailboxQuery } from './gmail-verification-policy.js';
+import { verificationBrowserSearchPlan } from './gmail-verification-policy.js';
 
 const routes = new Map<string, { port: number; account: string; active: boolean; browser?: Promise<Browser>; tail: Promise<unknown>; pages: Set<Page> }>();
 const THREAD_ROWS = 'tr[data-thread-id], tr[data-legacy-thread-id], tr [data-legacy-thread-id], tr [data-thread-id]';
@@ -112,7 +112,11 @@ async function waitForSearchResults(page: Page): Promise<string[]> {
       const ids = [...new Set([...main.querySelectorAll(selector)].map(node =>
         [node.getAttribute('data-legacy-thread-id'), node.getAttribute('data-thread-id')]
           .find(id => id && /^[\w-]{1,100}$/.test(id)) || '').filter(Boolean))].slice(0, 20);
-      return ids.length ? ids : false;
+      if (ids.length) return ids;
+      // A rendered results grid distinguishes a completed empty search from
+      // the temporary empty shell shown while Gmail is still fetching mail.
+      return main.querySelector('[role="grid"]')
+        && /no conversations found|no results found|no conversations match|no messages matched your search/i.test((main as HTMLElement).innerText || '') ? [] : false;
     }, THREAD_ROWS, { timeout: 15_000 });
     try { return await ready.jsonValue() as string[]; }
     finally { await ready.dispose(); }
@@ -123,7 +127,7 @@ async function waitForSearchResults(page: Page): Promise<string[]> {
     throw new GmailServiceError('unavailable', 'Gmail opened, but the requested message list did not finish loading. Retry reading the mailbox; do not resend the verification email to repair this.');
   }
 }
-export async function searchBrowserGmail(userId: string, query: string): Promise<GmailThread[]> {
+async function searchGmailView(userId: string, query: string): Promise<GmailThread[]> {
   return withGmailBrowser(userId, async page => {
     let ids = await waitForSearchResults(page);
     // Gmail can rank search results by relevance. Verification parsing needs
@@ -143,7 +147,22 @@ export async function searchBrowserGmail(userId: string, query: string): Promise
       ids = await waitForSearchResults(page);
     }
     return ids.map(id => ({ id }));
-  }, `#search/${encodeURIComponent(verificationMailboxQuery(query))}`, 55_000);
+  }, `#search/${encodeURIComponent(query)}`, 55_000);
+}
+export async function searchBrowserGmail(userId: string, query: string): Promise<GmailThread[]> {
+  return browserDeadline('Gmail folder search', GMAIL_IO_TIMEOUT_MS - 15_000, async () => {
+    const plan = verificationBrowserSearchPlan(query);
+    const primary = await searchGmailView(userId, plan.primary);
+    if (primary.length) return primary;
+    const candidates = await searchGmailView(userId, plan.candidates);
+    if (!candidates.length) return [];
+    const excluded = new Set<string>();
+    for (const query of plan.excluded) {
+      assertBrowserOperationActive();
+      for (const thread of await searchGmailView(userId, query)) excluded.add(thread.id);
+    }
+    return candidates.filter(thread => !excluded.has(thread.id));
+  });
 }
 export async function readBrowserGmail(userId: string, threadId: string): Promise<GmailMessage[]> {
   if (!/^[\w-]{1,100}$/.test(threadId)) throw new GmailServiceError('unapproved', 'Invalid Gmail thread.');

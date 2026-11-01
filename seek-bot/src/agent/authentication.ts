@@ -10,6 +10,7 @@ import { assertLive } from '../tool-run.js';
 import { employerMessageEvidence } from './employer-message.js';
 import { rememberPrivateAuthenticationValue, preparePrivateAuthenticationFields } from '../private-auth-fields.js';
 import { VERIFICATION_PURPOSES, type VerificationPurpose } from '../verification-email-local.js';
+import { GMAIL_IO_TIMEOUT_MS } from '../gmail-mcp-client.js';
 
 // Private credential transport. Magnus chooses controls; native fill emits normal input events.
 const authenticationStarted = new WeakMap<ToolContext, Map<string, number>>();
@@ -318,7 +319,7 @@ export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, 
 }
 
 /** How long the inbox is watched for a site's email before the agent is told to resend. */
-const EMAIL_WAIT_MS = 120_000;
+const EMAIL_WAIT_MS = GMAIL_IO_TIMEOUT_MS;
 
 export async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   assertLive();

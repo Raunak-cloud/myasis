@@ -4,6 +4,7 @@ export { OAuth2Client, CodeChallengeMethod } from 'google-auth-library';
 
 export const GMAIL_READ_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
 export const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
+export const GMAIL_IO_TIMEOUT_MS = 120_000;
 export class GmailConnectionError extends Error {}
 export interface GmailMessage {
   id: string; subject?: string; sender?: string; date?: string;
@@ -33,7 +34,7 @@ export class GmailMcpClient {
         fetch: async (input, init) => {
           const headers = new Headers(init?.headers);
           headers.set('Authorization', `Bearer ${this.connection.token}`);
-          const signal = init?.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(120_000)]) : AbortSignal.timeout(120_000);
+          const signal = init?.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(GMAIL_IO_TIMEOUT_MS)]) : AbortSignal.timeout(GMAIL_IO_TIMEOUT_MS);
           return this.network(input, { ...init, headers, signal, redirect: 'error' });
         }, requestInit: { redirect: 'error' },
       });
@@ -44,7 +45,7 @@ export class GmailMcpClient {
   }
   private async call(name: 'search_threads' | 'get_thread' | 'send_application_email', args: Record<string, unknown>): Promise<Record<string, unknown>> {
     try {
-      const result = await (await this.connected()).callTool({ name, arguments: args }, undefined, { timeout: name === 'send_application_email' ? 120_000 : 60_000 });
+      const result = await (await this.connected()).callTool({ name, arguments: args }, undefined, { timeout: GMAIL_IO_TIMEOUT_MS });
       if (result.isError) {
         const failure = result.structuredContent as Record<string, unknown> | undefined;
         const code = failure?.code;

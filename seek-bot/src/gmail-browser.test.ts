@@ -27,7 +27,7 @@ await context.route('**/*', route => {
   if (new URL(route.request().url()).pathname === '/fixture-send') { sends++; return route.fulfill({ body: '{}' }); }
   if (new URL(route.request().url()).pathname === '/fixture-sort') { sortSelections++; chronological = !sortRejected; return route.fulfill({ body: '{}' }); }
   let html = pageHtml();
-  if (emptySearch) html = html.replace(/<table>.*?<\/table>/, `<p>${emptyMessage}</p>`);
+  if (emptySearch) html = html.replace(/<table>.*?<\/table>/, `<div role="grid"><p>${emptyMessage}</p></div>`);
   else if (relevanceSearch) html = html.replace(/<table>.*?<\/table>/, `<button id="sort" onclick="document.getElementById('sort-menu').hidden=false">Showing most ${chronological ? 'recent' : 'relevant'}</button>
     <div id="sort-menu" role="menu" hidden><button role="menuitemradio" onclick="fetch('/fixture-sort').then(()=>{${sortRejected ? '' : "document.getElementById('sort').textContent='Showing most recent';document.getElementById('sort-menu').hidden=true"}})">Most recent Exact matches</button></div>
     <table>${(chronological ? ['newestthread', 'olderthread'] : ['olderthread', 'newestthread']).map(id => `<tr data-legacy-thread-id="${id}"><td>Verification</td></tr>`).join('')}</table>`);
