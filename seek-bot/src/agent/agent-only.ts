@@ -467,8 +467,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
           const detail = `Could not securely capture the required employer question: ${extracted.issue ?? 'question unavailable'}`;
           recordDiagnostic({ severity: 'warning', category: 'question_capture_error', stage: 'application', tool: 'finish', message: detail });
           log(`  ${detail}`);
-          if(++invalidAttentionRequests>=2)return { kind: 'terminal', outcome: { status: 'skipped', reason: 'Could not securely capture a required employer question for review.' } };
-          return ok('The proposed question could not be grounded in the current employer form. Inspect the real required question and candidate evidence, or continue filling known answers. Do not convert tool failures or unfinished fields into Needs attention.','invalid-arguments');
+          return { kind: 'terminal', outcome: { status: 'skipped', reason: 'Could not securely capture a required employer question for review.' } };
         }
         questions = extracted.questions;
       }
