@@ -89,9 +89,10 @@ CREATE TABLE IF NOT EXISTS application_reviews (
 ALTER TABLE application_reviews ADD COLUMN IF NOT EXISTS credit_consumed BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE application_reviews ALTER COLUMN credit_consumed SET DEFAULT false;
 
--- Application AI has one supported provider; migrate saved legacy selections.
+-- Migrate retired providers without overwriting a supported saved selection.
+-- Account authorization for MiniMax is enforced by application-model-policy.
 UPDATE settings SET value = 'celeris'
-WHERE key = 'APPLICATION_AI_MODEL' AND value <> 'celeris';
+WHERE key = 'APPLICATION_AI_MODEL' AND value NOT IN ('celeris', 'minimax');
 
 -- The applying agent is the sole decision engine for every account.
 UPDATE settings SET value = 'agent-only'
