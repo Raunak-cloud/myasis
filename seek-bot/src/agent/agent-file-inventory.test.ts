@@ -3,6 +3,8 @@ import {test} from 'node:test';
 import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {createHash} from 'node:crypto';
+import {PDFDocument} from 'pdf-lib';
 
 test('the evidence inventory distinguishes readable documents from actual upload capabilities',async()=>{
  const dir=mkdtempSync(join(tmpdir(),'owtomate-upload-inventory-'));
@@ -33,5 +35,15 @@ test('the evidence inventory distinguishes readable documents from actual upload
   assert.match(await agentOnlyEvidence('10'),/Exact supporting letter text/);
   const rendered=await files.create('Letter','Exact supporting letter text','txt');
   assert.equal(readFileSync(files.resolve(rendered.file_id).path,'utf8'),'Exact supporting letter text');
+  const hash=createHash('sha256').update(readFileSync(join(dir,'resumes','CV.txt'))).digest('hex');
+  const render=async(path:string)=>{const pdf=await PDFDocument.create();const page=pdf.addPage();page.drawText(readFileSync(path,'utf8'));const target=path+'.pdf';writeFileSync(target,await pdf.save());return target;};
+  const bundled=new AgentFiles('bundle-fixture',{resumeId:'30',resumeHash:hash,coverLetter:'Exact supporting letter text'} as never,render as never);
+  const bundle=await bundled.combineApprovedDocuments();
+  assert.equal(bundle.letter_pages,1);assert.equal(bundle.resume_pages,1);
+  assert.equal((await PDFDocument.load(readFileSync(bundled.resolve(bundle.file_id).path))).getPageCount(),2);
+  await assert.rejects(()=>bundled.create('other','Changed content','txt'),/candidate-approved/);
+  writeFileSync(join(dir,'resumes','CV.txt'),'Changed CV bytes');
+  await assert.rejects(()=>bundled.combineApprovedDocuments(),/resume has changed/);
+  await assert.rejects(()=>new AgentFiles('missing-approval').combineApprovedDocuments(),/confirmed letter/);
  }finally{prior===undefined?delete process.env.DATA_DIR:process.env.DATA_DIR=prior;rmSync(dir,{recursive:true,force:true});}
 });

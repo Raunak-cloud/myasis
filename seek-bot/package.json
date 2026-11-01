@@ -43,6 +43,7 @@
     "linkedom": "^0.18.13",
     "mammoth": "^1.12.3",
     "patchright": "^1.63.0",
+    "pdf-lib": "^1.17.1",
     "pdf-parse-fork": "^1.2.0",
     "zod": "^4.6.7"
   },
