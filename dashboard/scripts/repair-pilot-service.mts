@@ -7,7 +7,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, chmodSync, symlinkSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { RepairPilotDetector, waitingRepairCheckpoint, deploymentAllowsLiveRepair, type RepairIncident } from '../server/repair-pilot.js';
-import { REPAIR_EDITABLE_FILES, proposeRepair, type RepairProposal } from '../server/repair-coder.js';
+import { REPAIR_EDITABLE_FILES, proposeReviewedRepair, type RepairProposal } from '../server/repair-coder.js';
 import { miniMaxRepairModel, reviewRepair } from '../server/repair-model.js';
 import { validateRepairProposal, traceProvesNoSend } from '../server/repair-validation.js';
 import { repairDistHash, bridgeRepairRuntime, REPAIR_RELEASE_ROOT } from '../server/repair-release.js';
@@ -187,7 +187,7 @@ async function repair(id:string,incident:RepairIncident){
     const baseSha=String((await git(['rev-parse','HEAD'])).stdout).trim();
     const source:Record<string,string>={};for(const path of REPAIR_EDITABLE_FILES)source[path]=String((await git(['show',`${baseSha}:${path}`])).stdout);
     const provider=miniMaxRepairModel(env.OPENROUTER_API_KEY??'',undefined,()=>caseActive(incident.runId));
-    const proposal=await proposeRepair(incident,source,async turns=>{
+    const proposal=await proposeReviewedRepair(incident,source,async turns=>{
       if(!await caseActive(incident.runId))throw Error('Pilot or schedule paused.');
       const r=await provider(turns);await charge(r.costUsd);
       const prior=turns.at(-1)?.content??'';
@@ -196,13 +196,14 @@ async function repair(id:string,incident:RepairIncident){
         calls:r.calls.map(call=>({name:call.name,path:call.args.path,oldChars:typeof call.args.old==='string'?call.args.old.length:undefined,
           replacementChars:typeof call.args.replacement==='string'?call.args.replacement.length:undefined}))})+'\n',{mode:0o600});
       return r;
-    });
+    },async(candidate,attempt)=>{
+      if(!await caseActive(incident.runId))throw Error('Pilot or schedule paused, or release in progress.');
+      writeFileSync(resolve(STORE,'cases',id+`.proposal-${attempt}.json`),JSON.stringify(candidate),{mode:0o600});
+      const review=await reviewRepair(env.OPENROUTER_API_KEY??'',incident,source,candidate,undefined,()=>caseActive(incident.runId));await charge(review.costUsd);
+      writeFileSync(resolve(STORE,'cases',id+`.review-${attempt}.json`),JSON.stringify(review),{mode:0o600});
+      return review;
+    },validateRepairProposal);
     writeFileSync(resolve(STORE,'cases',id+'.proposal.json'),JSON.stringify(proposal),{mode:0o600});
-    validateRepairProposal(source,proposal);
-    if(!await caseActive(incident.runId))throw Error('Pilot or schedule paused, or release in progress.');
-    const review=await reviewRepair(env.OPENROUTER_API_KEY??'',incident,source,proposal,undefined,()=>caseActive(incident.runId));await charge(review.costUsd);
-    writeFileSync(resolve(STORE,'cases',id+'.review.json'),JSON.stringify(review),{mode:0o600});
-    if(!review.accepted)throw Error('Independent review did not accept this repair.');
     if(!await caseActive(incident.runId))throw Error('Pilot or schedule paused.');
     await setState(id,'testing','Code proposal accepted for isolated validation.',{baseSha});
     await snapshot(id,baseSha,proposal);

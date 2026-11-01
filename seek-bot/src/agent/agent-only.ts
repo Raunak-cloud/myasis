@@ -462,16 +462,6 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         if (!await employerMessageEvidence(ctx.page, quote)) return ok('The matching stage cleared the known application history. Stop as already-applied only for NEW employer-form evidence: provide duplicate_evidence.quote copied as a complete visible employer message from the current page or its visible frames. Do not reclassify old history, a similar title, or an uncertain send as a confirmed duplicate.', 'failed');
       }
       let questions = normaliseBlockedQuestions(args.questions).slice(0, 30);
-      if (args.status === 'needs-human') {
-        const extracted = await extractEmployerQuestions(ctx, args.questions);
-        if (!extracted.questions?.length) {
-          const detail = `Could not securely capture the required employer question: ${extracted.issue ?? 'question unavailable'}`;
-          recordDiagnostic({ severity: 'warning', category: 'question_capture_error', stage: 'application', tool: 'finish', message: detail });
-          log(`  ${detail}`);
-          return { kind: 'terminal', outcome: { status: 'skipped', reason: 'Could not securely capture a required employer question for review.' } };
-        }
-        questions = extracted.questions;
-      }
       if(['skipped','needs-human'].includes(String(args.status))&&!ctx.submissionAttempted&&liveRepairEnabled()){
         if(meter.actionExhausted)return {kind:'terminal',outcome:{status:'skipped',reason:'The application budget ended before its stopping decision could be verified.'}};
         const assessment=await reviewHalt(ctx,args,haltReview,meter);
@@ -482,6 +472,19 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
           haltReview.pendingAction=true;
           return ok('The fresh evidence review contradicts this stopping decision. Inspect its exact source excerpts and complete the supported work from the current saved browser state. No send or candidate question was authorized.','reobserve');
         }
+      }
+      // Review a trial agent's claimed missing fact before capturing its
+      // question. A stale/invented question ref cannot hide a known answer
+      // from that review. Accepted questions still require full secure capture.
+      if (args.status === 'needs-human') {
+        const extracted = await extractEmployerQuestions(ctx, args.questions);
+        if (!extracted.questions?.length) {
+          const detail = `Could not securely capture the required employer question: ${extracted.issue ?? 'question unavailable'}`;
+          recordDiagnostic({ severity: 'warning', category: 'question_capture_error', stage: 'application', tool: 'finish', message: detail });
+          log(`  ${detail}`);
+          return { kind: 'terminal', outcome: { status: 'skipped', reason: 'Could not securely capture a required employer question for review.' } };
+        }
+        questions = extracted.questions;
       }
       if (Array.isArray(args.answers)) ctx.captured = [...new Map([
         ...(approved ? ctx.captured : []),

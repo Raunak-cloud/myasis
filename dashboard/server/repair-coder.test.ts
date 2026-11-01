@@ -1,11 +1,32 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { proposeRepair, type RepairToolCall } from './repair-coder.js';
+import { proposeRepair, proposeReviewedRepair, type RepairToolCall } from './repair-coder.js';
 
 const incident = { runId: '1081', attemptId: 'e9cf35f9-b0c0-4209-95c6-849c51a774a5', category: 'repeated_tool_failure' as const, tool: 'create_file', count: 2 };
 const file = 'seek-bot/src/agent/agent-files.ts';
 const source = { [file]: 'old code', 'seek-bot/.env': 'SECRET', 'seek-bot/src/agent/application-policy.ts': 'protected policy' };
 const model = (calls: RepairToolCall[]) => async () => ({ calls: [calls.shift()!], costUsd: .01 });
+
+test('independent rejection permits one source-preserving revision with the same guards and total budget',async()=>{
+ let calls=0,reviews=0,validations=0;
+ const proposal=await proposeReviewedRepair(incident,source,async turns=>{
+  calls++;if(calls===2){assert.match(turns.at(-1)!.content,/Do not repeat.*rejected change/);assert.match(turns.at(-1)!.content,/wrong root cause/);assert.match(turns[1].content,/old code/);}
+  return {calls:[{name:'replace_source',args:{path:file,old:'old',replacement:calls===1?'wrong':'fixed'}}],costUsd:.01};
+ },async()=>({accepted:++reviews===2,reason:'wrong root cause',costUsd:.01}),()=>{validations++;});
+ assert.equal(proposal.files[file],'fixed code');assert.equal(proposal.costUsd,.04);assert.equal(validations,2);assert.equal(source[file],'old code');
+ calls=0;
+ await assert.rejects(()=>proposeReviewedRepair(incident,source,async()=>{calls++;return {calls:[{name:'replace_source',args:{path:file,old:'old',replacement:'wrong'}}],costUsd:.01};},async()=>({accepted:false,reason:'unsafe',costUsd:.01}),()=>{}),/either bounded/);
+ assert.equal(calls,2,'no third proposal is generated');
+ calls=0;
+ await assert.rejects(()=>proposeReviewedRepair(incident,source,async()=>{calls++;return {calls:[{name:'replace_source',args:{path:file,old:'old',replacement:'wrong'}}],costUsd:.30};},async()=>({accepted:false,reason:'unsafe',costUsd:.21}),()=>{}),/spending limit/);
+ assert.equal(calls,1,'the review charge cannot reset the original case allowance');
+ let reviewed=false;
+ await assert.rejects(()=>proposeReviewedRepair(incident,source,model([{name:'replace_source',args:{path:file,old:'old',replacement:'bad'}}]),async()=>{reviewed=true;return {accepted:true,reason:'',costUsd:0};},()=>{throw Error('static denial');}),/static denial/);
+ assert.equal(reviewed,false,'static failures cannot be revised around or bypassed');
+ calls=0;
+ await assert.rejects(()=>proposeReviewedRepair(incident,source,async()=>({calls:[{name:'replace_source',args:{path:file,old:++calls===8?'old':'absent',replacement:'new'}}],costUsd:0}),async()=>({accepted:false,reason:'wrong',costUsd:0}),()=>{}),/eight coding turns/);
+ assert.equal(calls,8,'the revision shares the original turn allowance');
+});
 
 test('a repair is an isolated proposal, with explicit source access and bounded changes', async () => {
   const proposal = await proposeRepair(incident, source, model([
