@@ -1,6 +1,24 @@
 import type { RepairModel, RepairToolCall } from './repair-coder.js';
 import type { RepairIncident } from './repair-pilot.js';
 import type { RepairProposal } from './repair-coder.js';
+import type { RepairTurn } from './repair-coder.js';
+
+/** Keep tool results in the provider's native conversation protocol. A JSON
+ * transcript inside a user message is data, not a completed tool interaction. */
+function messagesFor(turns:RepairTurn[]):Array<Record<string,unknown>> {
+  let toolId:string|undefined;
+  return turns.map((turn,index)=>{
+    if(turn.role==='assistant'){
+      const call=JSON.parse(turn.content);toolId=`repair-${index}`;
+      return {role:'assistant',content:null,tool_calls:[{id:toolId,type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}]};
+    }
+    if(turn.role==='tool'){
+      if(!toolId)throw Error('Repair tool result is missing its originating call.');
+      const id=toolId;toolId=undefined;return {role:'tool',tool_call_id:id,content:turn.content};
+    }
+    return {role:turn.role,content:turn.content};
+  });
+}
 
 function measuredFailure(message: string, cost: unknown, unknownUsage=false): Error {
   return Object.assign(new Error(message), { repairCostUsd: typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 ? cost : undefined, repairUsageUnknown: unknownUsage || typeof cost !== 'number' || !Number.isFinite(cost) || cost < 0 });
@@ -61,7 +79,7 @@ export function miniMaxRepairModel(apiKey: string, fetcher: typeof fetch = fetch
   return async turns => {
     const measured = await completion(apiKey,{ model: 'minimax/minimax-m3.1-flash', temperature: 0,
         provider: { require_parameters: true }, tools, tool_choice: 'required',
-        messages: [{ role: 'system', content: turns[0].content }, { role: 'user', content: JSON.stringify(turns.slice(1)) }] },fetcher,Math.max(0,.50-spent),canContinue);
+        messages: messagesFor(turns) },fetcher,Math.max(0,.50-spent),canContinue);
     const body=measured.body as {choices?: Array<{finish_reason?:string;message?:{tool_calls?:Array<{function?:{name?:unknown;arguments?:unknown}}>}}>} ,costUsd=measured.costUsd;
     spent+=costUsd;
     try {

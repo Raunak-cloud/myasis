@@ -50,3 +50,15 @@ test('cancellation prevents a truncated-response resample and preserves its know
   await assert.rejects(()=>model([{role:'system',content:'rules'}]),(error:any)=>error.repairCostUsd===.001&&/paused/.test(error.message));
   assert.equal(calls,1);
 });
+
+test('source reads and edit feedback retain native tool-call/result correlation',async()=>{
+  const model=miniMaxRepairModel('key',async(_url,init)=>{
+    const body=JSON.parse(String(init?.body));
+    assert.equal(body.messages[1].content,'incident');
+    const assistant=body.messages[2],tool=body.messages[3];
+    assert.equal(assistant.role,'assistant');assert.equal(assistant.tool_calls[0].function.name,'read_source');
+    assert.equal(tool.role,'tool');assert.equal(tool.tool_call_id,assistant.tool_calls[0].id);assert.equal(tool.content,'source text');
+    return Response.json({usage:{cost:0},choices:[{message:{tool_calls:[{function:{name:'finish',arguments:'{"summary":"fixture"}'}}]}}]});
+  });
+  await model([{role:'system',content:'rules'},{role:'user',content:'incident'},{role:'assistant',content:JSON.stringify({name:'read_source',args:{path:'safe'}})},{role:'tool',content:'source text'}]);
+});

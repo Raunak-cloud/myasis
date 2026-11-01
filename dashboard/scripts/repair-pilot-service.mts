@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, readFileSync, writeFileSync, mkdirSync, chmodSync, symlinkSync, renameSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, chmodSync, symlinkSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { RepairPilotDetector, waitingRepairCheckpoint, type RepairIncident } from '../server/repair-pilot.js';
 import { REPAIR_EDITABLE_FILES, proposeRepair, type RepairProposal } from '../server/repair-coder.js';
@@ -183,7 +183,16 @@ async function repair(id:string,incident:RepairIncident){
     const baseSha=String((await git(['rev-parse','HEAD'])).stdout).trim();
     const source:Record<string,string>={};for(const path of REPAIR_EDITABLE_FILES)source[path]=String((await git(['show',`${baseSha}:${path}`])).stdout);
     const provider=miniMaxRepairModel(env.OPENROUTER_API_KEY??'',undefined,()=>caseActive(incident.runId));
-    const proposal=await proposeRepair(incident,source,async turns=>{if(!await caseActive(incident.runId))throw Error('Pilot or schedule paused.');const r=await provider(turns);await charge(r.costUsd);return r;});
+    const proposal=await proposeRepair(incident,source,async turns=>{
+      if(!await caseActive(incident.runId))throw Error('Pilot or schedule paused.');
+      const r=await provider(turns);await charge(r.costUsd);
+      const prior=turns.at(-1)?.content??'';
+      appendFileSync(resolve(STORE,'cases',id+'.coding.jsonl'),JSON.stringify({at:new Date().toISOString(),costUsd:r.costUsd,
+        rejection:prior.startsWith('Rejected:')?prior.slice(0,300):undefined,
+        calls:r.calls.map(call=>({name:call.name,path:call.args.path,oldChars:typeof call.args.old==='string'?call.args.old.length:undefined,
+          replacementChars:typeof call.args.replacement==='string'?call.args.replacement.length:undefined}))})+'\n',{mode:0o600});
+      return r;
+    });
     validateRepairProposal(source,proposal);
     if(!await caseActive(incident.runId))throw Error('Pilot or schedule paused, or release in progress.');
     const review=await reviewRepair(env.OPENROUTER_API_KEY??'',incident,source,proposal,undefined,()=>caseActive(incident.runId));await charge(review.costUsd);
