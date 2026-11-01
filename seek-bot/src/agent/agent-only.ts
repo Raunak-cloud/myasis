@@ -635,9 +635,11 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         // Retain the confirmed content identity when its actual file was
         // selected. This is an upload audit, never employer acceptance. Without
         // it, a correct approved attachment appeared to be a deleted letter.
-        if (approved?.coverLetter && readback?.files?.length && !readback.invalid && !readback.validation
-          && selected.some(file => (file.approvedBundle || file.text === approved.coverLetter)
-            && readback.files!.includes(basename(file.path)))) ctx.coverLetter = approved.coverLetter;
+        // Upload widgets may immediately clear the native input after consuming
+        // its File objects. The completed operation still selected these exact
+        // bytes; the agent must separately inspect acceptance or rejection.
+        if (approved?.coverLetter && selected.some(file => file.approvedBundle || file.text === approved.coverLetter))
+          ctx.coverLetter = approved.coverLetter;
         if (before && readback?.files?.length && !readback.invalid && !readback.validation
           && JSON.stringify(before.files) !== JSON.stringify(readback.files)) meter.uploaded(args.file_ids.join(','));
         return ok(JSON.stringify({ action: 'set_input_files', file_ids: args.file_ids, current: readback,

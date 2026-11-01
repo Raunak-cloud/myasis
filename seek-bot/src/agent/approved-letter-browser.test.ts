@@ -19,7 +19,7 @@ test('approved letter renders and uploads byte-exact without model transcription
  const {runAgentOnlyApplication}=await import('./agent-only.js');
  const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
  try{
-  const page=await browser.newPage();await page.route('**/*',route=>new URL(route.request().url()).hostname.endsWith('.invalid')?route.fulfill({contentType:'text/html',body:'<main><h1>Fictional Analyst</h1><label>Cover letter<input id=letter type=file></label><button id=send onclick="window.sent=true">Submit</button></main>'}):route.abort());await page.goto(job.url);
+  const page=await browser.newPage();await page.route('**/*',route=>new URL(route.request().url()).hostname.endsWith('.invalid')?route.fulfill({contentType:'text/html',body:'<main><h1>Fictional Analyst</h1><label>Cover letter<input id=letter type=file onchange="const file=this.files[0];file.text().then(text=>{document.querySelector(\'#received\').textContent=text;document.querySelector(\'#uploaded\').textContent=file.name;this.value=\'\';})"></label><p id=uploaded></p><pre id=received hidden></pre><button id=send onclick="window.sent=true">Submit</button></main>'}):route.abort());await page.goto(job.url);
   let turn=0;
   globalThis.fetch=(async(_url,init)=>{
    const body=JSON.parse(String(init?.body));turn++;
@@ -35,7 +35,9 @@ test('approved letter renders and uploads byte-exact without model transcription
     call={name:'browser_action',arguments:JSON.stringify({action:'set_input_files',selector:'#letter',file_ids:[rendered.file_id]})};
    }else{
     assert.equal(turn,3);
-    const uploaded=await page.locator('#letter').evaluate(async node=>await (node as HTMLInputElement).files![0].text());
+    await page.waitForFunction(()=>document.querySelector('#received')?.textContent?.startsWith('Dear team,'));
+    const uploaded=await page.locator('#received').textContent();
+    assert.equal(await page.locator('#letter').evaluate(node=>(node as HTMLInputElement).files!.length),0,'the employer widget clears its native file input after consuming the uploaded file');
     assert.equal(uploaded,text,'the actual browser receives the exact confirmed text');
     call={name:'finish',arguments:JSON.stringify({status:'skipped',reason:'Controlled fictional document transport verification complete.',evidence:'The fictional upload contains the exact approved letter.'})};
    }
