@@ -2,6 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { validToolInput, toolInputIssue } from './tool-input.js';
 import { browserCommandContract } from './browser-command-schema.js';
+import { browserTargetProperties } from './browser-target.js';
+
+test('frame-only and invented references are rejected before browser dispatch',()=>{
+  for(const ref of ['a0','f3','f1:2','e12','f1e12','frame1:f2','frame1:a3:2'])assert.equal(validToolInput(ref,browserTargetProperties.ref),true,ref);
+  for(const ref of ['frame1','SECRET_INVALID_REF','','a0\n','frame1:frame2']){
+    assert.equal(validToolInput(ref,browserTargetProperties.ref),false);
+    assert.doesNotMatch(toolInputIssue(ref,browserTargetProperties.ref)!,/SECRET_INVALID_REF/);
+  }
+  assert.match(toolInputIssue('frame1',browserTargetProperties.ref)!,/control reference.*locator/);
+});
 
 test('tool dispatch rejects missing, unknown and malformed nested arguments', () => {
   const schema = { type: 'object', properties: {

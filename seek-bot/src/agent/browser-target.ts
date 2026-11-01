@@ -38,7 +38,8 @@ export function locate(page: Page, ref: string): Locator | null {
 
 /** Standard Playwright locators, selected by the agent, without widget recipes. */
 export const browserTargetProperties = {
-  ref: { type: 'string' },
+  ref: { type: 'string', pattern: '^(?:a[0-9]+|f[0-9]+(?::[0-9]+)?|(?:f[0-9]+)?e[0-9]+|frame[0-9]+:[af][0-9]+(?::[0-9]+)?)$',
+    description: 'Observed control reference, not a frame reference alone. To inspect a whole observed frame, use locator {by:"css",value:"body",frame:"frame1"}; omit all targets for a page snapshot.' },
   selector: { type: 'string' },
   locator: {
     type: 'object', additionalProperties: false,
