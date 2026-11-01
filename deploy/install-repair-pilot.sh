@@ -6,6 +6,8 @@ app=/home/myasis/myasis
 install=/opt/owtomate-repair-pilot
 mkdir -p "$install/dashboard/server" "$install/dashboard/scripts" "$install/deploy" /opt/owtomate-repair-releases
 mkdir -p "$install/seek-bot/src" /opt/owtomate-repair-releases/tickets
+install -d -o root -g root -m 755 "$install/dashboard/node_modules"
+ln -sfnT "$app/seek-bot/node_modules/typescript" "$install/dashboard/node_modules/typescript"
 for name in repair-pilot repair-release repair-safety; do
   install -o root -g root -m 644 "$app/seek-bot/src/$name.ts" "$install/seek-bot/src/$name.ts"
 done
@@ -19,6 +21,9 @@ install -o root -g root -m 644 "$app/deploy/repair-pilot-sandbox.sh" "$install/d
 install -o root -g root -m 644 "$app/deploy/repair-unpack.py" "$install/deploy/repair-unpack.py"
 echo '{"type":"module"}' > "$install/package.json"
 chmod 644 "$install/package.json"
+# Check the installed layout, which deliberately does not inherit the live
+# repository's complete dependency tree. No database or model request runs.
+node "$app/seek-bot/node_modules/tsx/dist/cli.mjs" -e "import('$install/dashboard/server/repair-model.ts').then(m => { if (typeof m.miniMaxRepairModel !== 'function') process.exit(1); })"
 if [ "${1:-}" = --enable ]; then
   python3 - <<'PY'
 import datetime,json,os
