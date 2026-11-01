@@ -90,10 +90,12 @@ async function advance(){
   const result=await pool.query("SELECT c.*,c.id::text,c.run_id::text,c.attempt_id::text,r.finished_at,r.stopped,r.trigger,s.enabled AS schedule_enabled FROM repair_pilot_cases c JOIN run_starts r ON r.id=c.run_id AND r.user_id=c.user_id LEFT JOIN application_schedules s ON s.user_id=c.user_id WHERE c.user_id=1 AND c.status IN ('waiting_run','retry_started') ORDER BY c.created_at LIMIT 1");
   const row=result.rows[0];if(!row)return;
   if(row.status==='retry_started'){
-    const retry=await pool.query('SELECT finished_at,applied,health FROM run_starts WHERE id=$1 AND user_id=1',[row.retry_run_id]);
+    const retry=await pool.query('SELECT finished_at,started_at FROM run_starts WHERE id=$1 AND user_id=1',[row.retry_run_id]);
     if(retry.rows[0]?.finished_at){
-      const success=retry.rows[0].applied>0||Number(retry.rows[0].health?.prepared)>0;
-      await setState(row.id,success?'complete':'blocked',success?'Admin retry recorded an application outcome; inspect its normal trace.':'The one allowed admin retry did not submit or prepare. No further retry is queued.');
+      const original=readTrace(row.run_id,row.attempt_id);
+      const outcomes=original?.jobId?await pool.query("SELECT EXISTS(SELECT 1 FROM applications WHERE user_id=1 AND job_id=$1 AND applied_at >= $2) submitted,EXISTS(SELECT 1 FROM application_reviews WHERE user_id=1 AND payload->'job'->>'id'=$1 AND status='ready' AND updated_at >= $2) prepared",[original.jobId,retry.rows[0].started_at]):{rows:[]};
+      const result=outcomes.rows[0],success=result?.submitted||result?.prepared;
+      await setState(row.id,success?'complete':'blocked',result?.submitted?'Database confirms the admin retry submission; inspect its employer receipt in the normal trace.':result?.prepared?'Database confirms an application prepared for candidate confirmation.':'The one allowed admin retry has no confirmed database submission or preparation. No further retry is queued.');
     }
     return;
   }
