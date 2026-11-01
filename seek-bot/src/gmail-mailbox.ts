@@ -5,6 +5,7 @@ import type { PreparedApplication } from './application-review-types.js';
 import type { ApplyOutcome } from './types.js';
 import { config } from './config.js';
 import { applicationAllowance } from './application-allowance.js';
+import { verificationMailboxMessageAllowed } from './gmail-verification-policy.js';
 
 export const gmailAvailable = () => Boolean(process.env.GMAIL_MCP_URL && process.env.GMAIL_MCP_TOKEN && process.env.GMAIL_MCP_ACCOUNT);
 export const gmailAccount = () => process.env.GMAIL_MCP_ACCOUNT || '';
@@ -42,7 +43,7 @@ export function verificationMessage(message: GmailMessage, position: number): Lo
 const VERIFICATION_MAX_AGE_MS = 15 * 60_000;
 const VERIFICATION_CLOCK_SKEW_MS = 2 * 60_000;
 export function verificationMessageIsFresh(message: GmailMessage, earliest: number, now = Date.now(), allowUndated = false) {
-  if (message.labelIds?.some(label => ['SENT', 'DRAFT', 'TRASH', 'SPAM'].includes(label))) return false;
+  if (!verificationMailboxMessageAllowed(message)) return false;
   const date = Date.parse(message.date || '');
   return Number.isFinite(date) ? date >= Math.max(earliest, now - VERIFICATION_MAX_AGE_MS) && date <= now + VERIFICATION_CLOCK_SKEW_MS : allowUndated;
 }
@@ -64,7 +65,7 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
   const context = verificationContextWords(options).filter(word => word.length <= 100).slice(0, 12);
   const earliest = Math.max(startedAt - VERIFICATION_MAX_AGE_MS,
     Number.isFinite(options.requestedAt) ? options.requestedAt! - VERIFICATION_CLOCK_SKEW_MS : 0);
-  const query = (options.purpose === 'reset_password' ? '(password OR reset OR recovery)' : '(code OR verify OR verification OR confirm OR activation OR password OR passcode OR OTP OR "sign in")')
+  const query = (options.purpose === 'reset_password' ? '(password OR reset OR recovery)' : '(code OR verify OR verification OR confirm OR confirmation OR activate OR activation OR password OR passcode OR OTP OR "sign in")')
     + (context.length ? ` (${context.map(word => `"${word}"`).join(' OR ')})` : '');
   const read = (emails: LocalVerificationEmail[]) => {
     for (const email of emails) {

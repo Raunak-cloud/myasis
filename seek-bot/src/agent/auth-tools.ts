@@ -24,6 +24,7 @@ const AUTHENTICATION_TOOL: ToolSchema = {
       'or in the message after a rejected password) and pass them as password_rules; the password is then built to fit them. ' +
       'You never see or choose the password itself. An existing-account sign-in requires a previously accepted credential; missing records never authorize generating a password. ' +
       'After the site responds, call record_authentication_result with accepted, rejected or needs_verification and the exact employer message. ' +
+      'Pending password proposals survive future runs, scoped to this candidate, site and employer. Resume pending activation using the employer controls and fresh verification email; do not recreate the account or treat pending credentials as accepted. After actual activation, record create_account acceptance to recover the saved credential. ' +
       'Record a successful password reset or account creation before attempting the next sign-in, even if its success message appears above an editable login form. Reset acceptance and sign-in acceptance are separate outcomes. ' +
       'After rejection, use supported recovery or authenticated browser access rather than submitting the same credential again. Requesting reset email is not the same as successfully setting a new password.',
     parameters: {

@@ -52,7 +52,7 @@ test('an already-generated recovery plan is saved once across the budget boundar
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;calls++;
   assert.ok(calls<=3,'no fourth paid decision may be requested after the action allowance ends');
   if(calls<3)return packet([{name:'browser_action',args:{action:'click',selector:'#send',undeclared:true}}],.02);
-  assert.equal(body.tool_choice?.function?.name,'record_recovery_plan');return packet([plan],.20);
+  assert.equal(body.tool_choice?.function?.name,undefined,'recovery notes cannot exclude normal tools');return packet([plan],.20);
  };
  try{const r=await runAgentOnlyApplication(f);assert.match(JSON.stringify(r.outcome),/spending budget/);assert.equal(calls,3);
   const trace=JSON.parse(readFileSync(join(directory,'traces',f.job.id+'.json'),'utf8'));
@@ -65,10 +65,36 @@ test('fresh progress verification can use its reserve and fund the next producti
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;calls++;
   if(calls===1)return packet([{name:'browser_action',args:{action:'fill',selector:'#name',value:'Fictional Candidate'}}],.19);
   if(calls===2)return packet([{name:'take_snapshot',args:{}}],.08);
-  if(calls===3){assert.equal(body.tool_choice?.function?.name,'record_recovery_result');return packet([result()],.04);}
+  if(calls===3){assert.equal(body.tool_choice?.function?.name,undefined,'progress review is advisory');return packet([result()],.04);}
   assert.equal(calls,4);return packet([finish()]);
  };
  try{const r=await runAgentOnlyApplication(f);assert.deepEqual(r.outcome,{status:'skipped',reason:'Controlled fixture outcome'});assert.equal(calls,4);}finally{await f.context.close();}
+});
+
+test('Culture Amp style empty search box plus specialist advice completes without forced recovery reports',{timeout:15000},async()=>{
+ const f=await fixture(`<main><label>Name<input id="name" required></label><label>Country<input id="country" role="combobox" aria-controls="countries"></label><span>🇦🇺 +61</span><div id="countries" role="listbox"><button role="option" aria-selected="true">Australia +61</button></div><button id="send" onclick="document.documentElement.dataset.sent='1'">Submit application</button></main>`);
+ process.env.APPLICATION_REVIEW_MODE='prepare';let turns=0,specialists=0;
+ const prepare:Call={name:'prepare_application',args:{answers:[],resume_id:'cv',submit_selector:'#send'}};
+ globalThis.fetch=async(_url,init)=>{
+  const body=JSON.parse(String(init?.body)) as Body;
+  if(!body.tools?.length){specialists++;return Response.json({choices:[{message:{content:JSON.stringify({advice:'Australia is selected; the empty input is the search box. Prepare directly.',evidence:[{source:'page',detail:'Australia +61 is aria-selected=true.'}],unknowns:[],nextSteps:['Prepare for candidate confirmation.']})}}],usage:{prompt_tokens:Math.round(.04*1_000_000/CELERIS_RATES.promptUncached),completion_tokens:0}});}
+  turns++;assert.ok(turns<=7,'no repeated recovery/result reports can consume the completion reserve');
+  if(turns===1)return packet([{name:'browser_action',args:{action:'fill',selector:'#name',value:'Fictional Candidate'}}],.10);
+  if(turns===2||turns===3)return packet([{name:'browser_action',args:{action:'click',selector:'#country',undeclared:true}}],.02);
+  if(turns===4){assert.equal(body.tool_choice?.function?.name,undefined);return packet([{name:'consult_application_specialist',args:{question:'Is this country selection committed?'}},{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],.03);}
+  if(turns===6){assert.equal(body.tool_choice?.function?.name,'record_application_review');return packet([review()],.03);}
+  assert.ok([5,7].includes(turns));assert.ok(body.tools!.every(tool=>['finish','prepare_application','prepare_email_application'].includes(tool.function.name)),'completion cannot offer writes, another specialist or recovery reports');
+  return packet([prepare],.01);
+ };
+ try{
+  const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'prepared');assert.equal(turns,7);assert.equal(specialists,1);
+  assert.equal(await f.page.locator('#country').inputValue(),'');assert.equal(await f.page.getByRole('option').getAttribute('aria-selected'),'true');
+  assert.equal(await f.page.evaluate(()=>document.documentElement.dataset.sent),undefined,'advice cannot race a queued send');assert.equal(r.submitPressed,false);
+  const saved=JSON.parse(readFileSync(join(directory,'traces',f.job.id+'.json'),'utf8'));
+  assert.ok(!saved.steps.some((s:any)=>['record_recovery_plan','record_recovery_result'].includes(s.tool)));
+  const skippedSend=saved.steps.find((s:any)=>s.tool==='browser_action'&&s.args.sends_application);
+  assert.equal(skippedSend.execution,'not-started','the parent must reobserve after specialist advice before deciding its next action');
+ }finally{process.env.APPLICATION_REVIEW_MODE='';await f.context.close();}
 });
 
 test('a post-send specialist charge leaves one receipt-only record, never another send',{timeout:10000},async()=>{

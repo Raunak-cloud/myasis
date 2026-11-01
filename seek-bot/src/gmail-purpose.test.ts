@@ -23,8 +23,8 @@ const { authenticationTools } = await import('./agent/auth-tools.js');
 const { observe } = await import('./agent/observe.js');
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 try {
-  const activation: GmailMessage = { id: 'activation', subject: 'Fixture account activation', date: new Date().toISOString(), sender: 'Fixture <noreply@fixture.invalid>', htmlBody: '<p>Activate your Fixture account using this activation link.</p><a href="https://fixture.invalid/activate?hash=private-activation">Activate account</a>' };
-  const reset: GmailMessage = { id: 'reset', subject: 'Fixture: reset your password', date: new Date(Date.now() - 1000).toISOString(), sender: 'Fixture <noreply@fixture.invalid>', htmlBody: '<p>Reset your Fixture password.</p><a href="https://fixture.invalid/reset?hash=private-reset">Reset password</a>' };
+  const activation: GmailMessage = { id: 'activation', labelIds: ['SPAM'], subject: 'Fixture account activation', date: new Date().toISOString(), sender: 'Fixture <noreply@fixture.invalid>', htmlBody: '<p>Activate your Fixture account using this activation link.</p><a href="https://fixture.invalid/activate?hash=private-activation">Activate account</a>' };
+  const reset: GmailMessage = { id: 'reset', labelIds: ['SPAM'], subject: 'Fixture: reset your password', date: new Date(Date.now() - 1000).toISOString(), sender: 'Fixture <noreply@fixture.invalid>', htmlBody: '<p>Reset your Fixture password.</p><a href="https://fixture.invalid/reset?hash=private-reset">Reset password</a>' };
   messages = [activation];
   const absent = await findVerificationInGmail({ hint: 'Fixture', want: 'link', purpose: 'reset_password', allowAlternative: true, timeoutMs: 150 });
   assert.ok('error' in absent, 'activation-only mail cannot falsely complete password recovery, including alternative-format fallback');

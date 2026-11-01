@@ -33,6 +33,8 @@ assert.equal(verificationMessageIsFresh({ id: 'cached', date: recent(10) }, cuto
 assert.equal(verificationMessageIsFresh({ id: 'old-request', date: recent(5) }, Date.now() - 2 * 60_000), false);
 assert.equal(verificationMessageIsFresh({ id: 'future', date: recent(-3) }, cutoff), false);
 assert.equal(verificationMessageIsFresh({ id: 'sent', date: recent(0), labelIds: ['SENT'] }, cutoff), false);
+assert.equal(verificationMessageIsFresh({ id: 'spam', date: recent(0), labelIds: ['SPAM'] }, cutoff), true);
+assert.equal(verificationMessageIsFresh({ id: 'deleted-spam', date: recent(0), labelIds: ['SPAM', 'TRASH'] }, cutoff), false);
 assert.equal(verificationMessageIsFresh({ id: 'unknown' }, cutoff), false);
 const approval = randomUUID(), revision = 'a'.repeat(64);
 const service = new GmailMcpService({
@@ -140,7 +142,7 @@ try {
   assert.ok(ctx.pendingCredentials?.size, 'a password shown as text still prepares a private credential');
   await page.locator('input').fill('');
   const unavailableLogin = await doCompleteAuthentication(ctx, { refs: [passwordRef], purpose: 'sign_in' });
-  assert.match(JSON.stringify(unavailableLogin), /No verified usable password/);
+  assert.match(JSON.stringify(unavailableLogin), /saved pending registration/);
   assert.ok(proposedPassword.length >= 12);
   assert.equal(await page.locator('input').inputValue(), '', 'an unaccepted registration proposal cannot authorize a generated sign-in credential');
   assert.equal(ctx.pendingCredentials?.size, 0);

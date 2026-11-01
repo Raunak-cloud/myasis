@@ -5,7 +5,7 @@ const normalise = (value: string) => value.replace(/\s+/g, ' ').trim().toLowerCa
 const identity = (field: FormField) => JSON.stringify([normalise(field.section ?? ''), normalise(field.label), field.kind]);
 const usable = (field: FormField) => !field.sensitive && field.inputType !== 'password' && field.currentValue !== '[private credential]';
 const completed = (field: FormField) => Boolean(field.currentValue?.trim()) && !field.validationError;
-export type ApplicationBudgetPhase = 'work' | 'progress-review' | 'application-review' | 'final-record';
+export type ApplicationBudgetPhase = 'work' | 'progress-review' | 'application-review' | 'final-record' | 'completion';
 
 /** Extra spend is earned by browser evidence, never by the agent's progress notes. */
 export class ProgressBudget extends CostMeter {
@@ -15,6 +15,7 @@ export class ProgressBudget extends CostMeter {
   private allowance: number;
   private progress = 0;
   private phase: ApplicationBudgetPhase = 'work';
+  private completionCeiling?: number;
   readonly maximum: number;
 
   constructor(base: number, maximum = 0.70) {
@@ -29,7 +30,13 @@ export class ProgressBudget extends CostMeter {
   get progressCount(): number { return this.progress; }
   get needsReview(): boolean { return this.totals.costUsd >= this.allowance - 0.035 && this.allowance < this.maximum; }
   get actionExhausted(): boolean { return this.totals.costUsd + 1e-9 >= this.allowance; }
+  get finalizing(): boolean { return this.completionCeiling !== undefined; }
+  beginCompletion(): void {
+    this.completionCeiling ??= Math.min(this.maximum, this.allowance + 0.15);
+    this.phase = 'completion';
+  }
   override get exhausted(): boolean {
+    if (this.completionCeiling !== undefined) return this.totals.costUsd + 1e-9 >= this.completionCeiling;
     const reserve = this.phase === 'application-review' ? 0.15 : this.phase === 'progress-review' || this.phase === 'final-record' ? 0.04 : 0;
     return this.totals.costUsd + 1e-9 >= Math.min(this.maximum, this.allowance + reserve);
   }

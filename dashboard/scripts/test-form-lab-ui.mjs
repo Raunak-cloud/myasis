@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {createRequire} from 'node:module';
 import {FormLab,formCatalog} from '../server/form-lab/engine.mjs';
-import {mkdirSync,writeFileSync} from 'node:fs';
+import {mkdirSync} from 'node:fs';
 import {resolve} from 'node:path';
 const {chromium}=createRequire(new URL('../../seek-bot/package.json',import.meta.url))('patchright');
 const started=Date.now(),outbox=new Map(),labs=formCatalog.map((form,index)=>new FormLab({key:form.key,email:'fixture@example.invalid',seed:21,id:'11111111-1111-4111-8111-'+String(index+1).padStart(12,'0'),secret:'synthetic-ui-only'}));

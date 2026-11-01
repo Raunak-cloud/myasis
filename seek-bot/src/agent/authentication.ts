@@ -4,7 +4,7 @@ import type { Observation } from './observe.js';
 import { isForbiddenDestination } from './browser-boundaries.js';
 import { gmailAvailable, gmailAccount, findVerificationInGmail } from '../gmail-mailbox.js';
 import { authenticationValue, isAuthenticationPasswordField, hostOf, normalizeRules, type SiteCredential } from '../site-auth.js';
-import { storedCredential, rejectCredential, commitAcceptedCredentials } from '../site-credentials.js';
+import { storedCredential, rejectCredential, acceptPendingCredential, pendingCredential, stagePendingCredential, markPendingVerification, discardPendingCredential, type CredentialPurpose } from '../site-credentials.js';
 import { ToolResult, ToolContext, ok, noteAction, siteName } from './context.js';
 import { assertLive } from '../tool-run.js';
 import { employerMessageEvidence } from './employer-message.js';
@@ -80,14 +80,31 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
    * Proposals never authorize an existing-account sign-in. The agent must
    * record actual registration/reset acceptance before the new password is used.
    */
-  const credential: SiteCredential | null = setsPassword
-    ? { format: 'readable-v1', rules: normalizeRules(args.password_rules) }
+  const savedProposal = setsPassword ? pendingCredential(ctx.page.url(), ctx.profile.email, ctx.job.company, purpose as CredentialPurpose) : null;
+  let credential: SiteCredential | null = setsPassword
+    ? savedProposal
+      ?? { format: 'readable-v1', rules: normalizeRules(args.password_rules) }
     : storedCredential(ctx.page.url(), ctx.profile.email);
-  const values = fields.map((field) => ({ field, value: authenticationValue(field, ctx.profile, ctx.page.url(), credential) }));
+  if (setsPassword && args.password_rules && !(purpose === 'create_account' && savedProposal?.phase === 'needs_verification')) {
+    credential = { format: 'readable-v1', rules: normalizeRules(args.password_rules) };
+  }
+  let values = fields.map((field) => ({ field, value: authenticationValue(field, ctx.profile, ctx.page.url(), credential) }));
   const unsupported = values.filter((entry) => entry.value === null);
   const missingCredential = unsupported.some((entry) => isAuthenticationPasswordField(entry.field));
   if (missingCredential) {
+    const pending = pendingCredential(ctx.page.url(), ctx.profile.email, ctx.job.company, 'create_account');
+    if (pending) return ok('A saved pending registration exists for this candidate and employer. Its private credential metadata survived the earlier attempt, but it is not verified and was not filled for sign-in. Resume the employer activation flow, requesting a fresh verification email if needed. After actual account activation, call record_authentication_result with purpose=create_account, outcome=accepted and the complete current employer message; the saved proposal can then be recovered for sign-in.', 'reobserve');
     return ok('No verified usable password is available for this account and site. No credential was guessed or filled. Inspect supported registration, passwordless or authorized account recovery options; a previously existing account needs its real credential. Do not repeat the rejected sign-in or claim the candidate supplied a wrong password.', 'reobserve');
+  }
+
+  // Persist before the first browser write, so interruption after a successful
+  // fill or submit cannot lose the exact password recipe. No password bytes.
+  if (setsPassword && credential && values.some(({ field, value }) => value !== null && isAuthenticationPasswordField(field))) {
+    credential = stagePendingCredential(ctx.page.url(), ctx.profile.email, ctx.job.company, purpose as CredentialPurpose, credential);
+    // Staging may retain an activation-pending proposal saved by another
+    // worker after our first read. Fill the exact recipe that was persisted.
+    values = fields.map((field) => ({ field, value: authenticationValue(field, ctx.profile, ctx.page.url(), credential) }));
+    (ctx.pendingCredentials ??= new Map()).set(site, { ...credential, purpose: purpose as CredentialPurpose });
   }
 
   const filled: string[] = [];
@@ -172,6 +189,7 @@ export async function doRecordAuthenticationResult(ctx: ToolContext, args: Recor
     at: new Date().toISOString(), detail: `Authentication ${outcome}: ${evidence.quote}` };
   if (outcome === 'rejected') {
     if (purpose === 'sign_in') rejectCredential(ctx.page.url(), email);
+    else discardPendingCredential(ctx.page.url(), email, ctx.job.company, purpose as CredentialPurpose);
     if (purpose !== 'sign_in' || ctx.pendingCredentials?.get(site)?.purpose !== 'reset_password') ctx.pendingCredentials?.delete(site);
     ctx.actions.push({ ...action, kind: 'authentication-rejected' });
     // Retire the actual private value too; another click must not resubmit it.
@@ -186,12 +204,18 @@ export async function doRecordAuthenticationResult(ctx: ToolContext, args: Recor
     return ok('Recorded rejected authentication. This sign-in credential will not be reused. Account recovery or a confirmed new credential is required.', 'reobserve');
   }
   if (outcome === 'needs_verification') {
+    const retained = purpose !== 'sign_in' && markPendingVerification(ctx.page.url(), email, ctx.job.company, purpose as CredentialPurpose);
     ctx.actions.push({ ...action, kind: 'authentication-prepared' });
-    return ok('Recorded pending verification. No account creation, reset or sign-in success was recorded and no new credential was retained.', 'reobserve');
+    return ok('Recorded pending verification. No account creation, reset or sign-in success was recorded. ' + (retained ? 'The private pending credential metadata is saved for this candidate and employer across future runs; complete actual verification before accepting it or signing in.' : 'No new password proposal was available to save; requesting an email alone does not establish a credential.'), 'reobserve');
   }
   const accepted = { ...action, kind: purpose === 'create_account' ? 'account-created' as const : purpose === 'reset_password' ? 'password-reset' as const : 'signed-in' as const };
+  if (purpose !== 'sign_in') {
+    const proposal = ctx.pendingCredentials?.get(site);
+    if (acceptPendingCredential(ctx.page.url(), email, ctx.job.company, purpose as CredentialPurpose, proposal?.purpose === purpose ? proposal : undefined)) {
+      ctx.pendingCredentials?.delete(site);
+    }
+  }
   ctx.actions.push(accepted);
-  if (purpose !== 'sign_in') commitAcceptedCredentials(ctx.pendingCredentials, [accepted], email);
   return ok('Recorded accepted authentication with current employer evidence.' + (purpose === 'reset_password' || purpose === 'create_account' ? ' This confirms the credential change, not a signed-in session. If the site returned to sign-in, use complete_authentication with purpose=sign_in next.' : ''));
 }
 

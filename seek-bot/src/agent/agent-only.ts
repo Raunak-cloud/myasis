@@ -50,6 +50,7 @@ import { currentFitReview } from '../review-cache.js';
 import type { FitRejection } from '../types.js';
 import { employerMessageEvidence } from './employer-message.js';
 import { RecoveryCheckpoint, recoveryInput, recoveryTools } from './recovery-checkpoint.js';
+import { ApplicationTurnCoordinator } from './application-turn.js';
 import { AGENT_ONLY_PROMPT, applicationCompletionInstruction, applicationSuitabilityAuthority } from './application-policy.js';
 import { ApplicationReadiness, applicationReviewTool } from './application-readiness.js';
 import { changesBrowserState } from './browser-commands.js';
@@ -254,7 +255,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
   let letterShortcutAttempted = false;
   let pendingPreparation: 'prepare_application' | 'prepare_email_application' | undefined;
   let emailDraftKey: string | undefined;
-  let finalRecordUsed = false;
+  const turnCoordinator = new ApplicationTurnCoordinator();
   let budgetStopped = false;
   let invalidApplicationReviews = 0;
   let invalidAttentionRequests = 0;
@@ -350,6 +351,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
     if (name === applicationReviewTool.name) {
       const canonicalReview = readiness.requested;
       readiness.record(String(args.assessment), args.unresolved as string[]);
+      if (canonicalReview) recovery.applicationReviewed();
       invalidApplicationReviews = 0;
       if (canonicalReview && args.assessment === 'ready') meter.reviewedProgress('canonical-application-review-ready');
       recovery.remember(`APPLYING AGENT APPLICATION REVIEW: ${JSON.stringify(args)}`);
@@ -779,19 +781,18 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
       }
       if (!ctx.observation.inspectionError) recovery.observe(ctx.observation);
       if (!pendingDialog && !ctx.observation.inspectionError) readiness.observe(ctx.observation, 'wizard');
-      if (!pendingDialog && meter.needsReview) recovery.requestBudgetReview();
-      let checkpoint = pendingDialog ? undefined : readiness.requested ? applicationReviewTool.name : recovery.tool;
-      // Once browser work is unaffordable, pay only for an executable
-      // assessment or one terminal/local draft record. Never fund a repair
-      // plan that has no allowance left to execute, or keep a final-review
-      // reserve alive after the agent returns to editing.
-      const finalRecords = meter.actionExhausted && !readiness.requested && !finalRecordUsed
-        && (readiness.needsAnswer || ctx.submissionAttempted || readiness.ready && pendingPreparation)
-        ? ['finish', ...(readiness.ready && pendingPreparation ? [pendingPreparation] : [])] : [];
-      const recordOnly = finalRecords.length > 0;
-      if (recordOnly) checkpoint = undefined;
-      meter.setPhase(recordOnly ? 'final-record' : checkpoint === applicationReviewTool.name ? 'application-review'
-        : checkpoint === 'record_recovery_result' ? 'progress-review' : 'work');
+      if (!pendingDialog && !meter.finalizing && meter.needsReview) recovery.requestBudgetReview();
+      const turn = turnCoordinator.next({ actionExhausted: meter.actionExhausted || meter.finalizing,
+        pendingDialog: Boolean(pendingDialog), reviewRequested: readiness.requested,
+        needsAnswer: readiness.needsAnswer, needsCorrection: readiness.needsDeepReasoning,
+        submissionAttempted: Boolean(ctx.submissionAttempted),
+        preparations: reviewingApplications() ? ['prepare_application', 'prepare_email_application'] : pendingPreparation ? [pendingPreparation] : [] });
+      if (turn.stopped) { budgetStopped = true; break; }
+      const checkpoint = turn.checkpoint;
+      const finalRecords = turn.tools ?? [];
+      const recordOnly = turn.completing && !checkpoint;
+      if (turn.completing) meter.beginCompletion();
+      else meter.setPhase(checkpoint ? 'application-review' : 'work');
       if (meter.exhausted) { budgetStopped = true; break; }
       if (!pendingDialog && !ctx.observation.inspectionError) {
         // Capture a committed selection after typing only from that same
@@ -817,10 +818,10 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         break;
       }
       messages.push(observationMessage(ctx.observation, `${lastNote}\nOpen pages: ${JSON.stringify(pages)}\n${recovery.render()}\nRecorded draft (action audit, not independent proof of saved values): ${JSON.stringify(draft)}${dialog ? `\nPending ${dialog.type()} dialog: ${dialog.message()}` : ''}`));
-      if (recordOnly) messages.push({ role: 'user', content: 'Browser-action spending is exhausted. Record the current outcome using only the offered final-record tools. Do not retry a send or propose more browser work. Preserve an observed employer receipt, a fully reviewed local preparation, or exact unanswered required questions; otherwise report an honest skipped/unconfirmed result. No further model turn is available if this record cannot be completed.' });
+      if (recordOnly) messages.push({ role: 'user', content: 'Browser-action spending is exhausted. Use the reserved completion lane only to prepare the current application for candidate confirmation or record its truthful final outcome. No edits, specialist calls or sends are available. Preparation still requires a fresh canonical accuracy review and all validation; unresolved required facts go to Needs attention, and unfinished technical work must be reported honestly. Continue directly to preparation when the observed form is complete; do not write another recovery report.' });
       if (checkpoint) {
         let wholePage = '';
-        if (checkpoint === 'record_recovery_plan' || checkpoint === applicationReviewTool.name) {
+        if (checkpoint === applicationReviewTool.name) {
           try {
             const snapshot = await nativeSnapshot(ctx.page, 5000);
             wholePage = snapshot.length <= 24000 ? snapshot : snapshot.slice(0, 16000) + '\n[Middle omitted; inspect the relevant section if needed.]\n' + snapshot.slice(-8000);
@@ -830,9 +831,6 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
           }
         }
         if (checkpoint === applicationReviewTool.name) messages.push({ role: 'user', content: `APPLICATION ACCURACY CHECKPOINT: return exactly one record_application_review tool call. You are the applying agent and own this decision; no other model reviews it. Review the actual employer state, consequential answers, dates, consent, letter and attachments against identifiable candidate sources. Historical observations can include cancelled editors. Inspect uncertain saved values before declaring ready. If required facts are missing choose needs_answer; for conflicts choose correct and repair them. No send is queued.\n${readiness.render()}\nSelected resume: ${JSON.stringify({ id: ctx.resumeUsed, name: ctx.resumeName })}\n${wholePage ? `<untrusted-whole-page>\n${wholePage}\n</untrusted-whole-page>` : ''}` });
-        else messages.push({ role: 'user', content: `RECOVERY CHECKPOINT: return exactly one ${checkpoint} tool call and no other calls. ${checkpoint === 'record_recovery_plan'
-          ? 'Repeated failure or unchanged browser state requires diagnosis before more attempts. Inspect the supplied whole page, form, latest screenshot and prior errors. Record a concise grounded plan and observable verification; choose a different approach or consult the read-only specialist if prior approaches failed.'
-          : recovery.reviewingBudget ? 'Spending is near its current allowance. Assess whether the latest actions made meaningful progress toward submission, including partial work such as navigating a date picker toward a known truthful date. Compare the fresh page with action history. Distinguish changed from genuinely closer to completion. Repeated transitions, transport success and your own notes are not progress. Record evidence, assessment and the next action; no browser operation is authorized by this review itself.' : 'Compare the latest browser observation with your recorded recovery verification. A successful tool response, your own note or an unchanged page is not proof of progress. Record the actual observed result and your next action.'}\n${wholePage ? `<untrusted-whole-page>\n${wholePage}\n</untrusted-whole-page>` : ''}` });
       }
       steps++; // Audit counter only; spending and the worker watchdog bound the loop.
       // Compact only at the threshold so ordinary turns retain a cacheable
@@ -841,21 +839,22 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
       let reply;
       // The forced checkpoint already accepts only this named tool. Advertise
       // that exact contract; normal turns retain every available action.
-      const availableTools=haltReviewTools(offeredTools,haltReview,recordOnly);
+      const availableTools=haltReviewTools(offeredTools,haltReview,recordOnly).filter(tool =>
+        !recoveryTools.some(item => item.name === tool.name) || tool.name === recovery.tool);
       const turnTools = checkpoint ? availableTools.filter(tool => tool.name === checkpoint)
         : recordOnly ? availableTools.filter(tool => finalRecords.includes(tool.name)) : availableTools;
       const forceTool = checkpoint ?? (recordOnly && turnTools.length === 1 ? turnTools[0].name : undefined);
-      if (recordOnly) finalRecordUsed = true;
-      const reasoningEffort = highEffort || recovery.needsDeepReasoning || readiness.needsDeepReasoning ? 'high' : 'medium';
+      const reasoningEffort = !turn.completing && (highEffort || !checkpoint && recovery.needsDeepReasoning || readiness.needsDeepReasoning) ? 'high' : 'medium';
       const maxTokens = reasoningEffort === 'high' && applicationAgentIdentity().selection === 'celeris' ? 16_384 : 8192;
       const compact = (force = false) => {
         const current = screenshotsEveryTurn ? latestObservationScreenshotOnly(messages) : messages;
-        const relevant = checkpoint === applicationReviewTool.name ? generationRecoveryTranscript(current) : current;
+        const relevant = checkpoint === applicationReviewTool.name || recordOnly ? generationRecoveryTranscript(current) : current;
         const transcript = agentOnlyTranscript(relevant, contextLimit, force);
         if (transcript !== messages) messages.splice(0, messages.length, ...transcript);
         return messages;
       };
       try {
+        turnCoordinator.requested();
         reply = await applicationChat({ model: 'celeris-1-magnus', messages: compact(), tools: turnTools,
           requireTool: true, forceTool, thinking: true, reasoningEffort, maxTokens, meter });
       } catch (error) {
@@ -874,7 +873,6 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
       if (checkpoint) {
         const call = reply.toolCalls[0];
         const checkpointSchema = agentOnlyTools.find(tool => tool.name === checkpoint)!;
-        if (call?.name === checkpoint && checkpoint !== applicationReviewTool.name) call.args = recoveryInput(checkpoint, call.args);
         const issue = reply.toolCalls.length !== 1 || call?.name !== checkpoint
           ? `Return exactly one ${checkpoint} tool call. No proposed browser actions were executed.`
           : toolInputIssue(call.args, checkpointSchema.parameters);
@@ -886,23 +884,20 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
           for (const rejected of reply.toolCalls) messages.push({ role: 'tool', tool_call_id: rejected.id, content: feedback });
           messages.push({ role: 'user', content: feedback });
           saveLiveTrace();
-          if (checkpoint === applicationReviewTool.name) {
-            // Malformed protocol is not the agent deciding that the form is
-            // wrong. Retain this review for one schema correction, then end
-            // honestly instead of cycling through send/review again.
-            if (++invalidApplicationReviews >= 2) {
-              terminal = { status: 'skipped', reason: 'The application could not be completed.' };
-              finished = true;
-              break;
-            }
+          // Keep the canonical review for one protocol correction. Recovery
+          // advisories never enter this mandatory-review branch.
+          if (++invalidApplicationReviews >= 2) {
+            terminal = { status: 'skipped', reason: 'The application could not be completed.' };
+            finished = true;
+            break;
           }
-          else if (recovery.rejected()) { meter.setPhase('work'); messages.push({ role: 'user', content: 'Checkpoint formatting was not usable after correction. Normal tools are available again within the remaining spending allowance; continue the application from the fresh page. Diagnose from actual evidence, execute your chosen correction, then check its result. No proposed browser actions from the rejected responses were executed. Do not repeat or invent a submission.' }); }
           continue;
         }
       }
       highEffort = false;
       lastNote = 'Inspect saved values and the current page before choosing the next action.';
-      let interrupted = false;
+      const invalidCompletionReply = recordOnly && (reply.toolCalls.length !== 1 || !finalRecords.includes(reply.toolCalls[0]?.name));
+      let interrupted = invalidCompletionReply;
       let interruptionNote = 'Not run: the prior action failed, finished or exhausted the resource budget.';
       let planActions = 0;
       for (const call of reply.toolCalls) {
@@ -927,7 +922,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         // later judgement from a plan whose preceding action did not run.
         const receiptResult = call.name === 'record_recovery_result' && call.args.assessment === 'complete'
           && typeof call.args.receipt_quote === 'string' && Boolean(call.args.receipt_quote.trim());
-        const assessmentOnly = [...recoveryTools.map(tool => tool.name), applicationReviewTool.name].includes(checkpoint ?? '') && call.name === checkpoint;
+        const assessmentOnly = call.name === checkpoint || recoveryTools.some(tool => tool.name === call.name) && call.name === recovery.tool;
         // Saving a prepared draft or asking for its canonical review cannot
         // transmit an application. Do not discard that paid final record just
         // because its generation crossed the ordinary browser-action allowance.
@@ -945,11 +940,13 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
           planActions++;
           try {
             if (!tool) throw new Error('Unknown tool. Use the currently offered tools.');
+            if (recoveryTools.some(item => item.name === call.name)) call.args = recoveryInput(call.name, call.args);
             const issue = toolInputIssue(call.args, tool.parameters);
             if (issue) throw new Error(`Invalid tool input: ${issue}`);
-            if (recoveryTools.some(item => item.name === call.name) && call.name !== checkpoint) throw new Error('Record a recovery checkpoint only when that named checkpoint is requested.');
+            if (recoveryTools.some(item => item.name === call.name) && call.name !== recovery.tool) throw new Error('A recovery note needs current unreviewed recovery evidence. Continue from the current form instead of repeating a report.');
             failureKind='execution';
             dispatchStarted=true;
+            turnCoordinator.executed(call.name);
             if(call.name==='browser_action'&&changesBrowserState(call.args)||call.name==='browser_batch'&&Array.isArray(call.args.actions)&&call.args.actions.some(changesBrowserState))haltReview.pendingAction=false;
             result = await act(call.name, call.args);
             if(['read_candidate_evidence','take_snapshot'].includes(call.name)&&result.kind==='ok'&&!failedToolResult(result))haltReview.pendingAction=false;
@@ -989,7 +986,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         }
       }
       recovery.endTurn();
-      if (recordOnly && !finished) { budgetStopped = true; break; }
+      if (invalidCompletionReply && !finished) { budgetStopped = true; break; }
     }
     if (!finished && (budgetStopped || meter.exhausted)) {
       terminal = { status: 'skipped', reason: 'The application spending budget was reached.' };

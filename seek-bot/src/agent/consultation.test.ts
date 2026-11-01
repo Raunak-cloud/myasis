@@ -62,7 +62,7 @@ test('parallel account consultations isolate full candidate evidence, preference
   await Promise.all(accounts.map((owner, index) => withApplicationModel(owner.env, async () => {
     const ctx = context(index ? 'BETA_PRIVATE' : 'ALPHA_PRIVATE'), shared = options();
     const result = await consultApplicationSpecialist(ctx, { question: 'Why did the referral dropdown reject my answer?', focus: 'form' }, shared);
-    assert.equal(result.kind === 'ok' && result.disposition, 'completed');
+    assert.equal(result.kind === 'ok' && result.disposition, 'reobserve');
     assert.equal(shared.meter.totals.calls, 1, 'child usage goes onto the parent meter');
     assert.equal(readFileSync(join(owner.dir, 'answers.json'), 'utf8'), owner.answers, 'evidence stays unchanged');
   })));
@@ -161,6 +161,22 @@ test('an in-flight consultation cannot launch another request and actual provide
     assert.deepEqual(ctx.actions, []);
     assert.equal(ctx.submissionAttempted, undefined);
   });
+});
+
+test('same-state advice is reused and a late reply cannot overwrite changed parent evidence',async()=>{
+ const owner=account('VERSIONED_ADVICE'),ctx=context(),shared=options();let calls=0;
+ await withApplicationModel(owner.env,async()=>{
+  globalThis.fetch=async()=>{calls++;return success('celeris');};
+  const first=await consultApplicationSpecialist(ctx,{question:'Is the country already selected?'},shared);
+  const cached=await consultApplicationSpecialist(ctx,{question:'Is the country already selected?'},shared);
+  assert.equal(message(first),message(cached));assert.equal(calls,1,'duplicate consultation does not spend or collide with another review');
+  let release!:()=>void,started!:()=>void;const gate=new Promise<void>(r=>{release=r;}),ready=new Promise<void>(r=>{started=r;});
+  globalThis.fetch=async()=>{calls++;started();await gate;return success('celeris');};
+  const late=consultApplicationSpecialist(ctx,{question:'Inspect the latest field'},shared);await ready;
+  ctx.observation={...ctx.observation,text:'The candidate moved to another form step'};
+  release();assert.match(message(await late),/stale advice was discarded/);
+  assert.equal(calls,2);assert.equal(ctx.actions.length,0);assert.equal(ctx.submissionAttempted,undefined);
+ });
 });
 
 test('malformed advice and unsolicited tool calls cannot act or claim successful completion', async () => {

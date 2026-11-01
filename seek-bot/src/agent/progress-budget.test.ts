@@ -6,6 +6,16 @@ import type { FormField } from '../types.js';
 const field = (label: string, value = '', extra: Partial<FormField> = {}): FormField => ({ ref: 'fresh-ref', label, kind: 'text', required: true, currentValue: value, ...extra });
 const spend = (meter: ProgressBudget, amountUsd: number) => meter.recordProvider({ prompt: 0, cached: 0, completion: 0, amountUsd });
 
+test('completion reserve is fixed once and cannot be renewed by phase changes or late credits',()=>{
+ const meter=new ProgressBudget(.20,.70);spend(meter,.21);meter.beginCompletion();
+ assert.equal(meter.exhausted,false);assert.equal(meter.finalizing,true);
+ meter.setPhase('work');spend(meter,.10);meter.reviewedProgress('final-ready');meter.beginCompletion();
+ assert.equal(meter.exhausted,false);spend(meter,.041);
+ assert.equal(meter.exhausted,true,'completion still stops at the original thirty-five-cent ceiling');
+ const capped=new ProgressBudget(.20,.22);spend(capped,.21);capped.beginCompletion();spend(capped,.011);
+ assert.equal(capped.exhausted,true,'reserve never exceeds the absolute account limit');
+});
+
 test('rerendered IDs cannot fund repeated login fills; repeated semantic fields stay distinct', () => {
  const meter = new ProgressBudget(.20,.70);
  const form = (id:string,first='',second='') => [field('Email',first,{controlIdentity:id+'-1'}),field('Email',second,{controlIdentity:id+'-2'})];

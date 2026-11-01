@@ -4,6 +4,7 @@ import type { GmailMessage, GmailThread } from './gmail-mcp-client.js';
 import { GmailServiceError } from './gmail-mcp-service.js';
 import type { PreparedApplication } from './application-review-types.js';
 import { browserDeadline, browserCleanup, assertBrowserOperationActive } from './browser-deadline.js';
+import { verificationMailboxQuery } from './gmail-verification-policy.js';
 
 const routes = new Map<string, { port: number; account: string; active: boolean; browser?: Promise<Browser>; tail: Promise<unknown>; pages: Set<Page> }>();
 const THREAD_ROWS = 'tr[data-thread-id], tr[data-legacy-thread-id], tr [data-legacy-thread-id], tr [data-thread-id]';
@@ -131,7 +132,7 @@ export async function searchBrowserGmail(userId: string, query: string): Promise
     return page.locator(`[role="main"] :is(${THREAD_ROWS})`).evaluateAll(nodes => [...new Set(nodes.map(node =>
       [node.getAttribute('data-legacy-thread-id'), node.getAttribute('data-thread-id')]
         .find(id => id && /^[\w-]{1,100}$/.test(id)) || '').filter(Boolean))].slice(0, 20).map(id => ({ id })));
-  }, `#search/${encodeURIComponent(`newer_than:2h -in:sent -in:draft (${query})`)}`, 55_000);
+  }, `#search/${encodeURIComponent(verificationMailboxQuery(query))}`, 55_000);
 }
 export async function readBrowserGmail(userId: string, threadId: string): Promise<GmailMessage[]> {
   if (!/^[\w-]{1,100}$/.test(threadId)) throw new GmailServiceError('unapproved', 'Invalid Gmail thread.');

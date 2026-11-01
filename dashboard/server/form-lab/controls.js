@@ -1,3 +1,5 @@
+// Loaded as source and invoked by the generated form page in fixtures.mjs.
+// oxlint-disable-next-line no-unused-vars
 function formControls(spec,seed,index,embedded,base){
  const q=s=>document.querySelector(s),all=s=>[...document.querySelectorAll(s)];
  let r=seed+index*121;const later=fn=>{r^=r<<13;r^=r>>>17;r^=r<<5;return setTimeout(fn,250+(r>>>0)%1150);};

@@ -46,7 +46,6 @@ export const detailPages=[
   {legend:'Supporting evidence',fields:[field('hardQualification','Qualification certificate',{kind:'file',accept:'.pdf'}),field('hardSamples','Work samples',{kind:'file',multiple:true,accept:'.txt,.pdf'})]},
   {legend:'Application statement',fields:[field('statement','Why this role?',{kind:'editor'}),field('confirmEvidence','These fictional documents and statements are accurate',{kind:'checkbox'})]}],expected:{confirmEvidence:'on'},transient:true},
 ];
-const names=spec=>spec.groups.flatMap(g=>g.fields);
 const control=f=>{
  const req=f.required===false?'':' required',label=esc(f.label)+(f.required===false?' (optional)':' *'),id='input-'+f.name;
  const common=`name="${f.name}" id="${id}"${req}`;

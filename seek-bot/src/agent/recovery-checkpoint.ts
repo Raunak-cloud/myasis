@@ -9,11 +9,11 @@ import { changesBrowserState } from './browser-commands.js';
 const text = { type: 'string', minLength: 1 };
 const evidence = { type: 'array', minItems: 1, items: text };
 export const recoveryTools: ToolSchema[] = [
-  { name: 'record_recovery_plan', description: 'Required recovery checkpoint when requested. Briefly diagnose the observed problem, distinguish evidence from uncertainty, choose a materially different next approach and specify its observable verification. Records your decision; performs no browser action.',
+  { name: 'record_recovery_plan', description: 'Optional recovery note when the recovery advisory requests diagnosis. Record a concise cause, a different next approach and observable verification when useful. You may instead act directly on clear current evidence or specialist advice. Performs no browser action.',
     parameters: { type: 'object', additionalProperties: false, properties: {
       observed_issue: text, evidence, previous_approaches: evidence, next_action: text, verification: text,
     }, required: ['observed_issue', 'evidence', 'previous_approaches', 'next_action', 'verification'] } },
-  { name: 'record_recovery_result', description: 'Required after acting on a recovery plan. Assess the fresh browser evidence against your recorded verification. Tool success alone is not progress. complete means an actual submitted application with an observed employer receipt: include its complete receipt_quote, which records your applied judgment without another model call. Otherwise use progress, no_progress or more_evidence. Never submits or verifies receipt independently.',
+  { name: 'record_recovery_result', description: 'Optional combined recovery/progress-budget assessment when advised. Assess fresh browser evidence once; after a successful fix you may continue or prepare directly without this report. complete requires an actual observed employer receipt and receipt_quote. Otherwise use progress, no_progress or more_evidence. Never submits or approves independently.',
     parameters: { type: 'object', additionalProperties: false, properties: {
       assessment: { type: 'string', enum: ['progress', 'no_progress', 'more_evidence', 'complete'] }, evidence, next_action: text,
       receipt_quote: { type: 'string', maxLength: 4000 },
@@ -76,7 +76,7 @@ export class RecoveryCheckpoint {
   }
   finish(status: string, sendAttempted: boolean): void { this.persist({ status, sendAttempted }); }
   render(): string {
-    return `${this.previousAttempt ? `PREVIOUS ATTEMPT (historical agent claims only; inspect the current page, never replay a send or adopt old answers blindly): ${this.previousAttempt}\n` : ''}${this.memory.render()}\nRECENT ACTION OUTCOMES (changed does not necessarily mean closer to submission): ${JSON.stringify(this.transitions)}\nRECORDED PLAN / PROGRESS: ${this.note}`;
+    return `${this.previousAttempt ? `PREVIOUS ATTEMPT (historical agent claims only; inspect the current page, never replay a send or adopt old answers blindly): ${this.previousAttempt}\n` : ''}${this.memory.render()}\nRECENT ACTION OUTCOMES (changed does not necessarily mean closer to submission): ${JSON.stringify(this.transitions)}\nRECORDED PLAN / PROGRESS: ${this.note}${this.tool ? `\nRECOVERY ADVISORY: ${this.tool} is optional. ${this.budgetReview ? 'One assessment covers both recovery and spending.' : 'Inspect the latest outcome before acting.'} If the evidence or specialist advice already resolves the issue, continue the form or prepare it directly; do not spend another turn restating a completed fix.` : ''}`;
   }
   get reviewingBudget(): boolean { return this.budgetReview; }
   /** Keep deeper reasoning through diagnosis, repair and fresh verification.
@@ -88,6 +88,7 @@ export class RecoveryCheckpoint {
     // Do not turn an unexecuted repair into a result checkpoint using older
     // reviewable work. A repair gets its own evidence assessment after acting;
     // the normal spending ceiling still applies before every operation.
+    if (this.phase === 'verify') { this.budgetReview = true; this.reviewable = false; return true; }
     if (this.phase !== 'normal' || !this.reviewable) return false;
     this.budgetReview = true; this.phase = 'verify'; this.reviewable = false;
     return true;
@@ -97,7 +98,6 @@ export class RecoveryCheckpoint {
   private browserTurn = false;
   private failures = 0;
   private unchanged = 0;
-  private invalid = 0;
   private furtherInspections = 0;
   private actionPending = false;
 
@@ -142,18 +142,16 @@ export class RecoveryCheckpoint {
     return this.phase === 'plan' ? 'record_recovery_plan' : this.phase === 'verify' ? 'record_recovery_result' : undefined;
   }
 
-  /** A formatting failure must not terminate an otherwise usable application.
-   * After one correction, release the checkpoint; normal tools and budgets remain. */
-  rejected(): boolean {
-    if (++this.invalid < 2) return false;
-    this.phase = 'normal'; this.invalid = 0; this.failures = 0; this.unchanged = 0;
-    this.browserTurn = false; this.actionPending = false;
-    this.budgetReview = false;
-    return true;
+  applicationReviewed(): void {
+    // Canonical accuracy review covers this form state; a second recovery or
+    // spending report must not claim the same evidence or block preparation.
+    this.phase = 'normal'; this.actionPending = false; this.budgetReview = false;
+    this.reviewable = false; this.progressCandidate = undefined;
+    this.failures = 0; this.unchanged = 0; this.furtherInspections = 0;
   }
 
   planned(args?: Record<string, unknown>): void {
-    this.phase = 'act'; this.invalid = 0; this.failures = 0; this.unchanged = 0;
+    this.phase = 'act'; this.failures = 0; this.unchanged = 0;
     this.furtherInspections = 0;
     if (args) this.remember(`RECOVERY PLAN: ${JSON.stringify(args)}`);
   }
@@ -164,9 +162,9 @@ export class RecoveryCheckpoint {
     const credit = assessment === 'progress' && this.progressCandidate && this.progressCandidate === this.previous && !this.credited.has(this.progressCandidate) ? this.progressCandidate : undefined;
     if (credit) this.credited.add(credit);
     this.progressCandidate = undefined;
+    this.reviewable = false;
     this.budgetReview = false;
     if (args) this.remember(`${this.note}\nRECOVERY RESULT: ${JSON.stringify(args)}`);
-    this.invalid = 0;
     // The result already records evidence and the agent's revised next_action.
     // Do not force a duplicate plan before allowing that repair to execute.
     if (assessment === 'no_progress') { this.phase = 'act'; this.failures = 0; this.unchanged = 0; }
@@ -181,7 +179,13 @@ export class RecoveryCheckpoint {
       : tool === 'browser_batch'
         ? Array.isArray(args.actions) && args.actions.some(changesBrowserState)
         : ['complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(tool);
-    if (this.phase === 'act' && changesPage) this.actionPending = true;
+    // Choosing the next normal action after inspecting a repair is an
+    // implicit continuation, not a reason to force a report or keep expensive
+    // diagnosis active forever. It earns no extra allowance by itself.
+    if (this.phase === 'verify' && changesPage && !failed) {
+      this.phase = 'normal'; this.budgetReview = false; this.failures = 0; this.unchanged = 0;
+    }
+    if ((this.phase === 'act' || this.phase === 'plan') && changesPage) this.actionPending = true;
     if (changesPage) {
       const commands = tool === 'browser_batch' && Array.isArray(args.actions) ? args.actions : [args];
       for (const command of commands) {

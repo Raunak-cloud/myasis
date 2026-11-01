@@ -44,6 +44,24 @@ test('routine progress and spending reviews do not request deep reasoning',()=>{
  state.verified('progress');assert.equal(state.needsDeepReasoning,false);
 });
 
+test('one recovery assessment consumes the spending review for that same browser state',()=>{
+ const state=new RecoveryCheckpoint();state.observe(observation());state.planned();
+ state.acted('browser_action',false,{action:'fill'});state.endTurn();state.observe(observation('Sydney'));
+ assert.equal(state.requestBudgetReview(),true,'recovery and spending share one pending assessment');
+ assert.match(state.render(),/optional/);
+ assert.equal(typeof state.verified('progress'),'string');
+ assert.equal(state.requestBudgetReview(),false,'the Culture Amp duplicate report cannot be scheduled');
+ assert.equal(state.tool,undefined);
+});
+
+test('canonical review consumes advisory recovery without needing a second report',()=>{
+ const state=new RecoveryCheckpoint();state.observe(observation());state.planned();
+ state.acted('browser_action',false,{action:'fill'});state.endTurn();state.observe(observation('Sydney'));
+ state.applicationReviewed();
+ assert.equal(state.tool,undefined);assert.equal(state.requestBudgetReview(),false);
+ assert.equal(state.needsDeepReasoning,false);
+});
+
 test('changing DOM identities do not disguise repeated unchanged pages', () => {
  const state=new RecoveryCheckpoint();state.observe(observation());
  for(let i=0;i<5;i++){
@@ -87,16 +105,22 @@ test('unchanged inspections trigger recovery despite ref churn; changed values d
   assert.equal(healthy.tool, undefined);
 });
 
-test('malformed checkpoint retries and inconclusive checks are bounded', () => {
+test('inconclusive optional assessments recommend diagnosis without blocking normal tools', () => {
   const state = new RecoveryCheckpoint();
-  assert.equal(state.rejected(), false); assert.equal(state.rejected(), true);
-  assert.equal(state.tool, undefined, 'bad formatting releases normal tools instead of stopping the form');
   state.planned();
   state.verified('more_evidence'); assert.equal(state.tool, undefined);
   state.verified('more_evidence'); assert.equal(state.tool, 'record_recovery_plan');
   assert.equal(validToolInput({}, recoveryTools[0].parameters), false);
   assert.equal(validToolInput({ observed_issue: 'Unknown widget', evidence: [], previous_approaches: ['Bad query'],
     next_action: 'Inspect actual controls', verification: 'Observed option saved' }, recoveryTools[0].parameters), false);
+});
+
+test('continuing with the next normal action retires recovery escalation without claiming progress credit',()=>{
+ const state=new RecoveryCheckpoint();state.observe(observation());state.planned();
+ state.acted('browser_action',false,{action:'fill'});state.endTurn();state.observe(observation('Sydney'));
+ assert.equal(state.needsDeepReasoning,true);
+ state.acted('browser_action',false,{action:'click'});state.endTurn();
+ assert.equal(state.tool,undefined);assert.equal(state.needsDeepReasoning,false);
 });
 
 test('extra evidence and narration preserve the agent decision without executing metadata', () => {

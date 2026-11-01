@@ -1,45 +1,24 @@
 import { gmailConnection, gmailRequest } from './gmail-connection.js';
 import { sendApprovedApplicationEmail } from './application-email.js';
 import { GmailMcpService } from '../../seek-bot/src/gmail-mcp-service.js';
-import { GmailMcpClient, type GmailMessage } from '../../seek-bot/src/gmail-mcp-client.js';
+import { GmailMcpClient } from '../../seek-bot/src/gmail-mcp-client.js';
+import { gmailApiReader } from './gmail-api-reader.js';
 import { gmailAccess } from './gmail-access.js';
 import { registerGmailBrowser, searchBrowserGmail, readBrowserGmail } from '../../seek-bot/src/gmail-browser.js';
 
-function gmailApiMessage(raw: Record<string, any>): GmailMessage {
-  const headers = raw.payload?.headers || [];
-  const header = (name: string) => headers.find((entry: { name: string }) => entry.name?.toLowerCase() === name)?.value || '';
-  const text: string[] = [], html: string[] = [];
-  const read = (part: Record<string, any>) => {
-    if (!part.filename && typeof part.body?.data === 'string') {
-      const value = Buffer.from(part.body.data, 'base64url').toString('utf8');
-      if (part.mimeType === 'text/plain') text.push(value);
-      if (part.mimeType === 'text/html') html.push(value);
-    }
-    for (const child of part.parts || []) read(child);
-  };
-  if (raw.payload) read(raw.payload);
-  const stamp = Number(raw.internalDate);
-  return { id: String(raw.id), subject: header('subject'), sender: header('from'),
-    date: Number.isFinite(stamp) && stamp > 0 ? new Date(stamp).toISOString() : header('date'),
-    plaintextBody: text.join('\n').slice(0, 20_000), htmlBody: html.join('\n').slice(0, 80_000), snippet: raw.snippet, labelIds: raw.labelIds };
-}
+const apiReader = gmailApiReader(gmailRequest);
 const gmailMcp = new GmailMcpService({
   search: async (userId, query) => {
     const access = await gmailAccess(userId);
     if (!access.connected) throw new Error('Reconnect Gmail in Settings.');
     if (access.provider === 'browser') return searchBrowserGmail(userId, query);
-    const found = await gmailRequest<{ threads?: Array<{ id: string }> }>(userId, 'threads', {
-      params: { q: `newer_than:2h -in:sent -in:draft (${query})`, maxResults: 20 } });
-    return found.threads || [];
+    return apiReader.search(userId, query);
   },
   thread: async (userId, threadId) => {
     const access = await gmailAccess(userId);
     if (!access.connected) throw new Error('Reconnect Gmail in Settings.');
     if (access.provider === 'browser') return readBrowserGmail(userId, threadId);
-    const thread = await gmailRequest<{ messages?: Array<Record<string, any>> }>(userId, `threads/${encodeURIComponent(threadId)}`, { params: { format: 'full' } });
-    return (thread.messages || []).map(gmailApiMessage).filter(message =>
-      !message.labelIds?.some(label => ['SENT', 'DRAFT', 'TRASH', 'SPAM'].includes(label))
-      && Date.parse(message.date || '') > Date.now() - 2 * 60 * 60_000).slice(-20);
+    return apiReader.thread(userId, threadId);
   },
   send: sendApprovedApplicationEmail,
 });

@@ -31,6 +31,17 @@ try {
   const fresh = await findVerificationInGmail({ hint: 'Fixture', want: 'code', requestedAt, timeoutMs: 2000 });
   assert.ok(!('error' in fresh) && fresh.value === '729184', 'a new authentication request excludes older same-employer codes');
   assert.ok(queries.at(-1)?.includes(`after:${Math.floor((requestedAt - 2 * 60_000) / 1000)}`), 'browser and API providers receive the same request freshness lower bound');
+  messages = [{ ...message('spam-code', 1000, '482913'), labelIds: ['SPAM'] }];
+  const spam = await findVerificationInGmail({ hint: 'Fixture', purpose: 'sign_in', want: 'code', timeoutMs: 2000 });
+  assert.ok(!('error' in spam) && spam.value === '482913', 'a fresh matching code in Spam is usable');
+  messages = [{ ...messages[0], id: 'unrelated-spam', subject: 'Another Employer verification' }];
+  assert.ok('error' in await findVerificationInGmail({ hint: 'Fixture', purpose: 'sign_in', want: 'code', timeoutMs: 100 }), 'Spam does not relax employer matching');
+  for (const labels of [['TRASH'], ['SENT'], ['DRAFT'], ['SPAM', 'TRASH']]) {
+    messages = [{ ...message('excluded-folder', 1000, '482913'), labelIds: labels }];
+    assert.ok('error' in await findVerificationInGmail({ hint: 'Fixture', purpose: 'sign_in', want: 'code', timeoutMs: 100 }), `excluded mail stays unavailable: ${labels.join(',')}`);
+  }
+  messages = [{ ...message('expired-spam', 16 * 60_000, '482913'), labelIds: ['SPAM'] }];
+  assert.ok('error' in await findVerificationInGmail({ hint: 'Fixture', purpose: 'sign_in', want: 'code', timeoutMs: 100 }), 'Spam does not relax freshness');
   messages = [message('older-code', 5 * 60_000, '111222'), { id: 'link-instead', subject: 'Fixture: confirm your account', date: new Date().toISOString(), htmlBody: '<p>Confirm your Fixture account.</p><a href="https://fixture.invalid/verify?token=fixture">Verify account</a>' }];
   const alternative = await findVerificationInGmail({ hint: 'Fixture', want: 'code', allowAlternative: true, timeoutMs: 2000 });
   assert.ok(!('error' in alternative) && alternative.kind === 'link', 'a newer link-only authentication email wins over an older code and is reported immediately');

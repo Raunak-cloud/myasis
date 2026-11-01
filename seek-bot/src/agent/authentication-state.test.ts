@@ -8,7 +8,7 @@ import type { CandidateProfile } from '../types.js';
 import type { ToolContext } from './context.js';
 import { withApplicationModel } from '../application-model.js';
 import { doCompleteAuthentication, doRecordAuthenticationResult } from './authentication.js';
-import { storedCredential, commitAcceptedCredentials } from '../site-credentials.js';
+import { storedCredential, acceptPendingCredential, pendingCredential } from '../site-credentials.js';
 import { observe } from './observe.js';
 
 // Native browser fixture only: no employer, real account, mailbox or model call.
@@ -105,8 +105,62 @@ test('unknown credentials, rejected logins, accepted recovery and account isolat
   assert.equal(missing.kind==='ok'?missing.disposition:'','invalid-arguments');
   await doRecordAuthenticationResult(ctx,{purpose:'sign_in',outcome:'accepted',evidence:'A fabricated successful sign-in message.'});
   assert.equal(ctx.actions.length,before,'missing outcomes and fabricated page evidence cannot write success');
-  const proposalMap=new Map([['employer.fixture.invalid',{format:'readable-v1' as const,rules:{max_length:24}}]]);
-  commitAcceptedCredentials(proposalMap,[{kind:'password-reset',site:'employer.fixture.invalid',email:'another@fixture.invalid',at:new Date().toISOString(),detail:'Foreign event'}],profile.email);
-  assert.equal(proposalMap.size,1,'another email cannot accept this account credential');
+  assert.equal(acceptPendingCredential(page.url(),'another@fixture.invalid',ctx.job.company,'reset_password'),false,'another email cannot accept this account credential');
+ });}finally{await browser.close();if(previousSecret===undefined)delete process.env.SITE_AUTH_SECRET;else process.env.SITE_AUTH_SECRET=previousSecret;const target=resolve(directory);assert.ok(target.startsWith(resolve(tmpdir())+sep));rmSync(target,{recursive:true,force:true});}
+});
+
+test('pending registration and reset survive fresh runs without accepting unverified passwords', async () => {
+ const directory=mkdtempSync(join(tmpdir(),'owtomate-pending-auth-'));
+ const previousSecret=process.env.SITE_AUTH_SECRET;process.env.SITE_AUTH_SECRET='pending-fixture-only-secret';
+ const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
+ const page=await browser.newPage(), profile={name:'Fixture Candidate',email:'candidate@fixture.invalid',phone:'0400000000'} as CandidateProfile;
+ const form='<main><label>Email<input id=email type=email></label><label>Password<input id=password type=password></label></main>';
+ await page.route('**/*',route=>route.fulfill({contentType:'text/html',body:form}));
+ try{await withApplicationModel({DATA_DIR:directory},async()=>{
+  await page.goto('https://shared-ats.fixture.invalid/register');
+  const context=async(company='Fixture Employer')=>({page,profile,job:{id:'fixture',title:'Fixture',company},observation:await observe(page),actions:[],captured:[],log:()=>{}} as unknown as ToolContext);
+  const inputs={targets:[{selector:'#email'},{selector:'#password'}]};
+  let ctx=await context();
+  await doCompleteAuthentication(ctx,{purpose:'create_account',password_rules:{max_length:16},...inputs});
+  const original=await page.locator('#password').inputValue();assert.ok(original);
+  assert.equal(pendingCredential(page.url(),profile.email,ctx.job.company,'create_account')?.phase,'prepared','saved before account submission or a possible worker crash');
+  await page.setContent('<main><p>Check your email to activate your new account.</p></main>');
+  await doRecordAuthenticationResult(ctx,{purpose:'create_account',outcome:'needs_verification',evidence:'Check your email to activate your new account.'});
+  assert.equal(storedCredential(page.url(),profile.email),null);
+  assert.equal(pendingCredential(page.url(),profile.email,ctx.job.company,'create_account')?.phase,'needs_verification');
+  const foreignDirectory=join(directory,'other-owner');mkdirSync(foreignDirectory);
+  await withApplicationModel({DATA_DIR:foreignDirectory},async()=>assert.equal(pendingCredential(page.url(),profile.email,ctx.job.company,'create_account'),null,'pending recovery stays inside the owning candidate directory'));
+  await page.setContent(form);ctx=await context();
+  await doCompleteAuthentication(ctx,{purpose:'create_account',password_rules:{max_length:24},...inputs});
+  assert.equal(await page.locator('#password').inputValue(),original,'later registration cannot silently replace the activation-pending password');
+  await page.setContent('<main><p>There is already an account with this email address.</p></main>');
+  await doRecordAuthenticationResult(ctx,{purpose:'create_account',outcome:'rejected',evidence:'There is already an account with this email address.'});
+  assert.equal(ctx.pendingCredentials?.size,0);
+  assert.equal(pendingCredential(page.url(),profile.email,ctx.job.company,'create_account')?.phase,'needs_verification','duplicate account response preserves prior activation recovery');
+  await page.setContent(form);ctx=await context();
+  const blocked=await doCompleteAuthentication(ctx,{purpose:'sign_in',...inputs});
+  assert.match(blocked.kind==='ok'?blocked.message:'',/saved pending registration/i);
+  assert.equal(await page.locator('#password').inputValue(),'','pending credentials cannot silently sign in');
+  await page.setContent('<main><p>Your new account is activated.</p></main>');
+  const foreign=await context('Different Employer');
+  await doRecordAuthenticationResult(foreign,{purpose:'create_account',outcome:'accepted',evidence:'Your new account is activated.'});
+  assert.equal(storedCredential(page.url(),profile.email),null,'same ATS host cannot accept a different employer proposal');
+  await doRecordAuthenticationResult(ctx,{purpose:'create_account',outcome:'accepted',evidence:'A fabricated activation message.'});
+  assert.equal(storedCredential(page.url(),profile.email),null);
+  await doRecordAuthenticationResult(ctx,{purpose:'create_account',outcome:'accepted',evidence:'Your new account is activated.'});
+  assert.ok(storedCredential(page.url(),profile.email),'fresh activation evidence recovers the durable proposal without the old context');
+  assert.equal(pendingCredential(page.url(),profile.email,ctx.job.company,'create_account'),null);
+  await page.setContent(form);ctx=await context();await doCompleteAuthentication(ctx,{purpose:'sign_in',...inputs});
+  assert.equal(await page.locator('#password').inputValue(),original,'later run derives the exact original password');
+  await doCompleteAuthentication(ctx,{purpose:'reset_password',password_rules:{max_length:20},...inputs});
+  const reset=await page.locator('#password').inputValue();assert.notEqual(reset,original);
+  await page.setContent(form);ctx=await context();await doCompleteAuthentication(ctx,{purpose:'sign_in',...inputs});
+  assert.equal(await page.locator('#password').inputValue(),original,'unaccepted reset does not replace the confirmed password');
+  await page.setContent('<main><p>Your password has been reset successfully.</p></main>');ctx=await context();
+  await doRecordAuthenticationResult(ctx,{purpose:'reset_password',outcome:'accepted',evidence:'Your password has been reset successfully.'});
+  await page.setContent(form);ctx=await context();await doCompleteAuthentication(ctx,{purpose:'sign_in',...inputs});
+  assert.equal(await page.locator('#password').inputValue(),reset,'confirmed reset can recover across runs too');
+  const files=['site-credentials.json','pending-site-credentials.json'].map(file=>readFileSync(resolve(directory,file),'utf8')).join('\n');
+  assert.ok(!files.includes(original)&&!files.includes(reset),'no private password bytes are persisted');
  });}finally{await browser.close();if(previousSecret===undefined)delete process.env.SITE_AUTH_SECRET;else process.env.SITE_AUTH_SECRET=previousSecret;const target=resolve(directory);assert.ok(target.startsWith(resolve(tmpdir())+sep));rmSync(target,{recursive:true,force:true});}
 });

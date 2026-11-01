@@ -4,6 +4,7 @@ import { type CostMeter, type ToolSchema } from './celeris.js';
 import { applicationChat } from './application-chat.js';
 import { validToolInput } from './tool-input.js';
 import { ok, type ToolContext, type ToolResult } from './context.js';
+import { createHash } from 'node:crypto';
 
 export const consultationToolSchema: ToolSchema = {
   name: 'consult_application_specialist',
@@ -25,7 +26,13 @@ export interface ConsultationOptions {
   applicationHistory?: string;
 }
 
-const states = new WeakMap<ToolContext, { calls: number; inFlight: boolean }>();
+const states = new WeakMap<ToolContext, { calls: number; inFlight: boolean; cache?: { key: string; message: string } }>();
+const currentEvidence = (ctx: ToolContext) => ({ profile: ctx.profile, job: ctx.job,
+  observation: { url: ctx.observation.url, title: ctx.observation.title, text: ctx.observation.text,
+    fields: ctx.observation.fields.map(field => field.sensitive || field.inputType === 'password'
+      ? { ...field, currentValue: '[credential withheld]' } : field), actions: ctx.observation.actions },
+  answers: ctx.captured, coverLetter: ctx.coverLetter, resume: ctx.resumeUsed, actions: ctx.actions });
+const fingerprint = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const replySchema = {
   type: 'object', additionalProperties: false,
   properties: {
@@ -59,22 +66,25 @@ export async function consultApplicationSpecialist(
   const state = states.get(ctx) ?? { calls: 0, inFlight: false };
   states.set(ctx, state);
   if (state.inFlight) return ok('A specialist consultation is already in progress for this application.', 'reobserve');
-  if (state.calls >= 2) return ok('The two optional specialist consultations for this application have been used. Continue using the current evidence.', 'reobserve');
   // The worker watchdog owns elapsed time; provider requests retain timeouts.
   if (options.meter.exhausted) return ok('No specialist request started: use the existing evidence within the remaining application budget.', 'reobserve');
 
-  state.calls++;
   state.inFlight = true;
   try {
+    const page = ctx.page, snapshot = structuredClone(currentEvidence(ctx)), version = fingerprint(snapshot);
     const supportingDocuments = await agentOnlyEvidence(`${ctx.job.title} ${args.question}`);
+    if (ctx.page !== page || fingerprint(currentEvidence(ctx)) !== version) return ok('The parent evidence changed while preparing the consultation. Inspect the fresh page before consulting again; no specialist request was sent.', 'reobserve');
+    const key = fingerprint({ args, snapshot, supportingDocuments, history: options.applicationHistory });
+    if (state.cache?.key === key) return ok(state.cache.message, 'reobserve');
+    if (state.calls >= 2) return ok('The two optional specialist consultations for this application have been used. Continue using the current evidence.', 'reobserve');
     const candidate = {
-      profile: ctx.profile,
-      selectedResume: ctx.resumeUsed ?? null,
+      profile: snapshot.profile,
+      selectedResume: snapshot.resume ?? null,
       supportingDocuments,
     };
     if (options.meter.exhausted) return ok('Specialist request not started because evidence loading left insufficient application budget.', 'reobserve');
-    const fields = ctx.observation.fields.map(field => field.sensitive || field.inputType === 'password'
-      ? { ...field, currentValue: '[credential withheld]' } : field);
+    const fields = snapshot.observation.fields;
+    state.calls++;
     const reply = await applicationChat({
       model: 'celeris-1-magnus', meter: options.meter,
       thinking: true, reasoningEffort: 'medium', maxTokens: 8192,
@@ -84,12 +94,15 @@ export async function consultApplicationSpecialist(
         { role: 'user', content: `Parent objective: complete the current candidate's job application truthfully using the current page, saved preferences and shared run budget.\n${BROWSER_FAILURE_EVIDENCE}\nParent question: ${data(args)}\n<untrusted role="candidate-evidence">${data(candidate)}</untrusted>\n<untrusted role="job">${data(ctx.job)}</untrusted>\n<untrusted role="current-page">${data({ url: ctx.observation.url, title: ctx.observation.title, text: ctx.observation.text, fields, actions: ctx.observation.actions })}</untrusted>\n<untrusted role="parent-history">${data({ capturedAnswers: ctx.captured, coverLetter: ctx.coverLetter ?? null, applicationHistory: options.applicationHistory ?? '', applicationActions: ctx.actions })}</untrusted>` },
       ],
     });
+    if (ctx.page !== page || fingerprint(currentEvidence(ctx)) !== version) return ok('The browser or candidate evidence changed while the specialist was working. Its stale advice was discarded. Inspect the fresh page before choosing the next action.', 'reobserve');
     if (reply.toolCalls.length) return ok('The read-only specialist returned an action instead of advice. No action ran; continue with the current page and evidence.', 'reobserve');
     let advice: unknown;
     try { advice = JSON.parse(reply.text); } catch { return ok('The specialist reply was incomplete. No action ran; continue with the existing evidence.', 'reobserve'); }
     if (!validToolInput(advice, replySchema)) return ok('The specialist reply did not match the advice format. No action ran; continue with the existing evidence.', 'reobserve');
     ctx.log(`  Specialist consultation ${state.calls}/2 complete (read only).`);
-    return ok(`READ-ONLY SPECIALIST ADVICE. This is not an approval or a submission receipt; the applying agent decides its next action from the current page and candidate evidence.\n${data(advice)}`, 'completed');
+    const message = `READ-ONLY SPECIALIST ADVICE. This is not an approval or a submission receipt; inspect the fresh page and act on useful advice directly without another recovery report.\n${data(advice)}`;
+    state.cache = { key, message };
+    return ok(message, 'reobserve');
   } finally {
     state.inFlight = false;
   }

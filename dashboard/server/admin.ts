@@ -254,7 +254,7 @@ async function adminRuns(filter: { userId?: string; limit?: number }): Promise<A
     };
   });
   const costs=await loadAdminRunCosts(runs);
-  return runs.map(({nextStartedAt:_,...run})=>({...run,cost:costs.get(run.id)??null}));
+  return runs.map(({nextStartedAt:_nextStartedAt,...run})=>({...run,cost:costs.get(run.id)??null}));
 }
 
 async function adminOverview() {
