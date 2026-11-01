@@ -23,7 +23,7 @@ as_app() { sudo -u myasis -H bash -lc "$1"; }
 # directory, so its command line never contains "seek-bot/": match the script and check where it runs.
 active_runs() {
   local n=0 pid
-  for pid in $(pgrep -f 'node dist/(main|queue|browser-benchmark)\.js' || true); do
+  for pid in $(pgrep -f 'node (dist/(main|queue|browser-benchmark)\.js|/opt/owtomate-repair-releases/[a-f0-9-]+/seek-bot/dist/main\.js)' || true); do
     [ "$(readlink "/proc/$pid/cwd" 2>/dev/null)" = "$APP/seek-bot" ] && n=$((n + 1))
   done
   # The diagnostic coordinator owns a profile between its child trials too.
@@ -87,15 +87,16 @@ as_app "set -o pipefail; cd $APP/market-scout && npm ci --no-audit --no-fund 2>&
 as_app "set -o pipefail; cd $APP/seek-bot && npm run build 2>&1 | tail -1"
 as_app "set -o pipefail; cd $APP/dashboard && npm run build 2>&1 | tail -1"
 as_app "cd $APP/market-scout && npm exec tsc -- -p ."
-# At most 58 seconds to finish, then 2 seconds before forced termination.
+# At most 178 seconds to finish, then 2 seconds before forced termination.
 # A failed or timed-out check stops the release; it never counts as a pass.
-echo 'Running limited deployment checks (60-second maximum)'
+echo 'Running limited deployment checks (180-second maximum)'
 FORCE_FLAG=0
 if [ "${FORCE_DEPLOY:-}" = 1 ]; then FORCE_FLAG=1; fi
-as_app "cd $APP && FORCE_DEPLOY=$FORCE_FLAG timeout --signal=TERM --kill-after=2s 58s bash deploy/smoke-check.sh $REPLAY_REQUIRED"
+as_app "cd $APP && FORCE_DEPLOY=$FORCE_FLAG timeout --signal=TERM --kill-after=2s 178s bash deploy/smoke-check.sh $REPLAY_REQUIRED"
 # Apply idempotent schema upgrades before the new dashboard and its scheduler
 # start querying new columns. A migration failure leaves the old process up.
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/migrate-db.mts"
+if [ -f /etc/owtomate-repair-pilot.json ]; then bash "$APP/deploy/install-repair-pilot.sh" --refresh; fi
 # Cron invokes Bash explicitly, so a Git checkout cannot disable backups by
 # resetting maintenance.sh's execute bit. Keep installed scheduling in sync.
 install -m 644 "$APP/deploy/myasis.cron" /etc/cron.d/myasis

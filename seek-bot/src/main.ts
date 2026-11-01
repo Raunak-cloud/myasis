@@ -345,6 +345,10 @@ async function main() {
     // Sign in before querying date-filtered searches. Homepage recommendations
     // have no date filter and are deliberately not part of automatic discovery.
     const targeted: Array<{ job_id: string; title: string; company: string }> = JSON.parse(process.env.TARGET_SEEK_JOBS ?? '[]');
+    const repairTarget: JobListing | null = process.env.OWTOMATE_REPAIR_CASE_ID && process.env.TARGET_REPAIR_JOB_JSON
+      ? JSON.parse(process.env.TARGET_REPAIR_JOB_JSON) : null;
+    if (repairTarget && (!repairTarget.id || !repairTarget.url || !repairTarget.title || !repairTarget.company
+      || !repairTarget.platform || platforms.length !== 1 || platforms[0].id !== repairTarget.platform)) throw new Error('Invalid repair retry target.');
     const selectedAccepted: JobListing[] = [];
     for (const platform of platforms) {
       const adapter = ADAPTERS.get(platform.id);
@@ -373,6 +377,12 @@ async function main() {
         const added = await syncFromSeek(page);
         index = new AppliedIndex();
         console.log(`Seeded ${added} existing applications from SEEK history.`);
+      }
+      if (repairTarget) {
+        targetedAdapters.add(adapter.id);
+        selectedAccepted.push(...ingest([await adapter.fetchJobDetail(page, { ...repairTarget, source: 'search', fitReview: undefined })], adapter));
+        console.log('  Repair retry: one original listing; normal fit, scope and duplicate checks still apply.');
+        continue;
       }
 
       if (targeted.length && adapter.id === 'seek') {

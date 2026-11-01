@@ -895,7 +895,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         message: `Stopped before another paid decision: spent US$${meter.totals.costUsd.toFixed(5)}, action allowance US$${meter.limitUsd.toFixed(5)}, maximum US$${meter.maximum.toFixed(2)}. No unaffordable browser work was queued.` });
     }
     activity.update({ status: 'finished', submitted: Boolean(ctx.submissionAttempted), outcome: terminal.status, detail: JSON.stringify(terminal) });
-    persistTrace(options.job, terminal, trace, ctx.page.url());
+    persistTrace(options.job, terminal, trace, ctx.page.url(), { attempted: Boolean(ctx.submissionAttempted), approvedRevision: approved?.revision });
     recovery.finish(terminal.status, Boolean(ctx.submissionAttempted));
     return { outcome: terminal, captured: ctx.captured, coverLetter: ctx.coverLetter, resumeUsed: ctx.resumeUsed, resumeName: ctx.resumeName,
       actions: ctx.actions, site: isExternal(ctx.page.url()) ? new URL(ctx.page.url()).hostname : undefined,
@@ -903,7 +903,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
   } catch (error) {
     captureApplicationFailure(ctx.page, options.job.id, error, { stage: 'agent-loop', submitPressed: Boolean(ctx.submissionAttempted) });
     activity.update({ status: 'interrupted', submitted: Boolean(ctx.submissionAttempted), detail: `Application infrastructure error: ${(error as Error).message}` });
-    persistTrace(options.job, { status: 'skipped', reason: `Application infrastructure error: ${(error as Error).message}` }, trace, ctx.page.url());
+    persistTrace(options.job, { status: 'skipped', reason: `Application infrastructure error: ${(error as Error).message}` }, trace, ctx.page.url(), { attempted: Boolean(ctx.submissionAttempted), approvedRevision: approved?.revision });
     recovery.finish('interrupted', Boolean(ctx.submissionAttempted));
     throw error;
   } finally {

@@ -856,6 +856,28 @@ CREATE TABLE IF NOT EXISTS application_cost_events (
 );
 CREATE INDEX IF NOT EXISTS application_cost_run_idx ON application_cost_events(user_id,run_id);
 
+-- Single-account automated repair pilot. Source proposals and validation logs
+-- live in the root-owned repair store; no candidate answers are stored here.
+CREATE TABLE IF NOT EXISTS repair_pilot_cases (
+  id uuid PRIMARY KEY,
+  user_id bigint NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  run_id bigint NOT NULL REFERENCES run_starts(id) ON DELETE CASCADE,
+  attempt_id uuid NOT NULL,
+  status text NOT NULL,
+  incident jsonb NOT NULL,
+  base_sha text,
+  patch_hash text,
+  artifact_hash text,
+  cost_usd numeric NOT NULL DEFAULT 0,
+  cost_unknown boolean NOT NULL DEFAULT false,
+  detail text,
+  retry_run_id bigint REFERENCES run_starts(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(run_id)
+);
+ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS repair_case_id uuid;
+
 -- Retired application-engine experiments are no longer configurable.
 -- Idempotent and confined to settings; application and usage history remains intact.
 DELETE FROM settings

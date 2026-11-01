@@ -7,6 +7,7 @@ import { sessionFor } from './signin.js';
 import { sendDailyDigests, digestDue } from './digest.js';
 import { sendAccountAlerts } from './alerts.js';
 import { sendOperatorAlerts } from './operator-alerts.js';
+import { repairRetryTick } from './repair-retries.js';
 
 /** Opt-in schedules are durable, ordered by their oldest due slot, and never catch up in bursts. */
 
@@ -108,6 +109,7 @@ export function startAutoRunner(): void {
   if (timer) return;
   const tick = () => {
     wakeAutoRunner();
+    void repairRetryTick().catch(error => console.warn('[repair-pilot]', (error as Error).message));
     void sendAccountAlerts().catch(error => console.warn('[alerts]', error.message));
     void sendOperatorAlerts().catch(error => console.warn('[ops-alerts]', error.message));
     if (digestDue(new Date())) void sendDailyDigests().catch(error => console.warn('[digest]', error.message));

@@ -66,6 +66,9 @@ interface StartRunRequest {
   applicationMode?: 'auto' | 'semi-auto';
   scheduleGeneration?: number;
   approvals?: unknown;
+  /** Internal repair consumer only; never accepted by a public route. */
+  repairCaseId?: string;
+  repairJob?: import('../../seek-bot/src/types.js').JobListing;
   /**
    * Who asked: the account holder, the scheduler, or an admin acting for the
    * account. An admin's run follows the account's plan exactly as a scheduled
@@ -153,6 +156,8 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
 
 async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcome> {
   const { userId, email, mode, trigger } = request;
+  if (request.repairCaseId && (userId !== '1' || trigger !== 'admin' || request.startedBy !== '1' || mode !== 'live')) return {ok:false,status:403,error:'Invalid admin repair retry.'};
+  if (request.repairJob && !request.repairCaseId) return {ok:false,status:403,error:'A repair job requires its validated case.'};
   const admin = isAdmin(email);
   // Reject malformed sources and admin-only controls before loading account facts.
   // Source eligibility itself is checked against the current pass below.
@@ -312,6 +317,13 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     if (jobs.length !== ids.length) return { ok: false, status: 400, error: 'Targeted retries require an existing job record for this account.' };
     overrides.TARGET_SEEK_JOBS = JSON.stringify(ids.map(id => jobs.find(job => job.job_id === id)!));
     overrides.PLATFORMS = 'seek';
+  }
+  if (request.repairJob) {
+    const job = request.repairJob;
+    if (!job.id || !job.title || !job.company || !job.url || !job.platform || request.jobIds || request.externalUrl || request.approvals
+      || !String(overrides.PLATFORMS).split(',').includes(job.platform)) return {ok:false,status:409,error:'Repair job source is unavailable under current run settings.'};
+    overrides.TARGET_REPAIR_JOB_JSON = JSON.stringify({ ...job, source: 'search', fitReview: undefined });
+    overrides.PLATFORMS = job.platform;
   }
 
   if (!directExternalUrl && (request.scope === 'external' || request.scope === 'hosted')) {
@@ -516,6 +528,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     const launch = async (): Promise<StartRunOutcome> => {
       const runStartId = await recordRunStart(userId, mode, effectiveTrigger, request.startedBy, request.initiatorDevice, Boolean(selections));
       if (!runStartId) throw new Error('Could not save the run start.');
+      if (request.repairCaseId) await query('UPDATE run_starts SET repair_case_id=$2 WHERE id=$1 AND user_id=1',[runStartId,request.repairCaseId]);
       const result = await runner.start(
         mode,
         overrides,
@@ -546,6 +559,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
             }
           : undefined,
         runStartId,
+        request.repairCaseId,
       );
       if (!result.ok) {
         await discardRunStart(runStartId).catch(() => {});

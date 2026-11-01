@@ -15,7 +15,7 @@ const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
 
 /** Exercise the compiled main loop with offline boundary adapters, real history
  * and a one-review budget. No browser, model or employer is contacted. */
-function run(jobs: FixtureJob[], options: { priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[]; workArrangements?: string[]; onsiteCity?: string } = {}) {
+function run(jobs: FixtureJob[], options: { repairTarget?: FixtureJob; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[]; workArrangements?: string[]; onsiteCity?: string } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-review-budget-'));
   const url = (file: string) => pathToFileURL(join(directory, file)).href;
   try {
@@ -139,7 +139,7 @@ ${options.queue ? "process.argv[1]='queue.js';" : ''} await import('./main.mjs')
       env: { ...process.env, DATA_DIR: directory, PROFILE_PATH: join(directory, 'profile.txt'),
         CELERIS_API_KEY: 'fixture-only', COVER_LETTER_MODE: 'tailored',
         APPLICATION_REVIEW_MODE: options.prepare ? 'prepare' : options.approvedIds ? 'approved' : '',
-        APPLICATION_WORKERS: String(options.workers ?? 1), DIRECT_EXTERNAL_JOB_URL: '', TARGETED_JOBS_JSON: '', EMPLOYER_FEEDS_ADMIN_ENABLED: 'false', SMARTRECRUITERS_ADMIN_ENABLED: 'false' },
+        APPLICATION_WORKERS: String(options.workers ?? 1), DIRECT_EXTERNAL_JOB_URL: '', TARGETED_JOBS_JSON: '', TARGET_SEEK_JOBS: '[]', OWTOMATE_REPAIR_CASE_ID: options.repairTarget ? 'fixture-repair' : '', TARGET_REPAIR_JOB_JSON: options.repairTarget ? JSON.stringify(options.repairTarget) : '', EMPLOYER_FEEDS_ADMIN_ENABLED: 'false', SMARTRECRUITERS_ADMIN_ENABLED: 'false' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const events = readFileSync(join(directory, 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
@@ -184,6 +184,20 @@ test('age-window policy matches undated jobs in Auto and Semi auto while excludi
     const result = run([job('unknown', { ageDays: undefined }), job('old', { ageDays: 21 }), job('in-range', { ageDays: 20 })], { apply: true, prepare, maxAgeDays: 20, cap: 2, reviews: 2 });
     assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['unknown', 'in-range']);
     assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['unknown', 'in-range']);
+  }
+});
+
+test('admin repair targets exactly one original listing and retains fit and duplicate gates on both boards', () => {
+  for (const platform of ['seek','indeed'] as const) for (const prepare of [false,true]) {
+    const target=job('repair-original',{platform});
+    const result=run([target,job('unrelated',{platform})],{apply:true,platform,prepare,repairTarget:target});
+    assert.deepEqual(result.events.filter(e=>e.stage==='fit').map(e=>e.id),[target.id]);
+    assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),[target.id]);
+    assert.equal(result.events.some(e=>e.stage==='search'),false);
+    const rejected=run([target],{apply:true,platform,prepare,repairTarget:{...target,fitReject:true}});
+    assert.equal(rejected.events.some(e=>e.stage==='apply'),false);
+    const duplicate=run([target],{apply:true,platform,prepare,repairTarget:{...target,detailApplied:true}});
+    assert.equal(duplicate.events.some(e=>e.stage==='apply'),false);
   }
 });
 

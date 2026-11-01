@@ -19,6 +19,8 @@ import { accountUnavailable, AccountDeletionError } from './account-lifecycle.js
 import { finishApplicationReviews } from './application-reviews.js';
 import { gmailRunConnection } from './gmail-mcp.js';
 import { gmailAccess } from './gmail-access.js';
+import { repairRuntime, repairedWorkerEnvironment } from './repair-runtime.js';
+import { repairPilotEnabled } from './repair-release.js';
 
 export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
   const owners = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [userId]);
@@ -357,8 +359,12 @@ class Run {
     onFinished?: () => void | Promise<void>,
     runStartId?: string | null,
     reserveExtraWorker?: () => boolean,
+    repairCaseId?: string,
   ): Promise<{ ok: boolean; error?: string }> {
     const userId = this.userId;
+    let runtime = BOT_DIR;
+    try { if (repairCaseId) runtime = await repairRuntime(repairCaseId,userId,resolve(BOT_DIR,'..')); }
+    catch { return {ok:false,error:'The validated admin repair build is unavailable or stale.'}; }
     const approvals = JSON.parse(overrides.APPROVED_APPLICATIONS_JSON || '[]') as Array<{ id: string; email?: unknown }>;
     const emailOnly = approvals.length > 0 && approvals.every(item => item.email) && (await gmailAccess(userId)).provider === 'mcp';
     if (this.occupiesSlot) return { ok: false, error: 'A run is already in progress for this account.' };
@@ -396,12 +402,13 @@ class Run {
       return { ok: false, error: `Could not prepare this account's data for the run: ${(error as Error).message}` };
     }
 
-    const args = ['dist/main.js'];
+    const args = [repairCaseId ? resolve(runtime,'dist/main.js') : 'dist/main.js'];
     writeFileSync(resolve(dataDir, 'approved-applications.json'), overrides.APPROVED_APPLICATIONS_JSON || '[]', { mode: 0o600 });
     writeFileSync(resolve(dataDir, 'pending-application-keys.json'), overrides.PENDING_APPLICATION_KEYS_JSON || '[]', { mode: 0o600 });
     if (mode === 'search') args.push('--search-only');
 
-    const env: NodeJS.ProcessEnv = {
+    let env: NodeJS.ProcessEnv = {
+      ...(repairCaseId ? applicationRunEnvironment(readEnv()) : {}),
       ...applicationRunEnvironment(process.env),
       ...applicationRunEnvironment(overrides),
       // After `overrides`, deliberately: these carry the account's identity
@@ -413,6 +420,8 @@ class Run {
       ...accountOverrides,
       CDP_PORT: String(cdpPort),
       OWTOMATE_RUN_START_ID: runStartId ?? '',
+      OWTOMATE_REPAIR_CASE_ID: repairCaseId ?? '',
+      TARGET_REPAIR_JOB_JSON: repairCaseId ? overrides.TARGET_REPAIR_JOB_JSON : undefined,
       // Only a live run may submit; a search-only run never opens a form.
       DRY_RUN: mode === 'live' ? 'false' : 'true',
       APPLICATION_REVIEW_MODE: overrides.APPLICATION_REVIEW_MODE || '',
@@ -424,9 +433,10 @@ class Run {
       COST_TRACKING: 'true',
       ADMIN_APPLICATION_MODEL: undefined,
     };
+    if (repairCaseId) env = repairedWorkerEnvironment(env);
 
     // A release can begin while the account export is awaiting the database.
-    if (deploying()) {
+    if (deploying() || repairCaseId && !repairPilotEnabled()) {
       this.revokeGmail?.(); this.revokeGmail = null;
       this.cdpPort = null;
       return { ok: false, error: DEPLOYING_MESSAGE };
@@ -796,6 +806,7 @@ export class RunPool {
     onApplicationSubmitted?: (external: boolean) => void | Promise<void>,
     onFinished?: () => void | Promise<void>,
     runStartId?: string | null,
+    repairCaseId?: string,
   ): Promise<{ ok: boolean; error?: string }> {
     if (accountUnavailable(userId)) return { ok: false, error: 'Account deletion is in progress.' };
     this.sweep();
@@ -816,6 +827,7 @@ export class RunPool {
         allocation.slots = 2;
         return true;
       },
+      repairCaseId,
     ); } finally { this.preparing.delete(userId); }
   }
 

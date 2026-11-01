@@ -46,7 +46,8 @@ function saveTrace(job: JobListing, body: Record<string, unknown>, latest: strin
     const identity = currentAttempt();
     const dir = TRACE_DIR();
     mkdirSync(dir, { recursive: true });
-    const payload = JSON.stringify({ jobId: job.id, title: job.title, company: job.company, ...identity,
+    const payload = JSON.stringify({ jobId: job.id, title: job.title, company: job.company,
+      job, ...identity,
       ...body, savedAt: new Date().toISOString() });
     for (const name of [...(identity ? [`attempt-${identity.attemptId}.json`] : []), latest]) {
       const file = resolve(dir, name), temporary = file + `.${randomUUID()}.tmp`;
@@ -83,11 +84,11 @@ export function browserExperience(url: string): string {
  * screenshots, for anything that needs them; and for an employer site that
  * was completed, the step outline as a hint for the next application there.
  */
-export function persistTrace(job: JobListing, outcome: AgentTermination, trace: TraceStep[], finalUrl: string): void {
+export function persistTrace(job: JobListing, outcome: AgentTermination, trace: TraceStep[], finalUrl: string, sendAudit?: { attempted: boolean; approvedRevision?: string }): void {
   try {
     // Successful applications need the same audit trail: recovery mistakes
     // can happen before confirmation too. Existing trace retention applies.
-    saveTrace(job, { outcome, finalUrl, steps: trace }, `${job.id}.json`);
+    saveTrace(job, { outcome, finalUrl, steps: trace, ...(sendAudit ? { sendAudit } : {}) }, `${job.id}.json`);
     const host = hostOf(finalUrl);
     if (outcome.status === 'applied' && host && isExternal(finalUrl) && trace.length) {
       const hints = loadSiteHints();

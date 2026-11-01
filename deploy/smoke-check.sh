@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# Small automatic checks. deploy.sh bounds this entire phase to 60 seconds.
+# Small automatic checks. deploy.sh bounds this entire phase to 180 seconds.
 # Comprehensive suites remain available through their manual commands.
 set -euo pipefail
 APP=$(cd "$(dirname "$0")/.." && pwd)
 cd "$APP"
-for script in deploy/deploy.sh deploy/public-site.sh deploy/smoke-check.sh; do bash -n "$script"; done
+for script in deploy/deploy.sh deploy/public-site.sh deploy/smoke-check.sh deploy/install-repair-pilot.sh deploy/repair-pilot-sandbox.sh; do bash -n "$script"; done
 cd "$APP/dashboard"
 npm run test:statuses
 node --test server/form-lab/engine.test.mjs
 ../seek-bot/node_modules/.bin/tsx server/form-lab-access.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/run-diagnostics.test.ts
+../seek-bot/node_modules/.bin/tsx --test server/repair-*.test.ts
 ../seek-bot/node_modules/.bin/tsx scripts/test-visitor-analytics.mts
 ../seek-bot/node_modules/.bin/tsx server/visits.test.ts
 ../seek-bot/node_modules/.bin/tsx server/visits-access.test.ts
@@ -19,6 +20,7 @@ node --test server/form-lab/engine.test.mjs
 
 if [ "${1:-0}" = 1 ]; then
   cd "$APP/seek-bot"
+  node --test --test-name-pattern='admin repair' dist/review-budget.test.js
   node --test dist/agent/attempt-diagnostics.test.js dist/browser-deadline.test.js dist/discovery-search.test.js dist/discovery-policy.test.js
   node --test dist/agent/tool-input.test.js dist/agent/agent-only-transcript.test.js dist/agent/application-policy.test.js dist/agent/application-readiness.test.js dist/agent/recovery-checkpoint.test.js dist/agent/progress-budget.test.js dist/agent/agent-file-inventory.test.js dist/verification-email-local.test.js dist/gmail-verification.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/browser-command-contract.test.js
