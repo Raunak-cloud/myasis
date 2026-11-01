@@ -11,6 +11,31 @@ import { changesBrowserState } from './browser-commands.js';
 const observation = (value = '', ref = 'f0'): Observation => ({ url: 'https://employer.invalid/apply', title: 'Apply',
   actions: [], text: 'Apply', fields: [{ ref, label: 'City', kind: 'text', required: true, currentValue: value }] });
 
+test('specialist escalation follows failed work and survives recovery narration, not successful form progress', () => {
+  const state = new RecoveryCheckpoint(); state.observe(observation());
+  state.acted('enter_emailed_code', true); state.observe(observation('', 'new-ref'));
+  assert.equal(state.needsSpecialist, false);
+  state.acted('enter_emailed_code', true); state.observe(observation('', 'another-ref'));
+  assert.equal(state.needsSpecialist, true);
+  const key = state.evidenceKey;
+  state.planned(); state.verified('no_progress');
+  assert.equal(state.needsSpecialist, true, 'notes cannot replace an actual consultation');
+  state.specialistRequested(); assert.equal(state.needsSpecialist, false);
+  state.observe(observation('', 'rotating-ref'));
+  assert.equal(state.evidenceKey, key, 'ref churn cannot request another consultation');
+  state.acted('browser_action', false, { action: 'fill' }); state.observe(observation('Sydney'));
+  assert.equal(state.needsSpecialist, false, 'a saved valid field resolves the pending escalation');
+});
+
+test('unchanged successful interactions also escalate without relying on tool exceptions', () => {
+  const state = new RecoveryCheckpoint(); state.observe(observation());
+  for (let index = 0; index < 5; index++) {
+    state.acted('browser_action', false, { action: 'click' });
+    state.observe(observation('', `ref-${index}`));
+  }
+  assert.equal(state.needsSpecialist, true);
+});
+
 test('declared script inspection cannot masquerade as an executed recovery or earn progress', () => {
   const state = new RecoveryCheckpoint(); state.observe(observation()); state.planned();
   state.acted('browser_action', false, {action: 'script', script_intent: 'inspect'});

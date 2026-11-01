@@ -5,6 +5,7 @@ import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,readdirSync,rmSync} fro
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {chromium} from 'patchright';
+import {specialistFixtureReply} from './specialist-fixture.js';
 
 const directory=mkdtempSync(join(tmpdir(),'owtomate-budget-workflows-'));
 Object.assign(process.env,{DATA_DIR:directory,CELERIS_API_KEY:'fictional-key',COST_TRACKING:'false',FORM_CORPUS_DIR:join(directory,'corpus'),
@@ -39,7 +40,7 @@ const form='<main><label>Name<input id="name"></label><button id="send" onclick=
 
 test('Auto apply returns from canonical correction to work without spending the old review reserve',{timeout:10000},async()=>{
  const f=await fixture(form);let calls=0;
- globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;calls++;
+ globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;const specialist=specialistFixtureReply(body);if(specialist)return specialist;calls++;
   if(calls===1)return packet([{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],.10);
   assert.equal(calls,2,'an unaffordable repair must not start another paid model turn');
   assert.equal(body.tool_choice?.function?.name,'record_application_review');return packet([review('correct')],.13);
@@ -49,7 +50,7 @@ test('Auto apply returns from canonical correction to work without spending the 
 
 test('an already-generated recovery plan is saved once across the budget boundary, with no further paid plan loop',{timeout:10000},async()=>{
  const f=await fixture(form);let calls=0;
- globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;calls++;
+ globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;const specialist=specialistFixtureReply(body);if(specialist)return specialist;calls++;
   assert.ok(calls<=3,'no fourth paid decision may be requested after the action allowance ends');
   if(calls<3)return packet([{name:'browser_action',args:{action:'click',selector:'#send',undeclared:true}}],.02);
   assert.equal(body.tool_choice?.function?.name,undefined,'recovery notes cannot exclude normal tools');return packet([plan],.20);
@@ -62,7 +63,7 @@ test('an already-generated recovery plan is saved once across the budget boundar
 
 test('fresh progress verification can use its reserve and fund the next productive decision',{timeout:10000},async()=>{
  const f=await fixture(form);let calls=0;
- globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;calls++;
+ globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;const specialist=specialistFixtureReply(body);if(specialist)return specialist;calls++;
   if(calls===1)return packet([{name:'browser_action',args:{action:'fill',selector:'#name',value:'Fictional Candidate'}}],.19);
   if(calls===2)return packet([{name:'take_snapshot',args:{}}],.08);
   if(calls===3){assert.equal(body.tool_choice?.function?.name,undefined,'progress review is advisory');return packet([result()],.04);}
@@ -182,8 +183,8 @@ test('cleanup failure cannot overwrite a completed result or the primary provide
  const f=await fixture(form);config.dryRun=true;
  const unroute=f.context.unroute.bind(f.context);f.context.unroute=async()=>{throw new Error('Fictional cleanup failure');};
  try{
-  globalThis.fetch=async()=>packet([finish()]);
-  const r=await runAgentOnlyApplication({...f,simulation:'isolated-form'});assert.equal(r.outcome.status,'rehearsed');assert.match(r.usage,/1 calls/);
+  globalThis.fetch=async(_url,init)=>specialistFixtureReply(JSON.parse(String(init?.body)))??packet([finish()]);
+  const r=await runAgentOnlyApplication({...f,simulation:'isolated-form'});assert.equal(r.outcome.status,'rehearsed');assert.match(r.usage,/3 calls/,'parent stop, bounded specialist and parent final record all remain on the same meter');
   globalThis.fetch=async()=>new Response('Fictional provider rejection',{status:400});
   await assert.rejects(()=>runAgentOnlyApplication({...f,job:{...f.job,id:f.job.id+'-provider'},simulation:'isolated-form'}),/Fictional provider rejection/);
   const diagnostics=readdirSync(join(directory,'traces')).filter(name=>name.endsWith('.diagnostics.jsonl')).map(name=>readFileSync(join(directory,'traces',name),'utf8')).join('\n');

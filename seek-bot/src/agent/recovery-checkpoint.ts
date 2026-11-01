@@ -47,6 +47,7 @@ export class RecoveryCheckpoint {
   private budgetReview = false;
   private reviewable = false;
   private goal = '';
+  private specialistPending = false;
 
   constructor(private readonly journal?: string, goal = '') {
     this.goal = goal;
@@ -79,6 +80,13 @@ export class RecoveryCheckpoint {
     return `${this.previousAttempt ? `PREVIOUS ATTEMPT (historical agent claims only; inspect the current page, never replay a send or adopt old answers blindly): ${this.previousAttempt}\n` : ''}${this.memory.render()}\nRECENT ACTION OUTCOMES (changed does not necessarily mean closer to submission): ${JSON.stringify(this.transitions)}\nRECORDED PLAN / PROGRESS: ${this.note}${this.tool ? `\nRECOVERY ADVISORY: ${this.tool} is optional. ${this.budgetReview ? 'One assessment covers both recovery and spending.' : 'Inspect the latest outcome before acting.'} If the evidence or specialist advice already resolves the issue, continue the form or prepare it directly; do not spend another turn restating a completed fix.` : ''}`;
   }
   get reviewingBudget(): boolean { return this.budgetReview; }
+  /** Escalation survives optional recovery narration until it is actually handled. */
+  get needsSpecialist(): boolean { return this.specialistPending; }
+  get evidenceKey(): string | undefined { return this.previous; }
+  specialistRequested(): void {
+    this.specialistPending = false;
+    this.failures = 0; this.unchanged = 0;
+  }
   /** Keep deeper reasoning through diagnosis, repair and fresh verification.
    * An accepted tool call or another inspection cannot end escalation. */
   get needsDeepReasoning(): boolean {
@@ -117,7 +125,10 @@ export class RecoveryCheckpoint {
       this.edges.set(edge, count);
       this.transitions.push(`${action}: ${signature === this.previous ? 'unchanged' : this.seen.has(signature) ? 'returned to a previous state' : 'changed'}${count > 1 ? `; repeated ${count} times` : ''}`);
       this.transitions = this.transitions.slice(-12);
-      if (count >= 2 && this.phase === 'normal') this.phase = 'plan';
+      if (count >= 2) {
+        this.specialistPending = true;
+        if (this.phase === 'normal') this.phase = 'plan';
+      }
     }
     const completedChange = this.changedByAction && observation.fields.some(field => field.currentValue && !field.validationError
       && this.observation?.fields.some(old => old.label === field.label && old.section === field.section && old.currentValue !== field.currentValue));
@@ -129,12 +140,13 @@ export class RecoveryCheckpoint {
       this.unchanged = 0;
       // Only a successful operation with a changed, valid field clears old
       // failures. A chatbot animation or delayed error must not erase them.
-      if (completedChange) this.failures = 0;
+      if (completedChange) { this.failures = 0; this.specialistPending = false; }
     }
     else if (this.browserTurn) this.unchanged++;
     this.previous = signature;
     this.browserTurn = false;
     if (this.phase === 'normal' && (this.failures >= 2 || this.unchanged >= 5)) this.phase = 'plan';
+    if (this.failures >= 2 || this.unchanged >= 5) this.specialistPending = true;
     this.persist();
   }
 
@@ -148,6 +160,7 @@ export class RecoveryCheckpoint {
     this.phase = 'normal'; this.actionPending = false; this.budgetReview = false;
     this.reviewable = false; this.progressCandidate = undefined;
     this.failures = 0; this.unchanged = 0; this.furtherInspections = 0;
+    this.specialistPending = false;
   }
 
   planned(args?: Record<string, unknown>): void {
@@ -199,7 +212,13 @@ export class RecoveryCheckpoint {
     }
     if (['browser_action', 'browser_batch', 'take_snapshot', 'wait_for_submission_result',
       'complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(tool)) this.browserTurn = true;
-    if (failed) { this.failures++; if (this.phase === 'normal' && this.failures >= 2) this.phase = 'plan'; }
+    if (failed) {
+      this.failures++;
+      if (this.failures >= 2) {
+        this.specialistPending = true;
+        if (this.phase === 'normal') this.phase = 'plan';
+      }
+    }
   }
 
   endTurn(): void {

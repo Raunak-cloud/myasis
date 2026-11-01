@@ -1,4 +1,5 @@
 import { createReadinessFixtureReply } from './readiness-fixture.js';
+import { specialistFixtureReply } from './specialist-fixture.js';
 const readinessFixtureReply = createReadinessFixtureReply();
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -36,6 +37,7 @@ const reply = (calls: Call[], tokens = completionTokens) => {
 };
 globalThis.fetch = (async (_url, init) => {
   const body = JSON.parse(String(init?.body)) as Body;
+  const specialistReply = specialistFixtureReply(body); if (specialistReply) return specialistReply;
   const checkpointCalls = await checkpointResponder?.(body);
   if (checkpointCalls) return reply(checkpointCalls, 0);
     const reviewReply = readinessFixtureReply(body); if (reviewReply) return reviewReply;
@@ -587,7 +589,7 @@ try {
   }, () => [{ name: 'finish', args: { status: 'skipped', reason: 'Controlled dialog test completed', evidence: 'Import acknowledgement was handled; no application sent.' } }]];
   const dialogRun = await runApplicationAgent({ page, job: { ...job, id: 'native-dialog-recovery' }, profile, log: () => {} });
   assert.equal(dialogRun.outcome.status, 'skipped');
-  assert.equal(dialogRun.steps, 3);
+  assert.equal(dialogRun.steps, 4, 'the technical stop is reobserved after one bounded specialist consultation');
   assert.equal(dialogRun.submitPressed, false);
   assert.equal(script.length, 0);
   // The applying agent retrieves evidence and chooses whether to ask or send.

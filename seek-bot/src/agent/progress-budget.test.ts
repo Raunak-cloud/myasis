@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ProgressBudget } from './progress-budget.js';
 import type { FormField } from '../types.js';
+import { APPLICATION_BUDGET_DEFAULTS } from '../application-budget.js';
 
 const field = (label: string, value = '', extra: Partial<FormField> = {}): FormField => ({ ref: 'fresh-ref', label, kind: 'text', required: true, currentValue: value, ...extra });
 const spend = (meter: ProgressBudget, amountUsd: number) => meter.recordProvider({ prompt: 0, cached: 0, completion: 0, amountUsd });
@@ -82,7 +83,7 @@ test('unchanged pages and passive prefills keep the normal twenty-cent budget', 
 });
 
 test('recent new answers extend spending gradually up to seventy cents', () => {
-  const meter = new ProgressBudget(0.20);
+  const meter = new ProgressBudget(0.20, 0.70);
   const fields = [field('Name'), field('Email'), field('Phone'), field('Letter'), field('Availability'), field('City'), field('Skills')];
   meter.observe(fields, false);
   spend(meter, 0.15);
@@ -152,10 +153,23 @@ test('a new form step counts once, revisiting steps and uploads cannot repeatedl
 
 test('invalid operator settings retain safe finite budget defaults', () => {
   const meter = new ProgressBudget(Number.NaN, Number.POSITIVE_INFINITY);
-  assert.equal(meter.limitUsd, 0.20);
-  assert.equal(meter.maximum, 0.70);
-  spend(meter, 0.20);
+  assert.equal(meter.limitUsd, APPLICATION_BUDGET_DEFAULTS.baseUsd);
+  assert.equal(meter.maximum, APPLICATION_BUDGET_DEFAULTS.maximumUsd);
+  spend(meter, APPLICATION_BUDGET_DEFAULTS.baseUsd);
   assert.equal(meter.exhausted, true);
+});
+
+test('increased default budget allows forty cents of work and caps verified extensions at one dollar', () => {
+  const meter = new ProgressBudget(APPLICATION_BUDGET_DEFAULTS.baseUsd);
+  assert.equal(meter.limitUsd, 0.40); assert.equal(meter.maximum, 1.00);
+  spend(meter, 0.39); assert.equal(meter.actionExhausted, false);
+  spend(meter, 0.02); assert.equal(meter.actionExhausted, true);
+  for (let index = 0; index < 8; index++) {
+    meter.reviewedProgress(`verified-stage-${index}`);
+    if (index < 7) spend(meter, 0.09);
+  }
+  assert.equal(meter.limitUsd, 1.00);
+  meter.beginCompletion(); assert.equal(meter.exhausted, true, 'completion reserves cannot exceed the one-dollar maximum');
 });
 
 test('only newly verified work increments progress, not prefills, rewrites or repeated uploads', () => {

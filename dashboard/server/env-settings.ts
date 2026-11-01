@@ -5,6 +5,7 @@ import { poolState } from './proxy-pool.js';
 import { BOT_DIR, deploying, readEnv, runner, writeEnv } from './runner.js';
 import { KEEP_SETTINGS_KEYS } from './settings.js';
 import { stopAllSignins } from './signin.js';
+import { APPLICATION_BUDGET_DEFAULTS } from '../../seek-bot/src/application-budget.js';
 
 /**
  * The installation's configuration, edited from the admin dashboard.
@@ -113,7 +114,8 @@ const GROUPS: GroupSpec[] = [
     title: 'Browser agent limits',
     note: 'Spending limits apply to each application. Time is limited by the whole run; there is no per-application time or step limit.',
     keys: [
-      { key: 'AGENT_BUDGET_USD', label: 'Spend ceiling per application (USD)', help: '0 means no ceiling.', kind: 'number' },
+      { key: 'AGENT_BUDGET_USD', label: 'Base application budget (USD)', help: `Shared by the applying agent and specialist. Default: $${APPLICATION_BUDGET_DEFAULTS.baseUsd.toFixed(2)}. Zero or invalid values use the default.`, kind: 'number' },
+      { key: 'AGENT_PROGRESS_BUDGET_USD', label: 'Progress-based maximum (USD)', help: `Verified progress can extend spending up to this amount, including review reserves. Default: $${APPLICATION_BUDGET_DEFAULTS.maximumUsd.toFixed(2)}. Keep this at least as high as the base budget.`, kind: 'number' },
     ],
   },
   {

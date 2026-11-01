@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import type { CandidateProfile } from './types.js';
 import { applicationModelEnvironment } from './application-model.js';
+import { APPLICATION_BUDGET_DEFAULTS } from './application-budget.js';
 import { USER_RUN_LIMITS, boundedUserRunLimit, dailyApplicationLimit } from './run-limits.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -300,8 +301,8 @@ export const config = {
     maxOutputTokens: Number(process.env.CELERIS_MAX_OUTPUT_TOKENS ?? 8192),
 
     /** Spending ceilings; elapsed time is owned by the whole-run watchdog. */
-    budgetUsdPerApplication: Number(process.env.AGENT_BUDGET_USD ?? 0.20),
-    progressBudgetUsdPerApplication: Number(process.env.AGENT_PROGRESS_BUDGET_USD ?? 0.70),
+    budgetUsdPerApplication: Number(process.env.AGENT_BUDGET_USD ?? APPLICATION_BUDGET_DEFAULTS.baseUsd),
+    progressBudgetUsdPerApplication: Number(process.env.AGENT_PROGRESS_BUDGET_USD ?? APPLICATION_BUDGET_DEFAULTS.maximumUsd),
 
 
   },

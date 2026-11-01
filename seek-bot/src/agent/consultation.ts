@@ -5,6 +5,7 @@ import { applicationChat } from './application-chat.js';
 import { validToolInput } from './tool-input.js';
 import { ok, type ToolContext, type ToolResult } from './context.js';
 import { createHash } from 'node:crypto';
+import { recordDiagnostic } from './attempt-diagnostics.js';
 
 export const consultationToolSchema: ToolSchema = {
   name: 'consult_application_specialist',
@@ -24,9 +25,17 @@ export interface ConsultationOptions {
   meter: CostMeter;
   /** Read-only records supplied by the parent, not a child-accessible database. */
   applicationHistory?: string;
+  state?: ConsultationState;
+  trigger?: 'automatic' | 'agent';
 }
 
-const states = new WeakMap<ToolContext, { calls: number; inFlight: boolean; cache?: { key: string; message: string } }>();
+export interface ConsultationState {
+  calls: number;
+  inFlight: boolean;
+  cache?: { key: string; message: string };
+}
+export const newConsultationState = (): ConsultationState => ({ calls: 0, inFlight: false });
+const states = new WeakMap<ToolContext, ConsultationState>();
 const currentEvidence = (ctx: ToolContext) => ({ profile: ctx.profile, job: ctx.job,
   observation: { url: ctx.observation.url, title: ctx.observation.title, text: ctx.observation.text,
     fields: ctx.observation.fields.map(field => field.sensitive || field.inputType === 'password'
@@ -63,7 +72,7 @@ export async function consultApplicationSpecialist(
 ): Promise<ToolResult> {
   if (!options.enabled) return ok('Specialist consultation is available only in the application configuration.', 'reobserve');
   if (!validToolInput(args, consultationToolSchema.parameters)) return ok('Give one specific question and an optional form or candidate-evidence focus.', 'reobserve');
-  const state = states.get(ctx) ?? { calls: 0, inFlight: false };
+  const state = options.state ?? states.get(ctx) ?? newConsultationState();
   states.set(ctx, state);
   if (state.inFlight) return ok('A specialist consultation is already in progress for this application.', 'reobserve');
   // The worker watchdog owns elapsed time; provider requests retain timeouts.
@@ -85,6 +94,8 @@ export async function consultApplicationSpecialist(
     if (options.meter.exhausted) return ok('Specialist request not started because evidence loading left insufficient application budget.', 'reobserve');
     const fields = snapshot.observation.fields;
     state.calls++;
+    recordDiagnostic({ severity: 'info', category: 'specialist_consultation', stage: 'recovery', tool: consultationToolSchema.name,
+      message: `${options.trigger === 'automatic' ? 'Automatic' : 'Agent-requested'} read-only specialist consultation ${state.calls}/2 started; it shares the application budget and cannot act or authorize a send.` });
     const reply = await applicationChat({
       model: 'celeris-1-magnus', meter: options.meter,
       thinking: true, reasoningEffort: 'medium', maxTokens: 8192,

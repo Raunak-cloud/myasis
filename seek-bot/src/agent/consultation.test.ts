@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { withApplicationModel } from '../application-model.js';
 import { CostMeter } from './celeris.js';
-import { consultApplicationSpecialist, consultationToolSchema, type ConsultationOptions } from './consultation.js';
+import { consultApplicationSpecialist, consultationToolSchema, newConsultationState, type ConsultationOptions } from './consultation.js';
 import type { ToolContext, ToolResult } from './context.js';
 
 const directories: string[] = [];
@@ -54,7 +54,8 @@ test('parallel account consultations isolate full candidate evidence, preference
   const accounts = ['ALPHA_PRIVATE', 'BETA_PRIVATE'].map(marker => account(marker));
   const requests = new Map<string, string>();
   globalThis.fetch = async (_url, init) => {
-    const auth = (init?.headers as Record<string, string>).authorization;
+    const auth = (init?.headers as Record<string, string> | undefined)?.authorization;
+    assert.ok(auth);
     requests.set(auth, String(init?.body));
     await new Promise(done => setTimeout(done, 1));
     return success('celeris');
@@ -194,5 +195,16 @@ test('malformed advice and unsolicited tool calls cannot act or claim successful
     assert.match(message(tool), /No action ran/);
     globalThis.fetch = async () => success('celeris', 'not json');
     assert.match(message(await consultApplicationSpecialist(context(), { question: 'Inspect current saved answers' }, options())), /incomplete/);
+  });
+});
+
+test('manual and automatic consultations share their limit across a continued application context', async () => {
+  const owner = account('CONTINUED'), state = newConsultationState(), shared = { ...options(), state }; let calls = 0;
+  await withApplicationModel(owner.env, async () => {
+    globalThis.fetch = async () => { calls++; return success('celeris'); };
+    await consultApplicationSpecialist(context(), { question: 'Manual question' }, shared);
+    await consultApplicationSpecialist(context(), { question: 'Automatic recovery question' }, { ...shared, trigger: 'automatic' });
+    assert.match(message(await consultApplicationSpecialist(context(), { question: 'Continued recovery question' }, shared)), /have been used/);
+    assert.equal(calls, 2); assert.equal(shared.meter.totals.calls, 2);
   });
 });

@@ -24,7 +24,8 @@ import { agentOnlyTranscript, latestObservationScreenshotOnly, generationRecover
 import { ApplicationBudgetExhaustedError, type ChatMessage, type ToolSchema } from './celeris.js';
 import { applicationChat } from './application-chat.js';
 import { ProgressBudget } from './progress-budget.js';
-import { consultApplicationSpecialist, consultationToolSchema } from './consultation.js';
+import { consultApplicationSpecialist, consultationToolSchema, newConsultationState } from './consultation.js';
+import { privateAuthenticationValues, redactPrivateAuthenticationData } from '../private-auth-fields.js';
 import { newHaltReviewState,reviewHalt,haltReviewTools } from './halt-review.js';
 import { isExternal } from './browser-boundaries.js';
 import type { AgentRunOptions, AgentRunResult } from './loop.js';
@@ -260,6 +261,8 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
   let invalidApplicationReviews = 0;
   let invalidAttentionRequests = 0;
   const haltReview=options.continuation?.haltReview??newHaltReviewState();
+  const specialistState = options.continuation?.specialistState ?? newConsultationState();
+  const specialistEvidence = options.continuation?.specialistEvidence ?? new Set<string>();
   let haltCorrection:string|undefined;
   // Keep the cacheable prefix stable. Smaller evidence reads reduce payload;
   // frequent compaction can cost more by destroying provider cache hits.
@@ -339,13 +342,58 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
       outcome:{status:'skipped'},steps:trace,sendAudit:sendAudit()},identity.runStartId,identity.attemptId))return false;
     repairCheckpoint={attemptId:identity.attemptId,runId:identity.runStartId,page:ctx.page,meter,
       captured:ctx.captured.map(answer=>({...answer})),files:files.checkpoint(),actions:[...ctx.actions],
-      coverLetter:ctx.coverLetter,resumeUsed:ctx.resumeUsed,resumeName:ctx.resumeName,pendingCredentials:ctx.pendingCredentials,haltReview};
+      coverLetter:ctx.coverLetter,resumeUsed:ctx.resumeUsed,resumeName:ctx.resumeName,pendingCredentials:ctx.pendingCredentials,haltReview,specialistState,specialistEvidence};
     terminal={status:'skipped',reason:'Application paused at a safe checkpoint for validated tool repair.'};finished=true;
     return true;
   };
   const result = ():AgentRunResult => ({outcome:terminal,captured:ctx.captured,coverLetter:ctx.coverLetter,resumeUsed:ctx.resumeUsed,resumeName:ctx.resumeName,
     actions:ctx.actions,site:isExternal(ctx.page.url())?new URL(ctx.page.url()).hostname:undefined,applicationUrl,
     submitPressed:Boolean(ctx.submissionAttempted),steps,usage:meter.summary(),...(repairCheckpoint?{repair:repairCheckpoint}:{})});
+
+  const specialistHistory = () => `MATCHING-STAGE DUPLICATE DECISION\n${JSON.stringify(duplicateReview)}\nUNCERTAIN ATTEMPTS ONLY\n${applicationAttemptHistory(options.job.id)}`;
+  const automaticSpecialist = async (trigger: 'stalled' | 'technical-stop', proposedReason?: unknown): Promise<string | undefined> => {
+    // Advice cannot revive exhausted work, interfere with a native dialog, or
+    // authorize recovery after a possible send. Manual and automatic calls
+    // share one bounded consultation state, including in-run continuations.
+    if (ctx.submissionAttempted || meter.actionExhausted || meter.finalizing || specialistState.inFlight
+      || specialistState.calls >= 2 || dialogs.has(ctx.page) || ctx.page.isClosed()) return;
+    let consultationTrace: TraceStep | undefined;
+    try {
+      if (trigger === 'technical-stop') {
+        ctx.observation = await observe(ctx.page);
+        recovery.observe(ctx.observation);
+      }
+      if (ctx.observation.inspectionError) return;
+      const key = recovery.evidenceKey;
+      recovery.specialistRequested();
+      if (!key || specialistEvidence.has(key)) return;
+      specialistEvidence.add(key);
+      const secrets = await privateAuthenticationValues(ctx.page);
+      const question = redactPrivateAuthenticationData(
+        `${trigger === 'stalled' ? 'Repeated recovery attempts are not making progress.' : 'The applying agent proposes stopping for a technical blocker.'} Assess the observed blocker and previously failed approaches. Suggest a materially different supported next action, including visible alternative sign-in methods when relevant. Do not guess credentials or URLs, bypass verification, change candidate facts, or authorize a send.\n${proposedReason ? `Proposed reason: ${String(proposedReason)}\n` : ''}${recovery.render()}`, secrets).slice(0, 2000);
+      ctx.log(`  Automatic specialist escalation: ${trigger === 'stalled' ? 'recovery is not progressing' : 'reviewing a technical stop'}.`);
+      consultationTrace = { step: steps, url: ctx.page.url(), tool: consultationToolSchema.name,
+        args: { question, focus: 'form' }, label: 'Automatic read-only specialist escalation',
+        startedAt: new Date().toISOString(), execution: 'started' };
+      trace.push(consultationTrace); saveLiveTrace();
+      const advice = await consultApplicationSpecialist(ctx, { question, focus: 'form' }, {
+        enabled: true, meter, state: specialistState, trigger: 'automatic',
+        applicationHistory: redactPrivateAuthenticationData(`${specialistHistory()}\n${recovery.render()}`, secrets),
+      });
+      Object.assign(consultationTrace, { result: advice.kind === 'ok' ? advice.message : 'No specialist advice was returned.',
+        disposition: 'reobserve', completedAt: new Date().toISOString() });
+      saveLiveTrace();
+      return advice.kind === 'ok' ? advice.message : undefined;
+    } catch (error) {
+      recordDiagnostic({ severity: 'warning', category: 'specialist_unavailable', stage: 'recovery',
+        message: 'Automatic specialist consultation could not finish. No browser action or submission was authorized.', error });
+      const message = 'The automatic specialist consultation was unavailable. Use the observed evidence for normal supported recovery or record the blocker honestly; no action or send was authorized.';
+      if (consultationTrace) {
+        Object.assign(consultationTrace, { result: message, disposition: 'failed', completedAt: new Date().toISOString() }); saveLiveTrace();
+      }
+      return message;
+    }
+  };
 
   const act = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
     if (name === applicationReviewTool.name) {
@@ -471,6 +519,10 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         const quote = String((args.duplicate_evidence as { quote?: string } | undefined)?.quote ?? '');
         if (!await employerMessageEvidence(ctx.page, quote)) return ok('The matching stage cleared the known application history. Stop as already-applied only for NEW employer-form evidence: provide duplicate_evidence.quote copied as a complete visible employer message from the current page or its visible frames. Do not reclassify old history, a similar title, or an uncertain send as a confirmed duplicate.', 'failed');
       }
+      if (args.status === 'skipped' && !args.fit_rejection) {
+        const advice = await automaticSpecialist('technical-stop', args.reason);
+        if (advice) return ok(`AUTOMATIC SPECIALIST REVIEW BEFORE STOPPING\n${advice}\nInspect the fresh page and act on useful advice. It does not authorize a send or invent missing candidate facts.`, 'reobserve');
+      }
       let questions = normaliseBlockedQuestions(args.questions).slice(0, 30);
       if(['skipped','needs-human'].includes(String(args.status))&&!ctx.submissionAttempted&&liveRepairEnabled()){
         if(meter.actionExhausted)return {kind:'terminal',outcome:{status:'skipped',reason:'The application budget ended before its stopping decision could be verified.'}};
@@ -523,8 +575,12 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
     if (name === 'read_candidate_evidence') return ok(await agentOnlyEvidence(String(args.query ?? ''), Number(args.offset ?? 0), Number(args.max_chars ?? 8000)));
     if (name === 'read_browser_experience') return ok(browserExperience(ctx.page.url()));
     if (name === 'read_application_attempts') return ok(applicationAttemptHistory(options.job.id, Number(args.offset ?? 0)));
-    if (name === consultationToolSchema.name) return consultApplicationSpecialist(ctx, args as { question: string }, { enabled: true, meter,
-      applicationHistory: `MATCHING-STAGE DUPLICATE DECISION\n${JSON.stringify(duplicateReview)}\nUNCERTAIN ATTEMPTS ONLY\n${applicationAttemptHistory(options.job.id)}` });
+    if (name === consultationToolSchema.name) {
+      recovery.specialistRequested();
+      if (recovery.evidenceKey) specialistEvidence.add(recovery.evidenceKey);
+      return consultApplicationSpecialist(ctx, args as { question: string }, { enabled: true, meter, state: specialistState,
+        applicationHistory: specialistHistory() });
+    }
     if (name === 'take_snapshot') {
       await assertCurrentRef(ctx, args);
       screenshot = args.screenshot === true;
@@ -794,6 +850,15 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
       if (turn.completing) meter.beginCompletion();
       else meter.setPhase(checkpoint ? 'application-review' : 'work');
       if (meter.exhausted) { budgetStopped = true; break; }
+      if (!pendingDialog && !checkpoint && !recordOnly && recovery.needsSpecialist) {
+        const advice = await automaticSpecialist('stalled');
+        if (advice) {
+          messages.push({ role: 'user', content: `AUTOMATIC SPECIALIST ESCALATION\n${advice}` });
+          lastNote = 'Inspect this fresh observation and apply useful specialist advice directly. No browser action or send was performed by the specialist.';
+          highEffort = true;
+          continue;
+        }
+      }
       if (!pendingDialog && !ctx.observation.inspectionError) {
         // Capture a committed selection after typing only from that same
         // uniquely identified control, never another input with the same label.

@@ -13,6 +13,7 @@ import type { AgentFiles } from './agent-files.js';
 import type { AgentRunOptions, AgentRunResult } from './loop.js';
 import type { ToolContext } from './context.js';
 import type { HaltReviewState } from './halt-review.js';
+import type { ConsultationState } from './consultation.js';
 
 export interface RepairContinuation {
   attemptId: string; runId: string; page: Page; meter: ProgressBudget;
@@ -21,6 +22,8 @@ export interface RepairContinuation {
   coverLetter?: string; resumeUsed?: string; resumeName?: string;
   pendingCredentials?: ToolContext['pendingCredentials'];
   haltReview?: HaltReviewState;
+  specialistState?: ConsultationState;
+  specialistEvidence?: Set<string>;
 }
 export function liveRepairEnabled(): boolean {
   const env=applicationModelEnvironment();

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { specialistFixtureReply } from './specialist-fixture.js';
 import {mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -11,6 +12,7 @@ writeFileSync(join(directory,'resumes.json'),JSON.stringify([{id:'cv-1',label:'F
 let turn=0;
 globalThis.fetch=(async(_url,init)=>{
  const body=JSON.parse(String(init?.body));let calls;
+ const specialist=specialistFixtureReply(body);if(specialist)return specialist;
  const latest=()=>body.messages.filter((m:{role:string})=>m.role==='tool').at(-1).content;
  if(turn===0){
   assert.equal(body.tools.some((t:{function:{name:string}})=>t.function.name==='prepare_application'),false,'Auto apply cannot choose an unavailable Semi auto preparation tool');
@@ -32,7 +34,7 @@ globalThis.fetch=(async(_url,init)=>{
   calls=[{name:'browser_batch',args:{actions:Array.from({length:15},()=>({action:'click',selector:'#year'}))}}];
  }else if(turn===4){
   const batch=JSON.parse(latest());assert.equal(batch.completed,15);
-  calls=[{name:'finish',args:{status:'needs-human',reason:'Fixture checks complete: ambiguous write was refused.',evidence:'Inspection succeeded; ambiguous fill executed nowhere.',questions:[{question:'Fixture target',prompt:'Choose the intended control.',kind:'text'}]}}];
+  calls=[{name:'finish',args:{status:'skipped',reason:'Fixture checks complete: ambiguous write was refused.',evidence:'Inspection succeeded; ambiguous fill executed nowhere.'}}];
  }else throw Error('Unexpected model call');
  return Response.json({choices:[{message:{role:'assistant',content:null,tool_calls:calls.map((call,index)=>({id:`batch-${turn++}-${index}`,type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}))}}],usage:{prompt_tokens:30,completion_tokens:10}});
 }) as typeof fetch;
@@ -43,7 +45,7 @@ try{
  const page=await context.newPage(),url='https://employer.batch.invalid/apply';await page.goto(url);
  await page.setContent('<main><label>Name<input id=name oninput="window.inputEvents=(window.inputEvents||0)+1"></label><label>Other<input id=other value=Untouched></label><label>Password<input type=password value=private-batch-fixture></label><div id=keys contenteditable onkeyup="window.keyEvents=(window.keyEvents||0)+1;this.dataset.committed=this.textContent"></div><button id=year type=button onclick="window.yearClicks=(window.yearClicks||0)+1">Previous year</button></main>');
  const result=await runApplicationAgent({page,job:{id:'batch-fixture',title:'Fixture',company:'Fictional employer',location:'Sydney',url,applicationMode:'external'} as JobListing,profile:{name:'Alex Fixture',email:'fixture@example.invalid',skills:['TypeScript'],willingToRelocate:false} as never,log:()=>{}});
- assert.equal(result.outcome.status,'needs-human');assert.equal(turn,5);
+ assert.equal(result.outcome.status,'skipped');assert.equal(turn,5,'technical ambiguity is not a candidate question');
  assert.equal(await page.evaluate('window.yearClicks',undefined,undefined,false),15,'longer calendar batches execute every action');
  assert.equal(await page.locator('#name').inputValue(),'Alex Fixture');assert.equal(await page.locator('#other').inputValue(),'Untouched');
  assert.equal(await page.evaluate('window.inputEvents',undefined,undefined,false),1,'normal input event fired exactly once');

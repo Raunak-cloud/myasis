@@ -9,7 +9,15 @@ Every account uses the same Agent-only application driver with Celeris Magnus.
 The model receives the scoped profile, saved answers, CVs, preferences, browser
 state and application history. It writes answers and letters, chooses documents,
 recovers form errors, judges duplicate history and verifies receipt itself.
-Read-only specialist advice is optional and shares the parent spending budget.
+The applying agent may request read-only specialist advice. The runner also
+consults automatically when recovery repeats without progress, or before an
+unresolved technical stop. Both routes share at most two consultations per
+application and the existing spending budget. Advice is refreshed against the
+current page, never submits or approves, and is not requested after a possible
+send. An unchanged state cannot repeatedly spend on the same escalation.
+The default shared allowance is US$0.40 per application, with verified progress
+able to extend it up to US$1.00. Configure these through `AGENT_BUDGET_USD` and
+`AGENT_PROGRESS_BUDGET_USD`; unchanged pages do not earn extra spending.
 Normal turns use medium reasoning; failed actions receive higher effort.
 
 Every account defaults to a fresh viewport screenshot alongside the normal form

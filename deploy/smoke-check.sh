@@ -29,6 +29,7 @@ if [ "${1:-0}" = 1 ]; then
   node --test --test-name-pattern='admin repair' dist/review-budget.test.js
   node --test dist/agent/attempt-diagnostics.test.js dist/browser-deadline.test.js dist/discovery-search.test.js dist/discovery-policy.test.js
   node --test dist/agent/generation-recovery.test.js dist/agent/celeris-queue.test.js dist/agent/openrouter.test.js dist/agent/tool-input.test.js dist/agent/agent-only-transcript.test.js dist/agent/application-policy.test.js dist/agent/application-readiness.test.js dist/agent/application-turn.test.js dist/agent/consultation.test.js dist/agent/recovery-checkpoint.test.js dist/agent/progress-budget.test.js dist/agent/agent-file-inventory.test.js dist/verification-email-local.test.js dist/gmail-verification.test.js
+  CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/automatic-specialist.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/browser-command-contract.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/approved-letter-browser.test.js dist/agent/observe-frames.test.js dist/agent/indeed-cover-letter.test.js dist/gmail-browser-readiness.test.js dist/agent/prepared-finalization-budget.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/gmail-spam-browser.test.js

@@ -294,8 +294,8 @@ export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, 
      * not fix it. Saying so ends the attempt in one step instead of spending
      * another ninety seconds finding out the same thing.
      */
-    if (cannotReadMailbox(found.error)) return ok(`${found.error} This is a mailbox access failure, not a delayed email. Follow the mailbox recovery message before requesting another code.`);
-    return ok(`${found.error} If the page has a resend control, click it and call this again once; otherwise finish with "skipped".`);
+    if (cannotReadMailbox(found.error)) return ok(`${found.error} This is a mailbox access failure, not a delayed email. Follow the mailbox recovery message before requesting another code.`, 'failed');
+    return ok(`${found.error} Inspect supported resend or alternative sign-in controls. Repeated waits without progress require a different approach or specialist advice.`, 'failed');
   }
 
   if (fields.length > 1 && fields.length !== found.value.length) {
@@ -336,8 +336,8 @@ export async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, u
   if ('error' in found) {
     ctx.log(`  ✉ ${found.error}`);
     if ('reason' in found && found.reason === 'unreadable-message') return ok(found.error, 'failed');
-    if (cannotReadMailbox(found.error)) return ok(`${found.error} This is a mailbox access failure, not a delayed email. Follow the mailbox recovery message before requesting another link.`);
-    return ok(`${found.error} If the page has a resend control, click it and call this again once; otherwise finish with "skipped".`);
+    if (cannotReadMailbox(found.error)) return ok(`${found.error} This is a mailbox access failure, not a delayed email. Follow the mailbox recovery message before requesting another link.`, 'failed');
+    return ok(`${found.error} Inspect supported resend or alternative sign-in controls. Repeated waits without progress require a different approach or specialist advice.`, 'failed');
   }
   if (found.kind !== 'link') return ok(`The site's email ("${found.subject.slice(0, 60)}") carries a code, not a link. Call enter_emailed_code with the code field(s) instead.`);
   if (isForbiddenDestination(found.value)) return ok('The emailed link points somewhere this agent never navigates. Try another authentication option.');

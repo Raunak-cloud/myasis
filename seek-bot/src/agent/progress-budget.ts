@@ -1,5 +1,6 @@
 import { CostMeter } from './celeris.js';
 import type { FormField } from '../types.js';
+import { APPLICATION_BUDGET_DEFAULTS } from '../application-budget.js';
 
 const normalise = (value: string) => value.replace(/\s+/g, ' ').trim().toLowerCase();
 const identity = (field: FormField) => JSON.stringify([normalise(field.section ?? ''), normalise(field.label), field.kind]);
@@ -18,9 +19,9 @@ export class ProgressBudget extends CostMeter {
   private completionCeiling?: number;
   readonly maximum: number;
 
-  constructor(base: number, maximum = 0.70) {
-    base = Number.isFinite(base) && base > 0 ? base : 0.20;
-    maximum = Number.isFinite(maximum) && maximum > 0 ? maximum : 0.70;
+  constructor(base: number, maximum: number = APPLICATION_BUDGET_DEFAULTS.maximumUsd) {
+    base = Number.isFinite(base) && base > 0 ? base : APPLICATION_BUDGET_DEFAULTS.baseUsd;
+    maximum = Number.isFinite(maximum) && maximum > 0 ? maximum : APPLICATION_BUDGET_DEFAULTS.maximumUsd;
     super(base);
     this.allowance = base;
     this.maximum = Math.max(base, maximum);
