@@ -8,6 +8,58 @@ export function quotedQuestions(raw: unknown) {
   return normaliseBlockedQuestions(Array.isArray(raw) ? raw.map(item => ({ ...item, question: item?.form_quote, prompt: item?.form_quote })) : []);
 }
 
+/** Extract question text from associated employer markup, never from field values
+ * or model-authored prose. Ambiguous or stale controls fail closed. */
+export async function extractEmployerQuestions(ctx: ToolContext, raw: unknown): Promise<{ questions?: ReturnType<typeof quotedQuestions>; issue?: string }> {
+  if (!Array.isArray(raw) || raw.length < 1 || raw.length > 30) return { issue: 'No current question fields were identified.' };
+  const grounded: Array<{ field_ref: string; form_quote: string; kind?: string; options?: string[] }> = [];
+  for (const item of raw) {
+    const ref = item?.field_ref;
+    if (typeof ref !== 'string') return { issue: 'A current question field was not identified.' };
+    const field = ctx.observation.fields.find(f => f.ref === ref || f.kind === 'radio' && f.options?.some((_, i) => `${f.ref}:${i}` === ref));
+    const action = ctx.observation.actions.find(a => a.ref === ref);
+    if ((!field && !action) || field?.sensitive || field?.privateKind || field?.currentValue === '[private credential]') return { issue: 'The question field is unavailable or private.' };
+    const target = locate(ctx.page, field?.kind === 'radio' && field.ref === ref ? `${ref}:0` : ref);
+    if (!target || await target.count().catch(() => 0) !== 1) return { issue: 'The question control changed.' };
+    const quote = await target.evaluate(element => {
+      const visible = (el: Element) => el.checkVisibility({ checkVisibilityCSS: true, checkOpacity: true });
+      if (!visible(element) && !element.matches('input[type="radio"],input[type="checkbox"],input[type="file"],input[role="combobox"],input[aria-haspopup]')) return '';
+      const root = element.getRootNode() as Document | ShadowRoot;
+      const text = (el: Element | null) => {
+        if (!el || !visible(el)) return '';
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), parts: string[] = [];
+        while (walker.nextNode()) {
+          const p = walker.currentNode.parentElement;
+          if (p && !p.closest('input,textarea,select,script,style,[contenteditable], [role="option"]') && visible(p)) parts.push(walker.currentNode.textContent || '');
+        }
+        return parts.join(' ').replace(/\s+/g, ' ').trim();
+      };
+      const input = element as HTMLInputElement;
+      const labels = [...(input.labels ?? [])].map(text).filter(Boolean);
+      const labelled = (element.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean).map(id => text(root.getElementById(id))).filter(Boolean);
+      const label = [...labels, ...labelled, element.getAttribute('aria-label') || ''].find(Boolean) || '';
+      const group = element.closest('fieldset,[role="group"],[role="radiogroup"]');
+      let heading = '';
+      if (group) {
+        const groupRoot = group.getRootNode() as Document | ShadowRoot;
+        heading = text(group.querySelector('legend')) || (group.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean).map(id => text(groupRoot.getElementById(id))).filter(Boolean).join(' ') || group.getAttribute('aria-label') || '';
+      }
+      if (heading && (element.matches('input[type="radio"]') || group?.getAttribute('role') === 'radiogroup')) return heading;
+      if (heading && label && !heading.toLowerCase().includes(label.toLowerCase())) return `${heading} ${label}`;
+      return heading || label;
+    }).catch(() => '');
+    if (!quote || quote.length > 500) return { issue: 'The employer question could not be extracted reliably.' };
+    if (field && quote.replace(/[\s:*]+$/g, '').toLowerCase() === field.label.replace(/[\s:*]+$/g, '').toLowerCase()
+      && ctx.observation.fields.filter(f => f.label.trim().toLowerCase() === field.label.trim().toLowerCase()).length > 1) {
+      return { issue: 'Repeated field labels lack a distinguishable employer section.' };
+    }
+    grounded.push({ field_ref: ref, form_quote: quote, ...(field ? { kind: field.kind, options: field.options } : {}) });
+  }
+  const issue = await questionEvidenceIssue(ctx, grounded);
+  if (issue) return { issue };
+  return { questions: quotedQuestions(grounded) };
+}
+
 /** Ground the question in a current employer control. The agent still judges
  * whether the answer is required, consequential and missing from its evidence.
  * No technical-error vocabulary or candidate-answer classification is used. */

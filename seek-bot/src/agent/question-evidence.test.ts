@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'patchright';
 import { observe } from './observe.js';
-import { questionEvidenceIssue, quotedQuestions } from './question-evidence.js';
+import { extractEmployerQuestions, questionEvidenceIssue, quotedQuestions } from './question-evidence.js';
 import type { ToolContext } from './context.js';
 
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
@@ -11,6 +11,7 @@ try {
   await page.setContent('<label>Verification code<input autocomplete="one-time-code" required></label><label>Postcode<input value="2000" required></label><label>Security policy code<input value="SAFE-42" required></label>');
   const privateCtx = await context();
   const otp = privateCtx.observation.fields.find(field => field.label === 'Verification code')!;
+  assert.ok((await extractEmployerQuestions(privateCtx, [{ field_ref: otp.ref }])).issue, 'private fields cannot become candidate tasks');
   assert.ok(await questionEvidenceIssue(privateCtx, [{ form_quote: 'Verification code', field_ref: otp.ref }]), 'ephemeral authentication codes cannot become saved candidate questions');
   for (const label of ['Postcode', 'Security policy code']) {
     const field = privateCtx.observation.fields.find(field => field.label === label)!;
@@ -19,6 +20,8 @@ try {
   }
   await page.setContent('<fieldset><legend>Date of Birth *</legend><label>Month<input></label><label>Day<input></label><label>Year<input></label></fieldset>');
   let ctx = await context();
+  const automaticDate = await extractEmployerQuestions(ctx, [{ field_ref: ctx.observation.fields[0].ref, form_quote: 'Invented question' }]);
+  assert.match(automaticDate.questions?.[0].question ?? '', /Date of Birth/, 'composite dates use employer text, not agent prose');
   assert.equal(await questionEvidenceIssue(ctx, [{ question: 'Date of Birth', form_quote: 'Date of Birth *', field_ref: ctx.observation.fields[0].ref }]), null, 'a composite date can quote its real group heading');
   const fullDate = [{ field_ref: ctx.observation.fields[0].ref, form_quote: 'Date of Birth * Month Day Year', kind: 'text' }];
   assert.equal(await questionEvidenceIssue(ctx, fullDate), null);
@@ -27,6 +30,9 @@ try {
   await page.setContent('<fieldset><legend>Current clearance *</legend><label><input type="radio" name="clearance">None</label><label><input type="radio" name="clearance">NV2</label></fieldset>');
   ctx = await context();
   const radio = ctx.observation.fields.find(field => field.kind === 'radio')!;
+  const automaticRadio = await extractEmployerQuestions(ctx, [{ field_ref: radio.ref, options: ['Made up'] }]);
+  assert.equal(automaticRadio.questions?.[0].question, 'Current clearance');
+  assert.deepEqual(automaticRadio.questions?.[0].options, ['None', 'NV2'], 'choices come from the employer, not the agent');
   assert.equal(await questionEvidenceIssue(ctx, [{ question: 'Current clearance', form_quote: 'Current clearance *', field_ref: radio.ref }]), null, 'logical radio groups can ground their real question');
   assert.equal(await questionEvidenceIssue(ctx, [{ question: 'Current clearance', form_quote: 'Current clearance *', field_ref: `${radio.ref}:1` }]), null, 'an observed radio option can anchor its group');
   assert.equal(await page.locator('input:checked').count(), 0, 'grounding never chooses a radio answer');
@@ -34,8 +40,14 @@ try {
   await page.setContent('<fieldset><legend>Employment 1</legend><label>Start date<input></label></fieldset><fieldset><legend>Employment 2</legend><label>Start date<input></label></fieldset>');
   ctx = await context();
   const repeated = ctx.observation.fields.map((field, index) => ({ question: 'Start date', form_quote: `Employment ${index + 1} Start date`, field_ref: field.ref }));
+  const automaticRepeated = await extractEmployerQuestions(ctx, ctx.observation.fields.map(field => ({ field_ref: field.ref })));
+  assert.deepEqual(automaticRepeated.questions?.map(q => q.question), ['Employment 1 Start date', 'Employment 2 Start date']);
   assert.equal(await questionEvidenceIssue(ctx, repeated), null);
   assert.equal(quotedQuestions(repeated).length, 2, 'actual section quotes retain separate contexts for repeated date labels');
+
+  await page.setContent('<label>Position title<input></label><label>Position title<input></label>');
+  ctx = await context();
+  assert.ok((await extractEmployerQuestions(ctx, [{ field_ref: ctx.observation.fields[0].ref }])).issue, 'repeated labels without grounded context must not become ambiguous tasks');
 
   await page.setContent('<div><span id="caption">Current clearance *</span><div role="combobox" tabindex="0" aria-labelledby="caption">Choose</div></div>');
   ctx = await context();
@@ -55,6 +67,7 @@ try {
   assert.ok(await questionEvidenceIssue(ctx, [{ question: invented, form_quote: 'Something went wrong.', field_ref: ctx.observation.fields[0].ref }]), 'an error quote cannot ground an invented operational question');
   assert.ok(await questionEvidenceIssue(ctx, [{ question: 'Notes', form_quote: 'Notes', field_ref: 'f999' }]), 'a guessed ref cannot ground a question');
   await page.locator('textarea').evaluate(node => node.remove());
+  assert.ok((await extractEmployerQuestions(ctx, [{ field_ref: ctx.observation.fields[0].ref }])).issue, 'a stale control is a bounded technical failure');
   assert.ok(await questionEvidenceIssue(ctx, [{ question: 'Notes', form_quote: 'Notes', field_ref: ctx.observation.fields[0].ref }]), 'a removed control must be re-observed');
   await page.setContent('<label>Required personal detail *<input></label>');
   ctx = await context();
@@ -73,6 +86,7 @@ try {
   assert.ok(nested);
   assert.equal(await questionEvidenceIssue(ctx, [{ question: 'Work rights', form_quote: 'Work rights *', field_ref: nested.ref }]), null, 'a visible employer frame can ground a real question');
   await page.locator('iframe').evaluate(node => { (node as HTMLElement).style.display = 'none'; });
+  assert.ok((await extractEmployerQuestions(ctx, [{ field_ref: nested.ref }])).issue, 'hidden frames cannot supply candidate questions');
   assert.ok(await questionEvidenceIssue(ctx, [{ question: 'Work rights', form_quote: 'Work rights *', field_ref: nested.ref }]), 'a hidden frame cannot prove a current question');
   console.log('PASS: real labels, composite dates, shadow groups and frames grounded; invented, editable, stale and hidden question evidence rejected. No employer application.');
 } finally { await browser.close(); }

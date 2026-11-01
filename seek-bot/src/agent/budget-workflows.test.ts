@@ -135,6 +135,12 @@ test('required missing answers can be recorded after the paid canonical review c
  try{const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'needs-human');assert.equal(turns,3);assert.equal(r.submitPressed,false);if(r.outcome.status==='needs-human')assert.equal(r.outcome.questions?.[0].question,'What is your visa expiry date?');}finally{await f.context.close();}
 });
 
+test('an ungroundable question stops once as a technical failure without a candidate task or send',{timeout:10000},async()=>{
+ const f=await fixture('<main><label>Required detail<input required></label><button id="send">Submit application</button></main>');let turns=0;
+ globalThis.fetch=async()=>{turns++;assert.equal(turns,1,'question capture must not cause another paid retry');return packet([finish('needs-human',{questions:[{field_ref:'f999'}]})]);};
+ try{const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'skipped');assert.match(JSON.stringify(r.outcome),/securely capture/);assert.equal(turns,1);assert.equal(r.submitPressed,false);}finally{await f.context.close();}
+});
+
 test('email preparation retains an already-paid draft and changes to its recipient require a fresh agent review',{timeout:10000},async()=>{
  const f=await fixture('<main>Apply by email to first@fixture.invalid or second@fixture.invalid, with a cover letter and resume.</main>');let turns=0,reviews=0;
  const draft=(to:string):Call=>({name:'prepare_email_application',args:{to,subject:'Fictional application',cover_letter:'Dear team,\n\nI am applying using my fictional candidate CV.\n\nFictional Candidate',resume_id:'cv'}});

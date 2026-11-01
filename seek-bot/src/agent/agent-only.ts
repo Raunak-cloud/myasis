@@ -51,7 +51,7 @@ import { ApplicationReadiness, applicationReviewTool } from './application-readi
 import { changesBrowserState } from './browser-commands.js';
 import { addIndeedCoverLetter } from './indeed-cover-letter.js';
 import { jobBoardForUrl } from '../job-board-url.js';
-import { questionEvidenceIssue, quotedQuestions } from './question-evidence.js';
+import { extractEmployerQuestions } from './question-evidence.js';
 import { browserCommandContract } from './browser-command-schema.js';
 
 const string = { type: 'string' };
@@ -119,8 +119,8 @@ const agentOnlyTools: ToolSchema[] = [
     receipt: { type: 'object', additionalProperties: false, description: 'Required for applied: copy a COMPLETE visible employer confirmation message or sentence, including its qualifications. You judge its meaning. A loading state, disabled button, account creation or URL is not receipt. Do not truncate a message to remove negation or conditions.', properties: { quote: { type: 'string', minLength: 1 } }, required: ['quote'] },
     questions: { type: 'array', description: 'For needs-human only: exact unanswered REQUIRED questions printed on the employer form needing a consequential candidate fact or decision. Operational questions you invent about retrying later, waiting or applying manually are not employer questions. Role mismatches, technical failures and optional fields are skipped, not questions.', items: {
       type: 'object', additionalProperties: false,
-      properties: { field_ref: { type: 'string', description: 'Current observed field/group ref or semantic dropdown/file/toggle control for this actual question.' }, form_quote: { type: 'string', maxLength: 2000, description: 'Verbatim complete employer question with its group heading and relevant instructions. Include the whole question for composite fields such as a full date, not just Month/Day/Year. Use at most 500 characters after whitespace normalization; this quote becomes the displayed question and saved context. Never invented retry/recovery prose.' }, kind: { type: 'string', enum: ['text', 'textarea', 'select', 'radio', 'checkbox'] }, options: { type: 'array', items: string } },
-      required: ['field_ref', 'form_quote'],
+      properties: { field_ref: { type: 'string', description: 'Current observed field/group ref for the required unanswered employer question. The system extracts its label and choices.' }, form_quote: { type: 'string', maxLength: 2000, description: 'Optional compatibility field; employer text is extracted directly from the form.' }, kind: { type: 'string', enum: ['text', 'textarea', 'select', 'radio', 'checkbox'] }, options: { type: 'array', items: string } },
+      required: [],
     } },
     cover_letter: string, resume_id: string,
     duplicate_evidence: { type: 'object', additionalProperties: false, description: 'Required for already-applied: new evidence on the actual employer form, not a historical record or similar title.',
@@ -426,11 +426,16 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
       if (args.cover_letter) ctx.coverLetter = coverLetterForRun(String(args.cover_letter));
       const resumeId = approved?.resumeId ?? args.resume_id;
       if (resumeId) { const doc = agentOnlyDocuments().find(item => item.id === resumeId); if (doc) { ctx.resumeUsed = doc.id; ctx.resumeName = doc.fileName; } }
-      const questions = args.status === 'needs-human' ? quotedQuestions(args.questions) : normaliseBlockedQuestions(args.questions).slice(0, 30);
-      if (args.status === 'needs-human' && !questions.length) return ok('Needs attention requires an actual unanswered required application question. Supply its current field_ref, complete verbatim form_quote and any offered choices. The verified employer quote becomes the displayed question; do not invent a separate prompt. For technical problems or role mismatches, finish skipped with the reason.', 'invalid-arguments');
+      let questions = normaliseBlockedQuestions(args.questions).slice(0, 30);
       if (args.status === 'needs-human') {
-        const issue = await questionEvidenceIssue(ctx, args.questions);
-        if (issue) return ok(issue, 'invalid-arguments');
+        const extracted = await extractEmployerQuestions(ctx, args.questions);
+        if (!extracted.questions?.length) {
+          const detail = `Could not securely capture the required employer question: ${extracted.issue ?? 'question unavailable'}`;
+          recordDiagnostic({ severity: 'warning', category: 'question_capture_error', stage: 'application', tool: 'finish', message: detail });
+          log(`  ${detail}`);
+          return { kind: 'terminal', outcome: { status: 'skipped', reason: 'Could not securely capture a required employer question for review.' } };
+        }
+        questions = extracted.questions;
       }
       log(`  Agent judgement: ${args.status}: ${args.reason} Evidence: ${args.evidence}`);
       if (config.dryRun) return { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: `Agent judgement: ${args.status}. ${args.evidence}` } };
