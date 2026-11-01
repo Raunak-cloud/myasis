@@ -10,7 +10,7 @@ const dir=mkdtempSync(join(tmpdir(),'halt-review-'));
 process.env.DATA_DIR=dir;process.env.COST_TRACKING='false';
 mkdirSync(join(dir,'resumes'));writeFileSync(join(dir,'resumes','Fixture CV.txt'),'Fictional TypeScript developer.');
 writeFileSync(join(dir,'resumes.json'),JSON.stringify([{id:'cv',fileName:'Fixture CV.txt',label:'Fixture CV'}]));
-const {reviewHalt,newHaltReviewState}=await import('./halt-review.js');
+const {reviewHalt,newHaltReviewState,haltReviewTools}=await import('./halt-review.js');
 const {CostMeter}=await import('./celeris.js');
 const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
 try{
@@ -20,6 +20,12 @@ try{
  const ctx={page,job:{id:'fixture',title:'Developer',company:'Fictional employer',url:'https://fixture.invalid/apply'},profile:{name:'Alex Fixture',skills:[],noticePeriod:'2 weeks',workRights:'Australian citizen'},
   captured:[],actions:[],observation:{fields:[],actions:[],url:page.url(),title:'Fixture',text:''},log:()=>{}} as unknown as ToolContext;
  const state=newHaltReviewState(),meter=new CostMeter(.20);let requests=0;
+ const tools=[{name:'finish',description:'fixture',parameters:{properties:{status:{enum:['skipped','needs-human','applied']}}}}];
+ assert.equal(haltReviewTools(tools,state,false),tools);
+ state.pendingAction=true;
+ assert.deepEqual(((haltReviewTools(tools,state,false)[0].parameters.properties as any).status.enum),['needs-human','applied']);
+ assert.equal(haltReviewTools(tools,state,true),tools,'budget-only final records are never forced into additional work');
+ state.pendingAction=false;
  const responder=async(request:CelerisRequest)=>{
   requests++;assert.equal(request.meter,meter);assert.equal(request.tools,undefined);
   const body=JSON.stringify(request.messages);assert.match(body,/Australian citizen|2 weeks/);assert.doesNotMatch(body,/fixture-secret/);
@@ -39,6 +45,10 @@ try{
  assert.equal(unknown.decision,'stop','genuine unknown facts still reach the candidate');
  const fabricated=await reviewHalt(ctx,proposal,newHaltReviewState(),meter,async()=>({text:JSON.stringify({decision:'continue',reason:'Use an invented date.',evidence:[{source:'profile',quote:'31 December 2030'}]}),toolCalls:[],message:{role:'assistant',content:null}}));
  assert.equal(fabricated.decision,'unavailable','unsupported review claims never authorize work');
+ const mixed=await reviewHalt(ctx,proposal,newHaltReviewState(),meter,async()=>({text:JSON.stringify({decision:'continue',reason:'Use 31 December 2030.',evidence:[{source:'profile',quote:'2 weeks'},{source:'profile',quote:'31 December 2030'}]}),toolCalls:[],message:{role:'assistant',content:null}}));
+ assert.equal(mixed.decision,'continue');
+ assert.deepEqual(mixed.evidence,[{source:'profile',quote:'2 weeks'}]);
+ assert.doesNotMatch(mixed.reason,/2030/,'unsupported facts and their proposed instruction are discarded together');
  ctx.submissionAttempted=true;
  assert.equal((await reviewHalt(ctx,proposal,newHaltReviewState(),meter,async()=>{throw Error('No request permitted after a possible send');})).decision,'unavailable');
  console.log('PASS: fresh stopping reviews ground known facts, preserve unknowns and credentials, share the original budget, cache unchanged evidence and never act after a send.');

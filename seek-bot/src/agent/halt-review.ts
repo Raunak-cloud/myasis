@@ -7,10 +7,10 @@ import { readSavedForm } from './saved-form.js';
 import { validToolInput } from './tool-input.js';
 import { recordDiagnostic } from './attempt-diagnostics.js';
 import type { ToolContext } from './context.js';
-import type { CostMeter } from './celeris.js';
+import type { CostMeter,ToolSchema } from './celeris.js';
 
 export interface HaltAssessment {decision:'continue'|'stop'|'unavailable';reason:string;evidence:Array<{source:string;quote:string}>}
-export interface HaltReviewState {calls:number;rejections:number;cache:Array<{key:string;assessment:HaltAssessment}>}
+export interface HaltReviewState {calls:number;rejections:number;pendingAction?:boolean;cache:Array<{key:string;assessment:HaltAssessment}>}
 export const newHaltReviewState=():HaltReviewState=>({calls:0,rejections:0,cache:[]});
 const schema={type:'object',additionalProperties:false,properties:{
  decision:{type:'string',enum:['continue','stop']},reason:{type:'string',minLength:1,maxLength:1800},
@@ -19,6 +19,19 @@ const schema={type:'object',additionalProperties:false,properties:{
 },required:['decision','reason','evidence']};
 const norm=(value:string)=>value.normalize('NFKC').replace(/\s+/g,' ').trim().toLowerCase();
 const unavailable=(reason:string):HaltAssessment=>({decision:'unavailable',reason,evidence:[]});
+
+/** A rejected technical stop is not immediately offered again before an
+ * attempted browser action. Personal questions and actual receipts remain
+ * available; budget-only final recording is never restricted. */
+export function haltReviewTools(tools:ToolSchema[],state:HaltReviewState,recordOnly:boolean):ToolSchema[] {
+ if(!state.pendingAction||recordOnly)return tools;
+ return tools.map(tool=>{
+  if(tool.name!=='finish')return tool;
+  const properties=tool.parameters.properties as Record<string,Record<string,unknown>>;
+  return {...tool,parameters:{...tool.parameters,properties:{...properties,status:{...properties.status,
+   enum:(properties.status.enum as string[]).filter(status=>status!=='skipped')}}}};
+ });
+}
 
 /** Read-only, fresh-context evidence review for the bounded admin trial. This
  * has no browser/action tools, never fills answers, and cannot approve a send.
@@ -46,8 +59,10 @@ export async function reviewHalt(ctx:ToolContext,proposal:Record<string,unknown>
   let result:unknown;try{result=JSON.parse(reply.text);}catch{return unavailable('Stopping review returned malformed evidence.');}
   if(reply.toolCalls.length||!validToolInput(result,schema))return unavailable('Stopping review returned an invalid decision.');
   const assessment=redactPrivateAuthenticationData(result as HaltAssessment,secrets);
-  const quotes=assessment.evidence.every(e=>e.source in sources&&norm(sources[e.source as keyof typeof sources]).includes(norm(e.quote)));
-  if(!quotes||assessment.decision==='continue'&&!assessment.evidence.length)return unavailable('Stopping review could not ground its correction in supplied evidence.');
+  const grounded=assessment.evidence.filter(e=>e.source in sources&&norm(sources[e.source as keyof typeof sources]).includes(norm(e.quote)));
+  if(assessment.decision==='stop'&&grounded.length!==assessment.evidence.length||assessment.decision==='continue'&&!grounded.length)return unavailable('Stopping review could not ground its correction in supplied evidence.');
+  if(grounded.length!==assessment.evidence.length)assessment.reason='Explicit source evidence contradicts the proposed stop. Complete the supported work; unsupported review excerpts were discarded.';
+  assessment.evidence=grounded;
   state.cache.push({key,assessment});
   recordDiagnostic({severity:assessment.decision==='continue'?'warning':'info',category:'halt_review',stage:'application',
    message:`Read-only stopping review: ${assessment.decision}. ${assessment.reason}`});

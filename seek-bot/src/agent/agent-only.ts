@@ -25,7 +25,7 @@ import { ApplicationBudgetExhaustedError, type ChatMessage, type ToolSchema } fr
 import { applicationChat } from './application-chat.js';
 import { ProgressBudget } from './progress-budget.js';
 import { consultApplicationSpecialist, consultationToolSchema } from './consultation.js';
-import { newHaltReviewState,reviewHalt } from './halt-review.js';
+import { newHaltReviewState,reviewHalt,haltReviewTools } from './halt-review.js';
 import { isExternal } from './browser-boundaries.js';
 import type { AgentRunOptions, AgentRunResult } from './loop.js';
 import { persistLiveTrace, persistTrace, browserExperience, type TraceStep } from './loop/trace.js';
@@ -473,6 +473,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         if(assessment.decision==='continue'){
           if(++haltReview.rejections>3)return {kind:'terminal',outcome:{status:'skipped',reason:'The applying agent repeatedly contradicted the verified stopping review; no candidate question or send was created.'}};
           haltCorrection=JSON.stringify(assessment);
+          haltReview.pendingAction=true;
           return ok('The fresh evidence review contradicts this stopping decision. Inspect its exact source excerpts and complete the supported work from the current saved browser state. No send or candidate question was authorized.','reobserve');
         }
       }
@@ -814,8 +815,9 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
       let reply;
       // The forced checkpoint already accepts only this named tool. Advertise
       // that exact contract; normal turns retain every available action.
-      const turnTools = checkpoint ? offeredTools.filter(tool => tool.name === checkpoint)
-        : recordOnly ? offeredTools.filter(tool => finalRecords.includes(tool.name)) : offeredTools;
+      const availableTools=haltReviewTools(offeredTools,haltReview,recordOnly);
+      const turnTools = checkpoint ? availableTools.filter(tool => tool.name === checkpoint)
+        : recordOnly ? availableTools.filter(tool => finalRecords.includes(tool.name)) : availableTools;
       const forceTool = checkpoint ?? (recordOnly && turnTools.length === 1 ? turnTools[0].name : undefined);
       if (recordOnly) finalRecordUsed = true;
       const reasoningEffort = checkpoint || highEffort || recovery.needsDeepReasoning || readiness.needsDeepReasoning ? 'xhigh' : 'medium';
@@ -917,6 +919,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
             if (issue) throw new Error(`Invalid tool input: ${issue}`);
             if (recoveryTools.some(item => item.name === call.name) && call.name !== checkpoint) throw new Error('Record a recovery checkpoint only when that named checkpoint is requested.');
             failureKind='execution';
+            if(call.name==='browser_action'&&changesBrowserState(call.args)||call.name==='browser_batch'&&Array.isArray(call.args.actions)&&call.args.actions.some(changesBrowserState))haltReview.pendingAction=false;
             result = await act(call.name, call.args);
             failureKind='validation';
             if (result.kind === 'ok' && !readiness.requested && !failedToolResult(result) && (call.name === 'browser_batch' && Array.isArray(call.args.actions) && call.args.actions.some(changesBrowserState)
