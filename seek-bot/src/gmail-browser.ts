@@ -101,18 +101,31 @@ export async function withGmailBrowser<T>(userId: string, action: (page: Page) =
     throw new GmailServiceError('unavailable', `The Gmail browser request could not finish while ${phase}. Retry the mailbox request; this does not establish that Gmail is disconnected.`);
   });
 }
-async function waitForSearchResults(page: Page): Promise<void> {
-  await page.waitForFunction(selector => {
-    const main = document.querySelector('[role="main"]');
-    return main && (main.querySelector(selector)
-      || /no conversations found|no results found|no conversations match|no messages matched your search/i.test((main as HTMLElement).innerText || ''));
-  }, THREAD_ROWS, { timeout: 15_000 }).catch(() => {
+async function waitForSearchResults(page: Page): Promise<string[]> {
+  // Gmail can briefly render an empty search view before its results arrive.
+  // Capture usable IDs in the readiness check itself: checking the list and
+  // reading it in separate calls can also race a results rerender.
+  try {
+    const ready = await page.waitForFunction(selector => {
+      const main = document.querySelector('[role="main"]');
+      if (!main) return false;
+      const ids = [...new Set([...main.querySelectorAll(selector)].map(node =>
+        [node.getAttribute('data-legacy-thread-id'), node.getAttribute('data-thread-id')]
+          .find(id => id && /^[\w-]{1,100}$/.test(id)) || '').filter(Boolean))].slice(0, 20);
+      return ids.length ? ids : false;
+    }, THREAD_ROWS, { timeout: 15_000 });
+    try { return await ready.jsonValue() as string[]; }
+    finally { await ready.dispose(); }
+  } catch {
+    const empty = await page.locator('[role="main"]').evaluate(main =>
+      /no conversations found|no results found|no conversations match|no messages matched your search/i.test((main as HTMLElement).innerText || '')).catch(() => false);
+    if (empty) return [];
     throw new GmailServiceError('unavailable', 'Gmail opened, but the requested message list did not finish loading. Retry reading the mailbox; do not resend the verification email to repair this.');
-  });
+  }
 }
 export async function searchBrowserGmail(userId: string, query: string): Promise<GmailThread[]> {
   return withGmailBrowser(userId, async page => {
-    await waitForSearchResults(page);
+    let ids = await waitForSearchResults(page);
     // Gmail can rank search results by relevance. Verification parsing needs
     // newest first, including when a mailbox has received replacement codes.
     const relevant = page.getByRole('button', { name: /^Showing most relevant$/i });
@@ -127,11 +140,9 @@ export async function searchBrowserGmail(userId: string, query: string): Promise
       assertBrowserOperationActive();
       await page.reload({ waitUntil: 'commit', timeout: 20_000 });
       await page.getByRole('button', { name: /^Showing most recent$/i }).waitFor({ timeout: 15_000 });
-      await waitForSearchResults(page);
+      ids = await waitForSearchResults(page);
     }
-    return page.locator(`[role="main"] :is(${THREAD_ROWS})`).evaluateAll(nodes => [...new Set(nodes.map(node =>
-      [node.getAttribute('data-legacy-thread-id'), node.getAttribute('data-thread-id')]
-        .find(id => id && /^[\w-]{1,100}$/.test(id)) || '').filter(Boolean))].slice(0, 20).map(id => ({ id })));
+    return ids.map(id => ({ id }));
   }, `#search/${encodeURIComponent(verificationMailboxQuery(query))}`, 55_000);
 }
 export async function readBrowserGmail(userId: string, threadId: string): Promise<GmailMessage[]> {
