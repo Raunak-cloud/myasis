@@ -25,6 +25,17 @@ test('multiline edits match mixed Windows/Unix source without changing protected
   assert.match(proposal.files[file],/return 1;/);assert.doesNotMatch(proposal.files[file],/\r/);
 });
 
+test('the exact failing function is supplied as source context after the source catalogue',async()=>{
+  const code='function unrelated() { return "unrelated-body"; }\nexport function browserTarget(page: object) { return [page][1]; }';
+  const path='seek-bot/src/agent/browser-target.ts';
+  await proposeRepair({...incident,sourceSite:{path,function:'browserTarget'}},{[path]:code},async turns=>{
+    const focus=turns[2].content;
+    assert.match(focus,/FAILURE SITE SOURCE: seek-bot\/src\/agent\/browser-target.ts \/ browserTarget/);
+    assert.match(focus,/return \[page\]\[1\]/);assert.doesNotMatch(focus,/unrelated-body/);
+    return {calls:[{name:'replace_source',args:{path,old:'[page][1]',replacement:'page'}}],costUsd:0};
+  });
+});
+
 test('secrets, approval policies, malformed edits and unbounded model usage fail closed', async () => {
   for (const path of ['seek-bot/.env', 'seek-bot/src/agent/application-policy.ts', '../agent-files.ts']) {
     await assert.rejects(() => proposeRepair(incident, source, async () => ({ calls: [{ name: 'replace_source', args: { path,old:'old',replacement:'new' } }], costUsd: 0 })), /turn limit/);
