@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { chromium } from 'patchright';
-import { browserTarget } from './browser-target.js';
+import { browserTarget,locate,observedFrame,registerObservedFrame } from './browser-target.js';
 import { nativeReadback, nativeInspect, nativeSnapshot, browserFailureEvidence, waitAfterAction, hasWaitCondition, evaluateBrowser } from './native-browser.js';
 import { observe, renderObservation } from './observe.js';
 import { ApplicationReadiness } from './application-readiness.js';
 
 test('corrupted browser arguments produce a private-data-free API contract diagnostic',()=>{
-  for(const page of [undefined,null,()=>{},{}])assert.throws(()=>browserTarget(page as never,{selector:'input'}),{name:'BrowserPageContractError',message:'Browser target resolution received a non-Page argument.'});
+  for(const page of [undefined,null,()=>{},{}])for(const action of [()=>browserTarget(page as never,{selector:'input'}),()=>locate(page as never,'f0'),()=>observedFrame(page as never,'frame1'),()=>registerObservedFrame(page as never,{} as never)])assert.throws(action,{name:'BrowserPageContractError',message:'Browser target resolution received a non-Page argument.'});
 });
 
 test('observations capture a usable viewport while a web font remains pending', async () => {

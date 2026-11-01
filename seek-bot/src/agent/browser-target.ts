@@ -6,6 +6,7 @@ const observedFrames = new WeakMap<Page, { next: number; frames: Map<string, Fra
  * index. Locators still resolve fresh controls; detached frames cannot retarget
  * an action to a replacement frame. No DOM handles or candidate data retained. */
 export function registerObservedFrame(page: Page, frame: Frame): string {
+  assertBrowserPage(page);
   let registry = observedFrames.get(page);
   if (!registry) { registry = { next: 1, frames: new Map() }; observedFrames.set(page, registry); }
   for (const [ref, known] of registry.frames) {
@@ -17,6 +18,7 @@ export function registerObservedFrame(page: Page, frame: Frame): string {
 }
 
 export function observedFrame(page: Page, ref: string): Frame | undefined {
+  assertBrowserPage(page);
   if (!/^frame\d+$/.test(ref)) return undefined;
   const frame = observedFrames.get(page)?.frames.get(ref);
   if (!frame || frame.isDetached()) throw new Error(`Observed ${ref} is no longer attached. Inspect the fresh page; no replacement frame was selected.`);
@@ -25,6 +27,7 @@ export function observedFrame(page: Page, ref: string): Frame | undefined {
 
 /** Resolve afresh for every operation. Never retain an ElementHandle across a rerender. */
 export function locate(page: Page, ref: string): Locator | null {
+  assertBrowserPage(page);
   const nested = /^(frame\d+):([af]\d+(?::\d+)?)$/.exec(ref);
   if (nested) {
     const frame = observedFrame(page, nested[1])!;
