@@ -5,6 +5,10 @@ set -euo pipefail
 app=/home/myasis/myasis
 install=/opt/owtomate-repair-pilot
 mkdir -p "$install/dashboard/server" "$install/dashboard/scripts" "$install/deploy" /opt/owtomate-repair-releases
+mkdir -p "$install/seek-bot/src" /opt/owtomate-repair-releases/tickets
+for name in repair-pilot repair-release repair-safety; do
+  install -o root -g root -m 644 "$app/seek-bot/src/$name.ts" "$install/seek-bot/src/$name.ts"
+done
 mkdir -p /var/lib/owtomate-repair/cases
 chmod 700 /var/lib/owtomate-repair /var/lib/owtomate-repair/cases
 for name in repair-pilot repair-coder repair-model repair-validation repair-release; do
@@ -26,6 +30,15 @@ os.replace(p+'.tmp',p)
 PY
 fi
 test -f /etc/owtomate-repair-pilot.json
+python3 - <<'PY'
+import json,os
+p='/etc/owtomate-repair-pilot.json'
+with open(p) as f: v=json.load(f)
+v['recoveryMode']='in-run'
+with open(p+'.tmp','w') as f: json.dump(v,f)
+os.chmod(p+'.tmp',0o644)
+os.replace(p+'.tmp',p)
+PY
 cat > /etc/systemd/system/owtomate-repair-pilot.service <<'UNIT'
 [Unit]
 Description=Owtomate single-admin MiniMax repair pilot

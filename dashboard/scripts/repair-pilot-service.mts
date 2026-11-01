@@ -4,13 +4,13 @@ import { createRequire } from 'node:module';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, readFileSync, writeFileSync, mkdirSync, chmodSync, symlinkSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, writeFileSync, mkdirSync, chmodSync, symlinkSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { RepairPilotDetector, type RepairIncident } from '../server/repair-pilot.js';
 import { REPAIR_EDITABLE_FILES, proposeRepair, type RepairProposal } from '../server/repair-coder.js';
 import { miniMaxRepairModel, reviewRepair } from '../server/repair-model.js';
 import { validateRepairProposal, traceProvesNoSend } from '../server/repair-validation.js';
-import { repairDistHash, REPAIR_RELEASE_ROOT } from '../server/repair-release.js';
+import { repairDistHash, bridgeRepairRuntime, REPAIR_RELEASE_ROOT } from '../server/repair-release.js';
 
 const APP='/home/myasis/myasis', STORE='/var/lib/owtomate-repair', CONFIG='/etc/owtomate-repair-pilot.json';
 const INSTALL=resolve(import.meta.dirname,'../..');
@@ -21,12 +21,12 @@ for(const line of readFileSync(APP+'/seek-bot/.env','utf8').split(/\r?\n/)){
 }
 const {Pool}=createRequire(APP+'/dashboard/package.json')('pg');
 const pool=new Pool({connectionString:env.DATABASE_URL,max:3,connectionTimeoutMillis:5000,statement_timeout:8000});
-type Config={enabled:boolean;ownerId:string;ownerEmail:string;activatedAt:string;maxCasesPerDay:number};
+type Config={enabled:boolean;ownerId:string;ownerEmail:string;activatedAt:string;maxCasesPerDay:number;recoveryMode:string};
 function config():Config|null{
   try{const s=lstatSync(CONFIG);if(s.isSymbolicLink()||!s.isFile()||s.uid!==0||(s.mode&0o022))return null;
     const c=JSON.parse(readFileSync(CONFIG,'utf8'));
     return c.enabled===true&&c.ownerId==='1'&&c.ownerEmail==='raunak.vision@gmail.com'&&Number.isFinite(Date.parse(c.activatedAt))
-      &&c.maxCasesPerDay===2?c:null;
+      &&c.maxCasesPerDay===2&&c.recoveryMode==='in-run'?c:null;
   }catch{return null;}
 }
 async function ownerAvailable(){
@@ -35,13 +35,27 @@ async function ownerAvailable(){
 }
 async function caseActive(runId:string){
   if(!config()||existsSync(APP+'/.deploying')||!await ownerAvailable())return false;
-  const r=await pool.query('SELECT r.stopped,r.trigger,s.enabled FROM run_starts r LEFT JOIN application_schedules s ON s.user_id=r.user_id WHERE r.id=$1 AND r.user_id=1',[runId]);
-  return Boolean(r.rows[0]&&!r.rows[0].stopped&&(r.rows[0].trigger!=='auto'||r.rows[0].enabled===true));
+  const r=await pool.query('SELECT r.finished_at,r.stopped,r.trigger,s.enabled FROM run_starts r LEFT JOIN application_schedules s ON s.user_id=r.user_id WHERE r.id=$1 AND r.user_id=1',[runId]);
+  const expired=runDiagnostics(runId).some(e=>['repair_expired','repair_cancelled'].includes(e.category));
+  return Boolean(r.rows[0]&&!r.rows[0].finished_at&&!r.rows[0].stopped&&!expired&&(r.rows[0].trigger!=='auto'||r.rows[0].enabled===true));
 }
 async function setState(id:string,status:string,detail:string,extra:Record<string,unknown>={}){
-  await pool.query('UPDATE repair_pilot_cases SET status=$2,detail=$3,updated_at=now(),base_sha=coalesce($4,base_sha),artifact_hash=coalesce($5,artifact_hash),patch_hash=coalesce($6,patch_hash) WHERE id=$1',
+  const result=await pool.query('UPDATE repair_pilot_cases SET status=$2,detail=$3,updated_at=now(),base_sha=coalesce($4,base_sha),artifact_hash=coalesce($5,artifact_hash),patch_hash=coalesce($6,patch_hash) WHERE id=$1 RETURNING run_id::text,attempt_id::text',
     [id,status,detail,extra.baseSha??null,extra.artifactHash??null,extra.patchHash??null]);
+  if(['blocked','cancelled','complete'].includes(status)&&result.rows[0])writeTicket({caseId:id,runId:result.rows[0].run_id,attemptId:result.rows[0].attempt_id,status,expiresAt:Date.now()+3600_000});
   console.log(JSON.stringify({caseId:id,status,detail}));
+}
+function writeTicket(ticket:Record<string,unknown>){
+  const dir=resolve(REPAIR_RELEASE_ROOT,'tickets');mkdirSync(dir,{recursive:true,mode:0o755});chmodSync(dir,0o755);
+  const path=resolve(dir,`${ticket.runId}-${ticket.attemptId}.json`),temporary=path+'.'+randomUUID()+'.tmp';
+  writeFileSync(temporary,JSON.stringify(ticket),{mode:0o644});chmodSync(temporary,0o644);renameSync(temporary,path);
+}
+function runDiagnostics(runId:string):any[]{
+  if(!/^\d+$/.test(runId))return [];
+  try{const file=APP+`/seek-bot/data/users/1/traces/run-${runId}.diagnostics.jsonl`,stat=lstatSync(file);
+    if(!stat.isFile()||stat.isSymbolicLink()||stat.size>10_000_000)return [];
+    return readFileSync(file,'utf8').split('\n').flatMap(line=>{try{return [JSON.parse(line)];}catch{return [];}});
+  }catch{return [];}
 }
 async function git(args:string[],encoding:'utf8'|'buffer'='utf8'){
   return await run('git',['-c',`safe.directory=${APP}`,'-C',APP,...args],{encoding,maxBuffer:50_000_000,timeout:20_000});
@@ -79,15 +93,20 @@ async function publish(row:any){
   const bot=resolve(release,'seek-bot');
   await run('python3',[resolve(INSTALL,'deploy/repair-unpack.py'),resolve(STORE,'cases',row.id+'.result/dist.tar'),bot],{timeout:30_000});
   symlinkSync(APP+'/seek-bot/node_modules',resolve(bot,'node_modules'));
+  bridgeRepairRuntime(bot,APP+'/seek-bot');
   writeFileSync(resolve(bot,'package.json'),'{"type":"module"}',{mode:0o644});chmodSync(resolve(bot,'package.json'),0o644);
   const distHash=repairDistHash(resolve(bot,'dist'));
   const lockHash=createHash('sha256').update(readFileSync(APP+'/seek-bot/package-lock.json')).digest('hex');
   writeFileSync(resolve(release,'manifest.json'),JSON.stringify({caseId:row.id,ownerId:'1',baseSha:row.base_sha,distHash,lockHash,expiresAt:Date.now()+2*60*60*1000}),{mode:0o644});
   chmodSync(resolve(release,'manifest.json'),0o644);
-  await setState(row.id,'retry_pending','Validated admin-only build published; waiting for normal runner retry.',{artifactHash:distHash});
+  const trace=readTrace(row.run_id,row.attempt_id);
+  if(!trace||!traceProvesNoSend(trace,row.run_id,row.attempt_id)||!await caseActive(row.run_id))throw Error('In-run checkpoint is no longer safe or active.');
+  await setState(row.id,'in_run_ready','Validated build is ready for the paused application in its original run.',{artifactHash:distHash});
+  writeTicket({caseId:row.id,runId:row.run_id,attemptId:row.attempt_id,status:'in_run_ready',jobId:trace.jobId,mode:trace.mode,
+    baseSha:row.base_sha,distHash,expiresAt:Date.now()+3600_000});
 }
 async function advance(){
-  const result=await pool.query("SELECT c.*,c.id::text,c.run_id::text,c.attempt_id::text,r.finished_at,r.stopped,r.trigger,s.enabled AS schedule_enabled FROM repair_pilot_cases c JOIN run_starts r ON r.id=c.run_id AND r.user_id=c.user_id LEFT JOIN application_schedules s ON s.user_id=c.user_id WHERE c.user_id=1 AND c.status IN ('waiting_run','retry_started') ORDER BY c.created_at LIMIT 1");
+  const result=await pool.query("SELECT c.*,c.id::text,c.run_id::text,c.attempt_id::text,r.finished_at,r.stopped,r.trigger,s.enabled AS schedule_enabled,s.application_mode AS schedule_mode FROM repair_pilot_cases c JOIN run_starts r ON r.id=c.run_id AND r.user_id=c.user_id LEFT JOIN application_schedules s ON s.user_id=c.user_id WHERE c.user_id=1 AND c.status IN ('waiting_run','in_run_ready','in_run_running','retry_started') ORDER BY c.created_at LIMIT 1");
   const row=result.rows[0];if(!row)return;
   if(row.status==='retry_started'){
     const retry=await pool.query('SELECT finished_at,started_at FROM run_starts WHERE id=$1 AND user_id=1',[row.retry_run_id]);
@@ -100,13 +119,34 @@ async function advance(){
     return;
   }
   if(!config()||row.stopped||row.trigger==='auto'&&row.schedule_enabled!==true){await setState(row.id,'cancelled','Run stopped or pilot/schedule paused.');return;}
-  if(!row.finished_at)return;
+  const events=runDiagnostics(row.run_id).filter(e=>e.runStartId===row.run_id&&e.relatedAttemptId===row.attempt_id);
+  const resumed=events.find(e=>e.category==='repair_resumed'&&e.repairCaseId===row.id);
+  if(row.status==='in_run_ready'||row.status==='in_run_running'){
+    if(row.finished_at){
+      const original=readTrace(row.run_id,row.attempt_id);
+      const outcomes=original?.jobId?await pool.query("SELECT EXISTS(SELECT 1 FROM applications WHERE user_id=1 AND job_id=$1 AND applied_at >= $2) submitted,EXISTS(SELECT 1 FROM application_reviews WHERE user_id=1 AND payload->'job'->>'id'=$1 AND status='ready' AND updated_at >= $2) prepared",[original.jobId,row.created_at]):{rows:[]};
+      const outcome=outcomes.rows[0];await setState(row.id,outcome?.submitted||outcome?.prepared?'complete':'blocked',outcome?.submitted?'Database confirms a submission recovered inside the original run.':outcome?.prepared?'Database confirms a preparation recovered inside the original run.':'Original run finished without a confirmed recovered submission or preparation.');return;
+    }
+    if(resumed&&row.status==='in_run_ready')await setState(row.id,'in_run_running','Existing application resumed in its original run.');
+    if(!resumed&&Date.now()-new Date(row.updated_at).getTime()>6*60_000)await setState(row.id,'cancelled','Application did not consume its in-run repair ticket. No separate run is queued.');
+    return;
+  }
+  if(row.finished_at){await setState(row.id,'cancelled','Original run already finished; no separate recovery run will start.');return;}
   const trace=readTrace(row.run_id,row.attempt_id);
   if(trace?.outcome?.status==='applied'||trace?.outcome?.status==='prepared'){await setState(row.id,'cancelled','The application agent recovered without a code release.');return;}
-  if(!trace||!traceProvesNoSend(trace,row.run_id,row.attempt_id)){await setState(row.id,'blocked','Prior send state is uncertain or the attempt is not safely retryable.');return;}
+  const waiting=events.find(e=>e.category==='repair_waiting');
+  if(!waiting){if(Date.now()-new Date(row.created_at).getTime()>6*60_000)await setState(row.id,'cancelled','No live application checkpoint is waiting.');return;}
+  if(Date.now()-Date.parse(waiting.at)>6*60_000||events.some(e=>['repair_expired','repair_cancelled'].includes(e.category))){await setState(row.id,'cancelled','Application checkpoint expired or was cancelled.');return;}
+  if(!trace||!traceProvesNoSend(trace,row.run_id,row.attempt_id)){await setState(row.id,'blocked','Prior send state is uncertain or the attempt is not safely resumable.');return;}
+  if(row.trigger==='auto'&&row.schedule_mode!==(trace.mode==='prepare'?'semi-auto':'auto')){await setState(row.id,'cancelled','Schedule application mode changed.');return;}
+  const blocked=await pool.query("SELECT 1 FROM applications WHERE user_id=1 AND job_id=$1 UNION ALL SELECT 1 FROM run_events WHERE user_id=1 AND job_id=$1 AND status='needs-human' AND ts >= $2 LIMIT 1",[trace.jobId,row.created_at]);
+  if(blocked.rows.length){await setState(row.id,'blocked','An application or unresolved candidate question already exists.');return;}
+  if(trace.mode==='approved'){
+    const approved=await pool.query("SELECT 1 FROM application_reviews WHERE user_id=1 AND payload->'job'->>'id'=$1 AND status='approved' AND payload->>'revision'=$2",[trace.jobId,trace.sendAudit?.approvedRevision??'']);
+    if(!trace.sendAudit?.approvedRevision||approved.rows.length!==1){await setState(row.id,'blocked','Exact candidate-approved revision is no longer active.');return;}
+  }
   if(Date.now()-new Date(row.created_at).getTime()>2*60*60*1000){await setState(row.id,'blocked','Repair expired while waiting for the run.');return;}
-  // Respect all application workers, including other customer accounts.
-  if((await pool.query('SELECT 1 FROM run_starts WHERE finished_at IS NULL LIMIT 1')).rows.length)return;
+  // A separate immutable build changes no loaded/shared production code.
   await publish(row);
 }
 async function discover(){
@@ -152,7 +192,7 @@ async function repair(id:string,incident:RepairIncident){
     writeFileSync(resolve(STORE,'cases',id+'.proposal.json'),JSON.stringify(proposal),{mode:0o600});
     await validate(id);
     const patchHash=createHash('sha256').update(JSON.stringify(proposal.files)).digest('hex');
-    await setState(id,'waiting_run','Isolated validation passed; waiting for the original run to finish.',{patchHash});
+    await setState(id,'waiting_run','Isolated validation passed; waiting for the safe checkpoint inside the original run.',{patchHash});
   }catch(error:any){
     if(Number.isFinite(error.repairCostUsd)) {cost+=error.repairCostUsd;await pool.query('UPDATE repair_pilot_cases SET cost_usd=$2 WHERE id=$1',[id,cost]);}
     if(error.repairUsageUnknown||/usage|charge.*unavailable|fetch failed|timeout|aborted/i.test(error.message??''))await pool.query('UPDATE repair_pilot_cases SET cost_unknown=true WHERE id=$1',[id]);
@@ -170,7 +210,8 @@ async function main(){
   // A runner may have started just before a broker restart. Never queue it again.
   await pool.query("UPDATE repair_pilot_cases c SET status='retry_started',retry_run_id=r.id,detail='Existing repair retry reconciled after restart.',updated_at=now() FROM run_starts r WHERE c.user_id=1 AND r.user_id=1 AND r.repair_case_id=c.id AND c.status='retry_claimed'");
   // Never resume an interrupted code/test/publish transaction as if it passed.
-  await pool.query("UPDATE repair_pilot_cases SET status='blocked',detail='Repair broker restarted during an unfinished transaction.',updated_at=now() WHERE user_id=1 AND status IN ('coding','testing','retry_claimed')");
+  const interrupted=await pool.query("SELECT id::text FROM repair_pilot_cases WHERE user_id=1 AND status IN ('coding','testing','retry_claimed')");
+  for(const row of interrupted.rows)await setState(row.id,'blocked','Repair broker restarted during an unfinished transaction.');
   console.log('Admin repair pilot broker ready: account 1, MiniMax, maximum two cases per day.');
   for(;;){try{await advance();await discover();}catch(error:any){console.error('Repair broker tick failed:',String(error.message??error).slice(0,300));}
     await new Promise(resolve=>setTimeout(resolve,10_000));}

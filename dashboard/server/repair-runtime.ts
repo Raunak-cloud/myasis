@@ -21,3 +21,13 @@ export async function repairRuntime(caseId: string, userId: string, app: string)
 export function repairedWorkerEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return Object.fromEntries(Object.entries(env).filter(([key]) => !/DATABASE|STRIPE|GOOGLE_CLIENT|RESEND|SMTP|SESSION|COOKIE|SSH_|GITHUB|ADMIN_EMAILS|WEBSHARE/i.test(key)));
 }
+
+export async function liveRepairEnvironment(userId:string,app:string):Promise<Record<string,string>> {
+  const off={OWTOMATE_LIVE_REPAIR:'',OWTOMATE_OWNER_ID:'',OWTOMATE_OWNER_EMAIL:'',OWTOMATE_DEPLOY_SHA:''};
+  if(userId!=='1'||!repairPilotEnabled())return off;
+  const [owner]=await query<{email:string}>('SELECT email FROM users WHERE id=1 AND blocked_at IS NULL');
+  if(owner?.email!=='raunak.vision@gmail.com'||!isAdmin(owner.email))return off;
+  const {stdout}=await promisify(execFile)('git',['rev-parse','HEAD'],{cwd:app,timeout:5000});
+  if(!/^[a-f0-9]{40}$/.test(stdout.trim()))return off;
+  return {OWTOMATE_LIVE_REPAIR:'1',OWTOMATE_OWNER_ID:'1',OWTOMATE_OWNER_EMAIL:owner.email,OWTOMATE_DEPLOY_SHA:stdout.trim()};
+}

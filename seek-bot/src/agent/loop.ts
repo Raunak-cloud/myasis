@@ -3,6 +3,7 @@ import type { ApplicationAction, CandidateProfile, JobListing } from '../types.j
 import type { AgentTermination } from './context.js';
 import { withJobCost } from '../cost-ledger.js';
 import { runAgentOnlyApplication } from './agent-only.js';
+import { recoverDuringRun, type RepairContinuation } from './live-repair.js';
 
 export interface AgentRunResult {
   outcome: AgentTermination;
@@ -20,6 +21,8 @@ export interface AgentRunResult {
   submitPressed: boolean;
   steps: number;
   usage: string;
+  /** Internal, in-memory checkpoint. Never serialized to the coding agent. */
+  repair?: RepairContinuation;
 }
 
 export interface AgentRunOptions {
@@ -29,9 +32,15 @@ export interface AgentRunOptions {
   job: JobListing;
   profile: CandidateProfile;
   log?: (line: string) => void;
+  continuation?: RepairContinuation;
+  /** Isolated invalid-domain fixtures only; never accepted by run routes. */
+  testRepairRequested?: () => boolean;
 }
 
 /** Board handoffs and employer forms stay in the account's native browser. */
 export function runApplicationAgent(options: AgentRunOptions): Promise<AgentRunResult> {
-  return withJobCost(options.job.id, () => runAgentOnlyApplication(options));
+  return withJobCost(options.job.id, async () => {
+    const result=await runAgentOnlyApplication(options);
+    return result.repair ? recoverDuringRun(options,result) : result;
+  });
 }

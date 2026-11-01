@@ -49,6 +49,8 @@ systemd-run --wait --pipe --collect \
     find dist -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/compiled-before.sha256
     node --test dist/agent/agent-file-inventory.test.js dist/agent/application-readiness.test.js dist/agent/submission-control.test.js dist/agent/native-browser.test.js dist/agent/observe-frames.test.js
     node dist/agent/question-evidence.test.js
+    node --test dist/agent/live-repair.test.js
+    node dist/agent/live-repair-browser.test.js
     sha256sum -c /tmp/compiled-before.sha256 >/dev/null
     test -z "$(find dist -type l -print -quit)"
     tar -cf /run/repair-output/dist.tar dist

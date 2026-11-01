@@ -14,14 +14,14 @@ networkless dynamic-user build and fixed regression suite must pass. A compiled
 build under `/opt/owtomate-repair-releases` is immutable, revision-bound and expires
 after two hours. Generated code never replaces the shared production release.
 
-After the original run finishes, one exact-job admin retry may use that build.
-Normal fit, duplicate, account, entitlement and candidate approval gates remain.
+After a repeated tool failure, the application pauses at a safe checkpoint within its original run for up to six minutes. The validated build resumes the same browser page once; the run does not end or restart.
+The in-memory continuation retains verified answers, private generated documents and the original spending meter. Shared runtime bridges preserve account/worker identity, quota and reservation callbacks, and cost accounting. Normal duplicate, account, entitlement and candidate approval gates remain.
 Semi auto prepares; confirmed applications retain their exact approved revision.
 Missing send evidence, unresolved candidate questions, stopped runs and uncertain
-sends block recovery. Existing loaded application workers are never hot-patched.
+sends block recovery. No function is replaced while an action is in flight. The prior attempt removes its listeners before the tested generation continues on the existing page. Other applications and customers retain their original code.
 
 Limits: one case per original run, two cases per Sydney day, eight coding turns,
-three changed files, 100 changed lines, one retry. Coding and review costs are
+three changed files, 100 changed lines, one in-run continuation. Separate after-run recovery launches are disabled in this mode. Coding and review costs are
 stored in `repair_pilot_cases`; further calls stop when reported spend exceeds
 US$0.50 (an in-flight response can cross that threshold). Provider failures and
 unknown usage are recorded rather than treated as zero. Application-agent usage

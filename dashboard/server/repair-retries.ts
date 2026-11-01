@@ -26,6 +26,7 @@ const defaults:RetryDependencies={query,runner,startRun,enabled:repairPilotEnabl
 export async function repairRetryTick(deps:RetryDependencies=defaults): Promise<void> {
   const {query,runner,startRun,enabled,deploying,isAdmin,readTrace}=deps;
   if (ticking || !enabled() || deploying() || runner.inUse('1')) return;
+  if(deps===defaults) {try {if(JSON.parse(readFileSync('/etc/owtomate-repair-pilot.json','utf8')).recoveryMode==='in-run')return;}catch{return;}}
   ticking = true;
   try {
     const [row] = await query<any>(`SELECT c.id::text,c.run_id::text,c.attempt_id::text,c.created_at,u.email,

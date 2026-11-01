@@ -19,7 +19,7 @@ import { accountUnavailable, AccountDeletionError } from './account-lifecycle.js
 import { finishApplicationReviews } from './application-reviews.js';
 import { gmailRunConnection } from './gmail-mcp.js';
 import { gmailAccess } from './gmail-access.js';
-import { repairRuntime, repairedWorkerEnvironment } from './repair-runtime.js';
+import { repairRuntime, repairedWorkerEnvironment, liveRepairEnvironment } from './repair-runtime.js';
 import { repairPilotEnabled } from './repair-release.js';
 
 export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
@@ -420,6 +420,7 @@ class Run {
       ...accountOverrides,
       CDP_PORT: String(cdpPort),
       OWTOMATE_RUN_START_ID: runStartId ?? '',
+      ...await liveRepairEnvironment(repairCaseId?'':userId,resolve(BOT_DIR,'..')),
       OWTOMATE_REPAIR_CASE_ID: repairCaseId ?? '',
       TARGET_REPAIR_JOB_JSON: repairCaseId ? overrides.TARGET_REPAIR_JOB_JSON : undefined,
       // Only a live run may submit; a search-only run never opens a form.

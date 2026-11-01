@@ -25,6 +25,7 @@ export function recordDiagnostic(input: {
   severity: 'info' | 'warning' | 'error'; category: string; stage: string;
   message: string; error?: unknown; step?: number; tool?: string; batchIndex?: number;
   disposition?: string; outcome?: string; retry?: number;
+  repairCaseId?: string; relatedAttemptId?: string;
 }): void {
   try {
     const { error, message, ...fields } = input;

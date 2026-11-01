@@ -19,6 +19,17 @@ export class AgentFiles {
   constructor(private readonly jobId: string, private readonly approved?: PreparedApplication,
     private readonly render: typeof convertDocument = convertDocument) {}
 
+  checkpoint(): Array<AgentFile> { return [...this.generated.values()].map(file=>({...file})); }
+  restore(files: Array<AgentFile>): void {
+    const owner = realpathSync(config.dataDir);
+    for(const file of files) {
+      const path = realpathSync(file.path), part = relative(owner,path);
+      if(!part || isAbsolute(part) || part === '..' || part.startsWith('..'+sep)) throw Error('Restored document is outside this account.');
+      this.generated.set(file.id,{...file,path});
+      this.resolve(file.id); // Apply the normal candidate approval gate as well.
+    }
+  }
+
   resolve(id: string): AgentFile {
     const generated = this.generated.get(id);
     const path = generated?.path ?? agentOnlyUploadPath(id);
