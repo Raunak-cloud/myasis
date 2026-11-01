@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 // must use the original instances, including their AsyncLocalStorage scopes.
 export const REPAIR_SHARED_MODULES = ['config','application-model','application-allowance','application-reservations',
   'application-workers','browser-deadline','tool-run','cost-ledger','run-health','browser',
-  'agent/attempt-diagnostics','agent/celeris'] as const;
+  'private-auth-fields','agent/attempt-diagnostics','agent/celeris'] as const;
 export function bridgeRepairRuntime(bot: string, originalBot: string): void {
   for (const name of REPAIR_SHARED_MODULES) {
     const target=resolve(bot,'dist',name+'.js'), original=resolve(originalBot,'dist',name+'.js');

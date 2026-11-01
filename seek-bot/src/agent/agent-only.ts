@@ -200,7 +200,8 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
   const ctx: ToolContext = { page: options.page, job: options.job, profile: options.profile,
     observation: { url: options.page.url(), title: '', actions: [], fields: [], text: '' },
     captured: options.continuation?.captured.map(answer=>({...answer})) ?? approved?.answers.map(answer => ({ ...answer })) ?? [], actions: [], log,
-    ...(options.continuation ? {coverLetter:options.continuation.coverLetter,resumeUsed:options.continuation.resumeUsed,resumeName:options.continuation.resumeName} : {}) };
+    ...(options.continuation ? {coverLetter:options.continuation.coverLetter,resumeUsed:options.continuation.resumeUsed,resumeName:options.continuation.resumeName,
+      pendingCredentials:options.continuation.pendingCredentials?new Map(options.continuation.pendingCredentials):undefined} : {}) };
   const coverLetterForRun = (text: string) => approved?.coverLetter ?? cleanCoverLetter(text);
   const selectionInstruction = options.job.source === 'chosen'
     ? 'USER-SELECTED APPLICATION: The user explicitly selected this exact job for application. Their current selection overrides ordinary search keywords and usual role preferences for this job only. Do not reject it by repeating a job-fit review or treating a different career title as a prohibition on applying. Complete the application truthfully using the actual CV and transferable experience; never claim experience, qualifications or legal permissions the candidate does not have. Answer eligibility questions honestly, including No when appropriate. If a required eligibility condition actually prevents applying or a consequential personal fact is unknown, report the exact observed condition/question. This selection does not authorize duplicate or uncertain sends, bypass candidate confirmation, or change saved preferences.'
@@ -319,7 +320,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
       outcome:{status:'skipped'},steps:trace,sendAudit:sendAudit()},identity.runStartId,identity.attemptId))return false;
     repairCheckpoint={attemptId:identity.attemptId,runId:identity.runStartId,page:ctx.page,meter,
       captured:ctx.captured.map(answer=>({...answer})),files:files.checkpoint(),actions:[...ctx.actions],
-      coverLetter:ctx.coverLetter,resumeUsed:ctx.resumeUsed,resumeName:ctx.resumeName};
+      coverLetter:ctx.coverLetter,resumeUsed:ctx.resumeUsed,resumeName:ctx.resumeName,pendingCredentials:ctx.pendingCredentials};
     terminal={status:'skipped',reason:'Application paused at a safe checkpoint for validated tool repair.'};finished=true;
     return true;
   };

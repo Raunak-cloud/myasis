@@ -19,6 +19,7 @@ const {recoverDuringRun}=await import('./live-repair.js');
 const {bridgeRepairRuntime}=await import('../repair-release.js');
 const {traceProvesNoSend}=await import('../repair-safety.js');
 const {withApplicationAllowance}=await import('../application-allowance.js');
+const privacy=await import('../private-auth-fields.js');
 const originalBot=resolve(import.meta.dirname,'../..'),artifact=join(directory,'release/seek-bot');
 mkdirSync(artifact,{recursive:true});cpSync(join(originalBot,'dist'),join(artifact,'dist'),{recursive:true});
 writeFileSync(join(artifact,'package.json'),'{"type":"module"}');
@@ -40,6 +41,7 @@ try {
     '<main><h1>Developer at Fixture Employer</h1><form onsubmit="event.preventDefault();window.sends++;document.querySelector(\'main\').textContent=\'Application received FIXTURE-REPAIR-1\'">'+
     '<label>Name<input id=name required oninput="window.nameWrites++"></label><label>City<input id=city required></label><button id=send>Submit application</button></form></main>'}):route.abort());
   const url=`https://employer.fixture.invalid/job/${prepare?'prepare':'auto'}`;await page.goto(url);
+  privacy.rememberPrivateAuthenticationValue(page,'fixture-retained-secret');
   await page.evaluate('window.sends=0;window.nameWrites=0',undefined,undefined,false);
   let failures=0,index=0,resumed=false,markerSeen=false,allowanceChecks=0;
   const readinessReply=createReadinessFixtureReply();
@@ -67,7 +69,9 @@ try {
     assert.equal(traceProvesNoSend(trace,'100',checkpoint.attemptId),true);
     const result=await recoverDuringRun(options,original,{enabled:()=>true,safe:()=>true,event:()=>{},
       ticket:()=>({status:'in_run_ready',caseId:'00000000-0000-4000-8000-000000000001',runId:'100',attemptId:checkpoint.attemptId,expiresAt:Date.now()+10000}),
-      load:async()=>{resumed=true;const module=await import(pathToFileURL(join(artifact,'dist/agent/agent-only.js')).href);return module.runAgentOnlyApplication;}});
+      load:async()=>{resumed=true;const sharedPrivacy=await import(pathToFileURL(join(artifact,'dist/private-auth-fields.js')).href);
+        assert.ok((await sharedPrivacy.privateAuthenticationValues(page)).includes('fixture-retained-secret'),'private authentication redaction state must survive a generation change');
+        const module=await import(pathToFileURL(join(artifact,'dist/agent/agent-only.js')).href);return module.runAgentOnlyApplication;}});
     assert.equal(markerSeen,true,'The same page must be observed through the repaired module graph');
     assert.ok(checkpoint.meter.totals.costUsd>spent,'Earlier paid usage must remain in the same meter');
     assert.equal(await page.evaluate('window.nameWrites',undefined,undefined,false),writes,'Already-completed Name is not refilled');

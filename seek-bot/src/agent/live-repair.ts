@@ -11,12 +11,14 @@ import { currentAttempt, recordDiagnostic } from './attempt-diagnostics.js';
 import type { ProgressBudget } from './progress-budget.js';
 import type { AgentFiles } from './agent-files.js';
 import type { AgentRunOptions, AgentRunResult } from './loop.js';
+import type { ToolContext } from './context.js';
 
 export interface RepairContinuation {
   attemptId: string; runId: string; page: Page; meter: ProgressBudget;
   captured: AgentRunResult['captured']; actions: AgentRunResult['actions'];
   files: ReturnType<AgentFiles['checkpoint']>;
   coverLetter?: string; resumeUsed?: string; resumeName?: string;
+  pendingCredentials?: ToolContext['pendingCredentials'];
 }
 export function liveRepairEnabled(): boolean {
   const env=applicationModelEnvironment();

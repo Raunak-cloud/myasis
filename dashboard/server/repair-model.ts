@@ -71,7 +71,6 @@ export async function reviewRepair(apiKey: string, incident: RepairIncident, sou
 export function miniMaxRepairModel(apiKey: string, fetcher: typeof fetch = fetch,canContinue?:()=>Promise<boolean>): RepairModel {
   if (!apiKey.trim()) throw new Error('MiniMax repair requires an OpenRouter credential.');
   const tools = [
-    { name: 'read_source', description: 'Read a listed source file.', properties: { path: { type: 'string' } }, required: ['path'] },
     { name: 'replace_source', description: 'Replace exactly one small source snippet; never return a whole file.', properties: { path: { type: 'string' }, old: { type: 'string',maxLength:4096 }, replacement: { type: 'string',maxLength:4096 } }, required: ['path', 'old', 'replacement'] },
     { name: 'finish', description: 'Finish the isolated source proposal with a concise summary.', properties: { summary: { type: 'string' } }, required: ['summary'] },
   ].map(({ name, description, properties, required }) => ({ type: 'function', function: { name, description, parameters: { type: 'object', additionalProperties: false, properties, required } } }));

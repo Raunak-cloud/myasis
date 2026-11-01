@@ -7,11 +7,12 @@ test('MiniMax broker sends only proposal context and parses measured tool calls'
     const body = JSON.parse(String(init?.body));
     assert.equal(body.model, 'minimax/minimax-m3.1-flash');
     assert.doesNotMatch(JSON.stringify(body), /fixture-private-key/);
-    assert.ok(body.tools.every((tool: { function: { name: string } }) => ['read_source', 'replace_source', 'finish'].includes(tool.function.name)));
-    return Response.json({ usage: { cost: .002 }, choices: [{ finish_reason: 'tool_calls', message: { tool_calls: [{ function: { name: 'read_source', arguments: '{"path":"test"}' } }] } }] });
+    assert.ok(body.tools.every((tool: { function: { name: string } }) => ['replace_source', 'finish'].includes(tool.function.name)));
+    assert.equal(body.tools.some((tool:any)=>tool.function.name==='read_source'),false,'all allowed source is supplied before generation');
+    return Response.json({ usage: { cost: .002 }, choices: [{ finish_reason: 'tool_calls', message: { tool_calls: [{ function: { name: 'replace_source', arguments: '{"path":"test","old":"a","replacement":"b"}' } }] } }] });
   };
   const result = await miniMaxRepairModel('fixture-private-key', fetcher)([{ role: 'system', content: 'rules' }, { role: 'user', content: 'incident' }]);
-  assert.deepEqual(result, { costUsd: .002, calls: [{ name: 'read_source', args: { path: 'test' } }] });
+  assert.deepEqual(result, { costUsd: .002, calls: [{ name: 'replace_source', args: { path: 'test',old:'a',replacement:'b' } }] });
 });
 
 test('independent review has no tools and requires a measured explicit decision', async () => {
@@ -38,10 +39,10 @@ test('truncated proposal calls are discarded, corrected once, and both charges a
   const model=miniMaxRepairModel('key',async(_url,init)=>{
     const body=JSON.parse(String(init?.body));limits.push(body.max_tokens);assert.equal(body.reasoning.effort,'medium');
     if(limits.length===1)return Response.json({usage:{cost:.001},choices:[{finish_reason:'length',message:{tool_calls:[{function:{name:'replace_source',arguments:'partial'}}]}}]});
-    return Response.json({usage:{cost:.002},choices:[{finish_reason:'tool_calls',message:{tool_calls:[{function:{name:'read_source',arguments:'{"path":"safe"}'}}]}}]});
+    return Response.json({usage:{cost:.002},choices:[{finish_reason:'tool_calls',message:{tool_calls:[{function:{name:'finish',arguments:'{"summary":"fixture"}'}}]}}]});
   });
   const result=await model([{role:'system',content:'rules'}]);
-  assert.deepEqual(limits,[8192,16384]);assert.equal(result.costUsd,.003);assert.deepEqual(result.calls,[{name:'read_source',args:{path:'safe'}}]);
+  assert.deepEqual(limits,[8192,16384]);assert.equal(result.costUsd,.003);assert.deepEqual(result.calls,[{name:'finish',args:{summary:'fixture'}}]);
 });
 
 test('cancellation prevents a truncated-response resample and preserves its known charge',async()=>{
@@ -51,14 +52,14 @@ test('cancellation prevents a truncated-response resample and preserves its know
   assert.equal(calls,1);
 });
 
-test('source reads and edit feedback retain native tool-call/result correlation',async()=>{
+test('edit feedback retains native tool-call/result correlation',async()=>{
   const model=miniMaxRepairModel('key',async(_url,init)=>{
     const body=JSON.parse(String(init?.body));
     assert.equal(body.messages[1].content,'incident');
     const assistant=body.messages[2],tool=body.messages[3];
-    assert.equal(assistant.role,'assistant');assert.equal(assistant.tool_calls[0].function.name,'read_source');
-    assert.equal(tool.role,'tool');assert.equal(tool.tool_call_id,assistant.tool_calls[0].id);assert.equal(tool.content,'source text');
+    assert.equal(assistant.role,'assistant');assert.equal(assistant.tool_calls[0].function.name,'replace_source');
+    assert.equal(tool.role,'tool');assert.equal(tool.tool_call_id,assistant.tool_calls[0].id);assert.equal(tool.content,'Replacement recorded.');
     return Response.json({usage:{cost:0},choices:[{message:{tool_calls:[{function:{name:'finish',arguments:'{"summary":"fixture"}'}}]}}]});
   });
-  await model([{role:'system',content:'rules'},{role:'user',content:'incident'},{role:'assistant',content:JSON.stringify({name:'read_source',args:{path:'safe'}})},{role:'tool',content:'source text'}]);
+  await model([{role:'system',content:'rules'},{role:'user',content:'incident'},{role:'assistant',content:JSON.stringify({name:'replace_source',args:{path:'safe',old:'a',replacement:'b'}})},{role:'tool',content:'Replacement recorded.'}]);
 });
