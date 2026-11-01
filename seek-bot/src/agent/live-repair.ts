@@ -73,6 +73,7 @@ export async function recoverDuringRun(options:AgentRunOptions,original:AgentRun
   const checkpoint=original.repair;
   if(!checkpoint)return original;
   const {repair:_,...unchanged}=original;
+  const unavailable=():AgentRunResult=>({...unchanged,outcome:{status:'skipped',reason:'The application could not finish because its tool failure could not be safely repaired during this run.'}});
   const env=applicationModelEnvironment();
   const deps:RecoveryDependencies={
     enabled:liveRepairEnabled,now:Date.now,sleep:ms=>new Promise(done=>setTimeout(done,ms)),
@@ -95,17 +96,17 @@ export async function recoverDuringRun(options:AgentRunOptions,original:AgentRun
       relatedAttemptId:checkpoint.attemptId,message:category==='repair_waiting'?'Application is waiting at a safe checkpoint for a tested tool repair.':category==='repair_resumed'?'Validated tool repair resumed the existing application in the same run.':'In-run repair checkpoint ended.'}),
     ...overrides,
   };
-  if(!deps.enabled()||options.continuation||original.submitPressed||original.outcome.status!=='skipped'||checkpoint.page.isClosed()||!deps.safe(checkpoint))return unchanged;
+  if(!deps.enabled()||options.continuation||original.submitPressed||original.outcome.status!=='skipped'||checkpoint.page.isClosed()||!deps.safe(checkpoint))return unavailable();
   deps.event('repair_waiting');
   const deadline=deps.now()+6*60_000;
   try {
     while(deps.now()<deadline&&deps.enabled()&&!checkpoint.page.isClosed()) {
       const ticket=deps.ticket(checkpoint.runId,checkpoint.attemptId);
       if(ticket) {
-        if(ticket.status!=='in_run_ready') {deps.event('repair_cancelled',ticket.caseId);return unchanged;}
-        if(!deps.safe(checkpoint)||!deps.enabled())return unchanged;
+        if(ticket.status!=='in_run_ready') {deps.event('repair_cancelled',ticket.caseId);return unavailable();}
+        if(!deps.safe(checkpoint)||!deps.enabled())return unavailable();
         const run=await deps.load(ticket);
-        if(!deps.enabled()||checkpoint.page.isClosed())return unchanged;
+        if(!deps.enabled()||checkpoint.page.isClosed())return unavailable();
         deps.event('repair_resumed',ticket.caseId);
         // The prior agent has returned and removed listeners. Only this
         // continuation may now write to its existing page; no run is started.
@@ -122,5 +123,5 @@ export async function recoverDuringRun(options:AgentRunOptions,original:AgentRun
     // after invoking it; let normal infrastructure/uncertain-send handling run.
     throw error;
   }
-  return unchanged;
+  return unavailable();
 }

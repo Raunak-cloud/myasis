@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { resolve } from 'node:path';
+import { resolve, basename } from 'node:path';
 import type { Browser, BrowserContext, Locator, Page, Route, Request } from 'patchright';
 import { applicationAllowance } from '../application-allowance.js';
 import { APPLICATION_WRITING_STYLE } from '../application-answer-policy.js';
@@ -217,7 +217,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
   ];
   const trace: TraceStep[] = [];
   let repairCheckpoint: RepairContinuation | undefined;
-  if(options.continuation) messages.push({role:'user',content:`A tested tool repair is now loaded in this same run. The browser remains on the existing application. Inspect its fresh state; retain matching saved answers and attachments, correct only missing or invalid work, and do not replay old actions or stale refs. Earlier verified answers are ${JSON.stringify(ctx.captured)}. Existing candidate confirmation, vacancy, receipt and spending controls still apply.`});
+  if(options.continuation) messages.push({role:'user',content:`A tested tool repair is now loaded in this same run. The browser remains on the existing application. Inspect its fresh state; retain matching saved answers and attachments, correct only missing or invalid work, and do not replay old actions or stale refs. Earlier verified answers are ${JSON.stringify(ctx.captured)}. Previously generated private uploads remain available by these file IDs: ${JSON.stringify(options.continuation.files.map(file=>({file_id:file.id,name:basename(file.path)})))}. Existing candidate confirmation, vacancy, receipt and spending controls still apply.`});
   // Bind a recorded answer to the control the agent actually wrote. A shared
   // caption is insufficient: calendar navigation, repeated editors and new
   // wizard pages can all contain unrelated inputs called Year, From or To.

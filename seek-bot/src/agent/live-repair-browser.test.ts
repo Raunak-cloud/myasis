@@ -23,7 +23,6 @@ const originalBot=resolve(import.meta.dirname,'../..'),artifact=join(directory,'
 mkdirSync(artifact,{recursive:true});cpSync(join(originalBot,'dist'),join(artifact,'dist'),{recursive:true});
 writeFileSync(join(artifact,'package.json'),'{"type":"module"}');
 symlinkSync(join(originalBot,'node_modules'),join(artifact,'node_modules'),process.platform==='win32'?'junction':'dir');
-symlinkSync(resolve(originalBot,'../shared'),join(directory,'release/shared'),process.platform==='win32'?'junction':'dir');
 bridgeRepairRuntime(artifact,originalBot);
 const observeFile=join(artifact,'dist/agent/observe.js'),observeSource=readFileSync(observeFile,'utf8');
 assert.ok(observeSource.includes('export async function observe('));
