@@ -947,6 +947,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
             result = error instanceof StaleObservedRefError
               ? ok(error.message, 'reobserve')
               : error instanceof BrowserTargetInputError ? ok(error.message,'invalid-arguments')
+              : failureKind==='arguments' ? ok(`Browser/tool error: ${(error as Error).message}`,'invalid-arguments')
               : ok(`Browser/tool error: ${(error as Error).message}${call.name === 'browser_action' ? await browserFailureEvidence(ctx.page, call.args).catch(() => '') : ''}`, 'failed');
           }
         }

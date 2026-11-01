@@ -88,6 +88,12 @@ export class RepairPilotDetector {
       && !(input.category==='observation_error'&&execution&&tool)) return null;
     const message = typeof input.message === 'string' ? input.message : '';
     if(/captcha|cloudflare|security verification|(?:OpenRouter|Celeris) (?:40[1239]|429|50[0234])|spending (?:budget|allowance)|browser.*(?:closed|disconnect)|Target.*closed/i.test(message))return null;
+    const sourceSite=checkedSourceSite(input.sourceSite);
+    const sourceSites=Array.isArray(input.sourceSites)?input.sourceSites.slice(0,4).flatMap(site=>{const checked=checkedSourceSite(site);return checked?[checked]:[];}):[];
+    // A normal browser timeout or agent-selected missing locator is not proof
+    // that any editable source failed. Keep unlocalized tool errors in normal
+    // agent recovery; source editing requires an actual internal failure site.
+    if(execution&&!fatal&&!sourceSite&&!sourceSites.length)return null;
     const key = JSON.stringify([runId, attemptId, fatal ? 'application_exception' : tool]);
     const count = (this.counts.get(key) ?? 0) + 1;
     this.counts.set(key, count);
@@ -108,8 +114,6 @@ export class RepairPilotDetector {
       : /employer quote is not present|complete question labels/i.test(message) ? 'question_capture_rejected' as const
       : /Cannot read propert(?:y|ies).*\b(?:undefined|null)\b|\b\w+ is (?:undefined|not defined)\b/i.test(message) ? 'runtime_reference_error' as const
       : /Invalid tool input/i.test(message) ? 'tool_arguments_rejected' as const : undefined;
-    const sourceSite=checkedSourceSite(input.sourceSite);
-    const sourceSites=Array.isArray(input.sourceSites)?input.sourceSites.slice(0,4).flatMap(site=>{const checked=checkedSourceSite(site);return checked?[checked]:[];}):[];
     return { runId, attemptId, category: fatal ? 'application_exception' : execution ? 'tool_execution_failure' : 'repeated_tool_failure', ...(tool ? { tool } : {}), ...(code ? { code } : {}), ...(sourceSite?{sourceSite}:{}), ...(sourceSites.length?{sourceSites}:{}), count };
   }
 }

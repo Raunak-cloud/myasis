@@ -60,10 +60,10 @@ test('coding starts only for the exact live worker checkpoint, with a bounded wa
     assert.equal(waitingRepairCheckpoint('100',attemptId,events,now),false);
 });
 
-test('a confirmed execution failure yields immediately for snapshots and any registered tool, without a duplicate catalogue',()=>{
+test('a localized execution failure yields immediately for snapshots and any registered tool, without a duplicate catalogue',()=>{
   for(const tool of ['take_snapshot','browser_action','new_native_inspector']){
     const detector=new RepairPilotDetector('1','raunak.vision@gmail.com',true);
-    const incident=detector.observe('1081',{...event,tool,failureKind:'execution',message:'Observed target is no longer on the page.'});
+    const incident=detector.observe('1081',{...event,tool,failureKind:'execution',sourceSite:{path:'seek-bot/src/agent/browser-target.ts',function:'browserTarget'},message:'Observed target is no longer on the page.'});
     assert.equal(incident?.category,'tool_execution_failure');assert.equal(incident?.count,1);assert.equal(incident?.code,'target_missing');
     assert.equal(detector.observe('1081',{...event,tool,failureKind:'execution'}),null,'replayed events remain deduplicated');
   }
@@ -72,6 +72,11 @@ test('a confirmed execution failure yields immediately for snapshots and any reg
     assert.equal(detector.observe('1081',{...event,tool:'take_snapshot',failureKind}),null);
     assert.equal(detector.observe('1081',{...next,tool:'take_snapshot',failureKind}),null);
   }
+});
+
+test('unlocalized browser timeouts remain ordinary agent recovery even when repeated',()=>{
+ const detector=new RepairPilotDetector('1','raunak.vision@gmail.com',true);
+ for(const input of [event,next])assert.equal(detector.observe('1081',{...input,tool:'browser_batch',failureKind:'execution',sourceSites:[],message:'locator.evaluate: Timeout 2500ms exceeded.'}),null);
 });
 
 test('provider failures, security challenges and malformed identifiers do not trigger code changes', () => {
