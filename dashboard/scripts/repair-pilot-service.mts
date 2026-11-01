@@ -197,14 +197,15 @@ async function repair(id:string,incident:RepairIncident){
           replacementChars:typeof call.args.replacement==='string'?call.args.replacement.length:undefined}))})+'\n',{mode:0o600});
       return r;
     });
+    writeFileSync(resolve(STORE,'cases',id+'.proposal.json'),JSON.stringify(proposal),{mode:0o600});
     validateRepairProposal(source,proposal);
     if(!await caseActive(incident.runId))throw Error('Pilot or schedule paused, or release in progress.');
     const review=await reviewRepair(env.OPENROUTER_API_KEY??'',incident,source,proposal,undefined,()=>caseActive(incident.runId));await charge(review.costUsd);
+    writeFileSync(resolve(STORE,'cases',id+'.review.json'),JSON.stringify(review),{mode:0o600});
     if(!review.accepted)throw Error('Independent review did not accept this repair.');
     if(!await caseActive(incident.runId))throw Error('Pilot or schedule paused.');
     await setState(id,'testing','Code proposal accepted for isolated validation.',{baseSha});
     await snapshot(id,baseSha,proposal);
-    writeFileSync(resolve(STORE,'cases',id+'.proposal.json'),JSON.stringify(proposal),{mode:0o600});
     await validate(id);
     const patchHash=createHash('sha256').update(JSON.stringify(proposal.files)).digest('hex');
     await setState(id,'waiting_run','Isolated validation passed; waiting for the safe checkpoint inside the original run.',{patchHash});

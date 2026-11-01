@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { RepairPilotDetector,waitingRepairCheckpoint,repairSourceSite,deploymentAllowsLiveRepair } from './repair-pilot.js';
+import { RepairPilotDetector,waitingRepairCheckpoint,repairSourceSite,repairSourceSites,deploymentAllowsLiveRepair } from './repair-pilot.js';
 
 const attemptId = 'e9cf35f9-b0c0-4209-95c6-849c51a774a5';
 const event = { id: 'a9cf35f9-b0c0-4209-95c6-849c51a774a5', runStartId: '1081', attemptId, severity: 'warning', category: 'tool_error', tool: 'create_file', message: 'untrusted employer data and private information' };
@@ -19,6 +19,11 @@ test('repair context retains only the failing internal module and function, neve
   assert.deepEqual(site,{path:'seek-bot/src/agent/browser-target.ts',function:'browserTarget'});
   const incident=new RepairPilotDetector('1','raunak.vision@gmail.com',true).observe('1081',{...event,failureKind:'execution',sourceSite:{...site,stack:error.stack}});
   assert.deepEqual(incident?.sourceSite,site);assert.doesNotMatch(JSON.stringify(incident),/private|account\/|stack/);
+  error.stack='Error: private candidate value\n    at locate (file:///private/account/seek-bot/dist/agent/browser-target.js:30:24)\n    at browserTarget (file:///private/account/seek-bot/dist/agent/browser-target.js:80:2)\n    at act (file:///private/account/seek-bot/dist/agent/agent-only.js:90:2)';
+  const sourceSites=repairSourceSites(error);
+  assert.deepEqual(sourceSites,[{path:'seek-bot/src/agent/browser-target.ts',function:'locate'},site]);
+  const chain=new RepairPilotDetector('1','raunak.vision@gmail.com',true).observe('1081',{...event,failureKind:'execution',sourceSites:[...sourceSites,{path:'seek-bot/.env',function:'secret'}]});
+  assert.deepEqual(chain?.sourceSites,sourceSites);assert.doesNotMatch(JSON.stringify(chain),/private|secret|account\//);
   error.stack='Error: private\n    at anything (https://employer.test/agent/browser-target.js:1:2)';
   assert.equal(repairSourceSite(error),undefined);
   assert.equal(new RepairPilotDetector('1','raunak.vision@gmail.com',true).observe('1081',{...event,failureKind:'execution',sourceSite:{path:'seek-bot/.env',function:'secret'}})?.sourceSite,undefined);

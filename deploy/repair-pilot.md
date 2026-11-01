@@ -29,6 +29,6 @@ unknown usage are recorded rather than treated as zero. Application-agent usage
 is separate and retains the account's selected application provider.
 
 Inspect `journalctl -u owtomate-repair-pilot.service` and `repair_pilot_cases`.
-Source proposals and validation logs stay in `/var/lib/owtomate-repair/cases`,
+Source proposals, independent review decisions and validation logs stay in `/var/lib/owtomate-repair/cases`,
 root-only. Normal owner-scoped traces and database application outcomes remain
 the authority for whether an application was actually prepared or submitted.

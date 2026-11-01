@@ -29,7 +29,7 @@ import { isExternal } from './browser-boundaries.js';
 import type { AgentRunOptions, AgentRunResult } from './loop.js';
 import { persistLiveTrace, persistTrace, browserExperience, type TraceStep } from './loop/trace.js';
 import { withApplicationAttempt, currentAttempt, recordDiagnostic, recordToolDiagnostic, bindAttemptCallback } from './attempt-diagnostics.js';
-import { repairSourceSite } from '../repair-pilot.js';
+import { repairSourceSite, repairSourceSites } from '../repair-pilot.js';
 import { liveRepairIncident, liveRepairContinuationAllowed, type RepairContinuation } from './live-repair.js';
 import { traceProvesNoSend } from '../repair-safety.js';
 import { observationMessage } from './loop/transcript.js';
@@ -383,7 +383,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
           results.push({ index, ...result });
           if (result.disposition && result.disposition !== 'completed') return ok(JSON.stringify({ results, stopped: index, remainingNotExecuted: true }), result.disposition);
         } catch (error) {
-          results.push({ index, error: (error as Error).message, failureKind:'execution',sourceSite:repairSourceSite(error),
+          results.push({ index, error: (error as Error).message, failureKind:'execution',sourceSite:repairSourceSite(error),sourceSites:repairSourceSites(error),
             evidence: await browserFailureEvidence(ctx.page, command).catch(() => '') });
           return ok(JSON.stringify({ results, stopped: index, remainingNotExecuted: true }), 'failed');
         }

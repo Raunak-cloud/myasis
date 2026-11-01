@@ -26,12 +26,12 @@ test('multiline edits match mixed Windows/Unix source without changing protected
 });
 
 test('the exact failing function is supplied as source context after the source catalogue',async()=>{
-  const code='function unrelated() { return "unrelated-body"; }\nexport function browserTarget(page: object) { return [page][1]; }';
+  const code='function unrelated() { return "unrelated-body"; }\nfunction locate(page: any) { return page.locator("input"); }\nexport function browserTarget(page: object) { return locate([page][1]); }';
   const path='seek-bot/src/agent/browser-target.ts';
-  await proposeRepair({...incident,sourceSite:{path,function:'browserTarget'}},{[path]:code},async turns=>{
+  await proposeRepair({...incident,sourceSites:[{path,function:'locate'},{path,function:'browserTarget'}]},{[path]:code},async turns=>{
     const focus=turns[2].content;
     assert.match(focus,/FAILURE SITE SOURCE: seek-bot\/src\/agent\/browser-target.ts \/ browserTarget/);
-    assert.match(focus,/return \[page\]\[1\]/);assert.doesNotMatch(focus,/unrelated-body/);
+    assert.match(focus,/return locate\(\[page\]\[1\]\)/);assert.match(focus,/function locate/);assert.doesNotMatch(focus,/unrelated-body/);
     return {calls:[{name:'replace_source',args:{path,old:'[page][1]',replacement:'page'}}],costUsd:0};
   });
 });

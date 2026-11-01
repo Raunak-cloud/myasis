@@ -10,6 +10,7 @@ export interface RepairDiagnostic {
   message?: unknown;
   failureKind?: unknown;
   sourceSite?: unknown;
+  sourceSites?: unknown;
 }
 
 export const REPAIR_EDITABLE_FILES = [
@@ -26,16 +27,20 @@ function checkedSourceSite(input:unknown):RepairSourceSite|undefined {
 }
 /** Extract only a fixed internal module and identifier; never forward a stack,
  * message, absolute filesystem path, employer text or candidate values. */
-export function repairSourceSite(error:unknown):RepairSourceSite|undefined {
-  if(!(error instanceof Error)||typeof error.stack!=='string')return undefined;
+export function repairSourceSites(error:unknown):RepairSourceSite[] {
+  const sites:RepairSourceSite[]=[];
+  if(!(error instanceof Error)||typeof error.stack!=='string')return sites;
   for(const frame of error.stack.split('\n').slice(1,12)){
     const module=frame.replaceAll('\\','/').match(/\/(?:dist|src)\/agent\/(agent-files|native-browser|browser-target|observe)\.[cm]?[jt]s:\d+:\d+\)?$/);
     if(!module)continue;
     const name=frame.match(/^\s*at (?:async )?([A-Za-z_$][\w$]*) \(/)?.[1];
-    return checkedSourceSite({path:`seek-bot/src/agent/${module[1]}.ts`,function:name});
+    const site=checkedSourceSite({path:`seek-bot/src/agent/${module[1]}.ts`,function:name});
+    if(site&&!sites.some(known=>known.path===site.path&&known.function===site.function))sites.push(site);
+    if(sites.length===4)break;
   }
-  return undefined;
+  return sites;
 }
+export const repairSourceSite=(error:unknown):RepairSourceSite|undefined=>repairSourceSites(error)[0];
 
 export interface RepairIncident {
   runId: string;
@@ -45,6 +50,7 @@ export interface RepairIncident {
   code?: 'approved_document_bundle_rejected' | 'target_missing' | 'target_ambiguous' | 'pointer_blocked' | 'outside_viewport' | 'question_capture_rejected' | 'tool_arguments_rejected' | 'runtime_reference_error';
   count: number;
   sourceSite?: RepairSourceSite;
+  sourceSites?: RepairSourceSite[];
 }
 
 const UUID = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
@@ -97,6 +103,7 @@ export class RepairPilotDetector {
       : /Cannot read propert(?:y|ies).*\b(?:undefined|null)\b|\b\w+ is (?:undefined|not defined)\b/i.test(message) ? 'runtime_reference_error' as const
       : /Invalid tool input/i.test(message) ? 'tool_arguments_rejected' as const : undefined;
     const sourceSite=checkedSourceSite(input.sourceSite);
-    return { runId, attemptId, category: fatal ? 'application_exception' : execution ? 'tool_execution_failure' : 'repeated_tool_failure', ...(tool ? { tool } : {}), ...(code ? { code } : {}), ...(sourceSite?{sourceSite}:{}), count };
+    const sourceSites=Array.isArray(input.sourceSites)?input.sourceSites.slice(0,4).flatMap(site=>{const checked=checkedSourceSite(site);return checked?[checked]:[];}):[];
+    return { runId, attemptId, category: fatal ? 'application_exception' : execution ? 'tool_execution_failure' : 'repeated_tool_failure', ...(tool ? { tool } : {}), ...(code ? { code } : {}), ...(sourceSite?{sourceSite}:{}), ...(sourceSites.length?{sourceSites}:{}), count };
   }
 }

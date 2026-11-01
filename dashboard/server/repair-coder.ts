@@ -27,9 +27,11 @@ const DESCRIPTIONS: Record<string,string> = {
 /** Repeat the actual internal failure site after the larger source catalogue.
  * Parse the trusted source rather than guessing brace boundaries or forwarding
  * runtime stack text. The model still has the surrounding files for diagnosis. */
-function failureSource(incident:RepairIncident,files:Map<string,string>):string {
-  const site=incident.sourceSite,content=site&&files.get(site.path);
-  if(!site?.function||!content)return '';
+export function failureSource(incident:RepairIncident,files:Map<string,string>):string {
+  let context='';
+  for(const site of (incident.sourceSites?.length?incident.sourceSites:incident.sourceSite?[incident.sourceSite]:[]).slice(0,4)){
+  const content=files.get(site.path);
+  if(!site.function||!content)continue;
   const tree=ts.createSourceFile(site.path,content,ts.ScriptTarget.Latest,true);
   let excerpt='';
   const visit=(node:ts.Node):void=>{
@@ -37,7 +39,10 @@ function failureSource(incident:RepairIncident,files:Map<string,string>):string 
     if(!excerpt)ts.forEachChild(node,visit);
   };
   visit(tree);
-  return excerpt?`\nFAILURE SITE SOURCE: ${site.path} / ${site.function}\n${excerpt}\nEND FAILURE SITE SOURCE`:'';
+  if(excerpt)context+=`\nFAILURE SITE SOURCE: ${site.path} / ${site.function}\n${excerpt}\nEND FAILURE SITE SOURCE`;
+  if(context.length>=24000)break;
+  }
+  return context.slice(0,24000);
 }
 
 /** The model has no shell, filesystem, browser, credentials or deployment
