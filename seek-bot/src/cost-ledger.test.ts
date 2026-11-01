@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process';
 // Isolated fixture APIs only: no real provider request, account, or application.
 process.env.DATA_DIR = mkdtempSync(resolve(tmpdir(), 'application-cost-test-'));
 process.env.COST_TRACKING = 'true';
+process.env.OWTOMATE_RUN_START_ID = '1083';
 process.env.CELERIS_API_KEY = 'fixture-key';
 const { withJobCost, celerisUsage, recordCost, COST_LEDGER_FILE } = await import('./cost-ledger.js');
 const { config } = await import('./config.js');
@@ -41,6 +42,11 @@ try {
   assert.equal(ai.length, 2); assert.ok(ai.every(e => e.jobId === 'job-c' && e.amountUsd === 0.00018));
   assert.equal(events.find(e => e.jobId === 'job-g').amountUsd, 0.002);
   assert.ok(!JSON.stringify(events).includes('fixture-key'));
+  assert.ok(events.every(e=>e.runStartId==='1083'),'every cost/status event retains the actual scheduled run ID');
+  const {withApplicationModel}=await import('./application-model.js');
+  withApplicationModel({...process.env,OWTOMATE_RUN_START_ID:'1084'},()=>withJobCost('scoped-run',()=>recordCost({provider:'Fixture',amountUsd:0,basis:'provider'})));
+  const scoped=readFileSync(resolve(config.dataDir,COST_LEDGER_FILE),'utf8').trim().split('\n').map(line=>JSON.parse(line));
+  assert.equal(scoped.find(e=>e.jobId==='scoped-run').runStartId,'1084','a shared runtime reads the originating async run context, not a cached process setting');
   const interruptedDir = mkdtempSync(resolve(tmpdir(), 'application-cost-exit-'));
   const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
     const { withJobCost, beginCostRequest } = await import(${JSON.stringify(new URL('./cost-ledger.js', import.meta.url).href)});
@@ -51,5 +57,6 @@ try {
   const exited = readFileSync(resolve(interruptedDir, COST_LEDGER_FILE), 'utf8').trim().split('\n').map(line => JSON.parse(line));
   assert.ok(exited.some(e => e.jobId === 'interrupted' && e.provider === 'Celeris' && e.amountUsd === null));
   assert.ok(exited.some(e => e.provider === 'Infrastructure' && e.amountUsd >= 0 && e.unit === 'worker hours'));
+  assert.ok(exited.every(e=>e.runStartId==='1083'),'shutdown and unknown pending charges retain the same run ID');
   console.log('Cost ledger: concurrent job attribution, retry billing, cached tokens, interrupted requests, CAPTCHA passed.');
 } finally { globalThis.fetch = originalFetch; }

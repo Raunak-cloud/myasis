@@ -1,6 +1,6 @@
 /** Versioned usage journal DTO; no candidate data or provider credentials. */
 export interface UsageEvent {
-  id: string; runId: string; at: string; jobId?: string;
+  id: string; runId: string; runStartId?: string; at: string; jobId?: string;
   kind: 'usage' | 'submitted' | 'started' | 'finished';
   provider?: string; model?: string; amountUsd?: number | null;
   basis?: 'provider' | 'estimated' | 'unknown'; detail?: string; quantity?: number; unit?: string;

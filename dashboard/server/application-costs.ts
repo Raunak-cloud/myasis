@@ -8,13 +8,14 @@ export function parseCostEvent(line: string): UsageEvent | null {
   try {
     const value = JSON.parse(line) as UsageEvent;
     if (!value || !uuid.test(value.id) || !uuid.test(value.runId) || !Number.isFinite(Date.parse(value.at)) || !['usage', 'submitted', 'started', 'finished'].includes(value.kind)) return null;
+    if(value.runStartId!==undefined&&(typeof value.runStartId!=='string'||!/^\d+$/.test(value.runStartId)))return null;
     if (value.jobId !== undefined && (typeof value.jobId !== 'string' || value.jobId.length > 300)) return null;
     if (value.amountUsd != null && (typeof value.amountUsd !== 'number' || !Number.isFinite(value.amountUsd) || value.amountUsd < 0)) return null;
     for (const key of ['provider', 'model', 'detail'] as const) if (value[key] !== undefined && (typeof value[key] !== 'string' || value[key]!.length > 2000)) return null;
     return value;
   } catch { return null; }
 }
-function readCostJournal(dir: string): UsageEvent[] {
+export function readCostJournal(dir: string): UsageEvent[] {
   const path = resolve(dir, 'cost-ledger.jsonl');
   if (!existsSync(path)) return [];
   return readFileSync(path, 'utf8').split('\n').flatMap(line => { const event = parseCostEvent(line); return event ? [event] : []; });

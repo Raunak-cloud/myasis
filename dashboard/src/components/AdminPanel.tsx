@@ -15,6 +15,7 @@ import { RunDiagnostics } from './RunDiagnostics';
 import type { RouteStatus } from '../route';
 import { StackedTable } from './StackedTable';
 import { runDeviceLabel, type RunDevice } from '../run-device';
+import { formatRunCost,runCostTitle,type RunCost } from '../run-cost';
 
 /**
  * The operator's dashboard: the whole installation at a glance, every
@@ -74,6 +75,7 @@ interface AdminRun {
   exitCode: number | null;
   applied: number | null;
   prepared: number;
+  cost: RunCost|null;
   hasLog: boolean;
   running: boolean;
 }
@@ -242,6 +244,7 @@ function RunsTable({ runs, onOpen, showUser = true }: { runs: AdminRun[]; onOpen
             <th>Took</th>
             <th>Submitted</th>
             <th>Prepared</th>
+            <th>Total cost</th>
             <th>Result</th>
             <th />
           </tr>
@@ -266,6 +269,7 @@ function RunsTable({ runs, onOpen, showUser = true }: { runs: AdminRun[]; onOpen
                 <td className="nowrap">{duration(run)}</td>
                 <td>{run.applied ?? '-'}</td>
                 <td>{run.prepared}</td>
+                <td className="nowrap" title={runCostTitle(run.cost)}>{formatRunCost(run.cost)}</td>
                 <td><span className={`badge ${status.tone}`}>{status.label}</span></td>
                 <td className="nowrap">
                   <button className="btn btn-small" onClick={() => onOpen(run)}>{run.running ? 'Watch / errors' : 'Errors / log'}</button>

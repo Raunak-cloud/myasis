@@ -2,6 +2,8 @@ import { simulations } from './simulate.js';
 import { formAdminAction } from './form-lab.js';
 import { adminUserPreferences } from './admin-user-preferences.js';
 import { preparedEventsCountSql, preparedRunCount } from './admin-run-counts.js';
+import { loadAdminRunCosts } from './admin-run-costs.js';
+import type { RunCost } from '../src/run-cost.js';
 import { readRunDiagnostics, readRunAttempt } from './run-diagnostics.js';
 import { previewAccountAlerts } from './alerts.js';
 import { previewOperatorAlerts } from './operator-alerts.js';
@@ -203,6 +205,7 @@ interface AdminRunRow {
   exitCode: number | null;
   applied: number | null;
   prepared: number;
+  cost: RunCost|null;
   hasLog: boolean;
   running: boolean;
 }
@@ -212,11 +215,12 @@ async function adminRuns(filter: { userId?: string; limit?: number }): Promise<A
   const rows = await query<{
     id: string; user_id: string; email: string; name: string | null; mode: string; trigger: string;
     started_by_email: string | null; started_at: Date; finished_at: Date | null; exit_code: number | null;
-    applied: number | null; prepared: string | number; log_file: string | null; initiator_device: RunDevice | null;
+    applied: number | null; prepared: string | number; log_file: string | null; initiator_device: RunDevice | null;next_started_at:Date|null;
   }>(
     `SELECT r.id::text AS id, r.user_id::text AS user_id, u.email, u.name, r.mode, r.trigger,
             s.email AS started_by_email, r.started_at, r.finished_at, r.exit_code, r.applied, r.log_file, r.initiator_device,
-            ${preparedEventsCountSql} AS prepared
+            ${preparedEventsCountSql} AS prepared,
+            (SELECT min(n.started_at) FROM run_starts n WHERE n.user_id=r.user_id AND n.started_at>r.started_at) AS next_started_at
        FROM run_starts r
        JOIN users u ON u.id = r.user_id
        LEFT JOIN users s ON s.id = r.started_by
@@ -227,7 +231,7 @@ async function adminRuns(filter: { userId?: string; limit?: number }): Promise<A
   );
   // Only the newest unfinished run of an account can be the one in flight.
   const seen = new Set<string>();
-  return rows.map((row) => {
+  const runs=rows.map((row) => {
     const newest = !seen.has(row.user_id);
     seen.add(row.user_id);
     return {
@@ -244,10 +248,13 @@ async function adminRuns(filter: { userId?: string; limit?: number }): Promise<A
       exitCode: row.exit_code,
       applied: row.applied,
       prepared: preparedRunCount(row.prepared, row.id, runner.runIdFor(row.user_id), runner.stateFor(row.user_id).prepared),
+      nextStartedAt:row.next_started_at?new Date(row.next_started_at).toISOString():null,
       hasLog: Boolean(row.log_file),
       running: newest && !row.finished_at && runner.stateFor(row.user_id).running,
     };
   });
+  const costs=await loadAdminRunCosts(runs);
+  return runs.map(({nextStartedAt:_,...run})=>({...run,cost:costs.get(run.id)??null}));
 }
 
 async function adminOverview() {

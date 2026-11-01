@@ -3,10 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config } from './config.js';
+import { applicationModelEnvironment } from './application-model.js';
 
 /** Usage only: never prompts, credentials, answers or page contents. */
 export interface CostEvent {
-  id: string; runId: string; at: string; jobId?: string;
+  id: string; runId: string; runStartId?: string; at: string; jobId?: string;
   kind: 'usage' | 'submitted' | 'started' | 'finished';
   provider?: string; model?: string; amountUsd?: number | null;
   basis?: 'provider' | 'estimated' | 'unknown';
@@ -27,12 +28,14 @@ export function configuredRate(name: string): number | null {
   const value = raw ? Number(raw) : NaN;
   return finite(value) ? value : null;
 }
-export function appendCostEvent(event: Omit<CostEvent, 'id' | 'runId' | 'at'>): void {
+export function appendCostEvent(event: Omit<CostEvent, 'id' | 'runId' | 'runStartId' | 'at'>): void {
   // Instrumentation never interrupts a real application. A failed write is visible.
   try {
     mkdirSync(config.dataDir, { recursive: true });
+    const runStartId=applicationModelEnvironment().OWTOMATE_RUN_START_ID;
     appendFileSync(resolve(config.dataDir, COST_LEDGER_FILE), JSON.stringify({
       id: randomUUID(), runId, at: new Date().toISOString(), jobId: scope.getStore(), ...event,
+      ...(/^\d+$/.test(runStartId??'')?{runStartId}:{}),
     }) + '\n', { mode: 0o600 });
   } catch {
     if (!warned) { warned = true; console.warn('Cost recording unavailable; application costs may be incomplete.'); }
@@ -62,7 +65,7 @@ export function beginCostRequest(provider: string, model?: string): () => void {
   pending.set(id, { provider, model, jobId: scope.getStore() });
   return () => { pending.delete(id); };
 }
-export function recordCost(event: Omit<CostEvent, 'id' | 'runId' | 'at' | 'kind'>): void {
+export function recordCost(event: Omit<CostEvent, 'id' | 'runId' | 'runStartId' | 'at' | 'kind'>): void {
   if (process.env.COST_TRACKING !== 'true') return;
   start();
   appendCostEvent({ ...event, kind: 'usage' });
