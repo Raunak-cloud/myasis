@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, writeFileSync, mkdirSync, chmodSync, symlinkSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { RepairPilotDetector, type RepairIncident } from '../server/repair-pilot.js';
+import { RepairPilotDetector, waitingRepairCheckpoint, type RepairIncident } from '../server/repair-pilot.js';
 import { REPAIR_EDITABLE_FILES, proposeRepair, type RepairProposal } from '../server/repair-coder.js';
 import { miniMaxRepairModel, reviewRepair } from '../server/repair-model.js';
 import { validateRepairProposal, traceProvesNoSend } from '../server/repair-validation.js';
@@ -154,7 +154,7 @@ async function discover(){
   const c=config();if(!c||!await ownerAvailable())return;
   const daily=await pool.query("SELECT count(*)::int n FROM repair_pilot_cases WHERE user_id=1 AND (created_at AT TIME ZONE 'Australia/Sydney')::date=(now() AT TIME ZONE 'Australia/Sydney')::date");
   if(daily.rows[0].n>=c.maxCasesPerDay)return;
-  const runs=await pool.query("SELECT id::text,started_at,stopped,trigger FROM run_starts r WHERE user_id=1 AND mode='live' AND repair_case_id IS NULL AND started_at >= $1 AND stopped IS NOT TRUE AND NOT EXISTS(SELECT 1 FROM repair_pilot_cases c WHERE c.run_id=r.id OR c.retry_run_id=r.id) ORDER BY started_at DESC LIMIT 5",[c.activatedAt]);
+  const runs=await pool.query("SELECT id::text,started_at,stopped,trigger FROM run_starts r WHERE user_id=1 AND mode='live' AND finished_at IS NULL AND repair_case_id IS NULL AND started_at >= $1 AND stopped IS NOT TRUE AND NOT EXISTS(SELECT 1 FROM repair_pilot_cases c WHERE c.run_id=r.id OR c.retry_run_id=r.id) ORDER BY started_at DESC LIMIT 5",[c.activatedAt]);
   for(const r of runs.rows){
     if(r.trigger==='auto'){
       const s=await pool.query('SELECT enabled FROM application_schedules WHERE user_id=1');if(s.rows[0]?.enabled!==true)continue;
@@ -162,11 +162,13 @@ async function discover(){
     const file=APP+`/seek-bot/data/users/1/traces/run-${r.id}.diagnostics.jsonl`;
     if(!existsSync(file)||lstatSync(file).isSymbolicLink()||lstatSync(file).size>10_000_000)continue;
     const detector=new RepairPilotDetector('1','raunak.vision@gmail.com',true);
+    const events=runDiagnostics(r.id);
     for(const line of readFileSync(file,'utf8').split('\n')){
       let event;try{event=JSON.parse(line)}catch{continue}
       const incident=detector.observe(r.id,event);if(!incident)continue;
       const trace=readTrace(r.id,incident.attemptId);
       if(trace?.outcome?.status==='applied'||trace?.outcome?.status==='prepared'||trace?.outcome?.status==='needs-human')continue;
+      if(!waitingRepairCheckpoint(r.id,incident.attemptId,events)||!trace||!traceProvesNoSend(trace,r.id,incident.attemptId))continue;
       const id=randomUUID();
       const inserted=await pool.query("INSERT INTO repair_pilot_cases(id,user_id,run_id,attempt_id,status,incident) VALUES($1,1,$2,$3,'coding',$4) ON CONFLICT(run_id) DO NOTHING RETURNING id",[id,r.id,incident.attemptId,JSON.stringify(incident)]);
       if(inserted.rows.length)await repair(id,incident);
