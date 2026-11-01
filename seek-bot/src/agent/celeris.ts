@@ -5,7 +5,8 @@ import { providerOutOfCredit } from '../run-health.js';
 import { config } from '../config.js';
 import { CELERIS_RATES as RATES, beginCostRequest, recordCelerisCost, recordCost } from '../cost-ledger.js';
 import { acquireCelerisPermit, celerisRetryDelay, waitForCelerisRetry, CelerisQueueDeadlineError, type CelerisPermit } from '../../../shared/celeris-queue.mjs';
-import { boundedReasoningEffort, GenerationRecovery, GenerationWindowError, generationFailure } from './generation-recovery.js';
+import { GenerationRecovery, GenerationWindowError, generationFailure } from './generation-recovery.js';
+import { celerisReasoningEffort } from '../../../shared/reasoning-policy.mjs';
 
 /**
  * Minimal client for Celeris' OpenAI-compatible chat API.
@@ -225,7 +226,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
    * it does not turn thinking off. Thinking output is billed as completion
    * tokens, roughly 2,600 of them on a real fit review.
    */
-  if (magnus) body.chat_template_kwargs = { enable_thinking: Boolean(request.thinking), ...(request.thinking ? { reasoning_effort: boundedReasoningEffort(request.reasoningEffort, 'low') } : {}) };
+  if (magnus) body.chat_template_kwargs = { enable_thinking: Boolean(request.thinking), ...(request.thinking ? { reasoning_effort: celerisReasoningEffort(request.reasoningEffort) } : {}) };
 
   const startedAt = performance.now();
   const recovery = new GenerationRecovery(request, config.celeris.timeoutMs, Number(body.max_tokens));

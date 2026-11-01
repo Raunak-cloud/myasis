@@ -19,6 +19,18 @@ const success = () => new Response(JSON.stringify({ choices: [{ message: { conte
   usage: { prompt_tokens: 20, completion_tokens: 3 } }));
 const environment = (scope: string) => ({ ...process.env, CELERIS_WORKSPACE_ID: scope });
 
+test('Celeris high requests are mapped to supported medium before dispatch, including retries',async()=>{
+ let calls=0;
+ globalThis.fetch=async(_url,init)=>{
+  const body=JSON.parse(String(init?.body));calls++;
+  assert.equal(body.chat_template_kwargs.reasoning_effort,calls===1?'medium':'low');
+  if(calls===1)return Response.json({choices:[{message:{content:''},finish_reason:'length'}],usage:{completion_tokens:8192}});
+  return success();
+ };
+ await withApplicationModel(environment('provider-effort-cap'),()=>celerisChat({...request,model:'celeris-1-magnus',thinking:true,reasoningEffort:'high',maxTokens:8192}));
+ assert.equal(calls,2);
+});
+
 test('an unusable charged response cannot trigger another request after exhausting its application budget', async () => {
   let calls = 0;
   const meter = new CostMeter(0.50);

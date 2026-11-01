@@ -62,7 +62,7 @@ globalThis.fetch = (async (_url, init) => {
   if (forced) {
     assert.deepEqual(offered, [forced], 'a reasoning checkpoint advertises only the already required record tool');
     checkpointRequests++;
-    assert.equal(body.chat_template_kwargs.reasoning_effort, 'high');
+    assert.equal(body.chat_template_kwargs.reasoning_effort, 'medium');
     assert.match(JSON.stringify(body.messages.at(-1)), /RECOVERY CHECKPOINT/);
     const wrong = checkpointWrongReplies-- > 0;
     const complete = forced === 'record_recovery_result' && checkpointCompleteNext;

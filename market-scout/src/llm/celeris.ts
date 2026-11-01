@@ -1,5 +1,6 @@
 import { config } from '../config.js';
 import { Semaphore } from '../core/semaphore.js';
+import { celerisReasoningEffort } from '../../../shared/reasoning-policy.mjs';
 
 /**
  * Client for Celeris' OpenAI-compatible chat API — the only model provider.
@@ -166,7 +167,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
   if (magnus) {
     body.chat_template_kwargs = {
       enable_thinking: Boolean(request.thinking),
-      ...(request.thinking ? { reasoning_effort: request.reasoningEffort ?? 'low' } : {}),
+      ...(request.thinking ? { reasoning_effort: celerisReasoningEffort(request.reasoningEffort) } : {}),
     };
   }
 
