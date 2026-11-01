@@ -6,6 +6,6 @@ export const isApplicationModel = (value: unknown): value is ApplicationModel =>
 export const applicationModelLabel = (value: unknown): string =>
   value === 'qwen' ? 'Qwen 3.7 Flash' : value === 'minimax' ? 'MiniMax M3.1' : 'Celeris Magnus';
 export const OPENROUTER_APPLICATION_MODELS = {
-  minimax: { model: 'minimax/minimax-m3.1-flash', structuredOutput: 'json_schema' },
-  qwen: { model: 'qwen/qwen3.7-flash', structuredOutput: 'json_object' },
+  minimax: { model: 'minimax/minimax-m3.1-flash', structuredOutput: 'json_schema', toolChoice: 'forced' },
+  qwen: { model: 'qwen/qwen3.7-flash', structuredOutput: 'json_object', toolChoice: 'auto' },
 } as const;

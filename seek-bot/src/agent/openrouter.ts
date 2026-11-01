@@ -64,9 +64,21 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
     provider: { require_parameters: true },
   };
   if (request.tools?.length) {
-    body.tools = request.tools.map(tool => ({ type: 'function', function: tool }));
-    body.tool_choice = request.forceTool ? { type: 'function', function: { name: request.forceTool } }
-      : request.requireTool ? 'required' : 'auto';
+    // Qwen's thinking endpoint supports auto tool selection, not `required`.
+    // Offer only the requested checkpoint tool when forcing one. The shared
+    // application loop still validates that checkpoint before any action.
+    const tools = model.toolChoice === 'auto' && request.forceTool
+      ? request.tools.filter(tool => tool.name === request.forceTool) : request.tools;
+    body.tools = tools.map(tool => ({ type: 'function', function: tool }));
+    body.tool_choice = model.toolChoice === 'auto' ? 'auto'
+      : request.forceTool ? { type: 'function', function: { name: request.forceTool } }
+        : request.requireTool ? 'required' : 'auto';
+    if (model.toolChoice === 'auto' && (request.forceTool || request.requireTool)) body.messages = [
+      { role: 'system', content: request.forceTool
+        ? `For this turn return exactly one ${request.forceTool} tool call with its required arguments. Do not return prose or other actions.`
+        : 'Choose and call an offered tool for this turn. Complete the task through tool calls; use the offered finish tool for your final outcome.' },
+      ...request.messages,
+    ];
   }
   if (request.responseSchema) {
     if (model.structuredOutput === 'json_schema') body.response_format = {
@@ -76,7 +88,7 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
       // Qwen supports JSON mode, not provider-enforced JSON Schema. Existing
       // callers still validate the returned object against their typed schema.
       body.response_format = { type: 'json_object' };
-      body.messages = [{ role: 'system', content: 'Return only a JSON object matching this schema: ' + JSON.stringify(request.responseSchema) }, ...request.messages];
+      body.messages = [{ role: 'system', content: 'Return only a JSON object matching this schema: ' + JSON.stringify(request.responseSchema) }, ...body.messages as ChatMessage[]];
     }
   }
   const recovery = new GenerationRecovery({ ...request, messages: body.messages as ChatMessage[] }, 60_000, Number(body.max_tokens));
