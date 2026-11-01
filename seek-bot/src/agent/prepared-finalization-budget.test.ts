@@ -5,12 +5,16 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {chromium} from 'patchright';
 import {createReadinessFixtureReply} from './readiness-fixture.js';
+import {closeCelerisQueues} from '../../../shared/celeris-queue.mjs';
 
-test('a truncated final self-review can recover and preserve the prepared draft below the hard ceiling', {timeout:20_000},async()=>{
+test('a truncated final review followed by a full request timeout recovers without sending or losing the draft', {timeout:20_000},async()=>{
  const dir=mkdtempSync(join(tmpdir(),'owtomate-final-review-budget-'));
- const keys=['DATA_DIR','CELERIS_API_KEY','COST_TRACKING','FORM_CORPUS_DIR','APPLICATION_REVIEW_MODE','AGENT_BUDGET_USD','AGENT_PROGRESS_BUDGET_USD'];
- const prior=keys.map(key=>process.env[key]),fetchBefore=globalThis.fetch;
- Object.assign(process.env,{DATA_DIR:dir,CELERIS_API_KEY:'fixture-only',COST_TRACKING:'false',FORM_CORPUS_DIR:join(dir,'corpus'),APPLICATION_REVIEW_MODE:'prepare',AGENT_BUDGET_USD:'0.20',AGENT_PROGRESS_BUDGET_USD:'0.70'});
+ const keys=['DATA_DIR','CELERIS_API_KEY','COST_TRACKING','FORM_CORPUS_DIR','APPLICATION_REVIEW_MODE','AGENT_BUDGET_USD','AGENT_PROGRESS_BUDGET_USD','CELERIS_QUEUE_FILE','CELERIS_MIN_INTERVAL_MS','APPLICATION_AI_MODEL'];
+ const prior=keys.map(key=>process.env[key]),fetchBefore=globalThis.fetch,nowBefore=Date.now,timeoutBefore=AbortSignal.timeout;
+ let elapsed=0;const windows:number[]=[];
+ Date.now=()=>nowBefore()+elapsed;
+ AbortSignal.timeout=ms=>{windows.push(ms);return timeoutBefore(ms);};
+ Object.assign(process.env,{DATA_DIR:dir,CELERIS_API_KEY:'fixture-only',COST_TRACKING:'false',FORM_CORPUS_DIR:join(dir,'corpus'),APPLICATION_REVIEW_MODE:'prepare',AGENT_BUDGET_USD:'0.20',AGENT_PROGRESS_BUDGET_USD:'0.70',CELERIS_QUEUE_FILE:join(dir,'queue.sqlite'),CELERIS_MIN_INTERVAL_MS:'0',APPLICATION_AI_MODEL:'celeris'});
  const {config}=await import('../config.js');
  const before={dryRun:config.dryRun,allowExternalApply:config.allowExternalApply};
  config.dryRun=false;config.allowExternalApply=true;
@@ -25,13 +29,23 @@ test('a truncated final self-review can recover and preserve the prepared draft 
   const job={id:'final-review-budget',title:'Fictional developer',company:'Fixture',location:'Exampletown',platform:'seek' as const,url:'https://form.fixture.invalid/apply'};
   await page.goto(job.url);
   const calls=[{name:'browser_action',args:{action:'fill',selector:'#name',value:'Fixture Candidate'}},{name:'prepare_application',args:{answers:[],resume_id:'cv',submit_selector:'#send'}}];
-  const readiness=createReadinessFixtureReply();let truncated=false,reviewRequests=0,sequence=0;
+  const readiness=createReadinessFixtureReply();let reviewRequests=0,sequence=0;
   globalThis.fetch=(async(_url,init)=>{
    const body=JSON.parse(String(init?.body));const review=readiness(body);
    if(review){
     if(body.tool_choice?.function?.name==='record_application_review'){
      reviewRequests++;
-     if(!truncated){truncated=true;const payload=await review.json();payload.choices[0].finish_reason='length';payload.choices[0].message.tool_calls=[];payload.choices[0].message.content='Incomplete fixture self-review';payload.usage={prompt_tokens:Math.ceil(.22*1_000_000/CELERIS_RATES.promptUncached),completion_tokens:8192};return Response.json(payload);}
+     assert.match(JSON.stringify(body.messages),/Fixture Candidate/,'candidate sources survive recovery');
+     assert.match(JSON.stringify(body.messages),/APPLICATION READBACK EVIDENCE/,'current review evidence survives recovery');
+     if(reviewRequests===1){
+      assert.equal(body.chat_template_kwargs.reasoning_effort,'medium','routine final review is not automatically escalated');
+      elapsed+=31_000;const payload=await review.json();payload.choices[0].finish_reason='length';
+      payload.choices[0].message.tool_calls=[{id:'incomplete-send',type:'function',function:{name:'browser_action',arguments:'{"action":"click","selector":"#send","sends_application":true}'}}];
+      payload.choices[0].message.content='Incomplete fixture self-review';payload.usage={prompt_tokens:Math.ceil(.22*1_000_000/CELERIS_RATES.promptUncached),completion_tokens:8192};return Response.json(payload);
+     }
+     assert.equal(body.max_tokens,16_384);assert.equal(body.chat_template_kwargs.reasoning_effort,'low');
+     assert.equal(windows.at(-1),90_000,'every recovery request gets its full inference window');
+     if(reviewRequests===2){elapsed+=90_000;throw new DOMException('Fixture inference timed out','TimeoutError');}
     }
     return review;
    }
@@ -39,7 +53,8 @@ test('a truncated final self-review can recover and preserve the prepared draft 
    return Response.json({choices:[{message:{role:'assistant',content:null,tool_calls:[{id:`budget-${++sequence}`,type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}]}}]});
   }) as typeof fetch;
   const result=await runAgentOnlyApplication({page,job,profile:{name:'Fixture Candidate',email:'',phone:'',skills:[]} as never,log:()=>{}});
-  assert.equal(result.outcome.status,'prepared');assert.equal(reviewRequests,2,'one bounded resample repairs the truncated review');
+  assert.equal(result.outcome.status,'prepared');assert.equal(reviewRequests,3,'truncation and timeout recover within the original application');
+  assert.equal(await page.locator('#name').inputValue(),'Fixture Candidate');assert.equal(calls.length,0);
   assert.equal(await page.evaluate(()=>(window as any).sent??false),false,'preparation never sends');
- }finally{globalThis.fetch=fetchBefore;Object.assign(config,before);await browser.close();keys.forEach((key,index)=>prior[index]===undefined?delete process.env[key]:process.env[key]=prior[index]);rmSync(dir,{recursive:true,force:true});}
+ }finally{globalThis.fetch=fetchBefore;Date.now=nowBefore;AbortSignal.timeout=timeoutBefore;Object.assign(config,before);await browser.close();closeCelerisQueues();keys.forEach((key,index)=>prior[index]===undefined?delete process.env[key]:process.env[key]=prior[index]);rmSync(dir,{recursive:true,force:true});}
 });

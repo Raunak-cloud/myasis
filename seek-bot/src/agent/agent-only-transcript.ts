@@ -41,6 +41,9 @@ export function agentOnlyTranscript(messages: ChatMessage[], maxTokens: number, 
   const compact = messages.map((message, index): ChatMessage => {
     if (index > 1 && index !== latestUser && index !== latestObservation && message.role === 'user') {
       const content = typeof message.content === 'string' ? message.content : message.content.filter(part => part.type === 'text').map(part => part.text).join('\n');
+      // Candidate/source updates and continuation instructions are durable;
+      // only superseded browser observations and checkpoints may be retired.
+      if (!/^URL: /m.test(content) && !isCheckpoint(message)) return message;
       return { role: 'user', content: `Previous page observation superseded: ${/^URL: (.+)$/m.exec(content)?.[1] ?? 'earlier page'}. Current observations and the recorded draft follow; original tool actions remain in the conversation.` };
     }
     if (message.role === 'tool' && snapshotCalls.has(message.tool_call_id) && index !== latestSnapshot) {
@@ -49,4 +52,10 @@ export function agentOnlyTranscript(messages: ChatMessage[], maxTokens: number, 
     return message;
   });
   return trimTranscript(compact, Math.floor(maxTokens * 0.75));
+}
+
+/** A retry gets less obsolete DOM, not less candidate evidence. No tool/source
+ * exchange, approval, current observation or audit record is token-trimmed. */
+export function generationRecoveryTranscript(messages: ChatMessage[]): ChatMessage[] {
+  return agentOnlyTranscript(latestObservationScreenshotOnly(messages), Infinity, true);
 }

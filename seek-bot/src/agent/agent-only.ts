@@ -20,7 +20,7 @@ import { startAgentActivity } from './agent-activity.js';
 import { agentOnlyDocuments, agentOnlyEvidence, applicationAttemptHistory } from './agent-only-evidence.js';
 import { AgentFiles, fileIdsProperty } from './agent-files.js';
 import { reviewCurrentDuplicate } from '../duplicate-review.js';
-import { agentOnlyTranscript, latestObservationScreenshotOnly } from './agent-only-transcript.js';
+import { agentOnlyTranscript, latestObservationScreenshotOnly, generationRecoveryTranscript } from './agent-only-transcript.js';
 import { ApplicationBudgetExhaustedError, type ChatMessage, type ToolSchema } from './celeris.js';
 import { applicationChat } from './application-chat.js';
 import { ProgressBudget } from './progress-budget.js';
@@ -834,9 +834,12 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         : recordOnly ? availableTools.filter(tool => finalRecords.includes(tool.name)) : availableTools;
       const forceTool = checkpoint ?? (recordOnly && turnTools.length === 1 ? turnTools[0].name : undefined);
       if (recordOnly) finalRecordUsed = true;
-      const reasoningEffort = checkpoint || highEffort || recovery.needsDeepReasoning || readiness.needsDeepReasoning ? 'high' : 'medium';
+      const reasoningEffort = highEffort || recovery.needsDeepReasoning || readiness.needsDeepReasoning
+        || checkpoint && checkpoint !== applicationReviewTool.name ? 'high' : 'medium';
       const compact = (force = false) => {
-        const transcript = agentOnlyTranscript(screenshotsEveryTurn ? latestObservationScreenshotOnly(messages) : messages, contextLimit, force);
+        const current = screenshotsEveryTurn ? latestObservationScreenshotOnly(messages) : messages;
+        const relevant = checkpoint === applicationReviewTool.name ? generationRecoveryTranscript(current) : current;
+        const transcript = agentOnlyTranscript(relevant, contextLimit, force);
         if (transcript !== messages) messages.splice(0, messages.length, ...transcript);
         return messages;
       };

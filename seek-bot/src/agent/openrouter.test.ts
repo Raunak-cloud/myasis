@@ -71,6 +71,29 @@ test('one incomplete generation is retried without replaying tool actions and pr
   assert.equal(meter.totals.calls, 2);
 }));
 
+test('MiniMax adapts a truncated review and a timed-out resample without a shortened final attempt', async()=>isolated(async()=>{
+ const originalNow=Date.now,originalTimeout=AbortSignal.timeout,originalRandom=Math.random;
+ let elapsed=0;const requests:any[]=[],windows:number[]=[];
+ Date.now=()=>originalNow()+elapsed;Math.random=()=>0;
+ AbortSignal.timeout=ms=>{windows.push(ms);return originalTimeout(ms);};
+ try{
+  globalThis.fetch=(async(_url,init)=>{
+   const body=JSON.parse(String(init?.body));requests.push(body);
+   if(requests.length===1){elapsed+=31_000;return Response.json(reply(.001,'length'));}
+   assert.equal(windows.at(-1),90_000);assert.equal(body.max_tokens,16_384);
+   assert.match(JSON.stringify(body.messages),/Exact candidate approval/);
+   if(requests.length===2){assert.equal(body.reasoning.effort,'medium');elapsed+=90_000;throw new DOMException('Fixture inference timed out','TimeoutError');}
+   assert.equal(body.reasoning.effort,'low');return Response.json(reply());
+  }) as typeof fetch;
+  const meter=new CostMeter(1);
+  const result=await applicationChat({model:'celeris-1-magnus',messages:[{role:'system',content:'Controls'},{role:'user',content:'Exact candidate approval'}],
+    tools:[tool],forceTool:tool.name,thinking:true,reasoningEffort:'high',maxTokens:8192,meter});
+  assert.equal(result.toolCalls[0].name,tool.name);assert.equal(requests.length,3);
+  assert.equal(meter.totals.calls,3,'all retry requests remain in the same usage meter');
+  assert.ok(requests.every(body=>body.model===MINIMAX_APPLICATION_MODEL),'no cross-provider fallback');
+ }finally{Date.now=originalNow;AbortSignal.timeout=originalTimeout;Math.random=originalRandom;}
+}));
+
 test('auth failures do not retry, do not expose credentials and never switch providers', async () => isolated(async () => {
   let calls = 0;
   globalThis.fetch = (async () => { calls++; return Response.json({ error: { message: 'Invalid fictional-private-key', code: 401 } }, { status: 401 }); }) as typeof fetch;

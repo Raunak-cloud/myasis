@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { ChatMessage } from './celeris.js';
-import { agentOnlyTranscript, latestObservationScreenshotOnly } from './agent-only-transcript.js';
+import { agentOnlyTranscript, latestObservationScreenshotOnly, generationRecoveryTranscript } from './agent-only-transcript.js';
 import { estimateTranscriptTokens } from './loop/transcript.js';
 
 test('screenshot testing removes old pictures before compaction while retaining text, approvals and tool history', () => {
@@ -107,4 +107,24 @@ test('image encoding size does not falsely compact the cacheable browser convers
   assert.equal(estimateTranscriptTokens(smaller), estimateTranscriptTokens(messages), 'recompression bytes are not model text tokens');
   const textHeavy: ChatMessage[] = [...messages, { role: 'user', content: 'CURRENT_TEXT ' + 'x'.repeat(200_000) }];
   assert.notEqual(agentOnlyTranscript(textHeavy, 42_000), textHeavy, 'real text pressure still invokes compaction');
+});
+
+test('generation recovery removes stale DOM while retaining sources, send history, approval and current review',()=>{
+ const messages:ChatMessage[]=[
+  {role:'system',content:'Safety and confirmation controls'},
+  {role:'user',content:'Exact approved letter and revision'},
+  {role:'user',content:'URL: https://fixture.invalid/old\nSTALE_DOM '+ 'obsolete '.repeat(5000)},
+  {role:'user',content:'AUTHORITATIVE SOURCE UPDATE: exact candidate answer'},
+  {role:'assistant',content:null,tool_calls:[{id:'doc',type:'function',function:{name:'read_supporting_document',arguments:'{}'}}]},
+  {role:'tool',tool_call_id:'doc',content:'Exact CV evidence and accepted attachment'},
+  {role:'assistant',content:null,tool_calls:[{id:'send',type:'function',function:{name:'browser_action',arguments:'{"sends_application":true}'}}]},
+  {role:'tool',tool_call_id:'send',content:'Previous send uncertain: never repeat without receipt checks'},
+  {role:'user',content:'URL: https://fixture.invalid/final\nCurrent actual saved answers'},
+  {role:'user',content:'APPLICATION ACCURACY CHECKPOINT: current review, document and draft evidence'},
+ ];
+ const original=JSON.stringify(messages),recovered=generationRecoveryTranscript(messages),text=JSON.stringify(recovered);
+ assert.doesNotMatch(text,/STALE_DOM/);
+ for(const evidence of ['Exact approved letter','exact candidate answer','Exact CV evidence','Previous send uncertain','Current actual saved answers','current review, document'])assert.ok(text.includes(evidence));
+ assert.equal(recovered[0],messages[0]);assert.equal(recovered[1],messages[1]);
+ assert.equal(JSON.stringify(messages),original,'retry cannot rewrite audit history');
 });

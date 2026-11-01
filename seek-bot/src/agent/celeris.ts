@@ -5,6 +5,7 @@ import { providerOutOfCredit } from '../run-health.js';
 import { config } from '../config.js';
 import { CELERIS_RATES as RATES, beginCostRequest, recordCelerisCost, recordCost } from '../cost-ledger.js';
 import { acquireCelerisPermit, celerisRetryDelay, waitForCelerisRetry, CelerisQueueDeadlineError, type CelerisPermit } from '../../../shared/celeris-queue.mjs';
+import { boundedReasoningEffort, GenerationRecovery, GenerationWindowError, generationFailure } from './generation-recovery.js';
 
 /**
  * Minimal client for Celeris' OpenAI-compatible chat API.
@@ -224,10 +225,10 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
    * it does not turn thinking off. Thinking output is billed as completion
    * tokens, roughly 2,600 of them on a real fit review.
    */
-  if (magnus) body.chat_template_kwargs = { enable_thinking: Boolean(request.thinking), ...(request.thinking ? { reasoning_effort: request.reasoningEffort ?? 'low' } : {}) };
+  if (magnus) body.chat_template_kwargs = { enable_thinking: Boolean(request.thinking), ...(request.thinking ? { reasoning_effort: boundedReasoningEffort(request.reasoningEffort, 'low') } : {}) };
 
   const startedAt = performance.now();
-  let deadline = Math.min(Date.now() + 60_000, request.deadline ?? Infinity);
+  const recovery = new GenerationRecovery(request, config.celeris.timeoutMs, Number(body.max_tokens));
   let lastError: unknown;
   let unusableReply: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -241,10 +242,15 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
     let retryMs: number | undefined;
     let responseStatus: number | undefined;
     try {
+      recovery.assertWindow(attempt);
+      recordDiagnostic({ severity: 'info', category: 'generation_attempt', stage: 'model_request', tool: request.model,
+        retry: attempt + 1, message: JSON.stringify({ maxTokens: body.max_tokens, timeoutMs: recovery.timeoutMs,
+          remainingMs: Math.max(0, recovery.deadline - Date.now()), reasoning: body.chat_template_kwargs }) });
       const queuedAt = performance.now();
-      permit = await acquireCelerisPermit({ endpoint: endpointFor(request.model), deadline, leaseMs: config.celeris.timeoutMs,
+      permit = await acquireCelerisPermit({ endpoint: endpointFor(request.model), deadline: recovery.deadline, leaseMs: recovery.timeoutMs,
         env: { ...process.env, ...applicationModelEnvironment() } });
       if (request.meter?.exhausted) throw new ApplicationBudgetExhaustedError();
+      recovery.assertWindow(attempt);
       metric('model-queue', performance.now() - queuedAt, { model: request.model });
       endCostRequest = beginCostRequest('Celeris', request.model);
       sent = true;
@@ -255,7 +261,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
           authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(Math.max(1, Math.min(config.celeris.timeoutMs, deadline - Date.now()))),
+        signal: AbortSignal.timeout(Math.max(1, Math.min(recovery.timeoutMs, recovery.deadline - Date.now()))),
       });
       responseStatus = response.status;
 
@@ -340,31 +346,22 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
       // Admission failure on a later attempt must not claim that the whole
       // operation sent nothing: earlier generations may already be charged.
       if (error instanceof CelerisQueueDeadlineError && lastError) throw retryDeadline(lastError, unusableReply);
+      if (error instanceof GenerationWindowError) throw retryDeadline(lastError ?? error, unusableReply);
       lastError = error;
       if (error instanceof ReplyUnusableError) {
-        if (attempt !== 0) throw error;
+        if (attempt === 2 || !recovery.adapt(body, 'unusable', error instanceof ReplyTruncatedError))
+          throw generationFailure('Celeris', error, unusableReply);
         unusableReply = error;
-        // Only retry generation: no browser action from this response ran.
-        // Ask for a fresh concise response rather than repeating a degenerate
-        // punctuation loop until the same token limit is reached.
-        body.messages = [...request.messages, { role: 'user', content: 'Your previous response was unusable. Return one concise, complete response in the required format, with no repeated filler or punctuation.' }];
-        // A completed but truncated generation is not a slow network retry.
-        // Give its one resample a full request window and more output room;
-        // otherwise a long first generation leaves only seconds to produce
-        // the same required tool call. Explicit enclosing deadlines and the
-        // charged application spending meter still take precedence.
-        deadline = Math.min(Date.now() + 60_000, request.deadline ?? Infinity);
-        if (error instanceof ReplyTruncatedError && Number(body.max_tokens) < 16_384) {
-          body.max_tokens = Math.min(16_384, Number(body.max_tokens) * 2);
-        }
         continue;
       }
       const detail = (error as Error).message ?? String(error);
       const transient = responseStatus === 429 || (responseStatus !== undefined && responseStatus >= 500 && responseStatus < 600)
         || ((responseStatus === undefined || responseStatus < 400) && /econnreset|etimedout|fetch failed|aborted|timeout|timed out|AbortError/i.test(`${(error as Error).name} ${detail}`));
-      if (!transient || attempt === 2) throw error;
+      if (!transient || attempt === 2) throw unusableReply ? generationFailure('Celeris', error, unusableReply) : error;
+      if (responseStatus === undefined || responseStatus < 400) recovery.adapt(body, 'timeout');
       try {
-        await waitForCelerisRetry(retryMs ?? celerisRetryDelay(null, attempt), deadline);
+        await waitForCelerisRetry(retryMs ?? celerisRetryDelay(null, attempt), recovery.backoffDeadline);
+        recovery.refreshWindow();
       } catch (waitError) {
         if (waitError instanceof CelerisQueueDeadlineError) throw retryDeadline(error, unusableReply);
         throw waitError;

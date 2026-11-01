@@ -7,6 +7,7 @@ import { recordDiagnostic } from './attempt-diagnostics.js';
 import { estimateTranscriptTokens } from './loop/transcript.js';
 import { ApplicationBudgetExhaustedError, ReplyUnusableError, type CelerisReply,
   type CelerisRequest, type ChatMessage, type ToolCall } from './celeris.js';
+import { boundedReasoningEffort, GenerationRecovery, GenerationWindowError, generationFailure } from './generation-recovery.js';
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 // Published non-discounted rates, USD/token, checked 2026-10-31. Actual usage.cost
@@ -47,7 +48,7 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
   const body: Record<string, unknown> = {
     model: MINIMAX_APPLICATION_MODEL, messages: request.messages,
     temperature: request.temperature ?? 0, max_tokens: request.maxTokens ?? 8192,
-    reasoning: { effort: request.reasoningEffort ?? 'medium' },
+    reasoning: { effort: boundedReasoningEffort(request.reasoningEffort, 'medium') },
     provider: { require_parameters: true },
   };
   if (request.tools?.length) {
@@ -58,20 +59,23 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
   if (request.responseSchema) body.response_format = {
     type: 'json_schema', json_schema: { name: 'reply', schema: request.responseSchema },
   };
-  let deadline = Math.min(Date.now() + 60_000, request.deadline ?? Infinity);
+  const recovery = new GenerationRecovery(request, 60_000, Number(body.max_tokens));
   const started = performance.now();
-  let resampled = false;
+  let lastError: unknown, unusableReply: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (request.meter?.exhausted) throw new ApplicationBudgetExhaustedError();
-    if (Date.now() >= deadline) throw new Error('OpenRouter request deadline reached.');
     let status: number | undefined, retryAfter: string | null = null, sent = false, recorded = false;
     const endCost = beginCostRequest('OpenRouter', MINIMAX_APPLICATION_MODEL);
     try {
+      recovery.assertWindow(attempt);
+      recordDiagnostic({ severity: 'info', category: 'generation_attempt', stage: 'model_request', tool: MINIMAX_APPLICATION_MODEL,
+        retry: attempt + 1, message: JSON.stringify({ maxTokens: body.max_tokens, timeoutMs: recovery.timeoutMs,
+          remainingMs: Math.max(0, recovery.deadline - Date.now()), reasoning: body.reasoning }) });
       sent = true;
       const response = await fetch(ENDPOINT, {
         method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${key}`,
           'HTTP-Referer': 'https://owtomate.com', 'X-Title': 'Owtomate admin application agent' },
-        body: JSON.stringify(body), signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+        body: JSON.stringify(body), signal: AbortSignal.timeout(Math.max(1, Math.min(recovery.timeoutMs, recovery.deadline - Date.now()))),
       });
       status = response.status;
       retryAfter = response.headers.get('retry-after');
@@ -116,21 +120,24 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
       if (!(error instanceof ApplicationBudgetExhaustedError)) recordDiagnostic({ severity: 'warning', category: 'provider_error',
         stage: 'model_request', tool: MINIMAX_APPLICATION_MODEL, retry: attempt + 1,
         message: error instanceof Error ? error.message : String(error), error });
-      if (error instanceof ReplyUnusableError && !resampled && attempt < 2) {
-        resampled = true;
-        body.messages = [...request.messages, { role: 'user', content: 'Your previous response was incomplete. Return one concise, complete response in the required format.' }];
-        body.max_tokens = Math.min(16_384, Number(body.max_tokens) * 2);
-        deadline = Math.min(Date.now() + 60_000, request.deadline ?? Infinity);
+      if (error instanceof GenerationWindowError) throw generationFailure('OpenRouter', lastError ?? error, unusableReply);
+      lastError = error;
+      if (error instanceof ReplyUnusableError) {
+        if (attempt === 2 || !recovery.adapt(body, 'unusable', true))
+          throw generationFailure('OpenRouter', error, unusableReply);
+        unusableReply = error;
         continue;
       }
       const transient = status === 429 || (status !== undefined && status >= 500 && status < 600)
         || (status === undefined && /fetch failed|econnreset|timeout|timed out|aborted/i.test(String(error)));
-      if (!transient || attempt === 2) throw error;
+      if (!transient || attempt === 2) throw unusableReply ? generationFailure('OpenRouter', error, unusableReply) : error;
+      if (status === undefined) recovery.adapt(body, 'timeout');
       const seconds = retryAfter === null ? NaN : Number(retryAfter);
       const floor = Number.isFinite(seconds) ? Math.max(0, seconds * 1000) : Math.max(0, Date.parse(retryAfter ?? '') - Date.now()) || 0;
       const delay = floor + Math.floor(Math.random() * Math.min(10_000, 700 * 2 ** attempt));
-      if (Date.now() + delay >= deadline) throw new Error(`OpenRouter retry deadline reached after: ${String(error)}`, { cause: error });
+      if (Date.now() + delay >= recovery.backoffDeadline) throw generationFailure('OpenRouter retry deadline', error, unusableReply);
       await pause(delay);
+      recovery.refreshWindow();
     } finally { endCost(); }
   }
   throw new Error('OpenRouter request attempts exhausted.');

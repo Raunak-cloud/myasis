@@ -116,7 +116,7 @@ test('a sent request timeout retains its cause when there is no time to retry', 
   assert.equal(calls, 1);
 });
 
-test('truncated generation followed by a timeout reports both failures instead of blaming queue admission', async () => {
+test('a short enclosing deadline prevents an underfunded retry after truncation', async () => {
   let calls = 0;
   globalThis.fetch = async () => {
     calls++;
@@ -124,8 +124,23 @@ test('truncated generation followed by a timeout reports both failures instead o
     throw new DOMException('Fixture provider timed out', 'TimeoutError');
   };
   await assert.rejects(withApplicationModel(environment('truncated-then-timeout'), () => celerisChat({ ...request, deadline: Date.now() + 300 })),
-    error => /provider timed out/.test(String(error)) && /length limit/.test(String(error)) && !/no new request was sent/.test(String(error)));
-  assert.equal(calls, 2);
+    error => /length limit/.test(String(error)) && !/provider timed out/.test(String(error)) && !/no new request was sent/.test(String(error)));
+  assert.equal(calls, 1,'a retry must not be sent with only milliseconds remaining');
+});
+
+test('truncation followed by provider timeouts retains the original cause and stops at three attempts', async () => {
+  const originalNow=Date.now;let elapsed=0,calls=0;
+  Date.now=()=>originalNow()+elapsed;
+  try {
+    globalThis.fetch=async()=>{
+      calls++;
+      if(calls===1){elapsed+=31_000;return Response.json({choices:[{message:{content:''},finish_reason:'length'}],usage:{completion_tokens:8192}});}
+      elapsed+=90_000;throw new DOMException('Fixture provider timed out','TimeoutError');
+    };
+    await assert.rejects(withApplicationModel(environment('exhausted-recovery'),()=>celerisChat({...request,maxTokens:8192})),
+      error=>/provider timed out/.test(String(error))&&/length limit/.test(String(error)));
+    assert.equal(calls,3);
+  } finally { Date.now=originalNow; }
 });
 
 test('a long truncated generation gets one fresh request window and room for its complete reply', async () => {
