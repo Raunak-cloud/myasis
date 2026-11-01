@@ -32,6 +32,8 @@ test('preparation and confirmation retain separate steps; nested and stale error
       recordToolDiagnostic(4,'browser_action','Action executed.');
       recordToolDiagnostic(5,'wait_for_submission_result','Read the fresh employer response. This wait did not repeat the send.','reobserve');
       recordToolDiagnostic(6,'enter_emailed_code','Supply the current code targets. No action ran.','invalid-arguments');
+      recordToolDiagnostic(7,'take_snapshot','Browser/tool error: target failed','failed',new Error('target failed'),'execution');
+      recordToolDiagnostic(8,'browser_batch',JSON.stringify({results:[{index:0,error:'native failure',failureKind:'execution'}]}),'failed',undefined,'validation');
       persistTrace(job,{status:'applied'},[{step:2,url:'https://example.test',tool:'finish',args:{},label:'Submitted'}],'https://example.test');
       return {outcome:{status:'applied'}};
     });
@@ -48,6 +50,9 @@ test('preparation and confirmation retain separate steps; nested and stale error
     assert.equal(events.find(e=>e.category==='tool_handoff').severity,'info');
     const invalid=events.find(e=>e.tool==='enter_emailed_code');
     assert.equal(invalid.category,'tool_error');assert.equal(invalid.severity,'warning');assert.equal(invalid.disposition,'invalid-arguments');
+    assert.equal(invalid.failureKind,'arguments');
+    assert.equal(events.find(e=>e.tool==='take_snapshot').failureKind,'execution');
+    assert.equal(events.find(e=>e.step===8).failureKind,'execution','inner execution failures must survive a batch wrapper');
     assert.ok(events.every(e=>e.runStartId==='123'));
   }finally{
     if(previous===undefined)delete process.env.DATA_DIR;else process.env.DATA_DIR=previous;

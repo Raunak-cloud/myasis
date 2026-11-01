@@ -84,7 +84,7 @@ export function browserExperience(url: string): string {
  * screenshots, for anything that needs them; and for an employer site that
  * was completed, the step outline as a hint for the next application there.
  */
-export function persistTrace(job: JobListing, outcome: AgentTermination, trace: TraceStep[], finalUrl: string, sendAudit?: { attempted: boolean; approvedRevision?: string }): void {
+export function persistTrace(job: JobListing, outcome: AgentTermination, trace: TraceStep[], finalUrl: string, sendAudit?: { attempted: boolean; approvedRevision?: string; phase?: 'before-tools' }): void {
   try {
     // Successful applications need the same audit trail: recovery mistakes
     // can happen before confirmation too. Existing trace retention applies.

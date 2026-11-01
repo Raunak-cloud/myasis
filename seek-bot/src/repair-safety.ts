@@ -1,6 +1,7 @@
 export function traceProvesNoSend(trace: Record<string, any>, runId: string, attemptId: string): boolean {
   if (String(trace.runStartId) !== runId || trace.attemptId !== attemptId || trace.outcome?.status !== 'skipped'
-    || trace.sendAudit?.attempted !== false || !Array.isArray(trace.steps) || !trace.steps.length) return false;
+    || trace.sendAudit?.attempted !== false || !Array.isArray(trace.steps)) return false;
+  if(!trace.steps.length)return trace.sendAudit.phase==='before-tools';
   for (const step of trace.steps) {
     if (!step.completedAt) return false;
     if (step.disposition === 'not-executed') continue;

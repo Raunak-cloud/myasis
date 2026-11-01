@@ -29,6 +29,20 @@ test('coding starts only for the exact live worker checkpoint, with a bounded wa
     assert.equal(waitingRepairCheckpoint('100',attemptId,events,now),false);
 });
 
+test('a confirmed execution failure yields immediately for snapshots and any registered tool, without a duplicate catalogue',()=>{
+  for(const tool of ['take_snapshot','browser_action','new_native_inspector']){
+    const detector=new RepairPilotDetector('1','raunak.vision@gmail.com',true);
+    const incident=detector.observe('1081',{...event,tool,failureKind:'execution',message:'Observed target is no longer on the page.'});
+    assert.equal(incident?.category,'tool_execution_failure');assert.equal(incident?.count,1);assert.equal(incident?.code,'target_missing');
+    assert.equal(detector.observe('1081',{...event,tool,failureKind:'execution'}),null,'replayed events remain deduplicated');
+  }
+  for(const failureKind of ['arguments','validation','external']){
+    const detector=new RepairPilotDetector('1','raunak.vision@gmail.com',true);
+    assert.equal(detector.observe('1081',{...event,tool:'take_snapshot',failureKind}),null);
+    assert.equal(detector.observe('1081',{...next,tool:'take_snapshot',failureKind}),null);
+  }
+});
+
 test('provider failures, security challenges and malformed identifiers do not trigger code changes', () => {
   const detector = new RepairPilotDetector('1', 'raunak.vision@gmail.com', true);
   for (const category of ['provider_error', 'budget_exhausted', 'captcha', 'stale_target']) {

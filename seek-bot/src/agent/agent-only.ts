@@ -30,6 +30,7 @@ import type { AgentRunOptions, AgentRunResult } from './loop.js';
 import { persistLiveTrace, persistTrace, browserExperience, type TraceStep } from './loop/trace.js';
 import { withApplicationAttempt, currentAttempt, recordDiagnostic, recordToolDiagnostic, bindAttemptCallback } from './attempt-diagnostics.js';
 import { liveRepairIncident, liveRepairContinuationAllowed, type RepairContinuation } from './live-repair.js';
+import { traceProvesNoSend } from '../repair-safety.js';
 import { observationMessage } from './loop/transcript.js';
 import { looksUnrendered, observe, waitForApplicationSurface } from './observe.js';
 import { locate } from './browser-target.js';
@@ -239,6 +240,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
   let finalRecordUsed = false;
   let budgetStopped = false;
   let invalidApplicationReviews = 0;
+  let invalidAttentionRequests = 0;
   // Keep the cacheable prefix stable. Smaller evidence reads reduce payload;
   // frequent compaction can cost more by destroying provider cache hits.
   let contextLimit = 42_000;
@@ -307,6 +309,23 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
   if (isolated) await browserContext.route('**/*', sandbox);
   log('  Agent-only: the matching stage owns known duplicates; the applying agent owns answers, recovery and receipt judgement.');
   const activity = startAgentActivity(options.job);
+  const sendAudit = () => ({attempted:Boolean(ctx.submissionAttempted),approvedRevision:approved?.revision,
+    ...(trace.length?{}:{phase:'before-tools' as const})});
+  const pauseForRepair = ():boolean => {
+    const identity=currentAttempt();
+    if(options.continuation||ctx.submissionAttempted||dialogs.has(ctx.page)||ctx.page.isClosed()||meter.actionExhausted||!identity?.runStartId)return false;
+    const requested=isolated&&options.testRepairRequested?options.testRepairRequested():liveRepairIncident();
+    if(!requested||!traceProvesNoSend({runStartId:identity.runStartId,attemptId:identity.attemptId,job:options.job,
+      outcome:{status:'skipped'},steps:trace,sendAudit:sendAudit()},identity.runStartId,identity.attemptId))return false;
+    repairCheckpoint={attemptId:identity.attemptId,runId:identity.runStartId,page:ctx.page,meter,
+      captured:ctx.captured.map(answer=>({...answer})),files:files.checkpoint(),actions:[...ctx.actions],
+      coverLetter:ctx.coverLetter,resumeUsed:ctx.resumeUsed,resumeName:ctx.resumeName};
+    terminal={status:'skipped',reason:'Application paused at a safe checkpoint for validated tool repair.'};finished=true;
+    return true;
+  };
+  const result = ():AgentRunResult => ({outcome:terminal,captured:ctx.captured,coverLetter:ctx.coverLetter,resumeUsed:ctx.resumeUsed,resumeName:ctx.resumeName,
+    actions:ctx.actions,site:isExternal(ctx.page.url())?new URL(ctx.page.url()).hostname:undefined,applicationUrl,
+    submitPressed:Boolean(ctx.submissionAttempted),steps,usage:meter.summary(),...(repairCheckpoint?{repair:repairCheckpoint}:{})});
 
   const act = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
     if (name === applicationReviewTool.name) {
@@ -362,7 +381,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
           results.push({ index, ...result });
           if (result.disposition && result.disposition !== 'completed') return ok(JSON.stringify({ results, stopped: index, remainingNotExecuted: true }), result.disposition);
         } catch (error) {
-          results.push({ index, error: (error as Error).message,
+          results.push({ index, error: (error as Error).message, failureKind:'execution',
             evidence: await browserFailureEvidence(ctx.page, command).catch(() => '') });
           return ok(JSON.stringify({ results, stopped: index, remainingNotExecuted: true }), 'failed');
         }
@@ -421,6 +440,12 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
       return ok('Read the fresh employer response. This wait did not repeat the send.', 'reobserve');
     }
     if (name === 'finish') {
+      // An unfinished field or a technical failure is not an unanswered
+      // candidate fact. Give the applying agent an executable correction.
+      if(args.status==='needs-human'&&!normaliseBlockedQuestions(args.questions).length){
+        if(++invalidAttentionRequests>=2)return {kind:'terminal',outcome:{status:'skipped',reason:'The agent could not identify an actual unanswered employer question.'}};
+        return ok('Needs attention requires at least one actual observed employer question whose required candidate answer is unavailable. Empty questions do not qualify. Continue filling known answers and recovering tools; a blank field with a saved answer is work to complete, not a candidate question. Nothing was submitted or sent for attention.','invalid-arguments');
+      }
       if (args.status === 'already-applied') {
         const quote = String((args.duplicate_evidence as { quote?: string } | undefined)?.quote ?? '');
         if (!await employerMessageEvidence(ctx.page, quote)) return ok('The matching stage cleared the known application history. Stop as already-applied only for NEW employer-form evidence: provide duplicate_evidence.quote copied as a complete visible employer message from the current page or its visible frames. Do not reclassify old history, a similar title, or an uncertain send as a confirmed duplicate.', 'failed');
@@ -440,7 +465,8 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
           const detail = `Could not securely capture the required employer question: ${extracted.issue ?? 'question unavailable'}`;
           recordDiagnostic({ severity: 'warning', category: 'question_capture_error', stage: 'application', tool: 'finish', message: detail });
           log(`  ${detail}`);
-          return { kind: 'terminal', outcome: { status: 'skipped', reason: 'Could not securely capture a required employer question for review.' } };
+          if(++invalidAttentionRequests>=2)return { kind: 'terminal', outcome: { status: 'skipped', reason: 'Could not securely capture a required employer question for review.' } };
+          return ok('The proposed question could not be grounded in the current employer form. Inspect the real required question and candidate evidence, or continue filling known answers. Do not convert tool failures or unfinished fields into Needs attention.','invalid-arguments');
         }
         questions = extracted.questions;
       }
@@ -684,10 +710,11 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
           : await observe(ctx.page, { screenshot: screenshotsEveryTurn || screenshot });
       } catch (error) {
         if (!(error instanceof BrowserOperationTimeout)) throw error;
-        recordDiagnostic({ severity: 'warning', category: 'observation_error', stage: 'observation', message: error.message, error });
+        recordDiagnostic({ severity: 'warning', category: 'observation_error', stage: 'observation',tool:'take_snapshot',failureKind:'execution', message: error.message, error });
         ctx.observation = { url: ctx.page.url(), title: '', actions: [], fields: [], inspectionError: error.message,
           text: `LIVE BROWSER INSPECTION FAILED: ${error.message} No current form values or receipt were obtained. This is not an empty form or progress. You can save evidence, select another open page, navigate away, or finish honestly. Do not repeat a possible send without fresh employer evidence.` };
         recovery.failed('take_snapshot', {}, ctx.page.url(), error.message);
+        if(pauseForRepair())break;
       }
       if (!pendingDialog && !ctx.observation.inspectionError && !waitedForSurface.has(ctx.observation.url) && (looksUnrendered(ctx.observation)
         || !ctx.observation.fields.length && /\b(?:loading|please wait)\b/i.test(ctx.observation.text))) {
@@ -840,6 +867,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         saveLiveTrace();
         let result: ToolResult;
         let diagnosticError: unknown;
+        let failureKind:'execution'|'arguments'|'validation'='arguments';
         const tool = turnTools.find(item => item.name === call.name);
         // Usage is charged when the reply arrives. Its final judgement can
         // record an observed receipt even if that reply crossed the budget;
@@ -868,7 +896,9 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
             const issue = toolInputIssue(call.args, tool.parameters);
             if (issue) throw new Error(`Invalid tool input: ${issue}`);
             if (recoveryTools.some(item => item.name === call.name) && call.name !== checkpoint) throw new Error('Record a recovery checkpoint only when that named checkpoint is requested.');
+            failureKind='execution';
             result = await act(call.name, call.args);
+            failureKind='validation';
             if (result.kind === 'ok' && !readiness.requested && !failedToolResult(result) && (call.name === 'browser_batch' && Array.isArray(call.args.actions) && call.args.actions.some(changesBrowserState)
               || ['complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(call.name)
               || call.name === 'browser_action' && changesBrowserState(call.args))) browserMutated = true;
@@ -882,7 +912,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         }
         const text = result.kind === 'ok' ? result.message : JSON.stringify(result.outcome);
         const disposition = result.kind === 'ok' ? result.disposition : 'terminal';
-        recordToolDiagnostic(steps, call.name, text, disposition, diagnosticError);
+        recordToolDiagnostic(steps, call.name, text, disposition, diagnosticError, failureKind);
         messages.push({ role: 'tool', tool_call_id: call.id, content: text });
         Object.assign(traceStep, { url: ctx.page.url(), result: text, disposition:notExecuted?'not-executed':disposition, completedAt: new Date().toISOString() });
         saveLiveTrace();
@@ -891,15 +921,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         else if (failedToolResult(result)) {
           recovery.failed(call.name, call.args, ctx.page.url(), result.message);
           highEffort = true; interrupted = true; lastNote = 'The last action failed. Reason through the current evidence, then recover or finish honestly.';
-          const incident = !options.continuation && !ctx.submissionAttempted && !pendingDialog
-            ? isolated && options.testRepairRequested ? options.testRepairRequested() : liveRepairIncident() : false;
-          if(incident && currentAttempt() && !meter.actionExhausted) {
-            repairCheckpoint={attemptId:currentAttempt()!.attemptId,runId:currentAttempt()!.runStartId!,page:ctx.page,meter,
-              captured:ctx.captured.map(answer=>({...answer})),files:files.checkpoint(),actions:[...ctx.actions],
-              coverLetter:ctx.coverLetter,resumeUsed:ctx.resumeUsed,resumeName:ctx.resumeName};
-            terminal={status:'skipped',reason:'Application paused at a safe checkpoint for validated tool repair.'};
-            finished=true;
-          }
+          pauseForRepair();
         }
         else if (result.disposition === 'reobserve') {
           interrupted = true;
@@ -916,15 +938,17 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         message: `Stopped before another paid decision: spent US$${meter.totals.costUsd.toFixed(5)}, action allowance US$${meter.limitUsd.toFixed(5)}, maximum US$${meter.maximum.toFixed(2)}. No unaffordable browser work was queued.` });
     }
     activity.update({ status: 'finished', submitted: Boolean(ctx.submissionAttempted), outcome: terminal.status, detail: JSON.stringify(terminal) });
-    persistTrace(options.job, terminal, trace, ctx.page.url(), { attempted: Boolean(ctx.submissionAttempted), approvedRevision: approved?.revision });
+    persistTrace(options.job, terminal, trace, ctx.page.url(), sendAudit());
     recovery.finish(terminal.status, Boolean(ctx.submissionAttempted));
-    return { outcome: terminal, captured: ctx.captured, coverLetter: ctx.coverLetter, resumeUsed: ctx.resumeUsed, resumeName: ctx.resumeName,
-      actions: ctx.actions, site: isExternal(ctx.page.url()) ? new URL(ctx.page.url()).hostname : undefined,
-      applicationUrl, submitPressed: Boolean(ctx.submissionAttempted), steps, usage: meter.summary(), ...(repairCheckpoint?{repair:repairCheckpoint}:{}) };
+    return result();
   } catch (error) {
     captureApplicationFailure(ctx.page, options.job.id, error, { stage: 'agent-loop', submitPressed: Boolean(ctx.submissionAttempted) });
+    recordDiagnostic({severity:'error',category:'application_exception',stage:'application',message:(error as Error).message,error});
+    if(pauseForRepair()){
+      persistTrace(options.job,terminal,trace,ctx.page.url(),sendAudit());recovery.finish('interrupted',false);return result();
+    }
     activity.update({ status: 'interrupted', submitted: Boolean(ctx.submissionAttempted), detail: `Application infrastructure error: ${(error as Error).message}` });
-    persistTrace(options.job, { status: 'skipped', reason: `Application infrastructure error: ${(error as Error).message}` }, trace, ctx.page.url(), { attempted: Boolean(ctx.submissionAttempted), approvedRevision: approved?.revision });
+    persistTrace(options.job, { status: 'skipped', reason: `Application infrastructure error: ${(error as Error).message}` }, trace, ctx.page.url(), sendAudit());
     recovery.finish('interrupted', Boolean(ctx.submissionAttempted));
     throw error;
   } finally {

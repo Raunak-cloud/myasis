@@ -21,4 +21,6 @@ test('retry evidence rejects missing audits, incomplete actions, scripts and unc
     {steps:[{...trace.steps[0],label:'submit application'}]}])
     assert.equal(traceProvesNoSend({...trace,...patch},'100','attempt'),false,JSON.stringify(patch));
   assert.equal(traceProvesNoSend(trace,'101','attempt'),false);
+  assert.equal(traceProvesNoSend({...trace,steps:[],sendAudit:{attempted:false,phase:'before-tools'}},'100','attempt'),true);
+  assert.equal(traceProvesNoSend({...trace,steps:[{...trace.steps[0],completedAt:null}],sendAudit:{attempted:false,phase:'before-tools'}},'100','attempt'),false);
 });
