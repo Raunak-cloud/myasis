@@ -46,4 +46,7 @@ test('retry evidence rejects missing audits, incomplete actions, scripts and unc
   assert.equal(traceProvesNoSend({...trace,steps:[rejected]},'100','attempt'),true,'a completed pre-dispatch rejection did not touch the browser');
   for(const patch of [{execution:'started'},{execution:undefined},{completedAt:null}])assert.equal(traceProvesNoSend({...trace,steps:[{...rejected,...patch}]},'100','attempt'),false,'an uncertain or incomplete operation remains unsafe');
   assert.equal(traceProvesNoSend({...trace,steps:[rejected],sendAudit:{attempted:true}},'100','attempt'),false,'the send audit always overrides a rejected later call');
+  const explicit={...trace.steps[0],args:{action:'fill',target_mode:'ref',ref:'f0',x:0,y:0}};
+  assert.equal(traceProvesNoSend({...trace,steps:[explicit]},'100','attempt'),true,'explicit reference mode cannot execute padded coordinates');
+  for(const target_mode of [undefined,'coordinates','invented'])assert.equal(traceProvesNoSend({...trace,steps:[{...explicit,args:{...explicit.args,target_mode}}]},'100','attempt'),false,'legacy, coordinate and unknown modes cannot gain the new non-coordinate proof');
 });

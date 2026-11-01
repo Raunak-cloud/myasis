@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { validToolInput, toolInputIssue } from './tool-input.js';
 import { browserCommandContract } from './browser-command-schema.js';
-import { browserTargetProperties } from './browser-target.js';
+import { browserTargetProperties,hasBrowserTarget } from './browser-target.js';
+import {recoveryTools} from './recovery-checkpoint.js';
 
 test('confirmation-mode send intent is enforced by the same advertised command schema before any batch work',()=>{
  const command={type:'object',properties:{action:{type:'string'},sends_application:{type:'boolean'}},...browserCommandContract(['fill','click','press'],true)};
@@ -17,11 +18,19 @@ test('confirmation-mode send intent is enforced by the same advertised command s
 
 test('frame-only and invented references are rejected before browser dispatch',()=>{
   for(const ref of ['a0','f3','f1:2','e12','f1e12','frame1:f2','frame1:a3:2'])assert.equal(validToolInput(ref,browserTargetProperties.ref),true,ref);
-  for(const ref of ['frame1','SECRET_INVALID_REF','','a0\n','frame1:frame2']){
+  for(const ref of ['frame1','SECRET_INVALID_REF','a0\n','frame1:frame2']){
     assert.equal(validToolInput(ref,browserTargetProperties.ref),false);
     assert.doesNotMatch(toolInputIssue(ref,browserTargetProperties.ref)!,/SECRET_INVALID_REF/);
   }
   assert.match(toolInputIssue('frame1',browserTargetProperties.ref)!,/control reference.*locator/);
+  assert.equal(validToolInput('',browserTargetProperties.ref),true,'empty optional ref denotes no selected target');
+  assert.equal(hasBrowserTarget({ref:''}),false,'an empty reference cannot resolve a writable control');
+});
+
+test('empty unused receipt metadata cannot masquerade as a completed submission',()=>{
+ const schema=recoveryTools[1].parameters;
+ assert.equal(validToolInput({assessment:'progress',evidence:['Saved field'],next_action:'Inspect',receipt_quote:''},schema),true);
+ for(const receipt of [{},{receipt_quote:''}])assert.equal(validToolInput({assessment:'complete',evidence:['Current page'],next_action:'Record',...receipt},schema),false,'complete still requires an actual nonempty receipt');
 });
 
 test('tool dispatch rejects missing, unknown and malformed nested arguments', () => {
@@ -78,25 +87,33 @@ test('alternative required inputs share the closed parent schema and diagnose mi
 test('action-specific browser contracts require executable script, files and wait conditions', () => {
   const schema = { type: 'object', additionalProperties: false, properties: {
     action: { type: 'string', enum: ['script', 'set_input_files', 'wait', 'click'] },
-    ref: { type: 'string' }, selector: { type: 'string' }, locator: { type: 'object', properties: { value: { type: 'string' } } },
-    script: { type: 'string', minLength: 1 }, file_ids: { type: 'array', items: { type: 'string' } },
+    ...browserTargetProperties,
+    script: { type: 'string' }, file_ids: { type: 'array', items: { type: 'string' } },
     timeout_ms: { type: 'number' }, wait: { type: 'object', properties: { url: { type: 'string' }, timeout_ms: { type: 'number' }, ref: { type: 'string' } } },
   }, required: ['action'], ...browserCommandContract(['script', 'set_input_files', 'wait', 'click']) };
   for (const args of [
     { action: 'script', script: 'return document.title' },
     { action: 'set_input_files', ref: 'f0', file_ids: ['5'] },
     { action: 'set_input_files', ref: 'f0', file_ids: [] },
+    { action: 'set_input_files', target_mode:'locator',locator:{by:'css',value:'input[type=file]'},file_ids:['5'] },
+    { action: 'set_input_files', locator:{by:'css',value:'input[type=file]'},file_ids:['5'] },
     { action: 'wait', ref: 'f0', timeout_ms: 1000 },
     { action: 'wait', wait: { url: '**/receipt', timeout_ms: 1000 } },
     { action: 'click', ref: 'a0' },
+    { action: 'click', ref: 'a0',script:'' },
   ]) assert.equal(validToolInput(args, schema), true, JSON.stringify(args));
   assert.match(toolInputIssue({ action: 'script' }, schema)!, /\$\.script is required/);
   assert.match(toolInputIssue({ action: 'set_input_files', ref: 'f0' }, schema)!, /\$\.file_ids is required/);
   for (const args of [
     { action: 'script', script: '' },
     { action: 'set_input_files', file_ids: ['5'] },
+    { action: 'set_input_files',file_ids:['5'],ref:'' },
+    { action: 'set_input_files',target_mode:'ref',file_ids:['5'],ref:'',selector:'input' },
+    { action: 'set_input_files',target_mode:'locator',file_ids:['5'],locator:{by:'css',value:''} },
     { action: 'wait', timeout_ms: 1000 },
     { action: 'wait', wait: { timeout_ms: 1000 } },
+    { action: 'wait',ref:'' },
+    { action: 'wait',wait:{url:''} },
   ]) assert.equal(validToolInput(args, schema), false, JSON.stringify(args));
   const batch = { type: 'array', items: schema };
   assert.match(toolInputIssue([{ action: 'click', ref: 'a0' }, { action: 'set_input_files', ref: 'f0' }], batch)!, /\$\[1\]\.file_ids is required/);

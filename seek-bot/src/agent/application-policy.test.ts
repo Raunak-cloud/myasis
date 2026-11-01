@@ -18,4 +18,7 @@ test('MiniMax receives the completion goal while Semi auto and truthful answers 
  assert.match(instruction, /Semi auto.*candidate's confirmation/);
  assert.match(instruction, /Never invent candidate facts/);
  assert.equal(applicationCompletionInstruction('celeris'), '');
+ assert.doesNotMatch(instruction,/target_mode/,'the explicit-target trial instruction is opt-in');
+ assert.match(applicationCompletionInstruction('minimax',true),/target_mode.*Main-document fields have no iframe scope/);
+ assert.equal(applicationCompletionInstruction('celeris',true),'');
 });

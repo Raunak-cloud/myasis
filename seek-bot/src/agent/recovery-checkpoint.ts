@@ -16,8 +16,11 @@ export const recoveryTools: ToolSchema[] = [
   { name: 'record_recovery_result', description: 'Required after acting on a recovery plan. Assess the fresh browser evidence against your recorded verification. Tool success alone is not progress. complete means an actual submitted application with an observed employer receipt: include its complete receipt_quote, which records your applied judgment without another model call. Otherwise use progress, no_progress or more_evidence. Never submits or verifies receipt independently.',
     parameters: { type: 'object', additionalProperties: false, properties: {
       assessment: { type: 'string', enum: ['progress', 'no_progress', 'more_evidence', 'complete'] }, evidence, next_action: text,
-      receipt_quote: { type: 'string', minLength: 1, maxLength: 4000 },
-    }, required: ['assessment', 'evidence', 'next_action'] } },
+      receipt_quote: { type: 'string', maxLength: 4000 },
+    }, required: ['assessment', 'evidence', 'next_action'],anyOf:[
+      {properties:{assessment:{enum:['complete']},receipt_quote:{type:'string',minLength:1}},required:['receipt_quote']},
+      {properties:{assessment:{enum:['progress','no_progress','more_evidence']}}},
+    ] } },
 ];
 
 /** Extra narration is harmless metadata, never an additional browser instruction.

@@ -1,7 +1,7 @@
 import { REPAIR_EDITABLE_FILES, repairSourceText, type RepairProposal } from './repair-coder.js';
 import { browserOwnershipMask } from './repair-source-policy.js';
 
-const protectedLine = /\b(?:approved|sensitive|privateKind|credential|redact|mask|submission|sends_application|confirmation|owner|realpath|relative\(|isAbsolute|assertBrowserPage|BrowserPageContractError|BrowserTargetInputError|\.\.\b)/i;
+const protectedLine = /\b(?:approved|sensitive|privateKind|credential|redact|mask|submission|sends_application|confirmation|owner|realpath|relative\(|isAbsolute|assertBrowserPage|BrowserPageContractError|BrowserTargetInputError|target_mode|coordinateTarget|\.\.\b)/i;
 const privileged = /\b(?:import|require|process|globalThis|eval|Function|fetch|WebSocket|child_process|execFile|spawn|createConnection|writeFile|appendFile|readFile|unlink|rmSync|chmod|chown)\b/;
 
 /** Conservative admission gate before independent review and sandbox tests.

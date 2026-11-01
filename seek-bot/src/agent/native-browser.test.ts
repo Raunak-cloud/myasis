@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { chromium } from 'patchright';
-import { browserTarget,locate,observedFrame,registerObservedFrame } from './browser-target.js';
+import { browserTarget,locate,observedFrame,registerObservedFrame,hasBrowserTarget,coordinateTarget,BrowserTargetInputError } from './browser-target.js';
 import { nativeReadback, nativeInspect, nativeSnapshot, browserFailureEvidence, waitAfterAction, hasWaitCondition, evaluateBrowser } from './native-browser.js';
 import { observe, renderObservation } from './observe.js';
 import { ApplicationReadiness } from './application-readiness.js';
@@ -70,6 +70,19 @@ test('native locators retain events across rerenders, scope frames/editors/shado
     const editor = { locator: { by: 'label', value: 'Letter', frame: '#editor' } };
     await browserTarget(page, editor).fill('Dear team,\n\nMy own letter.');
     assert.match(JSON.stringify(await nativeReadback(browserTarget(page, editor))), /My own letter/);
+    const mainRef=(await observe(page)).fields.find(field=>field.label==='Name')!.ref;
+    const padded={ref:mainRef,selector:'#name',locator:{by:'label',value:'Letter',frame:'#editor'},x:0,y:0};
+    await browserTarget(page,{...padded,target_mode:'ref'}).fill('Explicit reference');
+    assert.equal(await page.locator('#name').inputValue(),'Explicit reference');
+    assert.match(await browserTarget(page,editor).innerText(),/My own letter/,'an unused iframe locator cannot override the selected main-document ref');
+    await browserTarget(page,{...padded,target_mode:'selector'}).fill('Explicit selector');
+    assert.equal(await page.locator('#name').inputValue(),'Explicit selector');
+    assert.equal(coordinateTarget({...padded,target_mode:'ref'}),false,'unused coordinates cannot turn a ref interaction into a point click');
+    assert.equal(coordinateTarget({x:0,y:0}),true,'legacy coordinate semantics stay conservative');
+    assert.equal(coordinateTarget({target_mode:'coordinates',x:0,y:0}),true);
+    assert.equal(hasBrowserTarget({...padded,target_mode:'page'}),false);
+    assert.equal(hasBrowserTarget({...padded,target_mode:'ref',ref:''}),true);
+    assert.throws(()=>browserTarget(page,{...padded,target_mode:'ref',ref:''}),BrowserTargetInputError,'an empty selected ref cannot fall back to another target or the keyboard');
     assert.match(String(await evaluateBrowser(page, { ...editor, script: 'document.body.innerText' })), /Dear team,\n{2,}My own letter\./);
     assert.equal(await evaluateBrowser(page, { script: '1 + 2' }), 3);
     assert.equal(await evaluateBrowser(page, { script: '() => document.title' }), '');

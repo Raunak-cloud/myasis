@@ -48,6 +48,7 @@ systemd-run --wait --pipe --collect \
     npm run build
     find dist -type f -print0 | sort -z | xargs -0 sha256sum > /tmp/compiled-before.sha256
     node --test dist/agent/agent-file-inventory.test.js dist/agent/application-readiness.test.js dist/agent/submission-control.test.js dist/agent/native-browser.test.js dist/agent/observe-frames.test.js
+    node --test dist/agent/tool-input.test.js dist/agent/recovery-checkpoint.test.js dist/agent/budget-workflows.test.js
     node dist/agent/question-evidence.test.js
     node --test dist/agent/live-repair.test.js
     node dist/agent/live-repair-browser.test.js

@@ -9,8 +9,9 @@ export function traceProvesNoSend(trace: Record<string, any>, runId: string, att
     const commands = step.tool === 'browser_batch' ? step.args?.actions : step.tool === 'browser_action' ? [step.args] : [];
     if (!Array.isArray(commands)) return false;
     for (const command of commands) {
-      if (!command || command.sends_application === true || ['script','press','mouse_click'].includes(command.action)
-        || command.x !== undefined || command.y !== undefined) return false;
+      if (!command || command.sends_application === true || ['script','press','mouse_click'].includes(command.action))return false;
+      if(command.target_mode!==undefined&&!['ref','selector','locator','page'].includes(command.target_mode))return false;
+      if(command.target_mode===undefined&&(command.x!==undefined||command.y!==undefined))return false;
       if (command.action === 'click' && command.sends_application !== false) return false;
       if (command.action === 'navigate' && command.value !== trace.job?.url) return false;
     }

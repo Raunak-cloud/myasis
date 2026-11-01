@@ -47,7 +47,8 @@ export function locate(page: Page, ref: string): Locator | null {
 
 /** Standard Playwright locators, selected by the agent, without widget recipes. */
 export const browserTargetProperties = {
-  ref: { type: 'string', pattern: '^(?:a[0-9]+|f[0-9]+(?::[0-9]+)?|(?:f[0-9]+)?e[0-9]+|frame[0-9]+:[af][0-9]+(?::[0-9]+)?)$',
+  target_mode: {type:'string',enum:['ref','selector','locator','page','coordinates'],description:'Explicitly choose one target method. ref uses only ref; selector uses only selector in the main document; locator uses only locator (including any iframe scope). Other target fields and x/y are ignored. page is for untargeted keyboard/scroll or whole-page take_snapshot. coordinates is only for an explicit browser_action click and is unavailable in Semi auto. Legacy calls without this choice retain locator/selector/ref precedence.'},
+  ref: { type: 'string', pattern: '^(?:|a[0-9]+|f[0-9]+(?::[0-9]+)?|(?:f[0-9]+)?e[0-9]+|frame[0-9]+:[af][0-9]+(?::[0-9]+)?)$',
     description: 'Observed control reference, not a frame reference alone. To inspect a whole observed frame, use locator {by:"css",value:"body",frame:"frame1"}; omit all targets for a page snapshot.' },
   selector: { type: 'string' },
   locator: {
@@ -59,7 +60,7 @@ export const browserTargetProperties = {
       name: { type: 'string', description: 'Accessible name when by=role.' },
       exact: { type: 'boolean' },
       within: { type: 'string', minLength: 1, description: 'CSS selector for the containing section in the selected frame.' },
-      frame: { type: 'string', minLength: 1, description: 'Observed frame reference (for example frame1) or CSS selector for the iframe containing this control.' },
+      frame: { type: 'string', description: 'Only for a control explicitly observed inside an iframe: its observed frame reference (for example frame1) or iframe CSS selector. Main-document controls have no frame reference: omit this property or use an empty string. Never carry a previous wizard page\'s iframe onto a main-document control.' },
       index: { type: 'integer', minimum: 0 },
     },
     required: ['by', 'value'],
@@ -67,7 +68,12 @@ export const browserTargetProperties = {
 };
 
 export function hasBrowserTarget(args: Record<string, unknown>): boolean {
+  if(args.target_mode!==undefined)return !['page','coordinates'].includes(String(args.target_mode));
   return Boolean(args.locator || args.selector || args.ref);
+}
+
+export function coordinateTarget(args:Record<string,unknown>):boolean {
+  return args.target_mode==='coordinates'||args.target_mode===undefined&&typeof args.x==='number';
 }
 
 /** Internal API contract, not employer/candidate data. A corrupted Page
@@ -81,7 +87,10 @@ function assertBrowserPage(page: Page): void {
 
 export function browserTarget(page: Page, args: Record<string, unknown>): Locator {
   assertBrowserPage(page);
-  if (args.locator) {
+  const mode=args.target_mode;
+  if(mode!==undefined&&!['ref','selector','locator'].includes(String(mode)))throw new BrowserTargetInputError('Choose ref, selector or locator for an element operation. No fallback target was selected.');
+  if(mode==='locator'&&!args.locator||mode==='selector'&&!args.selector||mode==='ref'&&!args.ref)throw new BrowserTargetInputError('The explicitly selected target method needs its nonempty target. Other target fields are ignored; no fallback was selected.');
+  if (args.locator&&(mode===undefined||mode==='locator')) {
     const spec = args.locator as { by: string; value: string; name?: string; exact?: boolean; within?: string; frame?: string; index?: number };
     const frame = spec.frame ? observedFrame(page, spec.frame) ?? page.frameLocator(spec.frame) : page;
     const scope = spec.within ? frame.locator(spec.within) : frame;
@@ -100,7 +109,7 @@ export function browserTarget(page: Page, args: Record<string, unknown>): Locato
     // choosing a potentially different answer/control. An index is explicit.
     return spec.index === undefined ? result : result.nth(spec.index);
   }
-  if (args.selector) return page.locator(String(args.selector));
+  if (args.selector&&(mode===undefined||mode==='selector')) return page.locator(String(args.selector));
   const ref = String(args.ref ?? '');
   const found = locate(page, ref);
   if (!found) throw new BrowserTargetInputError('Use an observed ref, CSS selector or Playwright locator for this element.');
