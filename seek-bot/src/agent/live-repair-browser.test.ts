@@ -43,9 +43,10 @@ try {
   const url=`https://employer.fixture.invalid/job/${prepare?'prepare':'auto'}`;await page.goto(url);
   privacy.rememberPrivateAuthenticationValue(page,'fixture-retained-secret');
   await page.evaluate('window.sends=0;window.nameWrites=0',undefined,undefined,false);
-  let index=0,resumed=false,markerSeen=false,allowanceChecks=0;
+  let index=0,recoveryReplies=0,resumed=false,markerSeen=false,allowanceChecks=0;
   const readinessReply=createReadinessFixtureReply();
   const calls=[
+   {name:'finish',args:{status:'needs-human',reason:'Malformed fixture stop',evidence:'No actual question supplied',questions:[]}},
    ...prepare?[{name:'browser_action',args:{action:'click',selector:'#send'}}]:[],
    {name:'browser_action',args:{action:'fill',selector:'#name',value:'Fixture Applicant'}},
    {name:'create_file',args:{name:'../invalid.txt',text:'Fixture',format:'txt'}},
@@ -56,19 +57,27 @@ try {
    {name:'finish',args:{status:'applied',reason:'Observed fixture receipt',evidence:'Application received FIXTURE-REPAIR-1',receipt:{quote:'FIXTURE-REPAIR-1'}}},
   ];
   globalThis.fetch=(async(_url,init)=>{
-    const body=JSON.parse(String(init?.body));const review=readinessReply(body);if(review)return review;
+    const body=JSON.parse(String(init?.body)),forced=body.tool_choice?.function?.name;
+    if(forced==='record_recovery_plan'||forced==='record_recovery_result'){
+      const name=await page.locator('#name').inputValue(),city=await page.locator('#city').inputValue();
+      const args=forced==='record_recovery_plan'?{observed_issue:'Deliberately malformed fixture calls were rejected.',evidence:['No application send was executed.'],previous_approaches:['Malformed fixture calls'],next_action:'Continue with the next supported scripted operation.',verification:'Read actual saved name and city.'}
+        :{assessment:name||city?'progress':'no_progress',evidence:[`Current saved name: ${name}; city: ${city}`],next_action:'Continue the controlled fixture.'};
+      return Response.json({usage:{prompt_tokens:0,completion_tokens:0},choices:[{message:{role:'assistant',content:null,tool_calls:[{id:`recovery-${++recoveryReplies}`,type:'function',function:{name:forced,arguments:JSON.stringify(args)}}]}}]});
+    }
+    const review=readinessReply(body);if(review)return review;
     if(resumed){assert.match(JSON.stringify(body.messages),/VALIDATED_GENERATION_FIXTURE/);markerSeen=true;}
     const call=calls[index++];assert.ok(call,'Unexpected additional model decision');
     return Response.json({usage:{prompt_tokens:1000,completion_tokens:10},choices:[{message:{role:'assistant',content:null,tool_calls:[{id:`fixture-${index}`,type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}]}}]});
   }) as typeof fetch;
   const options:AgentRunOptions={simulation:'isolated-form',page,job:{id:`repair-${prepare}`,title:'Developer',company:'Fixture Employer',location:'Sydney',platform:'workday',url},
-    profile:{name:'Fixture Applicant',email:'fixture@example.invalid',skills:[]} as never,log:()=>{},testRepairRequested:()=>index>=(prepare?4:3)};
+    profile:{name:'Fixture Applicant',email:'fixture@example.invalid',skills:[]} as never,log:()=>{},testRepairRequested:()=>index>=(prepare?5:4)};
   await withApplicationAllowance(()=>{allowanceChecks++;return true;},async()=>{
     const original=await runAgentOnlyApplication(options);assert.ok(original.repair,'Repeated error must hand off at a safe boundary before ending the run');
     const checkpoint=original.repair!,spent=checkpoint.meter.totals.costUsd,writes=await page.evaluate('window.nameWrites',undefined,undefined,false);
     const trace=JSON.parse(readFileSync(join(directory,'traces',`attempt-${checkpoint.attemptId}.json`),'utf8'));
     assert.equal(traceProvesNoSend(trace,'100',checkpoint.attemptId),true);
-    if(prepare){assert.equal(trace.steps[0].execution,'not-started');assert.equal(await page.evaluate('window.sends',undefined,undefined,false),0,'a rejected send intent never executes or blocks later safe recovery');}
+    assert.equal(trace.steps[0].execution,'not-started','an empty candidate question is rejected before a stopping decision executes');
+    if(prepare){assert.equal(trace.steps[1].execution,'not-started');assert.equal(await page.evaluate('window.sends',undefined,undefined,false),0,'a rejected send intent never executes or blocks later safe recovery');}
     const result=await recoverDuringRun(options,original,{enabled:()=>true,safe:()=>true,event:()=>{},
       ticket:()=>({status:'in_run_ready',caseId:'00000000-0000-4000-8000-000000000001',runId:'100',attemptId:checkpoint.attemptId,expiresAt:Date.now()+10000}),
       load:async()=>{resumed=true;const sharedPrivacy=await import(pathToFileURL(join(artifact,'dist/private-auth-fields.js')).href);

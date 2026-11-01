@@ -37,17 +37,13 @@ function evidenceRecords(sources:{profile:string;documents:string;browser:string
  return records;
 }
 
-/** A rejected technical stop is not immediately offered again before an
- * attempted browser action. Personal questions and actual receipts remain
- * available; budget-only final recording is never restricted. */
+/** A rejected stop must be followed by actual work or fresh evidence, rather
+ * than an immediate repeat of the same terminal tool. Evidence lookup and
+ * read-only snapshots remain available for genuine unknowns. Budget-only
+ * final recording is never restricted. */
 export function haltReviewTools(tools:ToolSchema[],state:HaltReviewState,recordOnly:boolean):ToolSchema[] {
  if(!state.pendingAction||recordOnly)return tools;
- return tools.map(tool=>{
-  if(tool.name!=='finish')return tool;
-  const properties=tool.parameters.properties as Record<string,Record<string,unknown>>;
-  return {...tool,parameters:{...tool.parameters,properties:{...properties,status:{...properties.status,
-   enum:(properties.status.enum as string[]).filter(status=>status!=='skipped')}}}};
- });
+ return tools.filter(tool=>tool.name!=='finish');
 }
 
 /** Read-only, fresh-context evidence review for the bounded admin trial. This

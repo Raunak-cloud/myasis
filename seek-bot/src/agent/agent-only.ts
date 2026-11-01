@@ -122,7 +122,7 @@ const agentOnlyTools: ToolSchema[] = [
     status: { type: 'string', enum: ['applied', 'skipped', 'needs-human', 'already-applied'] },
     reason: string, evidence: string,
     receipt: { type: 'object', additionalProperties: false, description: 'Required for applied: copy a COMPLETE visible employer confirmation message or sentence, including its qualifications. You judge its meaning. A loading state, disabled button, account creation or URL is not receipt. Do not truncate a message to remove negation or conditions.', properties: { quote: { type: 'string', minLength: 1 } }, required: ['quote'] },
-    questions: { type: 'array', description: 'For needs-human only: exact unanswered REQUIRED questions printed on the employer form needing a consequential candidate fact or decision. Operational questions you invent about retrying later, waiting or applying manually are not employer questions. Role mismatches, technical failures and optional fields are skipped, not questions.', items: {
+    questions: { type: 'array', minItems: 1, description: 'For needs-human only: exact unanswered REQUIRED questions printed on the employer form needing a consequential candidate fact or decision. Operational questions you invent about retrying later, waiting or applying manually are not employer questions. Role mismatches, technical failures and optional fields are skipped, not questions.', items: {
       type: 'object', additionalProperties: false,
       properties: { field_ref: { type: 'string', description: 'Current observed field/group ref for the required unanswered employer question. The system extracts its label and choices.' }, form_quote: { type: 'string', maxLength: 2000, description: 'Optional compatibility field; employer text is extracted directly from the form.' }, kind: { type: 'string', enum: ['text', 'textarea', 'select', 'radio', 'checkbox'] }, options: { type: 'array', items: string } },
       required: ['field_ref'],
@@ -133,7 +133,10 @@ const agentOnlyTools: ToolSchema[] = [
     fit_rejection: { type: 'object', additionalProperties: false, description: 'For skipped suitability mismatches only. Never for technical failures, budget limits, login walls or uncertain sends. Quote the exact employer text; source=listing only when that quote is in the supplied job listing, otherwise form.',
       properties: { source: { type: 'string', enum: ['listing', 'form'] }, evidence: string }, required: ['source', 'evidence'] },
     answers: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { question: string, answer: string }, required: ['question', 'answer'] } },
-  }, ['status', 'reason', 'evidence']),
+  }, ['status', 'reason', 'evidence'],{anyOf:[
+    {properties:{status:{enum:['needs-human']}},required:['questions']},
+    {properties:{status:{enum:['applied','skipped','already-applied']}}},
+  ]}),
 ];
 
 export { AGENT_ONLY_PROMPT } from './application-policy.js';
@@ -932,6 +935,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
             dispatchStarted=true;
             if(call.name==='browser_action'&&changesBrowserState(call.args)||call.name==='browser_batch'&&Array.isArray(call.args.actions)&&call.args.actions.some(changesBrowserState))haltReview.pendingAction=false;
             result = await act(call.name, call.args);
+            if(['read_candidate_evidence','take_snapshot'].includes(call.name)&&result.kind==='ok'&&!failedToolResult(result))haltReview.pendingAction=false;
             failureKind='validation';
             if (result.kind === 'ok' && !readiness.requested && !failedToolResult(result) && (call.name === 'browser_batch' && Array.isArray(call.args.actions) && call.args.actions.some(changesBrowserState)
               || ['complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(call.name)

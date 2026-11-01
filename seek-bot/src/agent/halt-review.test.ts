@@ -20,10 +20,11 @@ try{
  const ctx={page,job:{id:'fixture',title:'Developer',company:'Fictional employer',url:'https://fixture.invalid/apply'},profile:{name:'Alex Fixture',skills:[],noticePeriod:'2 weeks',workRights:'Australian citizen'},
   captured:[],actions:[],observation:{fields:[],actions:[],url:page.url(),title:'Fixture',text:''},log:()=>{}} as unknown as ToolContext;
  const state=newHaltReviewState(),meter=new CostMeter(.20);let requests=0;
- const tools=[{name:'finish',description:'fixture',parameters:{properties:{status:{enum:['skipped','needs-human','applied']}}}}];
+ const tools=[{name:'finish',description:'fixture',parameters:{properties:{status:{enum:['skipped','needs-human','applied']}}}},
+  {name:'read_candidate_evidence',description:'fixture',parameters:{}},{name:'take_snapshot',description:'fixture',parameters:{}}];
  assert.equal(haltReviewTools(tools,state,false),tools);
  state.pendingAction=true;
- assert.deepEqual(((haltReviewTools(tools,state,false)[0].parameters.properties as any).status.enum),['needs-human','applied']);
+ assert.deepEqual(haltReviewTools(tools,state,false).map(tool=>tool.name),['read_candidate_evidence','take_snapshot'],'a genuine unknown can request fresh evidence without inventing or filling a fact');
  assert.equal(haltReviewTools(tools,state,true),tools,'budget-only final records are never forced into additional work');
  state.pendingAction=false;
  const responder=async(request:CelerisRequest)=>{
