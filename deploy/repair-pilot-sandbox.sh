@@ -52,6 +52,7 @@ systemd-run --wait --pipe --collect \
     node --test dist/agent/live-repair.test.js
     node dist/agent/live-repair-browser.test.js
     node dist/agent/attention-feedback.test.js
+    node dist/agent/halt-review.test.js
     sha256sum -c /tmp/compiled-before.sha256 >/dev/null
     test -z "$(find dist -type l -print -quit)"
     tar -cf /run/repair-output/dist.tar dist

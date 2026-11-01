@@ -25,12 +25,13 @@ import { ApplicationBudgetExhaustedError, type ChatMessage, type ToolSchema } fr
 import { applicationChat } from './application-chat.js';
 import { ProgressBudget } from './progress-budget.js';
 import { consultApplicationSpecialist, consultationToolSchema } from './consultation.js';
+import { newHaltReviewState,reviewHalt } from './halt-review.js';
 import { isExternal } from './browser-boundaries.js';
 import type { AgentRunOptions, AgentRunResult } from './loop.js';
 import { persistLiveTrace, persistTrace, browserExperience, type TraceStep } from './loop/trace.js';
 import { withApplicationAttempt, currentAttempt, recordDiagnostic, recordToolDiagnostic, bindAttemptCallback } from './attempt-diagnostics.js';
 import { repairSourceSite, repairSourceSites } from '../repair-pilot.js';
-import { liveRepairIncident, liveRepairContinuationAllowed, type RepairContinuation } from './live-repair.js';
+import { liveRepairEnabled, liveRepairIncident, liveRepairContinuationAllowed, type RepairContinuation } from './live-repair.js';
 import { traceProvesNoSend } from '../repair-safety.js';
 import { observationMessage } from './loop/transcript.js';
 import { looksUnrendered, observe, waitForApplicationSurface } from './observe.js';
@@ -243,6 +244,8 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
   let budgetStopped = false;
   let invalidApplicationReviews = 0;
   let invalidAttentionRequests = 0;
+  const haltReview=options.continuation?.haltReview??newHaltReviewState();
+  let haltCorrection:string|undefined;
   // Keep the cacheable prefix stable. Smaller evidence reads reduce payload;
   // frequent compaction can cost more by destroying provider cache hits.
   let contextLimit = 42_000;
@@ -321,7 +324,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
       outcome:{status:'skipped'},steps:trace,sendAudit:sendAudit()},identity.runStartId,identity.attemptId))return false;
     repairCheckpoint={attemptId:identity.attemptId,runId:identity.runStartId,page:ctx.page,meter,
       captured:ctx.captured.map(answer=>({...answer})),files:files.checkpoint(),actions:[...ctx.actions],
-      coverLetter:ctx.coverLetter,resumeUsed:ctx.resumeUsed,resumeName:ctx.resumeName,pendingCredentials:ctx.pendingCredentials};
+      coverLetter:ctx.coverLetter,resumeUsed:ctx.resumeUsed,resumeName:ctx.resumeName,pendingCredentials:ctx.pendingCredentials,haltReview};
     terminal={status:'skipped',reason:'Application paused at a safe checkpoint for validated tool repair.'};finished=true;
     return true;
   };
@@ -452,14 +455,6 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         const quote = String((args.duplicate_evidence as { quote?: string } | undefined)?.quote ?? '');
         if (!await employerMessageEvidence(ctx.page, quote)) return ok('The matching stage cleared the known application history. Stop as already-applied only for NEW employer-form evidence: provide duplicate_evidence.quote copied as a complete visible employer message from the current page or its visible frames. Do not reclassify old history, a similar title, or an uncertain send as a confirmed duplicate.', 'failed');
       }
-      if (Array.isArray(args.answers)) ctx.captured = [...new Map([
-        ...(approved ? ctx.captured : []),
-        ...(args.answers as typeof ctx.captured).map(answer => approved?.coverLetter !== undefined && isCoverLetterField(answer.question)
-          ? { ...answer, answer: approved.coverLetter } : answer),
-      ].map(answer => [answer.question.replace(/\s+/g, ' ').trim(), answer])).values()];
-      if (args.cover_letter) ctx.coverLetter = coverLetterForRun(String(args.cover_letter));
-      const resumeId = approved?.resumeId ?? args.resume_id;
-      if (resumeId) { const doc = agentOnlyDocuments().find(item => item.id === resumeId); if (doc) { ctx.resumeUsed = doc.id; ctx.resumeName = doc.fileName; } }
       let questions = normaliseBlockedQuestions(args.questions).slice(0, 30);
       if (args.status === 'needs-human') {
         const extracted = await extractEmployerQuestions(ctx, args.questions);
@@ -471,6 +466,24 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         }
         questions = extracted.questions;
       }
+      if(['skipped','needs-human'].includes(String(args.status))&&!ctx.submissionAttempted&&liveRepairEnabled()){
+        if(meter.actionExhausted)return {kind:'terminal',outcome:{status:'skipped',reason:'The application budget ended before its stopping decision could be verified.'}};
+        const assessment=await reviewHalt(ctx,args,haltReview,meter);
+        if(assessment.decision==='unavailable')return {kind:'terminal',outcome:{status:'skipped',reason:assessment.reason}};
+        if(assessment.decision==='continue'){
+          if(++haltReview.rejections>3)return {kind:'terminal',outcome:{status:'skipped',reason:'The applying agent repeatedly contradicted the verified stopping review; no candidate question or send was created.'}};
+          haltCorrection=JSON.stringify(assessment);
+          return ok('The fresh evidence review contradicts this stopping decision. Inspect its exact source excerpts and complete the supported work from the current saved browser state. No send or candidate question was authorized.','reobserve');
+        }
+      }
+      if (Array.isArray(args.answers)) ctx.captured = [...new Map([
+        ...(approved ? ctx.captured : []),
+        ...(args.answers as typeof ctx.captured).map(answer => approved?.coverLetter !== undefined && isCoverLetterField(answer.question)
+          ? { ...answer, answer: approved.coverLetter } : answer),
+      ].map(answer => [answer.question.replace(/\s+/g, ' ').trim(), answer])).values()];
+      if (args.cover_letter) ctx.coverLetter = coverLetterForRun(String(args.cover_letter));
+      const resumeId = approved?.resumeId ?? args.resume_id;
+      if (resumeId) { const doc = agentOnlyDocuments().find(item => item.id === resumeId); if (doc) { ctx.resumeUsed = doc.id; ctx.resumeName = doc.fileName; } }
       log(`  Agent judgement: ${args.status}: ${args.reason} Evidence: ${args.evidence}`);
       if (config.dryRun) return { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: `Agent judgement: ${args.status}. ${args.evidence}` } };
       const status = args.status as 'applied' | 'skipped' | 'needs-human' | 'already-applied';
@@ -689,6 +702,11 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
 
   try {
     while (!finished) {
+      if(haltCorrection){
+        messages.splice(2);
+        messages.push({role:'user',content:`FRESH STOPPING REVIEW: ${haltCorrection}\nThe prior stopping claim was rejected using current browser and candidate evidence. Start from a fresh observation; retain saved values and files. Prior verified answers: ${JSON.stringify(ctx.captured)}. This is advice for your next action, never permission to submit, invent facts or bypass a control.`});
+        haltCorrection=undefined;highEffort=true;
+      }
       if(options.continuation&&!isolated&&!ctx.submissionAttempted&&!liveRepairContinuationAllowed(options.continuation)){
         terminal={status:'skipped',reason:'In-run tool recovery was paused or cancelled before another application action.'};break;
       }
@@ -866,6 +884,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         // A returned model reply is not proof its tool completed. Persist the
         // pending operation first so hangs and disconnects retain their cause.
         saveLiveTrace();
+        if(haltCorrection){interrupted=true;highEffort=true;}
         let result: ToolResult;
         let diagnosticError: unknown;
         let failureKind:'execution'|'arguments'|'validation'='arguments';

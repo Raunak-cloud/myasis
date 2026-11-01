@@ -13,7 +13,7 @@ for name in repair-pilot repair-release repair-safety; do
 done
 mkdir -p /var/lib/owtomate-repair/cases
 chmod 700 /var/lib/owtomate-repair /var/lib/owtomate-repair/cases
-for name in repair-pilot repair-coder repair-model repair-validation repair-release; do
+for name in repair-pilot repair-coder repair-model repair-validation repair-source-policy repair-release; do
   install -o root -g root -m 644 "$app/dashboard/server/$name.ts" "$install/dashboard/server/$name.ts"
 done
 install -o root -g root -m 644 "$app/dashboard/scripts/repair-pilot-service.mts" "$install/dashboard/scripts/repair-pilot-service.mts"
@@ -23,7 +23,7 @@ echo '{"type":"module"}' > "$install/package.json"
 chmod 644 "$install/package.json"
 # Check the installed layout, which deliberately does not inherit the live
 # repository's complete dependency tree. No database or model request runs.
-node "$app/seek-bot/node_modules/tsx/dist/cli.mjs" -e "import('$install/dashboard/server/repair-model.ts').then(m => { if (typeof m.miniMaxRepairModel !== 'function') process.exit(1); })"
+node "$app/seek-bot/node_modules/tsx/dist/cli.mjs" -e "Promise.all([import('$install/dashboard/server/repair-model.ts'),import('$install/dashboard/server/repair-validation.ts')]).then(([m,v]) => { if (typeof m.miniMaxRepairModel !== 'function' || typeof v.validateRepairProposal !== 'function') process.exit(1); })"
 if [ "${1:-}" = --enable ]; then
   python3 - <<'PY'
 import datetime,json,os

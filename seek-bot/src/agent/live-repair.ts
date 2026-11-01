@@ -12,6 +12,7 @@ import type { ProgressBudget } from './progress-budget.js';
 import type { AgentFiles } from './agent-files.js';
 import type { AgentRunOptions, AgentRunResult } from './loop.js';
 import type { ToolContext } from './context.js';
+import type { HaltReviewState } from './halt-review.js';
 
 export interface RepairContinuation {
   attemptId: string; runId: string; page: Page; meter: ProgressBudget;
@@ -19,6 +20,7 @@ export interface RepairContinuation {
   files: ReturnType<AgentFiles['checkpoint']>;
   coverLetter?: string; resumeUsed?: string; resumeName?: string;
   pendingCredentials?: ToolContext['pendingCredentials'];
+  haltReview?: HaltReviewState;
 }
 export function liveRepairEnabled(): boolean {
   const env=applicationModelEnvironment();

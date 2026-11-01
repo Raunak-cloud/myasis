@@ -24,6 +24,7 @@ if [ "${1:-0}" = 1 ]; then
   node --test dist/agent/live-repair.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/live-repair-browser.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/attention-feedback.test.js
+  CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/halt-review.test.js
   node --test --test-name-pattern='admin repair' dist/review-budget.test.js
   node --test dist/agent/attempt-diagnostics.test.js dist/browser-deadline.test.js dist/discovery-search.test.js dist/discovery-policy.test.js
   node --test dist/agent/tool-input.test.js dist/agent/agent-only-transcript.test.js dist/agent/application-policy.test.js dist/agent/application-readiness.test.js dist/agent/recovery-checkpoint.test.js dist/agent/progress-budget.test.js dist/agent/agent-file-inventory.test.js dist/verification-email-local.test.js dist/gmail-verification.test.js
