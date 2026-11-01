@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'patchright';
 import { toolInputIssue } from './tool-input.js';
+import { specialistFixtureReply } from './specialist-fixture.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'browser-command-contract-'));
 Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', APPLICATION_AI_MODEL: 'celeris',
@@ -16,6 +17,7 @@ writeFileSync(join(directory, 'answers.json'), '[]');
 let turn = 0;
 globalThis.fetch = (async (_url, init) => {
   const body = JSON.parse(String(init?.body));
+  const specialist = specialistFixtureReply(body); if (specialist) return specialist;
   const latest = () => body.messages.filter((message: any) => message.role === 'tool').at(-1).content;
   let call;
   if (turn === 0) {

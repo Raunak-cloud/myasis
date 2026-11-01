@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {createHash} from 'node:crypto';
 import {chromium} from 'patchright';
 import {closeCelerisQueues} from '../../../shared/celeris-queue.mjs';
+import {specialistFixtureReply} from './specialist-fixture.js';
 
 test('approved letter renders and uploads byte-exact without model transcription or an application send',async()=>{
  const dir=mkdtempSync(join(tmpdir(),'owtomate-approved-letter-'));
@@ -22,7 +23,7 @@ test('approved letter renders and uploads byte-exact without model transcription
   const page=await browser.newPage();await page.route('**/*',route=>new URL(route.request().url()).hostname.endsWith('.invalid')?route.fulfill({contentType:'text/html',body:'<main><h1>Fictional Analyst</h1><label>Cover letter<input id=letter type=file onchange="const file=this.files[0];file.text().then(text=>{document.querySelector(\'#received\').textContent=text;document.querySelector(\'#uploaded\').textContent=file.name;this.value=\'\';})"></label><p id=uploaded></p><pre id=received hidden></pre><button id=send onclick="window.sent=true">Submit</button></main>'}):route.abort());await page.goto(job.url);
   let turn=0;
   globalThis.fetch=(async(_url,init)=>{
-   const body=JSON.parse(String(init?.body));turn++;
+   const body=JSON.parse(String(init?.body));const specialist=specialistFixtureReply(body);if(specialist)return specialist;turn++;
    assert.ok(body.tools.some((t:any)=>t.function.name==='render_approved_cover_letter'));
    let call;
    if(turn===1){
