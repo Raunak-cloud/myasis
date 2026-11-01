@@ -30,7 +30,7 @@ try{
   requests++;assert.equal(request.meter,meter);assert.equal(request.tools,undefined);
   const body=JSON.stringify(request.messages);assert.match(body,/Australian citizen|2 weeks/);assert.doesNotMatch(body,/fixture-secret/);
   meter.recordProvider({prompt:10,cached:0,completion:10,amountUsd:.01});
-  return {text:JSON.stringify({decision:'continue',reason:'The authoritative profile supplies the missing notice.',evidence:[{source:'profile',quote:'2 weeks'}]}),toolCalls:[],message:{role:'assistant' as const,content:null}};
+  return {text:JSON.stringify({decision:'continue',reason:'The authoritative profile supplies the missing notice.',evidence:['profile:/noticePeriod']}),toolCalls:[],message:{role:'assistant' as const,content:null}};
  };
  const proposal={status:'needs-human',reason:'Notice period unavailable',questions:[{field_ref:'f0'}]};
  assert.equal((await reviewHalt(ctx,proposal,state,meter,responder)).decision,'continue');
@@ -43,11 +43,11 @@ try{
  const unknown=await reviewHalt(ctx,{status:'needs-human',reason:'Exact visa expiry is unknown'},newHaltReviewState(),meter,async()=>
   ({text:JSON.stringify({decision:'stop',reason:'No explicit expiry date is supplied; do not infer it.',evidence:[]}),toolCalls:[],message:{role:'assistant',content:null}}));
  assert.equal(unknown.decision,'stop','genuine unknown facts still reach the candidate');
- const fabricated=await reviewHalt(ctx,proposal,newHaltReviewState(),meter,async()=>({text:JSON.stringify({decision:'continue',reason:'Use an invented date.',evidence:[{source:'profile',quote:'31 December 2030'}]}),toolCalls:[],message:{role:'assistant',content:null}}));
+ const fabricated=await reviewHalt(ctx,proposal,newHaltReviewState(),meter,async()=>({text:JSON.stringify({decision:'continue',reason:'Use an invented date.',evidence:['profile:/madeUpDate']}),toolCalls:[],message:{role:'assistant',content:null}}));
  assert.equal(fabricated.decision,'unavailable','unsupported review claims never authorize work');
- const mixed=await reviewHalt(ctx,proposal,newHaltReviewState(),meter,async()=>({text:JSON.stringify({decision:'continue',reason:'Use 31 December 2030.',evidence:[{source:'profile',quote:'2 weeks'},{source:'profile',quote:'31 December 2030'}]}),toolCalls:[],message:{role:'assistant',content:null}}));
+ const mixed=await reviewHalt(ctx,proposal,newHaltReviewState(),meter,async()=>({text:JSON.stringify({decision:'continue',reason:'Use 31 December 2030.',evidence:['profile:/noticePeriod','profile:/madeUpDate']}),toolCalls:[],message:{role:'assistant',content:null}}));
  assert.equal(mixed.decision,'continue');
- assert.deepEqual(mixed.evidence,[{source:'profile',quote:'2 weeks'}]);
+ assert.deepEqual(mixed.evidence,[{source:'profile',quote:'/noticePeriod: "2 weeks"'}]);
  assert.doesNotMatch(mixed.reason,/2030/,'unsupported facts and their proposed instruction are discarded together');
  ctx.submissionAttempted=true;
  assert.equal((await reviewHalt(ctx,proposal,newHaltReviewState(),meter,async()=>{throw Error('No request permitted after a possible send');})).decision,'unavailable');
