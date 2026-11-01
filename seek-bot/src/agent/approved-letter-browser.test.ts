@@ -12,8 +12,8 @@ test('approved letter renders and uploads byte-exact without model transcription
  const keys=['DATA_DIR','CELERIS_API_KEY','CELERIS_QUEUE_FILE','CELERIS_MIN_INTERVAL_MS','APPLICATION_REVIEW_MODE','APPLICATION_AI_MODEL','APPROVED_APPLICATIONS_JSON','DRY_RUN','ALLOW_EXTERNAL_APPLY'];
  const prior=keys.map(k=>process.env[k]),originalFetch=globalThis.fetch;
  const job={id:'canonical-letter-fixture',title:'Fictional Analyst',company:'Example Fixture',location:'Sydney',platform:'indeed' as const,url:'https://letter.fixture.invalid/apply'};
- const text='Dear team,\n\nExact approved letter: café — SQL; no rewritten punctuation.\n\nRegards,\nAlex Fixture\n';
- const draft={id:'f67ea042-08f4-4a0a-b511-c0b30a876028',revision:'a'.repeat(64),job,preparedAt:new Date().toISOString(),formUrl:job.url,answers:[],coverLetter:text,resumeId:'cv',resumeHash:createHash('sha256').update('Fictional CV').digest('hex')};
+ const text='Dear team,\n\nExact approved letter: café – SQL; no rewritten punctuation.\n\nRegards,\nAlex Fixture\n';
+ const draft={id:'f67ea042-08f4-4a0a-b511-c0b30a876028',revision:'a'.repeat(64),job,preparedAt:new Date().toISOString(),formUrl:job.url,answers:[],coverLetter:text,resume:'CV.txt',resumeId:'cv',resumeHash:createHash('sha256').update('Fictional CV').digest('hex')};
  Object.assign(process.env,{DATA_DIR:dir,CELERIS_API_KEY:'fixture-only',CELERIS_QUEUE_FILE:join(dir,'queue.sqlite'),CELERIS_MIN_INTERVAL_MS:'0',APPLICATION_REVIEW_MODE:'approved',APPLICATION_AI_MODEL:'celeris',APPROVED_APPLICATIONS_JSON:JSON.stringify([draft]),DRY_RUN:'true',ALLOW_EXTERNAL_APPLY:'true'});
  mkdirSync(join(dir,'resumes'));writeFileSync(join(dir,'resumes','CV.txt'),'Fictional CV');writeFileSync(join(dir,'resumes.json'),JSON.stringify([{id:'cv',label:'Fixture CV',fileName:'CV.txt'}]));writeFileSync(join(dir,'approved-applications.json'),JSON.stringify([draft]));
  const {runAgentOnlyApplication}=await import('./agent-only.js');
@@ -42,6 +42,11 @@ test('approved letter renders and uploads byte-exact without model transcription
    return Response.json({choices:[{message:{role:'assistant',content:null,tool_calls:[{id:'canonical-'+turn,type:'function',function:call}]}}],usage:{prompt_tokens:50,completion_tokens:10}});
   }) as typeof fetch;
   const result=await runAgentOnlyApplication({simulation:'isolated-form',page,job,profile:{name:'Alex Fixture',skills:[]} as never,log:()=>{}});
-  assert.equal(turn,3);assert.equal(result.submitPressed,false);assert.equal(await page.evaluate(()=>(window as any).sent??false),false);
+  assert.equal(turn,3);assert.equal(result.coverLetter,text,'the uploaded canonical letter remains recorded for the approval comparison');assert.equal(result.submitPressed,false);assert.equal(await page.evaluate(()=>(window as any).sent??false),false);
+  const {applicationApprovalGate}=await import('../application-review.js');
+  const ctx={page,job,profile:{},observation:{},captured:result.captured,actions:[],log:()=>{},coverLetter:result.coverLetter,resumeUsed:'cv',resumeName:'CV.txt'} as never;
+  assert.equal(await applicationApprovalGate(ctx),null,'an unchanged uploaded approved letter must not become a false changed draft');
+  const missing={...ctx as object,coverLetter:undefined} as never;
+  assert.ok(await applicationApprovalGate(missing),'a genuinely missing letter still requires a new confirmation');
  }finally{globalThis.fetch=originalFetch;await browser.close();closeCelerisQueues();keys.forEach((k,i)=>prior[i]===undefined?delete process.env[k]:process.env[k]=prior[i]);rmSync(dir,{recursive:true,force:true});}
 });

@@ -632,6 +632,12 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
           const document = agentOnlyDocuments().find(item => item.id === resumeIds[0]);
           if (document) { ctx.resumeUsed = document.id; ctx.resumeName = document.fileName; }
         }
+        // Retain the confirmed content identity when its actual file was
+        // selected. This is an upload audit, never employer acceptance. Without
+        // it, a correct approved attachment appeared to be a deleted letter.
+        if (approved?.coverLetter && readback?.files?.length && !readback.invalid && !readback.validation
+          && selected.some(file => (file.approvedBundle || file.text === approved.coverLetter)
+            && readback.files!.includes(basename(file.path)))) ctx.coverLetter = approved.coverLetter;
         if (before && readback?.files?.length && !readback.invalid && !readback.validation
           && JSON.stringify(before.files) !== JSON.stringify(readback.files)) meter.uploaded(args.file_ids.join(','));
         return ok(JSON.stringify({ action: 'set_input_files', file_ids: args.file_ids, current: readback,
