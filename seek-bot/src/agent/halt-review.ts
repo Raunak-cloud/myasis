@@ -9,7 +9,8 @@ import { recordDiagnostic } from './attempt-diagnostics.js';
 import type { ToolContext } from './context.js';
 import type { CostMeter,ToolSchema } from './celeris.js';
 
-export interface HaltAssessment {decision:'continue'|'stop'|'unavailable';reason:string;evidence:Array<{source:string;quote:string}>}
+export interface HaltAssessment {decision:'continue'|'stop'|'unavailable';reason:string;evidence:Array<{source:string;quote:string}>;
+ candidateContext?:{profile:unknown;documents:string}}
 export interface HaltReviewState {calls:number;rejections:number;pendingAction?:boolean;cache:Array<{key:string;assessment:HaltAssessment}>}
 export const newHaltReviewState=():HaltReviewState=>({calls:0,rejections:0,cache:[]});
 const schema={type:'object',additionalProperties:false,properties:{
@@ -86,6 +87,11 @@ export async function reviewHalt(ctx:ToolContext,proposal:Record<string,unknown>
   if(proposal.status==='needs-human'&&assessment.decision==='continue'&&!grounded.some(e=>e.source==='profile'||e.source==='documents')){
    assessment.decision='stop';assessment.reason='The required candidate answer has no cited saved candidate source. Securely capture the actual employer question for the candidate; do not infer an answer from a blank form.';
   }
+  // Refresh the actual source facts alongside a rejected stale conclusion,
+  // rather than leaving the agent to rediscover them in an old long prompt.
+  // This is the same bounded, owner-only, credential-redacted context already
+  // read above; no new facts, tool actions or additional model call is added.
+  if(assessment.decision==='continue')assessment.candidateContext={profile:JSON.parse(sources.profile),documents:sources.documents};
   state.cache.push({key,assessment});
   recordDiagnostic({severity:assessment.decision==='continue'?'warning':'info',category:'halt_review',stage:'application',
    message:`Read-only stopping review: ${assessment.decision}. ${assessment.reason}`});

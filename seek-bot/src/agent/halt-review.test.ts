@@ -33,7 +33,11 @@ try{
   return {text:JSON.stringify({decision:'continue',reason:'The authoritative profile supplies the missing notice.',evidence:['profile:/noticePeriod']}),toolCalls:[],message:{role:'assistant' as const,content:null}};
  };
  const proposal={status:'needs-human',reason:'Notice period unavailable',questions:[{field_ref:'f0'}]};
- assert.equal((await reviewHalt(ctx,proposal,state,meter,responder)).decision,'continue');
+ const correction=await reviewHalt(ctx,proposal,state,meter,responder);
+ assert.equal(correction.decision,'continue');
+ assert.equal((correction.candidateContext!.profile as {noticePeriod:string}).noticePeriod,'2 weeks','fresh correction carries the actual canonical profile, not just a verdict');
+ assert.match(correction.candidateContext!.documents,/Fictional TypeScript developer/);
+ assert.doesNotMatch(JSON.stringify(correction),/fixture-secret/);
  assert.equal((await reviewHalt(ctx,proposal,state,meter,responder)).decision,'continue');assert.equal(requests,1,'unchanged evidence reuses the bounded review');
  await page.locator('#notice').fill('2 weeks');
  assert.equal((await reviewHalt(ctx,{status:'skipped',reason:'Resume unavailable'},state,meter,responder)).decision,'continue');
