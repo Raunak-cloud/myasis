@@ -194,6 +194,8 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
   }
 
   const magnus = request.model === 'celeris-1-magnus';
+  const effort = celerisReasoningEffort(request.reasoningEffort);
+  const deep = magnus && request.thinking && effort === 'xhigh';
   /**
    * A generous max_tokens, never a tight one. Magnus reasons before it answers
    * and the reasoning counts against the budget: a 1,600 cap was consumed
@@ -204,7 +206,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
     model: request.model,
     messages: request.messages,
     temperature: request.temperature ?? 0,
-    max_tokens: request.maxTokens ?? config.celeris.maxOutputTokens,
+    max_tokens: request.maxTokens ?? (deep ? 16_384 : config.celeris.maxOutputTokens),
   };
   if (request.tools?.length) {
     body.tools = request.tools.map((tool) => ({
@@ -226,10 +228,10 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
    * it does not turn thinking off. Thinking output is billed as completion
    * tokens, roughly 2,600 of them on a real fit review.
    */
-  if (magnus) body.chat_template_kwargs = { enable_thinking: Boolean(request.thinking), ...(request.thinking ? { reasoning_effort: celerisReasoningEffort(request.reasoningEffort) } : {}) };
+  if (magnus) body.chat_template_kwargs = { enable_thinking: Boolean(request.thinking), ...(request.thinking ? { reasoning_effort: effort } : {}) };
 
   const startedAt = performance.now();
-  const recovery = new GenerationRecovery(request, config.celeris.timeoutMs, Number(body.max_tokens));
+  const recovery = new GenerationRecovery(request, deep ? Math.max(90_000, config.celeris.timeoutMs) : config.celeris.timeoutMs, Number(body.max_tokens));
   let lastError: unknown;
   let unusableReply: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -243,7 +245,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
     let retryMs: number | undefined;
     let responseStatus: number | undefined;
     try {
-      recovery.assertWindow(attempt);
+      recovery.assertWindow(attempt, Boolean(deep));
       recordDiagnostic({ severity: 'info', category: 'generation_attempt', stage: 'model_request', tool: request.model,
         retry: attempt + 1, message: JSON.stringify({ maxTokens: body.max_tokens, timeoutMs: recovery.timeoutMs,
           remainingMs: Math.max(0, recovery.deadline - Date.now()), reasoning: body.chat_template_kwargs }) });
@@ -251,7 +253,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
       permit = await acquireCelerisPermit({ endpoint: endpointFor(request.model), deadline: recovery.deadline, leaseMs: recovery.timeoutMs,
         env: { ...process.env, ...applicationModelEnvironment() } });
       if (request.meter?.exhausted) throw new ApplicationBudgetExhaustedError();
-      recovery.assertWindow(attempt);
+      recovery.assertWindow(attempt, Boolean(deep));
       metric('model-queue', performance.now() - queuedAt, { model: request.model });
       endCostRequest = beginCostRequest('Celeris', request.model);
       sent = true;

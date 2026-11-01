@@ -145,13 +145,14 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
   request.meter?.assertAvailable();
 
   const magnus = request.model === 'celeris-1-magnus';
+  const deep = magnus && request.thinking && celerisReasoningEffort(request.reasoningEffort) === 'xhigh';
   const body: Record<string, unknown> = {
     model: request.model,
     messages: request.messages,
     temperature: request.temperature ?? 0,
     // Generous on Magnus: its reasoning counts against max_tokens. Celeris rejects any request over the model's ceiling.
     max_tokens: magnus
-      ? Math.min(MAGNUS_MAX_OUTPUT, Math.max(config.celeris.maxOutputTokens, (request.maxTokens ?? 0) * 4))
+      ? Math.min(MAGNUS_MAX_OUTPUT, Math.max(deep ? MAGNUS_MAX_OUTPUT : config.celeris.maxOutputTokens, (request.maxTokens ?? 0) * 4))
       : request.maxTokens ?? config.celeris.maxOutputTokens,
   };
   if (request.tools?.length) {
@@ -183,7 +184,7 @@ export async function celerisChat(request: CelerisRequest): Promise<CelerisReply
           method: 'POST',
           headers: { 'content-type': 'application/json', authorization: `Bearer ${config.celeris.apiKey}` },
           body: JSON.stringify(body),
-          signal: AbortSignal.timeout(config.celeris.timeoutMs),
+          signal: AbortSignal.timeout(deep ? Math.max(90_000, config.celeris.timeoutMs) : config.celeris.timeoutMs),
         });
       } finally {
         inFlight.release();

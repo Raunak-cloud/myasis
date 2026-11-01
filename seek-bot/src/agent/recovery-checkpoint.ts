@@ -82,7 +82,7 @@ export class RecoveryCheckpoint {
   /** Keep deeper reasoning through diagnosis, repair and fresh verification.
    * An accepted tool call or another inspection cannot end escalation. */
   get needsDeepReasoning(): boolean {
-    return this.phase !== 'normal' || this.failures > 0 || this.unchanged >= 2;
+    return (!this.budgetReview && this.phase !== 'normal') || this.failures >= 2 || this.unchanged >= 5;
   }
   requestBudgetReview(): boolean {
     // Do not turn an unexecuted repair into a result checkpoint using older

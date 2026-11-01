@@ -109,7 +109,7 @@ try {
   assert.equal(script.length, 0); assert.equal(turns.length, 4);
   assert.equal(quotaChecks, 9, 'both checkpoint-held sends and their explicit post-review retries retain allowance checks');
   const effort = (body: Body) => body.chat_template_kwargs?.reasoning_effort;
-  assert.equal(effort(turns[0]), 'medium'); assert.equal(effort(turns[2]), 'medium','Celeris uses its strongest supported effort below the high ceiling');
+  assert.equal(effort(turns[0]), 'medium'); assert.equal(effort(turns[2]), 'xhigh','the agent explicitly requested deeper reasoning for an unresolved validation problem');
   assert.match(readFileSync(join(directory, 'traces', 'agent-only-retry.json'), 'utf8'), /ABC123/);
   assert.ok(existsSync(join(directory, 'form-corpus')), 'the sole agent retains private form replay recording');
   assert.equal(JSON.parse(readFileSync(join(directory, 'applied.json'), 'utf8')).length, 1, 'driver does not mutate history or reserve duplicate claims');

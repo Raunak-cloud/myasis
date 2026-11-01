@@ -27,12 +27,21 @@ test('higher reasoning persists through inspection, repair execution and result 
  const state = new RecoveryCheckpoint(); state.observe(observation());
  assert.equal(state.needsDeepReasoning, false);
  state.acted('browser_action', true, { action: 'click' }); state.observe(observation());
+ assert.equal(state.needsDeepReasoning, false,'one recoverable tool failure does not escalate');
+ state.acted('browser_action', true, { action: 'click' }); state.observe(observation());
  assert.equal(state.needsDeepReasoning, true);
  state.planned(); state.acted('take_snapshot', false); state.endTurn(); state.observe(observation());
  assert.equal(state.needsDeepReasoning, true, 'reading another screenshot is not recovery');
  state.acted('browser_action', false, { action: 'fill' }); state.endTurn(); state.observe(observation('Sydney'));
  assert.equal(state.needsDeepReasoning, true, 'saved change still needs agent assessment');
  state.verified('progress'); assert.equal(state.needsDeepReasoning, false);
+});
+
+test('routine progress and spending reviews do not request deep reasoning',()=>{
+ const state=new RecoveryCheckpoint();state.observe(observation());
+ state.acted('browser_action',false,{action:'fill'});state.endTurn();state.observe(observation('Sydney'));
+ assert.equal(state.requestBudgetReview(),true);assert.equal(state.needsDeepReasoning,false);
+ state.verified('progress');assert.equal(state.needsDeepReasoning,false);
 });
 
 test('changing DOM identities do not disguise repeated unchanged pages', () => {

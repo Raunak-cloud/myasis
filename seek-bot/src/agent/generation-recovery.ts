@@ -27,11 +27,11 @@ export class GenerationRecovery {
     this.timeoutMs = baseTimeoutMs;
     this.originalTokens = Math.max(1, maxTokens);
     this.hardDeadline = Math.min(Date.now() + 240_000, request.deadline ?? Infinity);
-    this.deadline = Math.min(Date.now() + 60_000, this.hardDeadline);
+    this.deadline = Math.min(Date.now() + Math.max(60_000, baseTimeoutMs + 15_000), this.hardDeadline);
   }
 
-  assertWindow(attempt: number): void {
-    if (Date.now() >= this.deadline || attempt > 0 && this.deadline - Date.now() < this.timeoutMs)
+  assertWindow(attempt: number, fullInitialWindow = false): void {
+    if (Date.now() >= this.deadline || (attempt > 0 || fullInitialWindow) && this.deadline - Date.now() < this.timeoutMs)
       throw new GenerationWindowError('Not enough time remains for a full generation retry; no additional request was sent.');
   }
 

@@ -1,1 +1,1 @@
-export function celerisReasoningEffort(requested: unknown): 'low' | 'medium';
+export function celerisReasoningEffort(requested: unknown): 'low' | 'medium' | 'xhigh';

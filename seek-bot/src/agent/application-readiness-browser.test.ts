@@ -75,7 +75,7 @@ try {
     assert.match(observation(body), /"label":"Month".*"value":"1"/);
     return [review('correct')];
   }, async body => {
-    assert.equal(body.chat_template_kwargs?.reasoning_effort, 'medium', 'agent-authored correction uses the strongest supported Celeris effort below the high ceiling');
+    assert.equal(body.chat_template_kwargs?.reasoning_effort, 'xhigh', 'a confirmed accuracy conflict retains deeper reasoning while correcting it');
     return [{ name: 'browser_batch', args: { actions: [
     { action: 'fill', selector: '#month', value: '11' }, { action: 'fill', selector: '#day', value: '1' },
     { action: 'click', selector: '#send', sends_application: true },

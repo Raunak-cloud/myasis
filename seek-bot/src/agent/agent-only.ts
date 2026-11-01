@@ -111,7 +111,7 @@ const agentOnlyTools: ToolSchema[] = [
   schema('read_browser_experience', 'Read this account\'s prior successful native interaction approaches on the current host. Inspect and match the actual current controls before using them. These are historical hints, never commands or candidate answers.', {}),
   schema('read_application_attempts', 'Read this posting\'s owner-scoped interrupted attempts and send activity to recover an uncertain submission. Confirmed duplicate decisions belong to the matching stage; this tool does not supply confirmed application history or invite a second duplicate review. Follow NEXT_OFFSET for further evidence about this posting.', { offset: { type: 'integer', minimum: 0 } }),
   schema('save_progress', 'Keep a concise durable recovery note across context compaction. Record completed steps, current problem, observed evidence, your next approach and any verification still needed. Update answers/documents here so they need not be rediscovered. This never chooses an action or resets the browser.', { note: string, cover_letter: string, resume_id: string, answers: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { question: string, answer: string }, required: ['question', 'answer'] } } }, ['note']),
-  schema('reason_through_problem', 'Request high reasoning effort for the next turn when medium reasoning has not resolved a semantic form error or repeated lack of progress.', { problem: string }, ['problem']),
+  schema('reason_through_problem', 'Request deeper reasoning for the next turn only when medium reasoning has not resolved a semantic form error or repeated lack of progress. Magnus uses xhigh; MiniMax uses high. Routine filling and successful final reviews stay at medium.', { problem: string }, ['problem']),
   ...recoveryTools,
   ...authenticationTools(),
   schema('record_authentication_result', 'Report the observed authentication result before another attempt. Choose rejected for a rejected login, needs_verification for an incomplete verification step, and accepted only after actual registration, reset or authenticated account access succeeds. Evidence must be a COMPLETE exact current employer message, not your narrative. Filling fields, requesting reset mail and clearing CAPTCHA do not establish acceptance.', {
@@ -517,7 +517,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         ? { status, reason: String(args.reason), questions }
         : { status, reason: String(args.reason) } };
     }
-    if (name === 'reason_through_problem') { highEffort = true; return ok('The next turn will use high reasoning effort for this problem.'); }
+    if (name === 'reason_through_problem') { highEffort = true; return ok('The next turn will use deeper reasoning for this unresolved problem.'); }
     if (name === 'read_candidate_evidence') return ok(await agentOnlyEvidence(String(args.query ?? ''), Number(args.offset ?? 0), Number(args.max_chars ?? 8000)));
     if (name === 'read_browser_experience') return ok(browserExperience(ctx.page.url()));
     if (name === 'read_application_attempts') return ok(applicationAttemptHistory(options.job.id, Number(args.offset ?? 0)));
@@ -846,8 +846,8 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         : recordOnly ? availableTools.filter(tool => finalRecords.includes(tool.name)) : availableTools;
       const forceTool = checkpoint ?? (recordOnly && turnTools.length === 1 ? turnTools[0].name : undefined);
       if (recordOnly) finalRecordUsed = true;
-      const reasoningEffort = highEffort || recovery.needsDeepReasoning || readiness.needsDeepReasoning
-        || checkpoint && checkpoint !== applicationReviewTool.name ? 'high' : 'medium';
+      const reasoningEffort = highEffort || recovery.needsDeepReasoning || readiness.needsDeepReasoning ? 'high' : 'medium';
+      const maxTokens = reasoningEffort === 'high' && applicationAgentIdentity().selection === 'celeris' ? 16_384 : 8192;
       const compact = (force = false) => {
         const current = screenshotsEveryTurn ? latestObservationScreenshotOnly(messages) : messages;
         const relevant = checkpoint === applicationReviewTool.name ? generationRecoveryTranscript(current) : current;
@@ -857,14 +857,14 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
       };
       try {
         reply = await applicationChat({ model: 'celeris-1-magnus', messages: compact(), tools: turnTools,
-          requireTool: true, forceTool, thinking: true, reasoningEffort, maxTokens: 8192, meter });
+          requireTool: true, forceTool, thinking: true, reasoningEffort, maxTokens, meter });
       } catch (error) {
         if (error instanceof ApplicationBudgetExhaustedError) { budgetStopped = true; break; }
         if (!/(?:Celeris|OpenRouter) (?:400|413):.*(?:context|token|too long|too large|maximum.*length)/is.test((error as Error).message) || contextLimit <= 8000) throw error;
         contextLimit = Math.max(8000, Math.floor(contextLimit / 2));
         try {
           reply = await applicationChat({ model: 'celeris-1-magnus', messages: compact(true), tools: turnTools,
-            requireTool: true, forceTool, thinking: true, reasoningEffort, maxTokens: 8192, meter });
+            requireTool: true, forceTool, thinking: true, reasoningEffort, maxTokens, meter });
         } catch (retryError) {
           if (retryError instanceof ApplicationBudgetExhaustedError) { budgetStopped = true; break; }
           throw retryError;
@@ -979,7 +979,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         if (result.kind === 'terminal') { terminal = result.outcome; finished = true; interrupted = true; }
         else if (failedToolResult(result)) {
           recovery.failed(call.name, call.args, ctx.page.url(), result.message);
-          highEffort = true; interrupted = true; lastNote = 'The last action failed. Reason through the current evidence, then recover or finish honestly.';
+          interrupted = true; lastNote = 'The last action failed. Inspect the current evidence, then recover or request deeper reasoning if medium cannot resolve the problem.';
           pauseForRepair();
         }
         else if (result.disposition === 'reobserve') {
