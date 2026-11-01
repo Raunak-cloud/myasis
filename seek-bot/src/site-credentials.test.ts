@@ -45,6 +45,9 @@ try {
   const old = { format: 'readable-v1' as const, rules: { max_length: 18 } };
   stagePendingCredential(url, email, employer, 'reset_password', old);
   stagePendingCredential(url, email, employer, 'reset_password', credential);
+  assert.equal(markPendingVerification(url, email, employer, 'reset_password', old), false, 'late verification cannot mark a replacement proposal');
+  discardPendingCredential(url, email, employer, 'reset_password', old);
+  assert.deepEqual(pendingCredential(url, email, employer, 'reset_password')?.rules, credential.rules, 'late rejection cannot delete a replacement proposal');
   assert.equal(acceptPendingCredential(url, email, employer, 'reset_password', old), false, 'late acceptance cannot promote or delete a replacement proposal');
   assert.deepEqual(pendingCredential(url, email, employer, 'reset_password')?.rules, credential.rules);
   assert.equal(acceptPendingCredential(url, email, employer, 'reset_password', credential), true);

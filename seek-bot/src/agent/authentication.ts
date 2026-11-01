@@ -189,7 +189,10 @@ export async function doRecordAuthenticationResult(ctx: ToolContext, args: Recor
     at: new Date().toISOString(), detail: `Authentication ${outcome}: ${evidence.quote}` };
   if (outcome === 'rejected') {
     if (purpose === 'sign_in') rejectCredential(ctx.page.url(), email);
-    else discardPendingCredential(ctx.page.url(), email, ctx.job.company, purpose as CredentialPurpose);
+    else {
+      const proposal = ctx.pendingCredentials?.get(site);
+      discardPendingCredential(ctx.page.url(), email, ctx.job.company, purpose as CredentialPurpose, proposal?.purpose === purpose ? proposal : undefined);
+    }
     if (purpose !== 'sign_in' || ctx.pendingCredentials?.get(site)?.purpose !== 'reset_password') ctx.pendingCredentials?.delete(site);
     ctx.actions.push({ ...action, kind: 'authentication-rejected' });
     // Retire the actual private value too; another click must not resubmit it.
@@ -204,7 +207,8 @@ export async function doRecordAuthenticationResult(ctx: ToolContext, args: Recor
     return ok('Recorded rejected authentication. This sign-in credential will not be reused. Account recovery or a confirmed new credential is required.', 'reobserve');
   }
   if (outcome === 'needs_verification') {
-    const retained = purpose !== 'sign_in' && markPendingVerification(ctx.page.url(), email, ctx.job.company, purpose as CredentialPurpose);
+    const proposal = ctx.pendingCredentials?.get(site);
+    const retained = purpose !== 'sign_in' && markPendingVerification(ctx.page.url(), email, ctx.job.company, purpose as CredentialPurpose, proposal?.purpose === purpose ? proposal : undefined);
     ctx.actions.push({ ...action, kind: 'authentication-prepared' });
     return ok('Recorded pending verification. No account creation, reset or sign-in success was recorded. ' + (retained ? 'The private pending credential metadata is saved for this candidate and employer across future runs; complete actual verification before accepting it or signing in.' : 'No new password proposal was available to save; requesting an email alone does not establish a credential.'), 'reobserve');
   }

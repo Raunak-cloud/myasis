@@ -19,6 +19,8 @@ const pendingFile = () => resolve(config.dataDir, 'pending-site-credentials.json
 // the employer, rather than adopting another tenant's unverified proposal.
 const pendingKey = (url: string, email: string, employer: string, purpose: CredentialPurpose) =>
   JSON.stringify([hostOf(url), email.trim().toLowerCase(), employer.trim().toLowerCase().replace(/\s+/g, ' '), purpose]);
+const matchesProposal = (value: SiteCredential, expected?: SiteCredential) => !expected
+  || JSON.stringify([value.format, value.rules ?? {}]) === JSON.stringify([expected.format, expected.rules ?? {}]);
 
 function readRecords<T>(file: string): Record<string, T> {
   if (!existsSync(file)) return {};
@@ -72,23 +74,23 @@ export function stagePendingCredential(url: string, email: string, employer: str
  });
 }
 
-export function markPendingVerification(url: string, email: string, employer: string, purpose: CredentialPurpose): boolean {
+export function markPendingVerification(url: string, email: string, employer: string, purpose: CredentialPurpose, expected?: SiteCredential): boolean {
  return mutate(() => {
   const file = pendingFile(), all = readRecords<PendingCredential>(file), id = pendingKey(url, email, employer, purpose);
   const value = pendingCredential(url, email, employer, purpose);
   // Requesting a reset email without filling a new password is not a proposal.
-  if (!value) return false;
+  if (!value || !matchesProposal(value, expected)) return false;
   all[id] = { ...value, phase: 'needs_verification', at: new Date().toISOString() };
   writeRecords(file, all); return true;
  });
 }
 
-export function discardPendingCredential(url: string, email: string, employer: string, purpose: CredentialPurpose): void {
+export function discardPendingCredential(url: string, email: string, employer: string, purpose: CredentialPurpose, expected?: SiteCredential): void {
  mutate(() => {
   const file = pendingFile(), all = readRecords<PendingCredential>(file), id = pendingKey(url, email, employer, purpose);
   // A later duplicate-registration rejection cannot erase an earlier
   // registration that is known to be awaiting activation.
-  if (!all[id] || (purpose === 'create_account' && all[id].phase === 'needs_verification')) return;
+  if (!all[id] || !matchesProposal(all[id], expected) || (purpose === 'create_account' && all[id].phase === 'needs_verification')) return;
   delete all[id]; writeRecords(file, all);
  });
 }
@@ -127,7 +129,7 @@ export function acceptPendingCredential(url: string, email: string, employer: st
   return mutate(() => {
     const file = pendingFile(), all = readRecords<PendingCredential>(file), id = pendingKey(url, email, employer, purpose);
     const credential = pendingCredential(url, email, employer, purpose);
-    if (!credential || expected && JSON.stringify([expected.format, expected.rules ?? {}]) !== JSON.stringify([credential.format, credential.rules ?? {}])) return false;
+    if (!credential || !matchesProposal(credential, expected)) return false;
     rememberCredential(url, email, credential);
     delete all[id]; writeRecords(file, all);
     return true;
