@@ -1,0 +1,47 @@
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import {mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createHash} from 'node:crypto';
+import {chromium} from 'patchright';
+import {closeCelerisQueues} from '../../../shared/celeris-queue.mjs';
+
+test('approved letter renders and uploads byte-exact without model transcription or an application send',async()=>{
+ const dir=mkdtempSync(join(tmpdir(),'owtomate-approved-letter-'));
+ const keys=['DATA_DIR','CELERIS_API_KEY','CELERIS_QUEUE_FILE','CELERIS_MIN_INTERVAL_MS','APPLICATION_REVIEW_MODE','APPLICATION_AI_MODEL','APPROVED_APPLICATIONS_JSON','DRY_RUN','ALLOW_EXTERNAL_APPLY'];
+ const prior=keys.map(k=>process.env[k]),originalFetch=globalThis.fetch;
+ const job={id:'canonical-letter-fixture',title:'Fictional Analyst',company:'Example Fixture',location:'Sydney',platform:'indeed' as const,url:'https://letter.fixture.invalid/apply'};
+ const text='Dear team,\n\nExact approved letter: café — SQL; no rewritten punctuation.\n\nRegards,\nAlex Fixture\n';
+ const draft={id:'f67ea042-08f4-4a0a-b511-c0b30a876028',revision:'a'.repeat(64),job,preparedAt:new Date().toISOString(),formUrl:job.url,answers:[],coverLetter:text,resumeId:'cv',resumeHash:createHash('sha256').update('Fictional CV').digest('hex')};
+ Object.assign(process.env,{DATA_DIR:dir,CELERIS_API_KEY:'fixture-only',CELERIS_QUEUE_FILE:join(dir,'queue.sqlite'),CELERIS_MIN_INTERVAL_MS:'0',APPLICATION_REVIEW_MODE:'approved',APPLICATION_AI_MODEL:'celeris',APPROVED_APPLICATIONS_JSON:JSON.stringify([draft]),DRY_RUN:'true',ALLOW_EXTERNAL_APPLY:'true'});
+ mkdirSync(join(dir,'resumes'));writeFileSync(join(dir,'resumes','CV.txt'),'Fictional CV');writeFileSync(join(dir,'resumes.json'),JSON.stringify([{id:'cv',label:'Fixture CV',fileName:'CV.txt'}]));writeFileSync(join(dir,'approved-applications.json'),JSON.stringify([draft]));
+ const {runAgentOnlyApplication}=await import('./agent-only.js');
+ const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
+ try{
+  const page=await browser.newPage();await page.route('**/*',route=>new URL(route.request().url()).hostname.endsWith('.invalid')?route.fulfill({contentType:'text/html',body:'<main><h1>Fictional Analyst</h1><label>Cover letter<input id=letter type=file></label><button id=send onclick="window.sent=true">Submit</button></main>'}):route.abort());await page.goto(job.url);
+  let turn=0;
+  globalThis.fetch=(async(_url,init)=>{
+   const body=JSON.parse(String(init?.body));turn++;
+   assert.ok(body.tools.some((t:any)=>t.function.name==='render_approved_cover_letter'));
+   let call;
+   if(turn===1){
+    const schema=body.tools.find((t:any)=>t.function.name==='render_approved_cover_letter').function.parameters;
+    assert.equal(schema.properties.text,undefined,'the model never has to transcribe the approved text');
+    call={name:'render_approved_cover_letter',arguments:JSON.stringify({name:'Approved letter',format:'txt'})};
+   }else if(turn===2){
+    const rendered=JSON.parse(body.messages.filter((m:any)=>m.role==='tool').at(-1).content);
+    assert.match(rendered.file_id,/^generated:/);
+    call={name:'browser_action',arguments:JSON.stringify({action:'set_input_files',selector:'#letter',file_ids:[rendered.file_id]})};
+   }else{
+    assert.equal(turn,3);
+    const uploaded=await page.locator('#letter').evaluate(async node=>await (node as HTMLInputElement).files![0].text());
+    assert.equal(uploaded,text,'the actual browser receives the exact confirmed text');
+    call={name:'finish',arguments:JSON.stringify({status:'skipped',reason:'Controlled fictional document transport verification complete.',evidence:'The fictional upload contains the exact approved letter.'})};
+   }
+   return Response.json({choices:[{message:{role:'assistant',content:null,tool_calls:[{id:'canonical-'+turn,type:'function',function:call}]}}],usage:{prompt_tokens:50,completion_tokens:10}});
+  }) as typeof fetch;
+  const result=await runAgentOnlyApplication({simulation:'isolated-form',page,job,profile:{name:'Alex Fixture',skills:[]} as never,log:()=>{}});
+  assert.equal(turn,3);assert.equal(result.submitPressed,false);assert.equal(await page.evaluate(()=>(window as any).sent??false),false);
+ }finally{globalThis.fetch=originalFetch;await browser.close();closeCelerisQueues();keys.forEach((k,i)=>prior[i]===undefined?delete process.env[k]:process.env[k]=prior[i]);rmSync(dir,{recursive:true,force:true});}
+});

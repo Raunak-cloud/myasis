@@ -42,6 +42,14 @@ test('the evidence inventory distinguishes readable documents from actual upload
   assert.equal(bundle.letter_pages,1);assert.equal(bundle.resume_pages,1);
   assert.equal((await PDFDocument.load(readFileSync(bundled.resolve(bundle.file_id).path))).getPageCount(),2);
   await assert.rejects(()=>bundled.create('other','Changed content','txt'),/candidate-approved/);
+  const exact='Dear team,\n\nExact confirmed Unicode letter: café — SQL.\n\nKind regards,\nFixture\n';
+  const canonical=new AgentFiles('canonical-letter',{resumeId:'30',resumeHash:hash,coverLetter:exact} as never);
+  const approvedLetter=await canonical.createApprovedLetter('Approved letter','txt');
+  assert.equal(readFileSync(canonical.resolve(approvedLetter.file_id).path,'utf8'),exact,'approved letter bytes, Unicode and trailing newline do not pass through model transcription');
+  const convertedLetter=await canonical.convert(approvedLetter.file_id,'txt');
+  assert.equal(readFileSync(canonical.resolve(convertedLetter.file_id).path,'utf8'),exact,'conversion retains approval provenance');
+  await assert.rejects(()=>canonical.create('Rewritten letter',exact.replace('café','cafe'),'txt'),/candidate-approved/);
+  await assert.rejects(()=>new AgentFiles('no-approved-letter').createApprovedLetter('Letter','txt'),/candidate-approved cover letter/);
   writeFileSync(join(dir,'resumes','CV.txt'),'Changed CV bytes');
   await assert.rejects(()=>bundled.combineApprovedDocuments(),/resume has changed/);
   await assert.rejects(()=>new AgentFiles('missing-approval').combineApprovedDocuments(),/confirmed letter/);

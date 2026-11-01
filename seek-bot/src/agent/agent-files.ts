@@ -74,6 +74,13 @@ export class AgentFiles {
     return this.describe(file);
   }
 
+  /** Render the selected immutable approval directly; the model chooses only
+   * the filename/format, so transcription cannot alter confirmed content. */
+  async createApprovedLetter(name: string, format: DocumentFormat) {
+    if (!this.approved?.coverLetter?.trim()) throw Error('This application has no candidate-approved cover letter. Prepare changed content for candidate confirmation first.');
+    return this.create(name, this.approved.coverLetter, format);
+  }
+
   async convert(id: string, format: DocumentFormat) {
     if (!formats.includes(format)) throw Error('Choose an explicit supported output format.');
     const original = this.resolve(id);
