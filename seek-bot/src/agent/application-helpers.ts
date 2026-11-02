@@ -27,6 +27,12 @@ const allowedTools=new Set(['browser_action','create_file','convert_file']);
 const allowedActions=new Set(['fill','type','click','check','select','press','inspect','script','wait','hover','scroll','set_input_files']);
 const objectSchema={type:'object',additionalProperties:true};
 const inputSchema={type:'object',additionalProperties:false,properties:{type:{type:'string',enum:['object']},properties:objectSchema,required:{type:'array',maxItems:30,items:{type:'string',maxLength:100}},additionalProperties:{type:'boolean',enum:[false]}},required:['properties']};
+/** A complete executable reference teaches the composition contract to the
+ * same small applying models, rather than relying on prose about a new DSL. */
+export const helperRecipeExample={name:'join_document',description:'Create one text document from two supplied text sections separated by a blank line.',
+ parameters:{properties:{first:{type:'string'},second:{type:'string'}},required:['first','second']},
+ steps:[{tool:'create_file',args:{name:'Combined.txt',format:'txt',text:{$concat:[{$input:'first'},'\n\n',{$input:'second'}]}}}],
+ tests:[{html:'<main>Isolated document fixture</main>',input:{first:'Letter',second:'CV'},assertions:[{step:0,path:'name',equals:'Combined.txt'},{step:0,path:'bytes',equals:10}]}]};
 const schemaKeys=new Set(['type','properties','required','additionalProperties','items','enum','minLength','maxLength','minimum','maximum','minItems','maxItems','description']);
 /** Models commonly supply a field dictionary or omit mechanical size bounds.
  * Canonicalize those equivalent forms and impose bounds locally, rather than
@@ -65,7 +71,7 @@ function parameterSchema(schema:unknown,depth=0):void{
   if(s.enum!==undefined&&(!Array.isArray(s.enum)||s.enum.length>50||s.enum.some(v=>v!==null&&!['string','number','boolean'].includes(typeof v))))throw Error('Use small scalar parameter enums.');
 }
 export const helperBuilderTool:ToolSchema={name:'test_application_helper',description:
-  'Build and test a temporary helper for a genuinely missing operation. Compose the advertised browser_action/create_file/convert_file tools; no host code, new account access, auth, recursion or application sends. Templates: {"$input":"field.path"}, {"$result":"0.field.path"}, {"$concat":[...]}, {"$json":template}. Each step resolves fresh and uses the ordinary tool schema. Use synthetic HTML and dummy inputs, never real credentials. Tests run in a separate cookie-free, network-blocked browser and temporary document inventory. Assert real returned readbacks, not success prose. Only passing definitions become callable by the applying agent. A test proves the fixture, not employer acceptance.',
+  'Build and test a temporary helper for a genuinely missing operation. Compose the advertised browser_action/create_file/convert_file tools; no host code, new account access, auth, recursion or application sends. Templates: {"$input":"field.path"}, {"$result":"0.field.path"}, {"$concat":[...]}, {"$json":template}. Literal text is a normal JSON string, without a $literal wrapper. Each step has tool and args. Test the actual returned object: create_file returns file_id/name/bytes/format; inspecting one input returns value directly. Tests use only dummy inputs in a separate cookie-free, network-blocked browser and temporary document inventory. Only passing definitions become callable. A test proves the fixture, not employer acceptance. Complete working example (adapt this exact structure): '+JSON.stringify(helperRecipeExample),
   parameters:{type:'object',additionalProperties:false,properties:{
     name:{type:'string',pattern:'^[a-z][a-z0-9_]{1,38}$'},description:{type:'string',minLength:10,maxLength:1200},parameters:{...inputSchema,description:'Input schema example: {"properties":{"letter":{"type":"string"},"resume":{"type":"string"}},"required":["letter","resume"]}. Object type and closed properties are applied automatically. String maxLength defaults to 40000, array maxItems to 32; smaller bounds are welcome. Only typed properties, required, enums and scalar size/range constraints. No patterns or refs.'},
     steps:{type:'array',minItems:1,maxItems:12,items:{type:'object',additionalProperties:false,properties:{tool:{type:'string',enum:[...allowedTools]},args:objectSchema},required:['tool','args']}},
@@ -91,9 +97,9 @@ function expand(value:unknown,input:ObjectValue,results:unknown[],depth=0):unkno
     if(keys.length===1&&keys[0]==='$result'&&typeof obj.$result==='string')return structuredClone(at(results,obj.$result));
     if(keys.length===1&&keys[0]==='$json')return JSON.stringify(expand(obj.$json,input,results,depth+1));
     if(keys.length===1&&keys[0]==='$concat'&&Array.isArray(obj.$concat)){
-      let text='';for(const item of obj.$concat){const part=expand(item,input,results,depth+1);if(!['string','number','boolean'].includes(typeof part))throw Error('Concat needs scalar values; use $json for structured script arguments.');if(text.length+String(part).length>64000)throw Error('Expanded helper text is too large.');text+=String(part);}return text;
+      let text='';for(const item of obj.$concat){const part=expand(item,input,results,depth+1);if(!['string','number','boolean'].includes(typeof part))throw Error(`Concat parts must resolve to text/number/boolean; received ${part===null?'null':typeof part} with keys ${JSON.stringify(part&&typeof part==='object'?Object.keys(part):[])}. Literal text is a normal string; named input is {"$input":"first"}. Use $json only to encode a structured script argument.`);if(text.length+String(part).length>64000)throw Error('Expanded helper text is too large.');text+=String(part);}return text;
     }
-    if(keys.some(key=>key.startsWith('$')))throw Error('Unsupported helper template expression.');
+    if(keys.some(key=>key.startsWith('$')))throw Error(`Unsupported helper template keys ${JSON.stringify(keys)}. Use only $input, $result, $concat, $json as in the complete example; literal text needs no wrapper.`);
     return Object.fromEntries(keys.map(key=>[key,expand(obj[key],input,results,depth+1)]));
   }
   return value;

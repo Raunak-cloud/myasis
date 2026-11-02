@@ -4,7 +4,7 @@ import {mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {chromium} from 'patchright';
-import {ApplicationHelpers,type HelperDefinition} from './application-helpers.js';
+import {ApplicationHelpers,helperRecipeExample,type HelperDefinition} from './application-helpers.js';
 import {createReadinessFixtureReply} from './readiness-fixture.js';
 import {ok} from './context.js';
 
@@ -43,6 +43,11 @@ test('specialist shorthand inputs become bounded closed schemas without extra mo
  const input=(schema.properties as any).input;
  assert.equal(input.type,'object');assert.equal(input.additionalProperties,false);assert.equal(input.properties.value.maxLength,40000);
  assert.equal(published.status,'fixture-tested');
+});
+
+test('the advertised complete recipe actually renders its asserted document bytes',async()=>{
+ const helpers=new ApplicationHelpers(agentOnlyTools);
+ assert.equal((await helpers.test(helperRecipeExample)).status,'fixture-tested');
 });
 
 test('a document helper creates and attaches a real combined document in an isolated inventory',async()=>{
@@ -111,4 +116,3 @@ test('the specialist tests and hands a named helper to MiniMax; the applier uses
   assert.equal(await page.evaluate('window.edits',undefined,undefined,false),1,'testing never duplicated a live input event');
  }finally{globalThis.fetch=fetchBefore;await browser.close();}
 });
-
