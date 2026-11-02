@@ -1044,3 +1044,22 @@ CREATE TABLE IF NOT EXISTS application_review_operator_holds (
     OR (released_at IS NOT NULL AND released_by_user_id IS NOT NULL AND resolution_evidence IS NOT NULL AND length(btrim(resolution_evidence)) BETWEEN 1 AND 2000))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS application_review_one_active_hold_idx ON application_review_operator_holds(user_id,job_key) WHERE released_at IS NULL;
+
+-- Attributed operator corrections are separate from candidate answers and
+-- immutable source traces. Application code only appends this audit ledger;
+-- correcting content never releases its safety hold or grants confirmation.
+CREATE TABLE IF NOT EXISTS application_review_operator_answer_revisions (
+  id UUID PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  hold_id UUID NOT NULL REFERENCES application_review_operator_holds(id),
+  draft_id UUID NOT NULL,
+  actor_user_id BIGINT NOT NULL REFERENCES users(id),
+  source_run_id BIGINT NOT NULL REFERENCES run_starts(id),
+  original_revision TEXT NOT NULL CHECK (original_revision ~ '^[a-f0-9]{64}$'),
+  previous_revision TEXT NOT NULL CHECK (previous_revision ~ '^[a-f0-9]{64}$'),
+  current_revision TEXT NOT NULL CHECK (current_revision ~ '^[a-f0-9]{64}$' AND current_revision <> previous_revision),
+  source_trace_sha256 TEXT NOT NULL CHECK (source_trace_sha256 ~ '^[a-f0-9]{64}$'),
+  plan JSONB NOT NULL CHECK (jsonb_typeof(plan) = 'object'),
+  corrected_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE(user_id,hold_id,previous_revision)
+);
