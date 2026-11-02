@@ -9,11 +9,12 @@ const directory = mkdtempSync(join(tmpdir(), 'owtomate-verification-fixture-'));
 Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', COST_TRACKING: 'false' });
 const { findVerificationInGmail, verificationMessage } = await import('./gmail-mailbox.js');
 let messages: GmailMessage[] = [], reads = 0, blocked: Promise<void> | undefined;
+let blockedRead: Promise<void> | undefined, emptySearch = false;
 let beforeThread: (() => void) | undefined;
 const queries: string[] = [];
 const service = new GmailMcpService({
-  search: async (_owner, query) => { queries.push(query); if (blocked) await blocked; return [{ id: 'fixture-thread' }]; },
-  thread: async () => { reads++; beforeThread?.(); return messages; },
+  search: async (_owner, query) => { queries.push(query); if (blocked) await blocked; return emptySearch ? [] : [{ id: 'fixture-thread' }]; },
+  thread: async () => { reads++; beforeThread?.(); if (blockedRead) await blockedRead; return messages; },
   send: async () => { throw new Error('This fixture never sends email'); },
 });
 const grant = await service.grant('fixture-owner', 'candidate@fixture.invalid');
@@ -70,8 +71,33 @@ try {
     messages = [message('expired-in-transit', 14 * 60_000, '111222')];
     beforeThread = () => { logicalNow += 2 * 60_000; beforeThread = undefined; };
     const expiredInTransit = await findVerificationInGmail({ hint: 'Fixture', want: 'code', timeoutMs: 2000 });
-    assert.ok('error' in expiredInTransit && /within the wait/.test(expiredInTransit.error), 'a message that ages past fifteen minutes while the mailbox responds is rejected against the current clock');
+    assert.ok('error' in expiredInTransit && 'reason' in expiredInTransit && expiredInTransit.reason === 'request-timeout', 'a response that returns after its lookup budget expires cannot yield an aged code or a claim that no email arrived');
   } finally { Date.now = realNow; beforeThread = undefined; }
+
+  const diagnostics: string[] = [];
+  emptySearch = true;
+  const empty = await findVerificationInGmail({ hint: 'Fixture', purpose: 'reset_password', want: 'link', timeoutMs: 150, log: message => diagnostics.push(message) });
+  assert.ok('reason' in empty && empty.reason === 'not-found', 'completed empty searches may establish no match within the wait');
+  assert.ok(diagnostics.some(line => /"operation":"search","phase":"completed"/.test(line) && /"threadCount":0/.test(line)));
+  emptySearch = false; diagnostics.length = 0;
+  blocked = new Promise<void>(done => { release = done; });
+  const slowSearch = await findVerificationInGmail({ hint: 'Fixture', purpose: 'reset_password', want: 'link', timeoutMs: 150, log: message => diagnostics.push(message) });
+  assert.ok('reason' in slowSearch && slowSearch.reason === 'request-timeout', 'an interrupted search cannot establish a missing email');
+  assert.match(slowSearch.error!, /mailbox request timed out while searching/);
+  assert.doesNotMatch(slowSearch.error!, /No matching verification email arrived/);
+  assert.ok(diagnostics.some(line => /"classification":"request-timeout"/.test(line) && /"completedSearches":0/.test(line)));
+  release?.(); blocked = undefined; diagnostics.length = 0;
+  blockedRead = new Promise<void>(done => { release = done; });
+  const slowRead = await findVerificationInGmail({ hint: 'Fixture', purpose: 'reset_password', want: 'link', timeoutMs: 150, log: message => diagnostics.push(message) });
+  assert.ok('reason' in slowRead && slowRead.reason === 'request-timeout', 'finding a thread without finishing its read cannot establish no matching email');
+  assert.match(slowRead.error!, /mailbox request timed out while reading/);
+  assert.ok(diagnostics.some(line => /"classification":"request-timeout"/.test(line) && /"completedSearches":1/.test(line) && /"completedReads":0/.test(line)));
+  release?.(); blockedRead = undefined; diagnostics.length = 0;
+  messages = [{ id: 'private-thread-marker', subject: 'Fixture verification private-subject-marker', sender: 'private-sender@fixture.invalid', date: new Date().toISOString(), plaintextBody: 'Your security code is 729184. private-body-marker https://fixture.invalid/private-token-marker' }];
+  const loggedMatch = await findVerificationInGmail({ hint: 'Fixture', purpose: 'sign_in', want: 'code', timeoutMs: 2000, log: message => diagnostics.push(message) });
+  assert.ok(!('error' in loggedMatch));
+  assert.doesNotMatch(diagnostics.join('\n'), /private-|729184|https?:|@|Fixture/, 'run-scoped diagnostics must not reveal mail identifiers, content, sender, URL, code or query');
+  assert.ok(diagnostics.some(line => /"classification":"matched"/.test(line) && /"completedReads":1/.test(line)));
   const before = reads;
   const cancelled = await findVerificationInGmail({ hint: 'Fixture', signal: AbortSignal.abort() });
   assert.ok('error' in cancelled && /cancelled/.test(cancelled.error));
@@ -85,7 +111,7 @@ try {
   release?.(); blocked = undefined;
   const duplicateLink = verificationMessage({ id: 'link', htmlBody: '<a href="https://fixture.invalid/verify?token=example">Verify account</a><a href="https://fixture.invalid/verify?token=example">Verify account</a>' }, 0);
   assert.equal(duplicateLink.links.length, 1, 'repeated buttons for one verification URL are not ambiguous targets');
-  console.log('PASS: real loopback MCP freshness, cached valid codes, request lower bounds, stale-code rejection, timeout, in-flight abort and duplicate verification links; no live mailbox.');
+  console.log('PASS: real loopback MCP freshness, Spam, empty polls vs interrupted search/read, private diagnostics, request lower bounds, stale-code rejection, in-flight abort and duplicate verification links; no live mailbox.');
 } finally {
   release?.(); grant.revoke(); await service.close(); rmSync(directory, { recursive: true, force: true });
 }
