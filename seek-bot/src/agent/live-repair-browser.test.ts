@@ -66,7 +66,8 @@ try {
   globalThis.fetch=(async(_url,init)=>{
     const body=JSON.parse(String(init?.body)),forced=body.tool_choice?.function?.name;
     if(!concurrencyChecked){concurrencyChecked=true;await assert.rejects(runAgentOnlyApplication(options),/active writer/);}
-    if(String(body.messages?.[0]?.content).includes('read-only application specialist')) {
+    if(body.tools?.some((tool:any)=>tool.function.name==='test_application_helper')
+      || String(body.messages?.[0]?.content).includes('read-only application specialist')) {
       specialistCalls++;
       if(resumed){assert.match(JSON.stringify(body.messages),/Letter.txt/,'specialist receives actual attachment readback retained across repair');assert.ok(JSON.stringify(body.messages).includes(recordId));}
       return Response.json({usage:{prompt_tokens:100,completion_tokens:10},choices:[{message:{role:'assistant',content:JSON.stringify({advice:'Retain completed work and continue the controlled fixture.',evidence:[{source:'parent-history',detail:'Malformed fixture calls were rejected.'}],unknowns:[],nextSteps:['Use the next supported scripted operation and verify current content.']})}}]});
