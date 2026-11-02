@@ -728,7 +728,7 @@ export function RunPanel({
               <option value="celeris">Celeris Magnus</option>
               <option value="minimax">MiniMax M3.1</option>
             </select>
-            <p className="job-meta">{modelSaving ? 'Saving…' : 'Saved for your next run.'}</p>
+            <p className="job-meta">{modelSaving ? 'Saving…' : val('APPLICATION_AI_MODEL') === 'minimax' ? 'DOM first · screenshots when needed. Saved for your next run.' : 'Saved for your next run.'}</p>
             {modelError && <p role="alert">{modelError}</p>}
           </div>}
           <p className="job-meta">{applicationMode === 'auto' ? 'Owtomate finds suitable jobs, fills their forms and submits applications.' : 'Owtomate curates jobs and fills their forms. You choose which prepared applications to confirm.'} {adminMode ? 'Start a single run now.' : 'Press Start to enable scheduled runs. Pause anytime to stop the current run and all future runs.'}</p>

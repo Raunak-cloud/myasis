@@ -29,7 +29,7 @@ export function applyJobSourceAccess(settings: Record<string, string>, targetIsA
   for (const key of RETIRED_SOURCE_SETTING_KEYS) delete settings[key];
   settings.APPLICATION_AI_MODEL = applicationModelForAccount(settings.APPLICATION_AI_MODEL, targetIsAdmin);
   settings.APPLICATION_AGENT_MODE = applicationAgentModeForAccount(settings.APPLICATION_AGENT_MODE, targetIsAdmin);
-  settings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN = applicationScreenshotsForAccount(settings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, targetIsAdmin);
+  settings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN = applicationScreenshotsForAccount(settings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, targetIsAdmin, settings.APPLICATION_AI_MODEL);
   // Authorization is supplied only by accountApplicationEnvironment after rechecking ownership.
   delete settings.APPLICATION_AGENT_MODE_AUTHORIZED;
   const allowed: string[] = ['seek', 'indeed', ...(employerSources ? EMPLOYER_SOURCES.map(source => source.id) : [])];

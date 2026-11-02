@@ -33,6 +33,8 @@ test('MiniMax credentials are added only after rechecking the admin owner and se
     const settings = { APPLICATION_AI_MODEL: 'minimax', OPENROUTER_API_KEY: 'forged-client-key' };
     const [admin, customer] = await Promise.all(['admin', 'customer'].map(id => accountApplicationEnvironment(id, settings)));
     assert.equal(admin.APPLICATION_AI_MODEL, 'minimax');
+    assert.equal(admin.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'false');
+    assert.equal(customer.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'true');
     assert.equal(admin.OPENROUTER_API_KEY, 'fictional-openrouter');
     assert.equal(admin.CELERIS_API_KEY, '', 'the unselected provider cannot be restored by dotenv');
     assert.equal(customer.APPLICATION_AI_MODEL, 'celeris');

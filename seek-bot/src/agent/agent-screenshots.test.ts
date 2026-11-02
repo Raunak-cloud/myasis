@@ -23,8 +23,9 @@ const html = `<style>body{font:18px Arial;margin:25px}label{display:block;margin
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 const originalFetch = globalThis.fetch;
 try {
-  for (const setting of [undefined, false, true]) {
-    const enabled = setting !== false;
+  for (const setting of [undefined, false, true, 'minimax']) {
+    const minimax = setting === 'minimax';
+    const enabled = setting !== false && !minimax;
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     await context.route('**/*', route => new URL(route.request().url()).hostname.endsWith('.invalid')
       ? route.fulfill({ contentType: 'text/html', body: html }) : route.abort());
@@ -42,7 +43,7 @@ try {
       const allImages = body.messages.flatMap((message: { content: unknown }) => Array.isArray(message.content)
         ? message.content.filter((part: { type: string }) => part.type === 'image_url') : []);
       imagesSeen.push(allImages.length);
-      assert.equal(allImages.length, enabled ? 1 : 0, 'only the current image goes to each decision; off remains on-demand');
+      assert.equal(allImages.length, minimax ? ([2, 3].includes(turn) ? 1 : 0) : enabled ? 1 : 0, 'DOM-only turns remove old images; explicit requests and execution errors get one fresh image');
       if (enabled) {
         assert.ok(latest.content.some((part: { type: string }) => part.type === 'image_url'));
         assert.match(allImages[0].image_url.url, /^data:image\/jpeg;base64,/);
@@ -51,7 +52,10 @@ try {
       }
       const observation = JSON.stringify(latest.content);
       let calls;
-      switch (turn++) {
+      const actualTurn = turn++;
+      if (minimax && actualTurn === 1) calls = [{ name: 'take_snapshot', args: { screenshot: true } }];
+      else if (minimax && actualTurn === 2) calls = [{ name: 'browser_action', args: { action: 'script', script: 'throw new Error("fixture visual recovery")' } }];
+      else switch (minimax && actualTurn >= 3 ? actualTurn - 2 : actualTurn) {
         case 0:
           calls = [{ name: 'browser_batch', args: { actions: [
             { action: 'fill', locator: { by: 'label', value: 'Full name' }, value: 'Alex Fixture' },
@@ -89,23 +93,25 @@ try {
     }) as typeof fetch;
     const env = { ...process.env };
     delete env.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN;
-    if (setting !== undefined) env.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN = String(setting);
+    env.APPLICATION_AI_MODEL = minimax ? 'minimax' : 'celeris';
+    env.OPENROUTER_API_KEY = 'fixture-only';
+    if (setting !== undefined) env.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN = minimax ? 'true' : String(setting);
     const result = await withApplicationModel(env,
       () => runApplicationAgent({ page, simulation: 'isolated-form',
         job: { id: `screenshot-test-${enabled}`, title: 'Fictional application', company: 'Fixture Employer', location: 'Sydney', platform: 'seek', url, source: 'chosen', applicationMode: 'external' } as JobListing,
         profile: { name: 'Alex Fixture', email: 'alex@example.invalid', phone: '0400000000', workRights: 'Citizen', workRightsCountry: 'Australia', skills: [] } as unknown as CandidateProfile,
         log: () => {} }));
     assert.equal(result.outcome.status, 'rehearsed');
-    assert.equal(turn, 5);
+    assert.equal(turn, minimax ? 7 : 5);
     assert.equal(await page.evaluate('window.sends', undefined, undefined, false), 1);
     const saved = JSON.parse(readFileSync(join(directory, 'traces', `screenshot-test-${enabled}.json`), 'utf8'));
-    assert.equal(saved.steps.length, 7, 'five original decisions plus the same-agent review and newly chosen send');
+    assert.equal(saved.steps.length, minimax ? 9 : 7, 'decisions plus the same-agent review and newly chosen send');
     for (const step of saved.steps) {
       if (enabled) assert.match(step.screenshot, /^data:image\/jpeg;base64,/, 'every saved decision has its capture');
-      else assert.equal(step.screenshot, undefined, 'opt-out history does not invent screenshots');
+      else if (!minimax) assert.equal(step.screenshot, undefined, 'opt-out history does not invent screenshots');
     }
     if (enabled) assert.notEqual(saved.steps.at(-1).screenshot, saved.steps[0].screenshot, 'receipt history uses a fresh image, not the opening page');
-    console.log(JSON.stringify({ mode: setting === undefined ? 'default-on' : enabled ? 'every-turn' : 'on-demand', turns: turn, imagesPerRequest: imagesSeen, isolatedApplication: 'passed' }));
+    console.log(JSON.stringify({ mode: minimax ? 'minimax-dom-first' : setting === undefined ? 'default-on' : enabled ? 'every-turn' : 'on-demand', turns: turn, imagesPerRequest: imagesSeen, isolatedApplication: 'passed' }));
     await context.close();
   }
 } finally {

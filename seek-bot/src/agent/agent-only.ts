@@ -35,7 +35,7 @@ import { repairSourceSite, repairSourceSites } from '../repair-pilot.js';
 import { liveRepairEnabled, liveRepairIncident, liveRepairContinuationAllowed, type RepairContinuation } from './live-repair.js';
 import { traceProvesNoSend } from '../repair-safety.js';
 import { observationMessage } from './loop/transcript.js';
-import { looksUnrendered, observe, waitForApplicationSurface } from './observe.js';
+import { addObservationScreenshot, looksUnrendered, observe, waitForApplicationSurface } from './observe.js';
 import { locate } from './browser-target.js';
 import { browserTarget, browserTargetProperties, hasBrowserTarget, coordinateTarget, BrowserTargetInputError } from './browser-target.js';
 import { toolInputIssue } from './tool-input.js';
@@ -210,8 +210,10 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
   };
   const meter = options.continuation?.meter ?? new ProgressBudget(config.celeris.budgetUsdPerApplication, config.celeris.progressBudgetUsdPerApplication);
   const log = options.log ?? console.log;
-  const screenshotsEveryTurn = applicationModelEnvironment().APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN !== 'false';
+  const domFirst = applicationAgentIdentity().selection === 'minimax';
+  const screenshotsEveryTurn = !domFirst && applicationModelEnvironment().APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN !== 'false';
   if (screenshotsEveryTurn) log('Application screenshots: fresh screenshot each decision turn; only the latest image is sent.');
+  else if (domFirst) log('MiniMax observation: DOM/HTML first; fresh screenshots only for recovery or explicit requests.');
   const approved = approvedApplication(options.job);
   const files = new AgentFiles(options.job.id, approved);
   if(options.continuation) files.restore(options.continuation.files);
@@ -249,6 +251,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
   let steps = 0;
   let highEffort = false;
   let screenshot = false;
+  let visualIssue = false;
   let lastNote = 'Read the current page, then complete the application.';
   let terminal: AgentTermination = { status: 'skipped', reason: 'The application spending allowance ended before the agent finished.' };
   let finished = false;
@@ -816,7 +819,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         }
         ctx.observation = pendingDialog ? { url: ctx.page.url(), title: ctx.observation.title,
           actions: [], fields: [], text: `Native browser ${pendingDialog.type()} dialog blocks the page: ${pendingDialog.message()}` }
-          : await observe(ctx.page, { screenshot: screenshotsEveryTurn || screenshot });
+          : await observe(ctx.page, { screenshot: screenshotsEveryTurn || screenshot || domFirst && visualIssue });
       } catch (error) {
         if (!(error instanceof BrowserOperationTimeout)) throw error;
         recordDiagnostic({ severity: 'warning', category: 'observation_error', stage: 'observation',tool:'take_snapshot',failureKind:'execution', message: error.message, error });
@@ -829,7 +832,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         || !ctx.observation.fields.length && /\b(?:loading|please wait)\b/i.test(ctx.observation.text))) {
         waitedForSurface.add(ctx.observation.url);
         const ready = await waitForApplicationSurface(ctx.page, 15_000);
-        ctx.observation = await observe(ctx.page, { screenshot: screenshotsEveryTurn || screenshot });
+        ctx.observation = await observe(ctx.page, { screenshot: screenshotsEveryTurn || screenshot || domFirst && (visualIssue || !ready) });
         if (!ready) lastNote += ' Waited for the application surface; it has not rendered yet. Inspect loading/blocking evidence instead of repeatedly requesting the same snapshot.';
       }
       if (!pendingDialog && !ctx.observation.inspectionError && isExternal(ctx.page.url())) await recordFormPage(ctx.page, ctx.observation);
@@ -841,6 +844,11 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         browserMutated = false;
       }
       if (!ctx.observation.inspectionError) recovery.observe(ctx.observation);
+      // Visual recovery supplements fresh DOM evidence, without another DOM read.
+      // The agent still chooses every field, action and repair.
+      if (domFirst && !pendingDialog && !ctx.observation.screenshot && (recovery.needsDeepReasoning || ctx.observation.inspectionError)) {
+        await addObservationScreenshot(ctx.page, ctx.observation);
+      }
       if (!pendingDialog && !ctx.observation.inspectionError) readiness.observe(ctx.observation, 'wizard');
       if (!pendingDialog && !meter.finalizing && meter.needsReview) recovery.requestBudgetReview();
       const turn = turnCoordinator.next({ actionExhausted: meter.actionExhausted || meter.finalizing,
@@ -878,6 +886,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         }
       }
       screenshot = false;
+      visualIssue = false;
       const pages = ctx.page.context().pages().map((page, index) => ({ index, url: page.url(), current: page === ctx.page }));
       const dialog = dialogs.get(ctx.page);
       const draft = { answers: [...new Map(ctx.captured.map(item => [item.question, item])).values()], resume: ctx.resumeName,
@@ -917,7 +926,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
       const reasoningEffort = !turn.completing && (highEffort || !checkpoint && recovery.needsDeepReasoning || readiness.needsDeepReasoning) ? 'high' : 'medium';
       const maxTokens = reasoningEffort === 'high' && applicationAgentIdentity().selection === 'celeris' ? 16_384 : 8192;
       const compact = (force = false) => {
-        const current = screenshotsEveryTurn ? latestObservationScreenshotOnly(messages) : messages;
+        const current = screenshotsEveryTurn || domFirst ? latestObservationScreenshotOnly(messages) : messages;
         const relevant = checkpoint === applicationReviewTool.name || recordOnly ? generationRecoveryTranscript(current) : current;
         const transcript = agentOnlyTranscript(relevant, contextLimit, force);
         if (transcript !== messages) messages.splice(0, messages.length, ...transcript);
@@ -1045,6 +1054,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         if (!checkpoint && !readiness.requested) recovery.acted(call.name, failedToolResult(result), call.args);
         if (result.kind === 'terminal') { terminal = result.outcome; finished = true; interrupted = true; }
         else if (failedToolResult(result)) {
+          if (result.disposition === 'failed') visualIssue = true;
           recovery.failed(call.name, call.args, ctx.page.url(), result.message);
           interrupted = true; lastNote = 'The last action failed. Inspect the current evidence, then recover or request deeper reasoning if medium cannot resolve the problem.';
           pauseForRepair();

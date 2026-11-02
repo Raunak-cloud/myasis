@@ -9,6 +9,16 @@ import { startRun } from './start-run.js';
 
 after(async () => { await getPool().end(); });
 
+test('MiniMax uses DOM first even with a legacy every-turn screenshot setting', () => {
+  assert.equal(applicationScreenshotsForAccount('true', true, 'minimax'), 'false');
+  const settings = { APPLICATION_AI_MODEL: 'minimax', APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'true' };
+  applyJobSourceAccess(settings, true);
+  assert.equal(settings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'false');
+  applyJobSourceAccess(settings, false);
+  assert.equal(settings.APPLICATION_AI_MODEL, 'celeris');
+  assert.equal(settings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'true');
+});
+
 test('screenshots default on for every account; only admins can opt out', () => {
   const key = 'APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN';
   for (const value of ['true', 'false']) {

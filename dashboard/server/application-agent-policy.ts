@@ -16,7 +16,8 @@ export function applicationAgentModeForAccount(_value: unknown, _admin: boolean)
   return 'agent-only';
 }
 
-/** Every account gets screenshots; only admins may explicitly opt out for testing. */
-export function applicationScreenshotsForAccount(value: unknown, admin: boolean): 'true' | 'false' {
+/** MiniMax uses DOM first; Celeris retains its default visual observation. */
+export function applicationScreenshotsForAccount(value: unknown, admin: boolean, model = 'celeris'): 'true' | 'false' {
+  if (model === 'minimax') return 'false';
   return admin && value === 'false' ? 'false' : 'true';
 }

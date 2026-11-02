@@ -572,17 +572,20 @@ async function observeOnce(page: Page, options: ObserveOptions): Promise<Observa
   };
 
   const safeObservation = redactPrivateAuthenticationData(observation, await privateAuthenticationValues(page));
-  if (options.screenshot) {
-    const shot = await withMarks(page, () =>
-      captureViewport(page).catch(error => {
-        recordDiagnostic({ severity: 'warning', category: 'screenshot_error', stage: 'observation', message: 'Application screenshot failed.', error });
-        return null;
-      }),
-    );
-    if (shot) safeObservation.screenshot = `data:image/jpeg;base64,${shot.toString('base64')}`;
-  }
+  if (options.screenshot) await addObservationScreenshot(page, safeObservation);
 
   return safeObservation;
+}
+
+/** Add visual evidence without repeating DOM inspection; private inputs remain masked. */
+export async function addObservationScreenshot(page: Page, observation: Observation): Promise<void> {
+  const shot = await withMarks(page, () =>
+    captureViewport(page).catch(error => {
+      recordDiagnostic({ severity: 'warning', category: 'screenshot_error', stage: 'observation', message: 'Application screenshot failed.', error });
+      return null;
+    }),
+  );
+  if (shot) observation.screenshot = `data:image/jpeg;base64,${shot.toString('base64')}`;
 }
 
 /**

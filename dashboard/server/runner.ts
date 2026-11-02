@@ -58,7 +58,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
     .flatMap(key => serverEnv[key]?.trim() ? [[key, serverEnv[key]!]] : []));
   return { ...queuePolicy, DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
     APPLICATION_AGENT_MODE: agentMode,
-    APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: applicationScreenshotsForAccount(selectedSettings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, admin),
+    APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: applicationScreenshotsForAccount(selectedSettings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, admin, selected),
     CELERIS_API_KEY: selected === 'celeris' ? serverEnv.CELERIS_API_KEY! : '',
     // Explicitly blank the unselected credential: the worker loads .env with
     // dotenv, which otherwise restores a key omitted from its inherited env.
