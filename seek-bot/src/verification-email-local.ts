@@ -135,7 +135,11 @@ export function isRequestedVerificationEmail(email: LocalVerificationEmail, ask:
   if (ask.purpose && ask.purpose !== 'reset_password' && resetMail) return false;
   if (ask.purpose === 'sign_in' && activationMail) return false;
   if (ask.purpose === 'reset_password' && !resetMail) return false;
-  return /verif|pass[ -]?code|one.time|security code|sign[ .-]?in|log[ .-]?in|\bOTP\b|authentication|access code|activat|confirm|reset.*password/i.test(content);
+  // Purpose recognition is authoritative for authentication language too.
+  // Requiring a second, differently worded reset regex here rejects genuine
+  // "Password Reset" messages despite recognizing their requested purpose.
+  return resetMail || activationMail || signInPurpose(email.subject)
+    || /verif|pass[ -]?code|one.time|security code|sign[ .-]?in|log[ .-]?in|\bOTP\b|authentication|access code|activat|confirm/i.test(content);
 }
 
 /** Parse untrusted mailbox text as data. No prompts or mailbox bodies go to an AI service. */

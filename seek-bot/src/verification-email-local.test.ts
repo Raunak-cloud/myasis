@@ -162,6 +162,25 @@ test('password recovery cannot consume an activation or sign-in message from the
   assert.equal(read([code('Fixture: account verification', '111222'), code('Fixture: reset your password', '482913')], { ...ask, want: 'code' as const })?.value, '482913');
 });
 
+test('recognized password-reset purpose is not contradicted by a second language filter', () => {
+  const email = { position: 0, sender: 'noreply@fixture.invalid', subject: 'Password Reset',
+    text: 'A request was received for your account. Follow the link below.',
+    links: [{ text: 'Click here', url: 'https://fixture.invalid/career?career_ns=reset_password' }] };
+  const ask = { hint: 'Fixture', site: 'fixture.invalid', purpose: 'reset_password' as const, want: 'link' as const };
+  assert.equal(isRequestedVerificationEmail(email, ask), true);
+  assert.equal(read([email], ask)?.value, email.links[0].url);
+  for (const subject of ['Reset Password', 'Password Recovery', 'Recover your password', 'Forgotten password']) {
+    assert.equal(read([{ ...email, subject }], ask)?.value, email.links[0].url, subject);
+  }
+  for (const purpose of ['account_verification', 'sign_in'] as const) {
+    assert.equal(isRequestedVerificationEmail(email, { ...ask, purpose }), false);
+    assert.equal(read([email], { ...ask, purpose }), null);
+  }
+  const other = { ...email, sender: 'noreply@other.invalid', links: [{ ...email.links[0], url: 'https://other.invalid/career?career_ns=reset_password' }] };
+  assert.equal(isRequestedVerificationEmail(other, ask), false, 'recognized reset language cannot establish employer identity');
+  assert.equal(read([other], ask), null);
+});
+
 test('supplemental shared-host names cannot establish the employer for activation or recovery', () => {
   const other = { position: 0, sender: 'Other Employer <noreply@successfactors.com>', subject: 'Other Employer account activation',
     text: 'Activate your Other Employer account.', links: [{ text: 'Activate account', url: 'https://career10.successfactors.com/activate?company=OtherEmployer' }] };
