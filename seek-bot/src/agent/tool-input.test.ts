@@ -5,6 +5,13 @@ import { browserCommandContract } from './browser-command-schema.js';
 import { browserTargetProperties,hasBrowserTarget } from './browser-target.js';
 import {recoveryTools} from './recovery-checkpoint.js';
 
+test('explicit open payloads stay open while ordinary tool contracts stay closed and null stays typed',()=>{
+ assert.equal(validToolInput({definition:{arbitrary:'data'}},{type:'object',properties:{definition:{type:'object',additionalProperties:true}}}),true);
+ assert.equal(validToolInput({arbitrary:'data'},{type:'object'}),false);
+ assert.equal(validToolInput(null,{type:'null'}),true);
+ assert.equal(validToolInput('not null',{type:'null'}),false);
+});
+
 test('confirmation-mode send intent is enforced by the same advertised command schema before any batch work',()=>{
  const command={type:'object',properties:{action:{type:'string'},sends_application:{type:'boolean'}},...browserCommandContract(['fill','click','press'],true)};
  for(const action of ['click','press']){

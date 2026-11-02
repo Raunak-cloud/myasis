@@ -1,0 +1,58 @@
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join,resolve,sep} from 'node:path';
+import {chromium} from 'patchright';
+import {withApplicationModel} from '../application-model.js';
+import type {CandidateProfile} from '../types.js';
+import type {ToolContext} from './context.js';
+import {doCompleteAuthentication,doRecordAuthenticationResult} from './authentication.js';
+import {pendingCredential,storedCredential} from '../site-credentials.js';
+import {observe} from './observe.js';
+
+test('local registration preparation does not invent an employer activation request',async()=>{
+ const directory=mkdtempSync(join(tmpdir(),'owtomate-pending-feedback-'));
+ const previousSecret=process.env.SITE_AUTH_SECRET;
+ process.env.SITE_AUTH_SECRET='fictional-auth-feedback-only';
+ const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
+ const page=await browser.newPage(),profile={name:'Fixture Candidate',email:'candidate@fixture.invalid',phone:'0400000000'} as CandidateProfile;
+ const form='<main><label>Email<input id=email type=email></label><label>Password<input id=password type=password></label><button>Create Account</button></main>';
+ await page.route('**/*',route=>new URL(route.request().url()).hostname.endsWith('.invalid')?route.fulfill({contentType:'text/html',body:form}):route.abort());
+ try {await withApplicationModel({DATA_DIR:directory},async()=>{
+  await page.goto('https://pending.fixture.invalid/account');
+  const context=async()=>({page,profile,job:{id:'pending-feedback',title:'Fixture',company:'Fixture'},observation:await observe(page),actions:[],captured:[],log:()=>{}} as unknown as ToolContext);
+  const inputs={targets:[{selector:'#email'},{selector:'#password'}]},creator=await context();
+  await doCompleteAuthentication(creator,{purpose:'create_account',...inputs});
+  const proposed=await page.locator('#password').inputValue();assert.ok(proposed);
+  assert.equal(pendingCredential(page.url(),profile.email,'Fixture','create_account')?.phase,'prepared');
+  await page.setContent(form);
+  const prepared=await doCompleteAuthentication(await context(),{purpose:'sign_in',...inputs});
+  assert.equal(prepared.kind,'ok');
+  if(prepared.kind!=='ok')throw Error('Expected feedback');
+  assert.match(prepared.message,/Only a prepared registration draft/);
+  assert.match(prepared.message,/does not prove an account exists/);
+  assert.match(prepared.message,/Do not wait for mail merely because this local draft exists/);
+  assert.doesNotMatch(prepared.message,/Resume the employer activation flow/);
+  assert.equal(await page.locator('#password').inputValue(),'');
+  assert.equal(storedCredential(page.url(),profile.email),null);
+  assert.equal(pendingCredential(page.url(),profile.email,'Fixture','create_account')?.phase,'prepared');
+  assert.ok(!prepared.message.includes(proposed));
+  const notice='Verify your email to activate your candidate account.';
+  await page.setContent('<main><p>'+notice+'</p></main>');
+  await doRecordAuthenticationResult(creator,{purpose:'create_account',outcome:'needs_verification',evidence:notice});
+  assert.equal(pendingCredential(page.url(),profile.email,'Fixture','create_account')?.phase,'needs_verification');
+  await page.setContent(form);
+  const activation=await doCompleteAuthentication(await context(),{purpose:'sign_in',...inputs});
+  assert.equal(activation.kind,'ok');
+  if(activation.kind!=='ok')throw Error('Expected feedback');
+  assert.match(activation.message,/saved pending registration has an employer-recorded email-verification outcome/);
+  assert.equal(await page.locator('#password').inputValue(),'');
+  assert.equal(storedCredential(page.url(),profile.email),null);
+  assert.ok(!activation.message.includes(proposed));
+ });}finally{
+  await browser.close();
+  if(previousSecret===undefined)delete process.env.SITE_AUTH_SECRET;else process.env.SITE_AUTH_SECRET=previousSecret;
+  assert.ok(resolve(directory).startsWith(resolve(tmpdir())+sep));rmSync(directory,{recursive:true,force:true});
+ }
+});

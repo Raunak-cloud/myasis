@@ -73,6 +73,18 @@ as_app "printf '%s\n' building > $LOCK"
 # replays for changes that arrived in between.
 as_app "cd $APP && git fetch -q origin main"
 RELEASE_SHA=$(as_app "cd $APP && git rev-parse origin/main")
+if [ -n "${EXPECTED_RELEASE_SHA:-}" ] && [ "$RELEASE_SHA" != "$EXPECTED_RELEASE_SHA" ]; then
+  echo 'origin/main changed while this release was waiting; not deploying an unreviewed revision'
+  exit 1
+fi
+# Back up the database after active runs finish and before changing the live
+# checkout or applying additive schema upgrades. Existing retention handles it.
+install -d -m 700 /var/backups/myasis
+BACKUP=/var/backups/myasis/pre-release-$(date -u +%Y%m%dT%H%M%SZ)-${RELEASE_SHA:0:12}.dump
+(umask 077; sudo -u postgres pg_dump -Fc --dbname=myasis > "$BACKUP.part")
+pg_restore --list "$BACKUP.part" > /dev/null
+mv "$BACKUP.part" "$BACKUP"
+echo "Pre-release database backup verified: $(basename "$BACKUP")"
 REPLAY_REQUIRED=0
 if ! as_app "cd $APP && git diff --quiet HEAD $RELEASE_SHA -- seek-bot"; then
   REPLAY_REQUIRED=1

@@ -9,7 +9,7 @@ import { ToolResult, ToolContext, ok, noteAction, siteName } from './context.js'
 import { assertLive } from '../tool-run.js';
 import { employerMessageEvidence } from './employer-message.js';
 import { rememberPrivateAuthenticationValue, preparePrivateAuthenticationFields } from '../private-auth-fields.js';
-import { VERIFICATION_PURPOSES, type VerificationPurpose } from '../verification-email-local.js';
+import { VERIFICATION_PURPOSES, verificationSenderHint, type VerificationPurpose } from '../verification-email-local.js';
 import { GMAIL_IO_TIMEOUT_MS } from '../gmail-mcp-client.js';
 
 // Private credential transport. Magnus chooses controls; native fill emits normal input events.
@@ -101,7 +101,12 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
     const reset = pendingCredential(ctx.page.url(), ctx.profile.email, ctx.job.company, 'reset_password');
     if(reset) return uncertainAuthentication(ctx,'reset_password','A saved password-reset proposal exists, but the employer acceptance has not been established. No unverified password was filled for sign-in.');
     const pending = pendingCredential(ctx.page.url(), ctx.profile.email, ctx.job.company, 'create_account');
-    if (pending) return ok('A saved pending registration exists for this candidate and employer. Its private credential metadata survived the earlier attempt, but it is not verified and was not filled for sign-in. Resume the employer activation flow, requesting a fresh verification email if needed. After actual account activation, call record_authentication_result with purpose=create_account, outcome=accepted and the complete current employer message; the saved proposal can then be recovered for sign-in.', 'reobserve');
+    if (pending) {
+      const state = pending.phase === 'needs_verification'
+        ? 'The saved pending registration has an employer-recorded email-verification outcome. Inspect the current employer activation controls and request a fresh email only when that flow actually offers it. After actual activation, record create_account acceptance with the complete current employer message.'
+        : 'Only a prepared registration draft is saved: fields were filled, but employer acceptance and any verification-email request have not been established. This does not prove an account exists or that an activation email is pending. Inspect the current form and its actual response. If creation or activation succeeded, record that exact employer outcome; otherwise choose the current registration or offered account-recovery flow. Do not wait for mail merely because this local draft exists.';
+      return ok(`${state} No unverified password was filled for sign-in. The agent chooses the next action from current employer evidence.`, 'reobserve');
+    }
     return ok('No verified usable password is available for this account and site. No credential was guessed or filled. Inspect supported registration, passwordless or authorized account recovery options; a previously existing account needs its real credential. Do not repeat the rejected sign-in or claim the candidate supplied a wrong password.', 'reobserve');
   }
 
@@ -292,7 +297,7 @@ export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, 
   const freshness = await verificationFreshness(ctx, args);
   assertLive();
   if (freshness.error !== undefined) return ok(freshness.error, 'invalid-arguments');
-  const hint = typeof args.sender_hint === 'string' ? args.sender_hint : ctx.job.company;
+  const hint = verificationSenderHint(ctx.job.company, ctx.job.url, args.sender_hint);
   ctx.log('  ✉ waiting for the emailed verification code');
 
   const site = hostOf(ctx.page.url());
@@ -342,7 +347,7 @@ export async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, u
   const freshness = await verificationFreshness(ctx, args);
   assertLive();
   if (freshness.error !== undefined) return ok(freshness.error, 'invalid-arguments');
-  const hint = typeof args.sender_hint === 'string' ? args.sender_hint : ctx.job.company;
+  const hint = verificationSenderHint(ctx.job.company, ctx.job.url, args.sender_hint);
   ctx.log('  ✉ waiting for the emailed verification link');
   const found = await findVerificationInGmail({ hint, site: hostOf(ctx.page.url()), purpose: args.purpose as VerificationPurpose, want: 'link', allowAlternative: true, requestedAt: freshness.requestedAt, timeoutMs: EMAIL_WAIT_MS, log: ctx.log });
   assertLive();

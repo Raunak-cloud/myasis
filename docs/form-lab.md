@@ -54,3 +54,20 @@ node seek-bot/node_modules/tsx/dist/cli.mjs dashboard/scripts/test-form-lab-page
 The browser check submits all three forms with a test outbox; the worker check
 uses a local mocked inference endpoint. Neither spends model credit or sends
 real email. A paid live launch must be explicitly confirmed by an admin.
+
+Admin API launches may include `exerciseHelpers: true` to exercise specialist
+tool creation and handoff during the same 15-page portal. The fictional task
+requests a small document-composition helper, tests actual file bytes in an
+isolated fixture, then calls the published tool. Original required attachments
+and receipt checks remain unchanged. MiniMax tests use DOM observations and
+capture screenshots only for recovery or errors.
+
+Application helpers are temporary, account-attempt scoped compositions of
+existing browser and document capabilities. The specialist has no live browser
+executor or host shell. Only successful isolated tests publish a named tool;
+the specialist sends the definition as JSON text to preserve mixed arrays and
+literal values across provider tool-call formats, followed by local validation.
+Every live operation re-enters the applying agent's ordinary permission and
+approval checks. A failed operation stops without an automatic retry token,
+because it may already have changed the page. Fixture success does not prove
+live employer acceptance.

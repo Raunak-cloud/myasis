@@ -92,6 +92,19 @@ try {
   await page.setContent('<label>Position title<input></label><label>Position title<input></label>');
   ctx = await context();
   assert.ok((await extractEmployerQuestions(ctx, [{ field_ref: ctx.observation.fields[0].ref }])).issue, 'repeated labels without grounded context must not become ambiguous tasks');
+  assert.ok((await extractEmployerQuestions(ctx, [{ field_ref: ctx.observation.fields[0].ref, form_quote: 'Position title' }])).issue, 'a supplied repeated bare label still needs distinct context');
+
+  const consent = 'You will be required to complete a police check as part of our recruitment process. Do you consent to these checks if you are the successful candidate?';
+  await page.setContent(`<section><p>${consent}</p><custom-checkbox id="consent"><div><input id="consent" type="checkbox" required><label for="consent">*</label></div></custom-checkbox></section>`);
+  ctx = await context();
+  const checkbox = ctx.observation.fields.find(field => field.kind === 'checkbox')!;
+  await page.locator('input').evaluate(node => { node.style.opacity = '0'; });
+  const capturedConsent = await extractEmployerQuestions(ctx, [{ field_ref: checkbox.ref, form_quote: consent, kind: 'select', options: ['Invented option'] }]);
+  assert.equal(capturedConsent.questions?.[0].question, consent, 'grounded rich-text question survives a punctuation-only native label and duplicate custom-host IDs');
+  assert.equal(capturedConsent.questions?.[0].snapshot?.controls[0].kind, 'checkbox', 'kind comes from the current employer control');
+  assert.ok(!capturedConsent.questions?.[0].options?.includes('Invented option'), 'agent cannot invent employer choices');
+  assert.equal(await page.locator('input').isChecked(), false, 'question capture never grants consent');
+  assert.equal((await extractEmployerQuestions(ctx, [{ field_ref: checkbox.ref, form_quote: 'Invented employer question' }])).questions?.[0].snapshot?.prompt, consent, 'an invented quote cannot replace the independently captured original question');
 
   await page.setContent('<div><span id="caption">Current clearance *</span><div role="combobox" tabindex="0" aria-labelledby="caption">Choose</div></div>');
   ctx = await context();

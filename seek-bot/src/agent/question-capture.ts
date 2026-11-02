@@ -48,15 +48,22 @@ export function captureQuestion(element: Element): Omit<QuestionSnapshot,'id'|'r
   };
   const referenced = (node: Element, attribute: string) => (node.getAttribute(attribute) || '').split(/\s+/).filter(Boolean)
     .map(id => staticText((node.getRootNode() as Document | ShadowRoot).getElementById(id), true)).filter(Boolean).join(' ');
+  const nativeLabels=(node:Element):HTMLLabelElement[]=>{
+    const labels=[...((node as HTMLInputElement).labels||[])];
+    if(labels.length||!node.id||node.parentElement?.querySelectorAll('input').length!==1)return labels;
+    // A custom host may illegally repeat its inner input ID. Keep the local
+    // explicit label relationship without guessing from unrelated page text.
+    return [...node.parentElement.querySelectorAll('label')].filter(value=>value.htmlFor===node.id);
+  };
   const label = (node: Element) => referenced(node, 'aria-labelledby') || clean(node.getAttribute('aria-label') || '')
-    || [...((node as HTMLInputElement).labels || [])].map(value => staticText(value, true)).filter(Boolean).join(' ')
+    || nativeLabels(node).map(value => staticText(value, true)).filter(Boolean).join(' ')
     || (node.matches('[role="radio"],[role="checkbox"]') ? staticText(node) : '') || clean(node.getAttribute('title') || '');
   const heading = (node: Element) => staticText([...node.children].find(child => child.tagName === 'LEGEND') ?? null)
     || referenced(node, 'aria-labelledby') || clean(node.getAttribute('aria-label') || '');
   const selector = 'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]),textarea,select,[role="combobox"],[role="radio"],[role="checkbox"],[role="listbox"]';
   const usable = (node: Element) => !node.matches('input[type="password"],[autocomplete~="one-time-code"],[data-owtomate-private-auth]')
     && !node.closest('[inert],[aria-hidden="true"]') && (visible(node) || node.matches('input[type="radio"],input[type="checkbox"]')
-      && [...((node as HTMLInputElement).labels || [])].some(value => !!staticText(value)));
+      && nativeLabels(node).some(value => !!staticText(value)));
   if (!usable(element)) return null;
   const controlsWithin = (node: Element) => descendants(node).filter(child => child.matches(selector));
   const localHeading = (node: Element): string => {
@@ -116,6 +123,7 @@ export function captureQuestion(element: Element): Omit<QuestionSnapshot,'id'|'r
     const input=e as HTMLInputElement, role=e.getAttribute('role'), type=input.type;
     const kind:QuestionInput=e.tagName==='TEXTAREA'?'textarea':e.tagName==='SELECT'?'select':role==='combobox'||role==='listbox'?'select':role==='radio'||type==='radio'?'radio':role==='checkbox'||type==='checkbox'?'checkbox':(['date','month','week','time','datetime-local','number','range','color','search','email','tel','url','file'].includes(type)?type:'text') as QuestionInput;
     const c:QuestionControl={id:`part${controls.length}`,label:label(e)||prompt,kind,required:input.required===true||e.getAttribute('aria-required')==='true'||group?.getAttribute('aria-required')==='true',multiple:input.multiple===true||e.getAttribute('aria-multiselectable')==='true',choices:[],constraints:{}};
+    if(!c.label.replace(/[\s:*]+/g,''))c.label=prompt;
     for(const name of ['min','max','step','pattern','accept'] as const) { const v=e.getAttribute(name);if(v!==null)c.constraints[name]=v; }
     for(const name of ['maxLength','minLength'] as const) { const v=e.getAttribute(name);if(v!==null&&Number(v)>=0)c.constraints[name]=Number(v); }
     if(e instanceof HTMLSelectElement&&e.size>1)c.constraints.size=e.size;

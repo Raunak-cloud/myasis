@@ -10,11 +10,13 @@ import { traceProvesNoSend } from '../repair-safety.js';
 import { currentAttempt, recordDiagnostic } from './attempt-diagnostics.js';
 import type { ProgressBudget } from './progress-budget.js';
 import type { AgentRunOptions, AgentRunResult } from './loop.js';
+import type {ApplicationHelpers} from './application-helpers.js';
 
 export interface RepairContinuation {
   /** Owner-scoped shared record; never a serialized browser action to replay. */
   recoveryId: string;
   attemptId: string; runId: string; page: Page; meter: ProgressBudget;
+  helpers?: ApplicationHelpers;
 }
 export function liveRepairEnabled(): boolean {
   const env=applicationModelEnvironment();

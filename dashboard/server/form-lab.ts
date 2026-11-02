@@ -23,7 +23,7 @@ import {FormLab,formCatalog} from './form-lab/engine.mjs';
 import {formsPage} from './form-lab/page.js';
 
 const identifier=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
-interface Metadata {id:string;owner:string;key:string;email:string;seed:number;model:ApplicationModel;status:string;createdAt:string;finishedAt?:string;error?:string;agent:boolean}
+interface Metadata {id:string;owner:string;key:string;email:string;seed:number;model:ApplicationModel;status:string;createdAt:string;finishedAt?:string;error?:string;agent:boolean;exerciseHelpers?:boolean}
 interface Entry {meta:Metadata;lab:FormLab;directory:string;secret:string;token?:string;stop?:()=>void;finished?:Promise<void>;stopped?:boolean;busy?:boolean}
 const entries=new Map<string,Entry>();
 const safeRead=(file:string):any=>{try{return JSON.parse(readFileSync(file,'utf8'));}catch{return null;}};
@@ -86,7 +86,7 @@ async function execute(entry:Entry){
   }
   if(entry.stopped||deploying())throw Error(entry.stopped?'Test cancelled.':'A deployment started. Start a new test after it completes.');
   const child=spawn(process.execPath,[resolve(import.meta.dirname,'form-lab/worker.mjs')],{cwd:resolve(import.meta.dirname,'../..'),detached:process.platform!=='win32',stdio:['ignore','pipe','pipe'],env:{PATH:process.env.PATH,HOME:process.env.HOME,USER:process.env.USER,LANG:process.env.LANG,NODE_ENV:process.env.NODE_ENV,...env,GMAIL_MCP_URL:'',GMAIL_MCP_TOKEN:'',GMAIL_MCP_ACCOUNT:'',GMAIL_ACCESS_MODE:'off',...lease?.env,
-   CHROME_PATH:readEnv().CHROME_PATH,FORM_LAB_OUTPUT:entry.directory,FORM_LAB_ID:entry.meta.id,FORM_LAB_KEY:entry.meta.key,FORM_LAB_EMAIL:entry.meta.email,FORM_LAB_TOKEN:entry.token!,FORM_LAB_BACKEND:'http://127.0.0.1:'+(process.env.PORT||5180)}});
+   CHROME_PATH:readEnv().CHROME_PATH,FORM_LAB_EXERCISE_HELPERS:entry.meta.exerciseHelpers?'true':'false',FORM_LAB_OUTPUT:entry.directory,FORM_LAB_ID:entry.meta.id,FORM_LAB_KEY:entry.meta.key,FORM_LAB_EMAIL:entry.meta.email,FORM_LAB_TOKEN:entry.token!,FORM_LAB_BACKEND:'http://127.0.0.1:'+(process.env.PORT||5180)}});
   entry.meta.status='running';save(entry);
   const log=(chunk:Buffer)=>appendFileSync(join(entry.directory,'worker.log'),chunk,{mode:0o600});child.stdout?.on('data',log);child.stderr?.on('data',log);
   const supervisor=superviseRun(child,{timeoutMs:26*60_000,onTimeout:()=>{entry.meta.error='The synthetic test time limit was reached.';},onEscalation:()=>{entry.meta.error='The test worker required forced shutdown.';},onError:error=>{entry.meta.error=safeMessage(error.message);},onFinish:async()=>{
@@ -125,7 +125,7 @@ export async function formAdminAction(actor:SessionUser,path:string,method:strin
   try{
    const id=randomUUID(),email=access.account||'alex.morgan@example.invalid',seed=918374621,directory=resolve(userDir(actor.id),'form-tests',id),secret=randomBytes(32).toString('hex');
    mkdirSync(directory,{recursive:true,mode:0o700});
-   const entry:Entry={directory,secret,meta:{id,owner:actor.id,key:definition.key,email,seed,model:body.model,status:agent?'starting':'manual',createdAt:new Date().toISOString(),agent},lab:new FormLab({key:definition.key,email,seed,id,secret}),token:agent?randomBytes(32).toString('hex'):undefined};
+   const entry:Entry={directory,secret,meta:{id,owner:actor.id,key:definition.key,email,seed,model:body.model,status:agent?'starting':'manual',createdAt:new Date().toISOString(),agent,...(body.exerciseHelpers===true?{exerciseHelpers:true}:{})},lab:new FormLab({key:definition.key,email,seed,id,secret}),token:agent?randomBytes(32).toString('hex'):undefined};
    entries.set(id,entry);save(entry);if(agent)entry.finished=execute(entry).catch(error=>{entry.meta.status='error';entry.meta.error=safeMessage((error as Error).message);console.error('[form-lab] Test cleanup failed:',entry.meta.id);});
    return {status:201,body:details(entry)};
   }catch(error){if(agent)runner.releaseStart(actor.id);throw error;}

@@ -16,6 +16,22 @@ after(()=>directories.forEach(value=>rmSync(value,{recursive:true,force:true})))
 const scope: RecoveryScope = {runId:'42',jobId:'job-one',platform:'workday',mode:'prepare',contextHash:'candidate-and-approval-hash'};
 const work: RecoveryWork = {captured:[{question:'Name',answer:'Fixture Candidate'}],actions:[],files:[],resumeUsed:'cv',coverLetter:'Exact letter with https://portfolio.example.invalid/a-very-long-project-identifier?version=1#work'};
 
+test('tested helper results share the durable record without clearing their enclosing mutation guard',()=>{
+  const record=new RecoveryRecord(directory(),'main',scope,'helper-attempt');
+  record.checkpoint(work,{});
+  assert.throws(()=>record.recordHelperResult('browser_action','fill','filled','completed',work,{}),/active parent operation/);
+  const id=record.begin('helper_fixture_1234',undefined,true);
+  record.recordHelperResult('browser_action','fill','Actual current value: Fixture Candidate','completed',work,{helperStep:1});
+  assert.equal(record.snapshot().pending?.id,id);
+  assert.equal(record.snapshot().pending?.mutating,true);
+  assert.match(JSON.stringify(record.evidenceHistory()),/Actual current value/);
+  assert.deepEqual(record.snapshot().work,work);
+  record.complete(id,'Helper finished','completed',work,false);
+  assert.equal(record.snapshot().pending,undefined);
+  assert.equal(record.evidenceHistory().length,2);
+  record.finish('finished');record.release();
+});
+
 test('completed work, counters, actual evidence and consultation allowance survive a handoff without replay',()=>{
   const dir=directory(); let record=new RecoveryRecord(dir,'main',scope,'attempt');
   const recovery=new RecoveryCheckpoint(),turn=new ApplicationTurnCoordinator();

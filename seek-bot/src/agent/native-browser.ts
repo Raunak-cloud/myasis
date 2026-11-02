@@ -250,12 +250,16 @@ export async function evaluateBrowser(page: Page, args: Record<string, unknown>)
     }
   }
   return scope.evaluate(async source => {
-    let result;
-    try { result = (0, eval)(source); }
+    // Compile before executing. Functions (including anonymous ones), awaited
+    // expressions and async statement bodies share the advertised contract.
+    // Never retry after execution: even a thrown SyntaxError can follow a write.
+    let execute: () => unknown;
+    try { execute = new Function(`return (async()=>(${source}\n))()`) as () => unknown; }
     catch (error) {
-      if (!(error instanceof SyntaxError) || !/return/i.test(error.message)) throw error;
-      return new Function(`return (async()=>{${source}\n})()`)();
+      if (!(error instanceof SyntaxError)) throw error;
+      execute = new Function(`return (async()=>{${source}\n})()`) as () => unknown;
     }
+    const result = await execute();
     return typeof result === 'function' ? await result() : await result;
   }, String(args.script), undefined, false);
 }

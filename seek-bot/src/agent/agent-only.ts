@@ -61,16 +61,17 @@ import { browserCommandContract } from './browser-command-schema.js';
 import { RecoveryRecord, RecoveryRecordError, recoveryContextHash, type RecoveryWork } from './recovery-record.js';
 import { currentApplicationWorker } from '../application-workers.js';
 import { investigationTool, investigateApplicationState } from './investigation.js';
+import {ApplicationHelpers} from './application-helpers.js';
 
 const string = { type: 'string' };
-const batchActions = ['click', 'fill', 'type', 'select', 'check', 'press', 'hover', 'wait', 'inspect', 'set_input_files'];
-const browserActions = [...batchActions, 'scroll', 'navigate', 'script', 'select_page', 'dialog'];
+const batchActions = ['click', 'fill', 'type', 'select', 'check', 'press', 'hover', 'wait', 'inspect', 'set_input_files', 'script'];
+const browserActions = [...batchActions, 'scroll', 'navigate', 'select_page', 'dialog'];
 const schema = (name: string, description: string, properties: Record<string, unknown>, required: string[] = [], constraints: Record<string, unknown> = {}): ToolSchema => ({
   name, description, parameters: { type: 'object', additionalProperties: false, properties, required, ...constraints },
 });
 
 /** The sole application tool surface. The agent owns answers and receipt decisions. */
-const agentOnlyTools: ToolSchema[] = [
+export const agentOnlyTools: ToolSchema[] = [
   applicationReviewTool,
   schema('add_cover_letter', 'Indeed fast path: supply your complete truthful tailored letter. Opens the known Supporting documents → Add → Write a cover letter flow, fills with normal input events, saves locally and reads back. Does not draft or submit the application. Use once when the application offers a letter channel. On fallback, inspect the live page and finish with normal browser tools; preserve completed work and do not call this shortcut repeatedly. Approved submissions always use the exact approved letter.', { text: { type: 'string', minLength: 1 } }, ['text']),
   schema('prepare_application', 'After filling and inspecting the final application review, save the actual completed form for confirmation, or check an approved reconstruction. Nothing is submitted. Captured browser answers are retained; pass an empty answers array when no additions are needed. Use actual saved values and selected option labels, not profile shorthand. Correct the form and inspect its readback before preparing; use save_progress for verified wizard answers absent from captured state. Supply the complete cover letter and selected account resume ID.', {
@@ -83,10 +84,12 @@ const agentOnlyTools: ToolSchema[] = [
     to: string, subject: string, cover_letter: string, resume_id: string,
     attach_cover_letter: { type: 'boolean', description: 'Also attach the approved letter as a text document if requested. The letter is always included in the email body.' },
   }, ['to', 'subject', 'cover_letter', 'resume_id']),
-  schema('browser_batch', 'Execute your own ordered native browser commands and read-only inspections in one call. Each command uses fresh locators and normal browser events; fill/select/check return current values and validation together. inspect returns labelled current values for all matching targets, masking private values, and never edits. Stops at the first actual error or page handoff. Include wait conditions with the action that causes a change. Only batch actions whose targets and dependencies you have inspected; inspect after unexpected changes. No automatic field answering or widget repair.', {
+  schema('browser_batch', 'Execute your own ordered native browser commands, browser scripts and read-only inspections in one call. Scripts follow the same contract and permissions as browser_action. Each command uses fresh locators and normal browser events; fill/select/check return current values and validation together. inspect returns labelled current values for all matching targets, masking private values, and never edits. Stops at the first actual error or page handoff. Include wait conditions with the action that causes a change. Only batch actions whose targets and dependencies you have inspected; inspect after unexpected changes. No automatic field answering or widget repair.', {
     actions: { type: 'array', minItems: 1, maxItems: MAX_BROWSER_BATCH, items: { type: 'object', additionalProperties: false, properties: {
       action: { type: 'string', enum: batchActions },
       file_ids: fileIdsProperty, file_chooser: { type: 'boolean' },
+      script: { type: 'string', minLength: 1, description: 'For action=script: the same browser-side function, expression or async body accepted by browser_action. Executes once in order; runtime failure stops the batch.' },
+      script_intent: { type: 'string', enum: ['inspect', 'act'], description: 'For script only: inspect declares read-only inspection; act declares interaction. The normal browser_action permissions still apply.' },
       ...browserTargetProperties, ...browserWaitProperties, value: string, sends_application: { type: 'boolean', description: 'Required on every click/press in Semi auto and approved reconstruction: true transmits the application; false is preparatory.' },
     }, required: ['action'], ...browserCommandContract(batchActions) } },
   }, ['actions']),
@@ -228,6 +231,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     return {...tool,parameters:{...tool.parameters,properties:{...properties,actions:{...properties.actions,
       items:{...command,properties:{...(command.properties as Record<string,unknown>),target_mode:targetMode},...browserCommandContract(batchActions,true)}}}}};
   }) : agentOnlyTools.filter(tool => tool.name !== 'prepare_application');
+  const helpers=options.continuation?.helpers??new ApplicationHelpers(offeredTools);
   if (retiredJobSource(options.job)) return { outcome: { status: 'skipped', reason: RETIRED_SOURCE_MESSAGE }, captured: [], actions: [], submitPressed: false, steps: 0, usage: 'No model calls: job source removed.' };
 
   const isolated = options.simulation === 'isolated-form';
@@ -398,7 +402,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       outcome:{status:'skipped'},steps:trace,sendAudit:sendAudit()},identity.runStartId,identity.attemptId))return false;
     syncRecovery();
     // The record is authoritative; only live browser/meter handles accompany it.
-    repairCheckpoint={recoveryId:shared.id,attemptId:identity.attemptId,runId:identity.runStartId,page:ctx.page,meter};
+    repairCheckpoint={recoveryId:shared.id,attemptId:identity.attemptId,runId:identity.runStartId,page:ctx.page,meter,helpers};
     terminal={status:'skipped',reason:'Application paused at a safe checkpoint for validated tool repair.'};finished=true;
     return true;
   };
@@ -434,7 +438,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         startedAt: new Date().toISOString(), execution: 'started' };
       trace.push(consultationTrace); saveLiveTrace();
       const advice = await consultApplicationSpecialist(ctx, { question, focus: 'form' }, {
-        enabled: true, meter, state: specialistState, trigger: 'automatic',
+        enabled: true, meter, state: specialistState, trigger: 'automatic', helpers,
         applicationHistory: redactPrivateAuthenticationData(`${specialistHistory()}\n${recovery.render()}`, secrets),
       });
       Object.assign(consultationTrace, { result: advice.kind === 'ok' ? advice.message : 'No specialist advice was returned.',
@@ -453,6 +457,23 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
   };
 
   const act = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
+    if(helpers.has(name))return helpers.execute(name,args,async(primitive,input)=>{
+      if(await hasHcaptchaChallenge(ctx.page))return {kind:'terminal',outcome:{status:'skipped',reason:HCAPTCHA_SKIP_REASON}};
+      recordDiagnostic({severity:'info',category:'helper_operation',stage:'tool',tool:primitive,message:`Executing ${name} using the normal ${primitive} executor.`});
+      const effectBefore=browserEffectEpoch;
+      let result:ToolResult;
+      try {result=await act(primitive,input);}
+      catch(error){
+        if(browserEffectEpoch>effectBefore)shared.openUncertainty('operation',`${name}:${primitive}`,'A helper primitive raised an execution error after browser work started. Inspect actual employer state before retrying; completed operations must not be replayed.');
+        throw error;
+      }
+      if(result.kind==='ok'&&!failedToolResult(result)&&primitive==='browser_action'&&changesBrowserState(input)){
+        browserMutated=true;haltReview.pendingAction=false;
+      }
+      if(failedToolResult(result))recordDiagnostic({severity:'warning',category:'helper_operation_error',stage:'tool',tool:primitive,message:result.kind==='ok'?result.message:'Helper failed.'});
+      shared.recordHelperResult(primitive,typeof input.action==='string'?input.action:undefined,result.kind==='ok'?result.message:JSON.stringify(result.outcome),result.kind==='ok'?result.disposition??'completed':'terminal',recoveryWork(),recoveryControls());
+      return result;
+    },()=>!meter.actionExhausted);
     if (name === applicationReviewTool.name) {
       const canonicalReview = readiness.requested;
       readiness.record(String(args.assessment), args.unresolved as string[]);
@@ -618,7 +639,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
           const detail = `Could not securely capture the required employer question: ${extracted.issue ?? 'question unavailable'}`;
           recordDiagnostic({ severity: 'warning', category: 'question_capture_error', stage: 'application', tool: 'finish', message: detail });
           log(`  ${detail}`);
-          return { kind: 'terminal', outcome: { status: 'skipped', reason: 'Could not securely capture a required employer question for review.' } };
+          return ok(`${detail}. Nothing was submitted or saved for attention. Inspect the current form and retry finish with the native FIELD ref and complete visible employer question. Snapshot references may differ from FIELD refs. Do not invent an answer or replace the missing personal fact with a technical question.`, 'reobserve');
         }
         questions = extracted.questions;
       }
@@ -657,7 +678,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     if (name === consultationToolSchema.name) {
       recovery.specialistRequested();
       if (recovery.evidenceKey) specialistEvidence.add(recovery.evidenceKey);
-      return consultApplicationSpecialist(ctx, args as { question: string }, { enabled: true, meter, state: specialistState,
+      return consultApplicationSpecialist(ctx, args as { question: string }, { enabled: true, meter, state: specialistState, helpers,
         applicationHistory: specialistHistory() });
     }
     if (name === 'take_snapshot') {
@@ -997,7 +1018,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       let reply;
       // The forced checkpoint already accepts only this named tool. Advertise
       // that exact contract; normal turns retain every available action.
-      const availableTools=haltReviewTools(offeredTools,haltReview,recordOnly).filter(tool =>
+      const availableTools=haltReviewTools([...offeredTools,...helpers.schemas()],haltReview,recordOnly).filter(tool =>
         !recoveryTools.some(item => item.name === tool.name) || tool.name === recovery.tool);
       const turnTools = checkpoint ? availableTools.filter(tool => tool.name === checkpoint)
         : recordOnly ? availableTools.filter(tool => finalRecords.includes(tool.name)) : availableTools;
@@ -1106,7 +1127,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
             if (issue) throw new Error(`Invalid tool input: ${issue}`);
             if (recoveryTools.some(item => item.name === call.name) && call.name !== recovery.tool) throw new Error('A recovery note needs current unreviewed recovery evidence. Continue from the current form instead of repeating a report.');
             failureKind='execution';
-            operationMayMutate=['complete_authentication','enter_emailed_code','open_emailed_link','add_cover_letter','wait_for_verification'].includes(call.name)
+            operationMayMutate=helpers.has(call.name)||['complete_authentication','enter_emailed_code','open_emailed_link','add_cover_letter','wait_for_verification'].includes(call.name)
                 || call.name==='browser_action'&&call.args.action==='script'
                 || call.name==='browser_action'&&changesBrowserState(call.args)
                 || call.name==='browser_batch'&&Array.isArray(call.args.actions)&&call.args.actions.some(changesBrowserState);

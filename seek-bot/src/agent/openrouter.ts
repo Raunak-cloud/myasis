@@ -9,6 +9,7 @@ import { estimateTranscriptTokens } from './loop/transcript.js';
 import { ApplicationBudgetExhaustedError, ReplyUnusableError, type CelerisReply,
   type CelerisRequest, type ChatMessage, type ToolCall } from './celeris.js';
 import { boundedReasoningEffort, GenerationRecovery, GenerationWindowError, generationFailure } from './generation-recovery.js';
+import { minimaxToolSchema, minimaxToolArguments } from './provider-tool-schema.js';
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 // Published non-discounted rates, USD/token, checked 2026-11-02. Actual usage.cost
@@ -17,7 +18,7 @@ const MINIMAX_RATES = { prompt: 0.00000015, cached: 0.000000015, completion: 0.0
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 type AssistantMessage = Extract<ChatMessage, { role: 'assistant' }>;
 interface Payload {
-  choices?: { finish_reason?: string; message?: AssistantMessage }[];
+  choices?: { finish_reason?: string; message?: AssistantMessage; error?: Payload['error'] }[];
   usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number | null;
     prompt_tokens_details?: { cached_tokens?: number } };
   error?: { code?: number; message?: string };
@@ -57,7 +58,8 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
     provider: { require_parameters: true },
   };
   if (request.tools?.length) {
-    body.tools = request.tools.map(tool => ({ type: 'function', function: tool }));
+    body.tools = request.tools.map(tool => ({ type: 'function', function: identity.selection === 'minimax'
+      ? minimaxToolSchema(tool) : tool }));
     body.tool_choice = request.forceTool ? { type: 'function', function: { name: request.forceTool } }
       : request.requireTool ? 'required' : 'auto';
   }
@@ -87,7 +89,8 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
       status = response.status;
       retryAfter = response.headers.get('retry-after');
       const payload = await response.json().catch(() => null) as Payload | null;
-      if (!response.ok || payload?.error) {
+      const choice = payload?.choices?.[0], providerError = payload?.error ?? choice?.error;
+      if (!response.ok || providerError) {
         if (payload?.usage) recordUsage(request, body, payload.usage);
         else recordCost({ provider: 'OpenRouter', model: String(body.model), amountUsd: null, basis: 'unknown',
           detail: `HTTP ${status}: rejected or failed request; provider charge not reported.` });
@@ -95,22 +98,32 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
         endCost();
         // In-band errors can arrive with HTTP 200; retain their real status
         // for retry classification rather than treating them as an empty reply.
-        status = payload?.error?.code ?? status;
+        status = providerError?.code ?? status;
         if (status === 402) providerOutOfCredit('OpenRouter');
-        const detail = String(payload?.error?.message ?? response.statusText).replaceAll(key, '[credential withheld]');
+        const detail = String(providerError?.message ?? response.statusText).replaceAll(key, '[credential withheld]');
         throw new Error(`OpenRouter ${status}: ${detail.slice(0, 300)}`);
       }
       recordUsage(request, body, payload?.usage);
       recorded = true;
       endCost();
-      const choice = payload?.choices?.[0], message = choice?.message;
+      // HTTP 200 can still end in a failed generation. Never execute partial
+      // calls from it; retry inference against the same saved browser state.
+      // Preserve explicit error codes above (auth/policy/credit are not retried).
+      if (choice?.finish_reason === 'error') {
+        const httpStatus = status;
+        status = 502; // Retry classification only; the actual HTTP status stays in the diagnostic.
+        throw new Error(`OpenRouter generation failed (finish_reason=error, HTTP ${httpStatus}).`);
+      }
+      if (choice?.finish_reason === 'content_filter') throw new Error('OpenRouter reply ended with content_filter.');
+      const message = choice?.message;
       if (!message) throw new ReplyUnusableError('OpenRouter returned no completed assistant message.');
       if (choice.finish_reason === 'length') throw new ReplyUnusableError('OpenRouter reply truncated by the output token limit.');
-      if (choice.finish_reason === 'content_filter' || choice.finish_reason === 'error') throw new Error(`OpenRouter reply ended with ${choice.finish_reason}.`);
       const toolCalls: ToolCall[] = (message.tool_calls ?? []).map(call => {
         let args: Record<string, unknown>;
         try { args = JSON.parse(call.function.arguments || '{}'); }
         catch { args = { __parseError: call.function.arguments }; }
+        const tool = request.tools?.find(tool => tool.name === call.function.name);
+        if (identity.selection === 'minimax' && tool) args = minimaxToolArguments(tool, args);
         return { id: call.id, name: call.function.name, args };
       });
       metric('model', performance.now() - started, { model: String(body.model), attempts: attempt + 1,

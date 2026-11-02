@@ -8,11 +8,13 @@ import {materials,formCatalog} from './engine.mjs';
 const output=process.env.FORM_LAB_OUTPUT,id=process.env.FORM_LAB_ID,key=process.env.FORM_LAB_KEY,email=process.env.FORM_LAB_EMAIL;
 if(!output||!id||!formCatalog.some(form=>form.key===key))throw Error('Missing authorized form-test configuration.');
 const definition=formCatalog.find(form=>form.key===key),candidate=materials(email),data=join(output,'data');
+const helperExercise=process.env.FORM_LAB_EXERCISE_HELPERS==='true';
+const helperInstructions=helperExercise?'This is an authorized helper-handoff test. Early in the application, consult_application_specialist to design and test one small parameterized document-composition helper: create a TXT file containing two supplied fictional text sections separated by a blank line, and return its file_id. The specialist must test actual document bytes on an isolated dummy fixture before publishing the tool. Call that named helper once with fictional cover-letter and resume excerpts from the supplied evidence. Inspect its result, then complete the portal normally using the original required documents. Do not substitute this exercise file for required original files. No extra helper or specialist test is needed after successful handoff.':'';
 for(const dir of [data,join(data,'resumes'),join(data,'knowledge')])mkdirSync(dir,{recursive:true,mode:0o700});
 Object.assign(process.env,{DATA_DIR:data,DRY_RUN:'true',ALLOW_EXTERNAL_APPLY:'true',APPLICATION_REVIEW_MODE:'',COST_TRACKING:'true',PROFILE_PATH:join(data,'profile.txt'),
- OWTOMATE_USER_ID:'form-lab-'+id,SITE_AUTH_SECRET:'isolated-'+id,APPLICATION_AGENT_MODE:'agent-only',APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN:'true',
+ OWTOMATE_USER_ID:'form-lab-'+id,SITE_AUTH_SECRET:'isolated-'+id,APPLICATION_AGENT_MODE:'agent-only',APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN:process.env.APPLICATION_AI_MODEL==='minimax'?'false':'true',
  ADMIN_UNLIMITED:'false',AGENT_BUDGET_USD:'0.20',AGENT_PROGRESS_BUDGET_USD:'0.70',RESUME_SELECT:'synthetic-cv',FORM_CORPUS_DIR:join(data,'form-corpus'),
- KEYWORDS:'Software Engineer',WORK_ARRANGEMENTS:'hybrid,onsite,remote',ONSITE_CITY:'Sydney',COVER_LETTER_MODE:'tailored',COVER_LETTER_TEXT_B64:'',AI_INSTRUCTIONS_B64:'',
+ KEYWORDS:'Software Engineer',WORK_ARRANGEMENTS:'hybrid,onsite,remote',ONSITE_CITY:'Sydney',COVER_LETTER_MODE:'tailored',COVER_LETTER_TEXT_B64:'',AI_INSTRUCTIONS_B64:Buffer.from(helperInstructions).toString('base64'),
  COVER_LETTER_INSTRUCTIONS:'Use only the fictional candidate evidence; address the fictional employer.'});
 writeFileSync(join(data,'profile.txt'),candidate.text);
 writeFileSync(join(data,'resumes',candidate.files.cv.name),candidate.files.cv.bytes);
@@ -57,7 +59,7 @@ try{
  await context.route('**/*',route=>new URL(route.request().url()).hostname===host&&new URL(route.request().url()).pathname.startsWith(base+'/')?route.continue():route.abort());
  await context.routeWebSocket('**/*',ws=>ws.close());
  const page=await context.newPage();await page.goto(url,{waitUntil:'domcontentloaded'});
- const captures=setInterval(()=>{const current=context.pages().filter(tab=>!tab.isClosed()).at(-1);void current?.screenshot({path:join(output,'latest.png')}).catch(()=>{});},6000);captures.unref();
+ const captures=process.env.APPLICATION_AI_MODEL==='minimax'?undefined:setInterval(()=>{const current=context.pages().filter(tab=>!tab.isClosed()).at(-1);void current?.screenshot({path:join(output,'latest.png')}).catch(()=>{});},6000);captures?.unref();
  try{
   const {runApplicationAgent}=await import('../../../seek-bot/dist/agent/loop.js');
   result=await runApplicationAgent({simulation:'isolated-form',page,job:{id:'form-lab-'+id,title:'Software Engineer',company:definition.company,location:'Sydney, Australia',url,source:'chosen',platform:'seek',applicationMode:'external',description:'Authorized synthetic application. Complete all 15 pages using only the supplied fictional Alex Morgan evidence. This portal is a test and sends no application to a real employer.'},profile:candidate.profile,log:line=>console.log(line)});
@@ -67,7 +69,7 @@ finally{
  clearInterval(heartbeat);clearTimeout(watchdog);globalThis.fetch=originalFetch;
  const current=context?.pages().filter(page=>!page.isClosed()).at(-1);
  const text=await current?.locator('body').innerText({timeout:2500}).catch(()=>'')||'';
- await current?.screenshot({path:join(output,'latest.png'),fullPage:true}).catch(()=>{});
+ if(error||!text.includes('Application submitted successfully'))await current?.screenshot({path:join(output,'latest.png'),fullPage:true}).catch(()=>{});
  writeFileSync(join(output,'result.json'),JSON.stringify({result,error,elapsedMs:Date.now()-started,modelCalls,receiptVisible:text.includes('Application submitted successfully')&&text.includes('OWT-TEST-'),finishedAt:new Date().toISOString()}));
  writeStatus();await browser?.close();if(server){server.closeAllConnections();await new Promise(done=>server.close(done));}
  process.exit(error?1:0);

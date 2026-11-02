@@ -163,6 +163,17 @@ export class RecoveryRecord {
       if (!adviceOnly) state.evidenceVersion++;
     });
   }
+  /** Helper primitives use the parent's live executor and lease. Retain each
+   * actual result without clearing the enclosing operation's crash guard. */
+  recordHelperResult(tool:string,action:string|undefined,result:string,disposition:string,work:RecoveryWork,controls:Record<string,unknown>):void {
+    this.update(state=>{
+      if(!state.pending?.tool.startsWith('helper_')||!state.pending.mutating)throw new RecoveryRecordError('A helper result requires its active parent operation.');
+      const evidence={tool,action,result:String(this.clean(result)),disposition,at:new Date().toISOString()};
+      this.db.prepare('INSERT INTO recovery_evidence VALUES(?,?,?)').run(this.id,state.revision+1,JSON.stringify(evidence));
+      state.evidence.push(evidence);state.evidence=state.evidence.slice(-16);
+      state.work=this.clean(work,false);state.controls=this.clean(controls);state.evidenceVersion++;
+    });
+  }
   reserveAdvice(): AdviceTicket | undefined {
     let ticket: AdviceTicket | undefined;
     this.update(state => {

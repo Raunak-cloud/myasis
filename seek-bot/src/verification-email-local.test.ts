@@ -1,6 +1,57 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isRequestedVerificationEmail, readVerificationEmailsLocally as read } from './verification-email-local.js';
+import { isRequestedVerificationEmail, readVerificationEmailsLocally as read, verificationSenderHint } from './verification-email-local.js';
+
+test('a decorated login-page sender hint retains the specific employer as an independent identity', () => {
+  const site = 'tenant-identity.login.vendor.invalid';
+  const supplied = 'Vendor Identity - Example Employer';
+  const email = { position: 0, sender: 'noreply@login.vendor.invalid', subject: 'Example Employer verification',
+    text: 'Your verification code is 482913.', links: [] };
+  assert.equal(read([email], { site, hint: supplied, purpose: 'account_verification', want: 'code' }), null);
+  const hint = verificationSenderHint('Example Employer', 'https://careers.vendor.invalid/job/42', supplied);
+  assert.equal(read([email], { site, hint, purpose: 'account_verification', want: 'code' })?.value, '482913');
+  assert.equal(read([{ ...email, subject: 'Other Employer verification' }], { site, hint, purpose: 'account_verification', want: 'code' }), null,
+    'the shared hosting platform cannot establish another employer identity');
+});
+
+test('hosting names and generic corporate labels cannot become broad independent aliases', () => {
+  for (const company of ['jobs.vendor.invalid', 'Vendor', 'Vendor Identity', 'Group Ltd']) {
+    const hint = verificationSenderHint(company, 'https://jobs.vendor.invalid/job/42', 'Example Employer');
+    assert.equal(hint, 'Example Employer');
+    assert.equal(read([{ position: 0, subject: 'Vendor verification', text: 'Your code is 482913.', links: [] }],
+      { hint, site: 'tenant-identity.login.vendor.invalid', purpose: 'sign_in', want: 'code' }), null);
+  }
+});
+
+test('omitted or identical sender hints preserve the existing employer identity', () => {
+  for (const hint of [undefined, '', ' Example Employer ']) {
+    assert.equal(verificationSenderHint('Example Employer', 'https://careers.vendor.invalid/job/42', hint), 'Example Employer');
+  }
+});
+
+test('an explicit reset action takes priority over an unrelated footer website', () => {
+  const action = 'https://careers.fixture.invalid/Careers/passwordreset/fixture-token/?username=fixture-user';
+  const email = { position: 0, subject: 'Fixture password reset', sender: 'noreply@fixture.invalid',
+    text: 'To reset your password, use the link below. Visit our website for more information.', links: [
+      { text: 'Reset your password', url: action },
+      { text: 'Sidekick', url: 'https://sidekick.fixture.invalid/' },
+    ] };
+  const ask = { hint: 'Fixture', site: 'careers.fixture.invalid', purpose: 'reset_password' as const, want: 'link' as const };
+  assert.equal(read([email], ask)?.value, action, 'the footer is only an opaque fallback, not a second reset action');
+  assert.equal(read([{ ...email, links: [...email.links, { text: 'Reset password', url: action.replace('fixture-token', 'other-token') }] }], ask), null,
+    'multiple explicit reset actions remain ambiguous');
+  assert.equal(read([email], { ...ask, purpose: 'account_verification' }), null, 'a reset cannot become an activation');
+});
+
+test('opaque query values cannot turn a footer into an explicit action', () => {
+  const action = 'https://fixture.invalid/opaque?hash=fixture-token';
+  const email = { position: 0, subject: 'Fixture password reset', text: 'To reset your password, click the link below.', links: [
+    { text: 'Click here', url: action },
+    { text: 'Website', url: 'https://fixture.invalid/?token=reset-private-marker' },
+  ] };
+  assert.equal(read([email], { hint: 'Fixture', purpose: 'reset_password', want: 'link' }), null,
+    'secret token contents cannot resolve two otherwise opaque destinations');
+});
 
 test('code labels accept independent linking words, punctuation and layout whitespace', () => {
   for (const separator of [' ', ': ', ' is ', ' is: ', ' is :\n', '\n:\n', ' = ', ' - ', ' – ', ' — ', ' is\u00a0—\u00a0']) {
