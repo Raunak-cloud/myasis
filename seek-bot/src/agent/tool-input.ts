@@ -51,7 +51,10 @@ export function validToolInput(value: unknown, schema: Record<string, unknown>, 
 export function toolInputIssue(value: unknown, schema: Record<string, unknown>, path = '$'): string | null {
   if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 1
     && typeof (value as Record<string, unknown>).__parseError === 'string') {
-    return 'Tool argument JSON could not be decoded. Resend the complete arguments as valid JSON; when arguments_json is offered, it must encode one JSON object. No tool operation ran.';
+    const properties = schema.type === 'object' ? schema.properties as Record<string, Record<string, unknown>> | undefined : undefined;
+    const wrapperHint = properties && Object.hasOwn(properties, 'arguments_json') && properties.arguments_json?.type === 'string'
+      ? ' The declared arguments_json field must contain that complete object as valid JSON text.' : '';
+    return `Tool argument JSON could not be decoded. Resend the complete arguments as one valid JSON object.${wrapperHint} No tool operation ran.`;
   }
   if (validToolInput(value, schema)) return null;
   if (value && typeof value === 'object' && !Array.isArray(value)) {

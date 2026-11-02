@@ -36,8 +36,25 @@ test('malformed, extra and non-object wire arguments fail closed without echoing
     assert.equal(validToolInput(decoded, tool.parameters), false);
     assert.match(String(decoded.__parseError), /No tool operation ran/);
     assert.doesNotMatch(JSON.stringify(decoded), /PRIVATE_ANSWER/);
-    assert.match(toolInputIssue(decoded, tool.parameters)!, /when arguments_json is offered/);
+    const canonicalIssue = toolInputIssue(decoded, tool.parameters)!;
+    assert.match(canonicalIssue, /complete arguments as one valid JSON object/);
+    assert.doesNotMatch(canonicalIssue, /arguments_json|PRIVATE_ANSWER/, 'ordinary selected schemas never suggest an undeclared wrapper');
   }
+});
+
+test('JSON-decode guidance names only a wrapper declared by the selected schema', () => {
+  const malformed = { __parseError: 'PRIVATE_JSON_INPUT must never be echoed' };
+  const wrapper = minimaxToolSchema(tool).parameters;
+  const issue = toolInputIssue(malformed, wrapper)!;
+  assert.match(issue, /declared arguments_json field.*complete object as valid JSON text/);
+  assert.match(issue, /No tool operation ran/);
+  assert.doesNotMatch(issue, /PRIVATE_JSON_INPUT/);
+  for (const schema of [tool.parameters, { type: 'object', properties: { nested: { type: 'object', properties: { arguments_json: { type: 'string' } } } } },
+    { type: 'object', properties: { arguments_json: { type: 'number' } } }]) {
+    assert.doesNotMatch(toolInputIssue(malformed, schema)!, /arguments_json/, 'unoffered, nested or differently typed fields do not advertise a JSON-text wrapper');
+    assert.equal(validToolInput(malformed, schema), false, 'feedback never makes malformed input executable');
+  }
+  assert.equal(validToolInput({ arguments_json: '{}' }, tool.parameters), false, 'undeclared wrapper input remains rejected by the original strict contract');
 });
 
 test('simple value unions and the already serialized helper contract retain their existing wire format', () => {
