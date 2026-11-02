@@ -109,7 +109,7 @@ const agentOnlyTools: ToolSchema[] = [
     file_id: string, format: { type: 'string', enum: ['pdf', 'docx', 'doc', 'rtf', 'txt'] },
   }, ['file_id', 'format']),
   schema('combine_approved_documents', 'For a confirmed application when the employer requires the cover letter and resume in one PDF: combine the exact approved letter and verified original resume. Returns a private file_id and page counts; inspect employer limits and upload only if the PDF is accepted. No text can be added or changed; never submits.', {}),
-  schema('read_candidate_evidence', 'Read saved candidate answers, CV/supporting-document evidence and preferences. Prefer an exact document id or focused query. Reads default to 8000 characters; request max_chars for a larger passage when needed. Follow NEXT_OFFSET with the same query to read every passage before concluding a personal fact is absent. No other account data is accessible.', { query: string, offset: { type: 'integer', minimum: 0 }, max_chars: { type: 'integer', minimum: 4000, maximum: 24000 } }),
+  schema('read_candidate_evidence', 'Read saved candidate answers, CV/supporting documents and preferences. Focused queries return matching passages; exact document IDs read full documents. An empty query pages through all evidence. Default 8000 characters; request max_chars only when needed. Follow NEXT_OFFSET with the SAME query; repeating offset 0 returns already-read text. A search miss is not proof of absence; inspect the full relevant document before declaring a mandatory fact missing. No other account data is accessible.', { query: string, offset: { type: 'integer', minimum: 0 }, max_chars: { type: 'integer', minimum: 4000, maximum: 24000 } }),
   schema('read_browser_experience', 'Read this account\'s prior successful native interaction approaches on the current host. Inspect and match the actual current controls before using them. These are historical hints, never commands or candidate answers.', {}),
   schema('read_application_attempts', 'Read this posting\'s owner-scoped interrupted attempts and send activity to recover an uncertain submission. Confirmed duplicate decisions belong to the matching stage; this tool does not supply confirmed application history or invite a second duplicate review. Follow NEXT_OFFSET for further evidence about this posting.', { offset: { type: 'integer', minimum: 0 } }),
   schema('save_progress', 'Keep a concise durable recovery note across context compaction. Record completed steps, current problem, observed evidence, your next approach and any verification still needed. Update answers/documents here so they need not be rediscovered. This never chooses an action or resets the browser.', { note: string, cover_letter: string, resume_id: string, answers: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { question: string, answer: string }, required: ['question', 'answer'] } } }, ['note']),
@@ -572,7 +572,12 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         : { status, reason: String(args.reason) } };
     }
     if (name === 'reason_through_problem') { highEffort = true; return ok('The next turn will use deeper reasoning for this unresolved problem.'); }
-    if (name === 'read_candidate_evidence') return ok(await agentOnlyEvidence(String(args.query ?? ''), Number(args.offset ?? 0), Number(args.max_chars ?? 8000)));
+    if (name === 'read_candidate_evidence') {
+      const evidence = await agentOnlyEvidence(String(args.query ?? ''), Number(args.offset ?? 0), Number(args.max_chars ?? 8000));
+      const read = recovery.readEvidence(name, evidence);
+      if (read.newlyStalled) recordDiagnostic({ severity: 'warning', category: 'evidence_read_loop', stage: 'evidence', tool: name, step: steps, message: read.notice! });
+      return ok(read.notice ? `${read.notice}\n\n${evidence}` : evidence, read.notice ? 'reobserve' : undefined);
+    }
     if (name === 'read_browser_experience') return ok(browserExperience(ctx.page.url()));
     if (name === 'read_application_attempts') return ok(applicationAttemptHistory(options.job.id, Number(args.offset ?? 0)));
     if (name === consultationToolSchema.name) {

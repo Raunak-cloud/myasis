@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'patchright';
 import { closeCelerisQueues } from '../../../shared/celeris-queue.mjs';
+import { withApplicationModel, MINIMAX_APPLICATION_MODEL } from '../application-model.js';
 import { createReadinessFixtureReply } from './readiness-fixture.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'automatic-specialist-'));
@@ -33,7 +34,7 @@ const html = `<main><h1>Fixture application sign in</h1><label>One-time code<inp
   <div id=login>Sign-in verification required.</div><form id=form hidden onsubmit="event.preventDefault();document.getElementById('status').textContent='Processing application'">
   <label>City<input id=city required></label><button id=send onclick="localStorage.setItem('send-count',String(Number(localStorage.getItem('send-count')||0)+1))">Submit application</button><div id=status></div></form></main>`;
 
-async function scenario(id: string, calls: Call[], options: { specialistFails?: boolean; postSend?: boolean; exhausted?: boolean } = {}) {
+async function scenario(id: string, calls: Call[], options: { specialistFails?: boolean; postSend?: boolean; exhausted?: boolean; model?: 'minimax' } = {}) {
   config.dryRun = true;
   process.env.APPLICATION_REVIEW_MODE = options.postSend ? '' : 'prepare';
   const context = await browser.newContext(), page = await context.newPage();
@@ -50,6 +51,7 @@ async function scenario(id: string, calls: Call[], options: { specialistFails?: 
   globalThis.fetch = async (_url, init) => {
     if (String(_url).includes('mailbox.fixture.invalid')) return Response.json({ error: 'Fixture mailbox unavailable' }, { status: 401 });
     const body = JSON.parse(String(init?.body));
+    if (options.model === 'minimax') assert.equal(body.model, MINIMAX_APPLICATION_MODEL);
     if (String(body.messages?.[0]?.content).includes('read-only application specialist')) {
       specialists++;
       assert.equal(body.tools, undefined);
@@ -75,9 +77,10 @@ async function scenario(id: string, calls: Call[], options: { specialistFails?: 
       tool_calls: [{ id: `${id}-${parents}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } }] } }] });
   };
   try {
-    const result = await runAgentOnlyApplication({ simulation: 'isolated-form', page,
+    const execute = () => runAgentOnlyApplication({ simulation: 'isolated-form', page,
       job: { id, title: 'Developer', company: 'Fixture', location: 'Sydney', platform: 'workday', url },
       profile: { name: 'Fictional Candidate', email: 'fixture@example.invalid', suburb: 'Sydney', skills: [] } as never, log: () => {} });
+    const result = options.model === 'minimax' ? await withApplicationModel({ ...process.env, APPLICATION_AI_MODEL: 'minimax', OPENROUTER_API_KEY: 'fixture-only' }, execute) : await execute();
     const trace = JSON.parse(readFileSync(join(directory, 'traces', `${id}.json`), 'utf8'));
     return { result, specialists, parents, trace, city: await page.locator('#city').inputValue(), sends: await page.evaluate(() => Number(localStorage.getItem('send-count') || 0)) };
   } finally { await context.close(); }
@@ -98,6 +101,13 @@ try {
   await test('successful calls with no progress also escalate', async () => {
     const run = await scenario('unchanged-controls', [...Array.from({ length: 5 }, () => click('#noop')), ...complete]);
     assert.equal(run.specialists, 1); assert.equal(run.result.outcome.status, 'prepared'); assert.equal(run.sends, 0);
+  });
+  await test('MiniMax repeated evidence reads get one automatic consultation and then complete the form', async () => {
+    const read: Call = { name: 'read_candidate_evidence', args: { query: 'document-inventory' } };
+    const run = await scenario('repeated-evidence', [read, read, read, read, ...complete], { model: 'minimax' });
+    assert.equal(run.specialists, 1); assert.equal(run.result.outcome.status, 'prepared');
+    assert.equal(run.city, 'Sydney'); assert.equal(run.sends, 0);
+    assert.ok(run.trace.steps.some((step: any) => step.tool === 'read_candidate_evidence' && step.disposition === 'reobserve' && /Repeated evidence reads/.test(step.result)));
   });
   await test('a technical stop receives specialist advice before the application is abandoned', async () => {
     const run = await scenario('before-stop', [stop, ...complete]);

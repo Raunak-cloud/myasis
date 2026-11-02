@@ -58,7 +58,7 @@ test('owner evidence includes approved full records and preferences while isolat
   const owners = [owner('OWNER_ONE'), owner('OWNER_TWO')];
   globalThis.fetch = async () => { throw new Error('Evidence reads must never request a model or website'); };
   const results = await Promise.all(owners.map((record, index) => withApplicationModel(record.env, async () => {
-    const evidence = await agentOnlyEvidence('work qualifications');
+    const evidence = await agentOnlyEvidence();
     const inventory = agentOnlyDocuments();
     assert.equal(inventory.length, 2);
     assert.equal(agentOnlyResumePath('selected'), join(record.dir, 'resumes', 'current.txt'));
@@ -240,4 +240,38 @@ test('compound history queries combine fields and use an explicit posting id rat
     assert.match(applicationHistory('Example Bank Platform Engineer'), /95360000/);
     assert.match(applicationHistory('No such employer'), /"applied":\[\]/);
   });
+});
+
+
+test('focused evidence ranks a specific CV passage above large generic saved-answer records', async () => {
+  const record = owner('FOCUSED');
+  writeFileSync(join(record.dir, 'answers.json'), JSON.stringify(Array.from({ length: 100 }, (_, i) => ({
+    question: `Frontend backend database experience ${i}`, answer: 'GENERIC_ANSWER Confirmed earlier ordinary application details.',
+  }))));
+  writeFileSync(join(record.dir, 'resumes/current.txt'), 'PROJECT_EVIDENCE: RareProject uses frontend, backend and database orchestration.');
+  await withApplicationModel(record.env, async () => {
+    const response = await agentOnlyEvidence('RareProject frontend backend database', 0, 4000);
+    assert.match(response, /PROJECT_EVIDENCE/);
+    assert.ok(!response.includes('GENERIC_ANSWER') || response.indexOf('PROJECT_EVIDENCE') < response.indexOf('GENERIC_ANSWER'));
+    assert.ok(response.length <= 4000);
+  });
+});
+
+test('search uses token boundaries, supports short UI terms and keeps full sources available after a miss', async () => {
+  const record = owner('TOKENS');
+  writeFileSync(join(record.dir, 'resumes/current.txt'), 'PostgreSQL and Figma UI wireframes are documented.');
+  await withApplicationModel(record.env, async () => {
+    const miss = await agentOnlyEvidence('postgre');
+    assert.match(miss, /No matching evidence passages/);
+    assert.doesNotMatch(miss, /PostgreSQL/);
+    assert.match(await agentOnlyEvidence('UI'), /Figma UI wireframes/);
+    assert.match(await agentOnlyEvidence('selected'), /PostgreSQL/);
+  });
+});
+
+test('focused search retains a word split across the original chunk boundary', async () => {
+  const record = owner('BOUNDARY');
+  const heading = '### Resume selected: Current CV\n';
+  writeFileSync(join(record.dir, 'resumes/current.txt'), 'x'.repeat(1196 - heading.length) + ' BoundaryCertificate verified.');
+  await withApplicationModel(record.env, async () => assert.match(await agentOnlyEvidence('BoundaryCertificate'), /BoundaryCertificate verified/));
 });

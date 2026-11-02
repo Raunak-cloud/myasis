@@ -48,6 +48,26 @@ export class RecoveryCheckpoint {
   private reviewable = false;
   private goal = '';
   private specialistPending = false;
+  private readResults = new Set<string>();
+  private repeatedReads = 0;
+  private readNotice = '';
+
+  /** Retrieval adds evidence only when its response is new. This also catches
+   * alternating already-read queries, without denying tools or choosing answers. */
+  readEvidence(tool: string, response: string): { notice?: string; newlyStalled: boolean } {
+    const key = createHash('sha256').update(tool).update(response).digest('hex');
+    const repeated = this.readResults.has(key);
+    this.readResults.add(key);
+    if (this.readResults.size > 128) this.readResults.delete(this.readResults.values().next().value!);
+    this.repeatedReads = repeated ? this.repeatedReads + 1 : 0;
+    if (this.repeatedReads < 3) return { newlyStalled: false };
+    const newlyStalled = !this.readNotice;
+    this.readNotice = 'Repeated evidence reads returned material already retrieved while the employer form stayed unchanged. Reuse the evidence already read. Follow NEXT_OFFSET with the same query, read an exact document ID, or inspect and advance the actual form. Do not keep restarting the same searches. If a mandatory personal fact remains unknown after full source review, ask for that exact fact; otherwise continue using supported facts and clearly framed technical reasoning.';
+    this.specialistPending = true;
+    if (this.phase === 'normal') this.phase = 'plan';
+    this.persist();
+    return { notice: this.readNotice, newlyStalled };
+  }
 
   constructor(private readonly journal?: string, goal = '') {
     this.goal = goal;
@@ -77,7 +97,7 @@ export class RecoveryCheckpoint {
   }
   finish(status: string, sendAttempted: boolean): void { this.persist({ status, sendAttempted }); }
   render(): string {
-    return `${this.previousAttempt ? `PREVIOUS ATTEMPT (historical agent claims only; inspect the current page, never replay a send or adopt old answers blindly): ${this.previousAttempt}\n` : ''}${this.memory.render()}\nRECENT ACTION OUTCOMES (changed does not necessarily mean closer to submission): ${JSON.stringify(this.transitions)}\nRECORDED PLAN / PROGRESS: ${this.note}${this.tool ? `\nRECOVERY ADVISORY: ${this.tool} is optional. ${this.budgetReview ? 'One assessment covers both recovery and spending.' : 'Inspect the latest outcome before acting.'} If the evidence or specialist advice already resolves the issue, continue the form or prepare it directly; do not spend another turn restating a completed fix.` : ''}`;
+    return `${this.previousAttempt ? `PREVIOUS ATTEMPT (historical agent claims only; inspect the current page, never replay a send or adopt old answers blindly): ${this.previousAttempt}\n` : ''}${this.memory.render()}${this.readNotice ? `\nEVIDENCE READ RECOVERY: ${this.readNotice}` : ''}\nRECENT ACTION OUTCOMES (changed does not necessarily mean closer to submission): ${JSON.stringify(this.transitions)}\nRECORDED PLAN / PROGRESS: ${this.note}${this.tool ? `\nRECOVERY ADVISORY: ${this.tool} is optional. ${this.budgetReview ? 'One assessment covers both recovery and spending.' : 'Inspect the latest outcome before acting.'} If the evidence or specialist advice already resolves the issue, continue the form or prepare it directly; do not spend another turn restating a completed fix.` : ''}`;
   }
   get reviewingBudget(): boolean { return this.budgetReview; }
   /** Escalation survives optional recovery narration until it is actually handled. */
@@ -134,6 +154,7 @@ export class RecoveryCheckpoint {
       && this.observation?.fields.some(old => old.label === field.label && old.section === field.section && old.currentValue !== field.currentValue));
     this.pending = []; this.seen.add(signature); this.observation = observation;
     if (signature !== this.previous) {
+      this.readResults.clear(); this.repeatedReads = 0; this.readNotice = '';
       // A delayed render is evidence to inspect, not execution of the agent's
       // newly recorded plan. Only endTurn after an attempted repair schedules
       // its result check; otherwise recovery can loop without acting at all.

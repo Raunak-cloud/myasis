@@ -254,3 +254,27 @@ test('unrelated rendering cannot erase failures and locator descriptions remain 
  assert.match(state.render(), /within/); assert.match(state.render(), /#chat/);
  assert.doesNotMatch(state.render(), /\[object Object\]/);
 });
+
+
+test('alternating identical evidence reads escalate without blocking tools or requiring browser errors', () => {
+  const state = new RecoveryCheckpoint(); state.observe(observation());
+  for (const response of ['page A', 'page B', 'page A', 'page B']) {
+    assert.equal(state.readEvidence('read_candidate_evidence', response).newlyStalled, false);
+    state.observe(observation('', 'ref-churn'));
+  }
+  const stuck = state.readEvidence('read_candidate_evidence', 'page A');
+  assert.equal(stuck.newlyStalled, true); assert.match(stuck.notice!, /NEXT_OFFSET/);
+  assert.equal(state.needsSpecialist, true); assert.equal(state.needsDeepReasoning, true);
+  assert.equal(state.readEvidence('read_candidate_evidence', 'page B').newlyStalled, false, 'one diagnostic per unchanged evidence-loop episode');
+  state.acted('browser_action', false, { action: 'fill' }); state.endTurn(); state.observe(observation('Sydney'));
+  assert.equal(state.readEvidence('read_candidate_evidence', 'page A').notice, undefined, 'rechecking evidence after genuine form progress is allowed');
+});
+
+test('new evidence pages are useful reads and do not trigger the repeated-read escalation', () => {
+  const state = new RecoveryCheckpoint(); state.observe(observation());
+  for (let offset = 0; offset < 20; offset++) {
+    assert.equal(state.readEvidence('read_candidate_evidence', `OFFSET ${offset}: distinct passage ${offset}`).notice, undefined);
+    state.observe(observation());
+  }
+  assert.equal(state.needsSpecialist, false); assert.equal(state.tool, undefined);
+});
