@@ -18,10 +18,10 @@ function account(marker: string, model = 'celeris') {
   const dir = mkdtempSync(join(tmpdir(), 'consultation-')); directories.push(dir);
   const answers = JSON.stringify([{ question: 'Confirmed account email', answer: `${marker}@example.invalid` }]);
   writeFileSync(join(dir, 'answers.json'), answers);
-  writeFileSync(join(dir, 'knowledge.json'), JSON.stringify([{ id: marker, kind: 'note', label: 'Career details', text: `${marker} knowledge record`, enabled: true }]));
+  writeFileSync(join(dir, 'knowledge.json'), JSON.stringify([{ id: marker, kind: 'note', label: 'Career details', text: `${marker} knowledge record: retail assistant referral dropdown evidence.`, enabled: true }]));
   mkdirSync(join(dir, 'resumes'));
   writeFileSync(join(dir, 'resumes.json'), JSON.stringify([{ id: 'current', label: 'Selected CV', fileName: 'cv.txt', isDefault: true }]));
-  writeFileSync(join(dir, 'resumes', 'cv.txt'), `${marker} selected CV with supported employment`);
+  writeFileSync(join(dir, 'resumes', 'cv.txt'), `${marker} selected CV with supported employment: retail assistant referral dropdown evidence.`);
   return { dir, answers, env: { APPLICATION_AI_MODEL: model, CELERIS_API_KEY: `private-celeris-${marker}`,
     DATA_DIR: dir, COST_TRACKING: 'false', TARGET_ROLE: `${marker} retail assistant`, MIN_HOURLY_RATE: '22',
     AI_INSTRUCTIONS_B64: Buffer.from(`${marker} avoid overnight shifts`).toString('base64') } };

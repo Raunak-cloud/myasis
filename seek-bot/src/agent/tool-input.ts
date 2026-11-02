@@ -18,7 +18,7 @@ export function validToolInput(value: unknown, schema: Record<string, unknown>, 
     if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
     const object = value as Record<string, unknown>, properties = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
     return Object.entries(object).every(([key, item]) => properties[key]
-      ? validToolInput(item, properties[key], closedObjects) : !closedObjects && schema.additionalProperties !== false);
+      ? validToolInput(item, properties[key], closedObjects) : schema.additionalProperties === true || !closedObjects && schema.additionalProperties !== false);
   }
   if (schema.type === 'array') return Array.isArray(value)
     && (typeof schema.minItems !== 'number' || value.length >= schema.minItems)
@@ -42,6 +42,7 @@ export function validToolInput(value: unknown, schema: Record<string, unknown>, 
     && (typeof schema.maxLength !== 'number' || [...value].length <= schema.maxLength)
     && (typeof schema.pattern !== 'string' || new RegExp(schema.pattern,'u').test(value));
   if (schema.type === 'boolean') return typeof value === 'boolean';
+  if (schema.type === 'null') return value === null;
   return true;
 }
 

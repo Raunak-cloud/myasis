@@ -59,6 +59,7 @@ import { addIndeedCoverLetter } from './indeed-cover-letter.js';
 import { jobBoardForUrl } from '../job-board-url.js';
 import { extractEmployerQuestions } from './question-evidence.js';
 import { browserCommandContract } from './browser-command-schema.js';
+import {ApplicationHelpers} from './application-helpers.js';
 
 const string = { type: 'string' };
 const batchActions = ['click', 'fill', 'type', 'select', 'check', 'press', 'hover', 'wait', 'inspect', 'set_input_files', 'script'];
@@ -68,7 +69,7 @@ const schema = (name: string, description: string, properties: Record<string, un
 });
 
 /** The sole application tool surface. The agent owns answers and receipt decisions. */
-const agentOnlyTools: ToolSchema[] = [
+export const agentOnlyTools: ToolSchema[] = [
   applicationReviewTool,
   schema('add_cover_letter', 'Indeed fast path: supply your complete truthful tailored letter. Opens the known Supporting documents → Add → Write a cover letter flow, fills with normal input events, saves locally and reads back. Does not draft or submit the application. Use once when the application offers a letter channel. On fallback, inspect the live page and finish with normal browser tools; preserve completed work and do not call this shortcut repeatedly. Approved submissions always use the exact approved letter.', { text: { type: 'string', minLength: 1 } }, ['text']),
   schema('prepare_application', 'After filling and inspecting the final application review, save the actual completed form for confirmation, or check an approved reconstruction. Nothing is submitted. Captured browser answers are retained; pass an empty answers array when no additions are needed. Use actual saved values and selected option labels, not profile shorthand. Correct the form and inspect its readback before preparing; use save_progress for verified wizard answers absent from captured state. Supply the complete cover letter and selected account resume ID.', {
@@ -198,6 +199,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
     return {...tool,parameters:{...tool.parameters,properties:{...properties,actions:{...properties.actions,
       items:{...command,properties:{...(command.properties as Record<string,unknown>),target_mode:targetMode},...browserCommandContract(batchActions,true)}}}}};
   }) : agentOnlyTools.filter(tool => tool.name !== 'prepare_application');
+  const helpers=options.continuation?.helpers??new ApplicationHelpers(offeredTools);
   if (retiredJobSource(options.job)) return { outcome: { status: 'skipped', reason: RETIRED_SOURCE_MESSAGE }, captured: [], actions: [], submitPressed: false, steps: 0, usage: 'No model calls: job source removed.' };
 
   const isolated = options.simulation === 'isolated-form';
@@ -347,7 +349,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
       outcome:{status:'skipped'},steps:trace,sendAudit:sendAudit()},identity.runStartId,identity.attemptId))return false;
     repairCheckpoint={attemptId:identity.attemptId,runId:identity.runStartId,page:ctx.page,meter,
       captured:ctx.captured.map(answer=>({...answer})),files:files.checkpoint(),actions:[...ctx.actions],
-      coverLetter:ctx.coverLetter,resumeUsed:ctx.resumeUsed,resumeName:ctx.resumeName,pendingCredentials:ctx.pendingCredentials,haltReview,specialistState,specialistEvidence};
+      coverLetter:ctx.coverLetter,resumeUsed:ctx.resumeUsed,resumeName:ctx.resumeName,pendingCredentials:ctx.pendingCredentials,haltReview,specialistState,specialistEvidence,helpers};
     terminal={status:'skipped',reason:'Application paused at a safe checkpoint for validated tool repair.'};finished=true;
     return true;
   };
@@ -382,7 +384,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
         startedAt: new Date().toISOString(), execution: 'started' };
       trace.push(consultationTrace); saveLiveTrace();
       const advice = await consultApplicationSpecialist(ctx, { question, focus: 'form' }, {
-        enabled: true, meter, state: specialistState, trigger: 'automatic',
+        enabled: true, meter, state: specialistState, trigger: 'automatic', helpers,
         applicationHistory: redactPrivateAuthenticationData(`${specialistHistory()}\n${recovery.render()}`, secrets),
       });
       Object.assign(consultationTrace, { result: advice.kind === 'ok' ? advice.message : 'No specialist advice was returned.',
@@ -401,6 +403,16 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
   };
 
   const act = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
+    if(helpers.has(name))return helpers.execute(name,args,async(primitive,input)=>{
+      if(await hasHcaptchaChallenge(ctx.page))return {kind:'terminal',outcome:{status:'skipped',reason:HCAPTCHA_SKIP_REASON}};
+      recordDiagnostic({severity:'info',category:'helper_operation',stage:'tool',tool:primitive,message:`Executing ${name} using the normal ${primitive} executor.`});
+      const result=await act(primitive,input);
+      if(result.kind==='ok'&&!failedToolResult(result)&&primitive==='browser_action'&&changesBrowserState(input)){
+        browserMutated=true;haltReview.pendingAction=false;
+      }
+      if(failedToolResult(result))recordDiagnostic({severity:'warning',category:'helper_operation_error',stage:'tool',tool:primitive,message:result.kind==='ok'?result.message:'Helper failed.'});
+      return result;
+    },()=>!meter.actionExhausted);
     if (name === applicationReviewTool.name) {
       const canonicalReview = readiness.requested;
       readiness.record(String(args.assessment), args.unresolved as string[]);
@@ -588,7 +600,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
     if (name === consultationToolSchema.name) {
       recovery.specialistRequested();
       if (recovery.evidenceKey) specialistEvidence.add(recovery.evidenceKey);
-      return consultApplicationSpecialist(ctx, args as { question: string }, { enabled: true, meter, state: specialistState,
+      return consultApplicationSpecialist(ctx, args as { question: string }, { enabled: true, meter, state: specialistState, helpers,
         applicationHistory: specialistHistory() });
     }
     if (name === 'take_snapshot') {
@@ -920,7 +932,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
       let reply;
       // The forced checkpoint already accepts only this named tool. Advertise
       // that exact contract; normal turns retain every available action.
-      const availableTools=haltReviewTools(offeredTools,haltReview,recordOnly).filter(tool =>
+      const availableTools=haltReviewTools([...offeredTools,...helpers.schemas()],haltReview,recordOnly).filter(tool =>
         !recoveryTools.some(item => item.name === tool.name) || tool.name === recovery.tool);
       const turnTools = checkpoint ? availableTools.filter(tool => tool.name === checkpoint)
         : recordOnly ? availableTools.filter(tool => finalRecords.includes(tool.name)) : availableTools;

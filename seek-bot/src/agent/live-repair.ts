@@ -14,6 +14,7 @@ import type { AgentRunOptions, AgentRunResult } from './loop.js';
 import type { ToolContext } from './context.js';
 import type { HaltReviewState } from './halt-review.js';
 import type { ConsultationState } from './consultation.js';
+import type {ApplicationHelpers} from './application-helpers.js';
 
 export interface RepairContinuation {
   attemptId: string; runId: string; page: Page; meter: ProgressBudget;
@@ -24,6 +25,7 @@ export interface RepairContinuation {
   haltReview?: HaltReviewState;
   specialistState?: ConsultationState;
   specialistEvidence?: Set<string>;
+  helpers?: ApplicationHelpers;
 }
 export function liveRepairEnabled(): boolean {
   const env=applicationModelEnvironment();

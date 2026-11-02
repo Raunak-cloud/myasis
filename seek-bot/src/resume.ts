@@ -38,15 +38,15 @@ export type DocumentFormat = 'pdf' | 'docx' | 'doc' | 'rtf' | 'txt';
  * applying agent. Employer HTML is never parsed into a conversion or veto.
  * LibreOffice retains the document layout; variants remain beside the source.
  */
-export async function convertDocument(file: string, format: DocumentFormat): Promise<string | null> {
+export async function convertDocument(file: string, format: DocumentFormat, options: {timeoutMs?:number;signal?:AbortSignal;profile?:string} = {}): Promise<string | null> {
   const ext = extname(file).toLowerCase();
   const target = `.${format}`;
   if (ext === target) return file;
   const converted = resolve(dirname(file), `${basename(file, extname(file))}${target}`);
   if (existsSync(converted)) return converted;
-  const profile = resolve(tmpdir(), `owtomate-lo-${process.getuid?.() ?? 'user'}`);
+  const profile = options.profile ?? resolve(tmpdir(), `owtomate-lo-${process.getuid?.() ?? 'user'}`);
   const run = promisify(execFile);
-  await run('soffice', [`-env:UserInstallation=file://${profile}`, '--headless', '--convert-to', target.slice(1), '--outdir', dirname(file), file], { timeout: 90_000 })
+  await run('soffice', [`-env:UserInstallation=file://${profile}`, '--headless', '--convert-to', target.slice(1), '--outdir', dirname(file), file], { timeout: Math.min(90_000,options.timeoutMs??90_000),signal:options.signal })
     .catch((error) => console.warn(`  ! could not convert the document to ${target}: ${(error as Error).message.split('\n')[0]}`));
   return existsSync(converted) ? converted : null;
 }

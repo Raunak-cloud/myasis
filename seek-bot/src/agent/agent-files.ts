@@ -67,7 +67,7 @@ export class AgentFiles {
     const key = createHash('sha256').update(JSON.stringify([name, format, text])).digest('hex');
     const source = resolve(this.directory(key), basename(name, extname(name)) + '.txt');
     writeFileSync(source, text, { mode: 0o600 });
-    const path = await convertDocument(source, format);
+    const path = await this.render(source, format);
     if (!path) throw Error('The requested file could not be rendered. No file was attached; inspect the error and choose your next action.');
     const file = { id: 'generated:' + key, path, text };
     this.generated.set(file.id, file);
@@ -88,7 +88,7 @@ export class AgentFiles {
     const key = createHash('sha256').update(readFileSync(original.path)).update(JSON.stringify([basename(original.path), format])).digest('hex');
     const source = resolve(this.directory(key), basename(original.path));
     if (source !== original.path) copyFileSync(original.path, source);
-    const path = await convertDocument(source, format);
+    const path = await this.render(source, format);
     if (!path) throw Error('The requested conversion failed. No file was attached; choose your next action from the actual employer requirements.');
     const file = { ...original, id: 'generated:' + key, path };
     this.generated.set(file.id, file);
