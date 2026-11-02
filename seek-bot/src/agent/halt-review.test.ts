@@ -8,7 +8,7 @@ import type { CelerisRequest } from './celeris.js';
 
 const dir=mkdtempSync(join(tmpdir(),'halt-review-'));
 process.env.DATA_DIR=dir;process.env.COST_TRACKING='false';
-mkdirSync(join(dir,'resumes'));writeFileSync(join(dir,'resumes','Fixture CV.txt'),'Fictional TypeScript developer.');
+mkdirSync(join(dir,'resumes'));writeFileSync(join(dir,'resumes','Fixture CV.txt'),'Fictional TypeScript developer. Notice period: 2 weeks.');
 writeFileSync(join(dir,'resumes.json'),JSON.stringify([{id:'cv',fileName:'Fixture CV.txt',label:'Fixture CV'}]));
 const {reviewHalt,newHaltReviewState,haltReviewTools}=await import('./halt-review.js');
 const {CostMeter}=await import('./celeris.js');
