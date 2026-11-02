@@ -549,7 +549,7 @@ async function runApplicationAttempt(options: AgentRunOptions): Promise<AgentRun
           const detail = `Could not securely capture the required employer question: ${extracted.issue ?? 'question unavailable'}`;
           recordDiagnostic({ severity: 'warning', category: 'question_capture_error', stage: 'application', tool: 'finish', message: detail });
           log(`  ${detail}`);
-          return { kind: 'terminal', outcome: { status: 'skipped', reason: 'Could not securely capture a required employer question for review.' } };
+          return ok(`${detail}. Nothing was submitted or saved for attention. Inspect the current form and retry finish with the native FIELD ref and complete visible employer question. Snapshot references may differ from FIELD refs. Do not invent an answer or replace the missing personal fact with a technical question.`, 'reobserve');
         }
         questions = extracted.questions;
       }

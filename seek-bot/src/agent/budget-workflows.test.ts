@@ -162,10 +162,19 @@ test('required missing answers can be recorded after the paid canonical review c
  try{const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'needs-human');assert.equal(turns,3);assert.equal(r.submitPressed,false);if(r.outcome.status==='needs-human')assert.equal(r.outcome.questions?.[0].question,'What is your visa expiry date?');}finally{await f.context.close();}
 });
 
-test('an ungroundable question stops once as a technical failure without a candidate task or send',{timeout:10000},async()=>{
+test('a stale question reference receives recoverable feedback and the current grounded question is saved without a send',{timeout:10000},async()=>{
  const f=await fixture('<main><label>Required detail<input required></label><button id="send">Submit application</button></main>');let turns=0;
- globalThis.fetch=async()=>{turns++;assert.equal(turns,1,'question capture must not cause another paid retry');return packet([finish('needs-human',{questions:[{field_ref:'f999'}]})]);};
- try{const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'skipped');assert.match(JSON.stringify(r.outcome),/securely capture/);assert.equal(turns,1);assert.equal(r.submitPressed,false);}finally{await f.context.close();}
+ globalThis.fetch=async(_url,init)=>{
+  const body=JSON.parse(String(init?.body)) as Body;turns++;assert.ok(turns<=2,'one corrected reference must finish without a recovery loop');
+  if(turns===1)return packet([finish('needs-human',{questions:[{field_ref:'f999',form_quote:'Required detail',kind:'text'}]})]);
+  const latest=(body.messages as Array<{role:string;content:string}>).filter(m=>m.role==='tool').at(-1)?.content;
+  assert.match(latest??'',/Nothing was submitted or saved for attention.*native FIELD ref/);
+  return packet([finish('needs-human',{questions:[{field_ref:'f0',form_quote:'Required detail',kind:'text'}]})]);
+ };
+ try{const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'needs-human');assert.equal(turns,2);assert.equal(r.submitPressed,false);
+  if(r.outcome.status==='needs-human')assert.equal(r.outcome.questions?.[0].question,'Required detail');
+  assert.equal(await f.page.locator('input').inputValue(),'','recovery does not invent the missing answer');
+ }finally{await f.context.close();}
 });
 
 test('email preparation retains an already-paid draft and changes to its recipient require a fresh agent review',{timeout:10000},async()=>{

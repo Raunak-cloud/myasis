@@ -53,7 +53,7 @@ try {
   const codeField = first.fields.find(field => field.label === 'Verification code')!;
   assert.equal(authenticationValue(codeField, { name: 'Fixture', email: 'fixture@invalid', phone: '' } as never, page.url()), null, 'OTP sensitivity never selects a site password');
   const beforeAuthentication = await page.locator('#otp').inputValue();
-  await doCompleteAuthentication({ page, observation: first, profile: { name: 'Fixture', email: 'fixture@invalid', phone: '' }, actions: [], log: () => {} } as never,
+  await doCompleteAuthentication({ page, observation: first, job: { company: 'Fictional Employer' }, profile: { name: 'Fixture', email: 'fixture@invalid', phone: '' }, actions: [], log: () => {} } as never,
     { targets: [{ selector: '#otp' }], purpose: 'create_account' });
   assert.equal(await page.locator('#otp').inputValue(), beforeAuthentication, 'native authentication targets preserve the verification-code kind and cannot receive a generated password');
   assert.ok(await questionEvidenceIssue({ page, observation: first } as never, [{ field_ref: codeField.ref, form_quote: codeField.label }]), 'private auth codes cannot enter the saved answer-bank question flow');

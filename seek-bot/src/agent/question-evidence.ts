@@ -19,6 +19,17 @@ export async function extractEmployerQuestions(ctx: ToolContext, raw: unknown): 
     const field = ctx.observation.fields.find(f => f.ref === ref || f.kind === 'radio' && f.options?.some((_, i) => `${f.ref}:${i}` === ref));
     const action = ctx.observation.actions.find(a => a.ref === ref);
     if ((!field && !action) || field?.sensitive || field?.privateKind || field?.currentValue === '[private credential]') return { issue: 'The question field is unavailable or private.' };
+    // The applying agent may already have read the complete rich-text question.
+    // Prefer that quote only when this current control independently grounds it.
+    // Custom widgets can expose a native label consisting only of an asterisk.
+    const supplied = { field_ref: ref, form_quote: item.form_quote, ...(field ? { kind: field.kind, options: field.options } : {}) };
+    const bareRepeatedLabel = field && typeof item.form_quote === 'string'
+      && item.form_quote.replace(/[\s:*]+$/g, '').toLowerCase() === field.label.replace(/[\s:*]+$/g, '').toLowerCase()
+      && ctx.observation.fields.filter(f => f.label.trim().toLowerCase() === field.label.trim().toLowerCase()).length > 1;
+    if (typeof supplied.form_quote === 'string' && !bareRepeatedLabel && !await questionEvidenceIssue(ctx, [supplied])) {
+      grounded.push(supplied);
+      continue;
+    }
     const target = locate(ctx.page, field?.kind === 'radio' && field.ref === ref ? `${ref}:0` : ref);
     if (!target || await target.count().catch(() => 0) !== 1) return { issue: 'The question control changed.' };
     const quote = await target.evaluate(element => {
