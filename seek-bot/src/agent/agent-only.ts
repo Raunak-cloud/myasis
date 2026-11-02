@@ -61,8 +61,8 @@ import { extractEmployerQuestions } from './question-evidence.js';
 import { browserCommandContract } from './browser-command-schema.js';
 
 const string = { type: 'string' };
-const batchActions = ['click', 'fill', 'type', 'select', 'check', 'press', 'hover', 'wait', 'inspect', 'set_input_files'];
-const browserActions = [...batchActions, 'scroll', 'navigate', 'script', 'select_page', 'dialog'];
+const batchActions = ['click', 'fill', 'type', 'select', 'check', 'press', 'hover', 'wait', 'inspect', 'set_input_files', 'script'];
+const browserActions = [...batchActions, 'scroll', 'navigate', 'select_page', 'dialog'];
 const schema = (name: string, description: string, properties: Record<string, unknown>, required: string[] = [], constraints: Record<string, unknown> = {}): ToolSchema => ({
   name, description, parameters: { type: 'object', additionalProperties: false, properties, required, ...constraints },
 });
@@ -81,10 +81,12 @@ const agentOnlyTools: ToolSchema[] = [
     to: string, subject: string, cover_letter: string, resume_id: string,
     attach_cover_letter: { type: 'boolean', description: 'Also attach the approved letter as a text document if requested. The letter is always included in the email body.' },
   }, ['to', 'subject', 'cover_letter', 'resume_id']),
-  schema('browser_batch', 'Execute your own ordered native browser commands and read-only inspections in one call. Each command uses fresh locators and normal browser events; fill/select/check return current values and validation together. inspect returns labelled current values for all matching targets, masking private values, and never edits. Stops at the first actual error or page handoff. Include wait conditions with the action that causes a change. Only batch actions whose targets and dependencies you have inspected; inspect after unexpected changes. No automatic field answering or widget repair.', {
+  schema('browser_batch', 'Execute your own ordered native browser commands, browser scripts and read-only inspections in one call. Scripts follow the same contract and permissions as browser_action. Each command uses fresh locators and normal browser events; fill/select/check return current values and validation together. inspect returns labelled current values for all matching targets, masking private values, and never edits. Stops at the first actual error or page handoff. Include wait conditions with the action that causes a change. Only batch actions whose targets and dependencies you have inspected; inspect after unexpected changes. No automatic field answering or widget repair.', {
     actions: { type: 'array', minItems: 1, maxItems: MAX_BROWSER_BATCH, items: { type: 'object', additionalProperties: false, properties: {
       action: { type: 'string', enum: batchActions },
       file_ids: fileIdsProperty, file_chooser: { type: 'boolean' },
+      script: { type: 'string', minLength: 1, description: 'For action=script: the same browser-side function, expression or async body accepted by browser_action. Executes once in order; runtime failure stops the batch.' },
+      script_intent: { type: 'string', enum: ['inspect', 'act'], description: 'For script only: inspect declares read-only inspection; act declares interaction. The normal browser_action permissions still apply.' },
       ...browserTargetProperties, ...browserWaitProperties, value: string, sends_application: { type: 'boolean', description: 'Required on every click/press in Semi auto and approved reconstruction: true transmits the application; false is preparatory.' },
     }, required: ['action'], ...browserCommandContract(batchActions) } },
   }, ['actions']),

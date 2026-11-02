@@ -87,6 +87,15 @@ test('native locators retain events across rerenders, scope frames/editors/shado
     assert.equal(await evaluateBrowser(page, { script: '1 + 2' }), 3);
     assert.equal(await evaluateBrowser(page, { script: '() => document.title' }), '');
     assert.equal(await evaluateBrowser(page, { script: 'return await Promise.resolve(4)' }), 4);
+    assert.equal(await evaluateBrowser(page, { script: 'function () { return 5; }' }), 5);
+    assert.equal(await evaluateBrowser(page, { script: 'async function () { return await Promise.resolve(6); }' }), 6);
+    assert.equal(await evaluateBrowser(page, { script: 'await Promise.resolve(7)' }), 7);
+    assert.equal(await evaluateBrowser(page, { script: 'const value = await Promise.resolve(8); return value;' }), 8);
+    await evaluateBrowser(page, { script: 'window.scriptRuns = 0' });
+    await assert.rejects(evaluateBrowser(page, { script: '(() => { window.scriptRuns++; throw new SyntaxError("return is not a retry instruction"); })()' }), /return is not a retry instruction/);
+    assert.equal(await evaluateBrowser(page, { script: 'window.scriptRuns' }), 1, 'a runtime SyntaxError must not execute a mutation again');
+    await assert.rejects(evaluateBrowser(page, { script: 'window.scriptRuns++; return (' }), /SyntaxError/);
+    assert.equal(await evaluateBrowser(page, { script: 'window.scriptRuns' }), 1, 'invalid source must not partially execute');
     assert.equal(await evaluateBrowser(page, { script: 'typeof process' }), 'undefined', 'scripts cannot access host Node globals');
     const salary = await nativeReadback(browserTarget(page, { locator: { by: 'label', value: 'Salary per hour' } }));
     assert.match(JSON.stringify(salary), /AUD per hour/); assert.match(JSON.stringify(salary), /"step":".01"/);

@@ -23,6 +23,8 @@ globalThis.fetch = (async (_url, init) => {
   if (turn === 0) {
     const schema = body.tools.find((tool: any) => tool.function.name === 'browser_action').function.parameters;
     assert.match(toolInputIssue({ action: 'script' }, schema)!, /\$\.script is required/);
+    const batchSchema = body.tools.find((tool: any) => tool.function.name === 'browser_batch').function.parameters;
+    assert.match(toolInputIssue({ actions: [{ action: 'script' }] }, batchSchema)!, /\$\.actions\[0\]\.script is required/);
     assert.match(toolInputIssue({ action: 'set_input_files', selector: '#resume' }, schema)!, /\$\.file_ids is required/);
     assert.ok(toolInputIssue({ action: 'wait', timeout_ms: 1000 }, schema));
     call = { name: 'browser_batch', args: { actions: [
@@ -40,11 +42,15 @@ globalThis.fetch = (async (_url, init) => {
     const result = JSON.parse(latest());
     assert.equal(result.completed, 3);
     assert.equal(JSON.parse(result.results[1].message).current.files[0], 'CV.txt');
-    call = { name: 'browser_action', args: { action: 'script', script_intent: 'inspect',
-      script: '() => ({ name: document.querySelector("#name").value, files: document.querySelector("#resume").files.length, inputs: window.inputEvents })' } };
+    call = { name: 'browser_batch', args: { actions: [
+      { action: 'script', script_intent: 'inspect', script: 'async function () { return { name: document.querySelector("#name").value, files: document.querySelector("#resume").files.length, inputs: window.inputEvents }; }' },
+      { action: 'inspect', selector: '#name' },
+    ] } };
   } else if (turn === 3) {
-    const result = JSON.parse(latest());
-    assert.deepEqual(result, { name: 'Alex Fixture', files: 1, inputs: 1 });
+    const batch = JSON.parse(latest());
+    assert.equal(batch.completed, 2);
+    assert.deepEqual(JSON.parse(batch.results[0].message), { name: 'Alex Fixture', files: 1, inputs: 1 });
+    assert.equal(JSON.parse(batch.results[1].message).value, 'Alex Fixture');
     call = { name: 'finish', args: { status: 'skipped', reason: 'Controlled browser contract fixture is complete.', evidence: 'Fixture contract test' } };
   } else throw Error('Unexpected paid/model turn in offline fixture');
   return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{
