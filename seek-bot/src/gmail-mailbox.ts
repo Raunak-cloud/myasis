@@ -1,6 +1,6 @@
 import { parseHTML } from 'linkedom';
 import { GmailMcpClient, GmailRequestTimeoutError, safeGmailError, type GmailMessage } from './gmail-mcp-client.js';
-import { isRequestedVerificationEmail, readVerificationEmailsLocally, verificationContextWords, type LocalVerificationEmail, type VerificationPurpose } from './verification-email-local.js';
+import { verificationEmailMatchDecision, readVerificationEmailsLocally, verificationContextWords, type LocalVerificationEmail, type VerificationPurpose, type VerificationEmailMatchReason } from './verification-email-local.js';
 import type { PreparedApplication } from './application-review-types.js';
 import type { ApplyOutcome } from './types.js';
 import { config } from './config.js';
@@ -55,6 +55,11 @@ export interface VerificationPollSummary {
   completedSearches: number; completedReads: number; completedPolls: number;
   lastCompletedCheckAt?: string; finalCheckIncomplete: boolean;
   siteHost?: string; purpose?: VerificationPurpose;
+  messageChecks: VerificationMessageChecks;
+}
+export interface VerificationMessageChecks {
+  examinedMessages: number; matchedMessages: number; extractionUnavailableMessages: number;
+  rejections: Partial<Record<Exclude<VerificationEmailMatchReason, 'matched'>, number>>;
 }
 export async function findVerificationInGmail(options: { hint?: string; site?: string; want?: 'code' | 'link' | 'either'; purpose?: VerificationPurpose; allowAlternative?: boolean; timeoutMs?: number; requestTimeoutMs?: number; requestedAt?: number; signal?: AbortSignal; log?: (message: string) => void } = {}) {
   const timeoutMs = Math.floor(options.timeoutMs ?? 90_000), startedAt = Date.now(), deadline = startedAt + timeoutMs;
@@ -68,6 +73,17 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
   let inFlight: { operation: 'search' | 'read'; startedAt: number } | undefined;
   let completedSearches = 0, completedReads = 0, completedPolls = 0;
   let lastCompletedCheckAt: string | undefined, pollInProgress = false;
+  // Message IDs stay private and in memory. Repeated thread reads or the same
+  // message appearing in several polls do not inflate diagnosis counts.
+  const messageDecisions = new Map<string, { reason: VerificationEmailMatchReason; extractionAvailable: boolean }>();
+  const messageChecks = (): VerificationMessageChecks => {
+    const checks: VerificationMessageChecks = { examinedMessages: messageDecisions.size, matchedMessages: 0, extractionUnavailableMessages: 0, rejections: {} };
+    for (const decision of messageDecisions.values()) {
+      if (decision.reason === 'matched') { checks.matchedMessages++; if (!decision.extractionAvailable) checks.extractionUnavailableMessages++; }
+      else checks.rejections[decision.reason] = (checks.rejections[decision.reason] ?? 0) + 1;
+    }
+    return checks;
+  };
   let siteHost: string | undefined;
   try { if (options.site) siteHost = new URL(options.site.includes('://') ? options.site : `https://${options.site}`).hostname; } catch { /* Never persist arbitrary site text, paths or tokens. */ }
   const checkLifetime = () => {
@@ -76,7 +92,7 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
   };
   const summary = (termination: VerificationPollSummary['termination']): VerificationPollSummary => ({ termination, completedSearches, completedReads, completedPolls,
     ...(lastCompletedCheckAt ? { lastCompletedCheckAt } : {}), finalCheckIncomplete: pollInProgress,
-    ...(siteHost ? { siteHost } : {}), ...(options.purpose ? { purpose: options.purpose } : {}) });
+    ...(siteHost ? { siteHost } : {}), ...(options.purpose ? { purpose: options.purpose } : {}), messageChecks: messageChecks() });
   // This callback belongs to the owner/run logger. Only bounded operation
   // metadata leaves the private mailbox layer: never queries or mail content.
   const diagnostic = (event: Record<string, string | number | boolean>) => options.log?.(`  [mailbox-diagnostic] ${JSON.stringify(event)}`);
@@ -116,11 +132,20 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
     Number.isFinite(options.requestedAt) ? options.requestedAt! - VERIFICATION_CLOCK_SKEW_MS : 0);
   const query = (options.purpose === 'reset_password' ? '(password OR reset OR recovery)' : '(code OR verify OR verification OR confirm OR confirmation OR activate OR activation OR password OR passcode OR OTP OR "sign in")')
     + (context.length ? ` (${context.map(word => `"${word}"`).join(' OR ')})` : '');
-  const read = (emails: LocalVerificationEmail[]) => {
-    for (const email of emails) {
-      if (isRequestedVerificationEmail(email, options)) matchingEmailSeen = true;
+  const read = (emails: Array<{ id: string; email: LocalVerificationEmail }>) => {
+    for (const { id, email } of emails) {
+      const decision = verificationEmailMatchDecision(email, options);
+      if (decision.matched) matchingEmailSeen = true;
       const found = readVerificationEmailsLocally([email], { hint: options.hint || '', site: options.site || '', purpose: options.purpose, want: options.want || 'either' })
         ?? (options.allowAlternative ? readVerificationEmailsLocally([email], { hint: options.hint || '', site: options.site || '', purpose: options.purpose, want: 'either' }) : null);
+      const previous = messageDecisions.get(id), current = { reason: decision.reason, extractionAvailable: Boolean(found) };
+      messageDecisions.set(id, current);
+      if (!previous || previous.reason !== current.reason || previous.extractionAvailable !== current.extractionAvailable) {
+        const checks = messageChecks();
+        diagnostic({ operation: 'match', phase: 'completed', examinedMessages: checks.examinedMessages, matchedMessages: checks.matchedMessages,
+          extractionUnavailableMessages: checks.extractionUnavailableMessages,
+          ...Object.fromEntries(Object.entries(checks.rejections).map(([reason, count]) => [reason, count!])) });
+      }
       if (found) return found;
     }
     return null;
@@ -150,7 +175,7 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
         });
         const fresh = messages.filter(message => !examined.has(message.id) && verificationMessageIsFresh(message, earliest, Date.now(), orderedBrowserResults)).slice(0, 10);
         for (const message of fresh) {
-          const found = read([verificationMessage(message, 0)]);
+          const found = read([{ id: message.id, email: verificationMessage(message, 0) }]);
           if (!found) continue;
           const foundAt = Date.parse(message.date || ''), batchDates = batch.map(item => Date.parse(item.date || ''));
           // Search is newest-thread first. Stop only when this match reaches
@@ -165,7 +190,7 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
       }
       const fresh = messages.filter(message => !examined.has(message.id) && verificationMessageIsFresh(message, earliest, Date.now(), orderedBrowserResults)).slice(0, 10);
       if (fresh.length) {
-        const found = read(fresh.map(verificationMessage));
+        const found = read(fresh.map((message, index) => ({ id: message.id, email: verificationMessage(message, index) })));
         for (const message of fresh) examined.add(message.id);
         if (found) return report(found);
       }

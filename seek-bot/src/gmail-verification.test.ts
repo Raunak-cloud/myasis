@@ -63,9 +63,22 @@ try {
   assert.ok('error' in unreadable && 'reason' in unreadable && unreadable.reason === 'unreadable-message');
   assert.match(unreadable.error, /matching verification email was found/);
   assert.doesNotMatch(unreadable.error, /No matching verification email arrived/);
+  assert.deepEqual(unreadable.poll.messageChecks, { examinedMessages: 1, matchedMessages: 1, extractionUnavailableMessages: 1, rejections: {} });
   messages = [{ ...messages[0], id: 'unrelated', subject: 'Beta sign-in verification' }];
   const unrelated = await findVerificationInGmail({ hint: 'Fixture', purpose: 'sign_in', want: 'code', timeoutMs: 150 });
   assert.ok('error' in unrelated && 'reason' in unrelated && unrelated.reason === 'not-found', 'another employer cannot be reported as the expected message arriving');
+  assert.deepEqual(unrelated.poll.messageChecks, { examinedMessages: 1, matchedMessages: 0, extractionUnavailableMessages: 0, rejections: { 'identity-unproven': 1 } });
+  const rejectionLogs: string[] = [];
+  messages = [
+    { id: 'PRIVATE_ACTIVATION_ID', sender: 'private@fixture.invalid', subject: 'Fixture account activation PRIVATE_SUBJECT', date: new Date().toISOString(), plaintextBody: 'Activate your Fixture account. PRIVATE_BODY', htmlBody: '<a href="https://fixture.invalid/activate?token=PRIVATE_TOKEN">Activate account</a>' },
+    { id: 'PRIVATE_UNKNOWN_ID', sender: 'private@fixture.invalid', subject: 'Fixture account notice PRIVATE_SUBJECT', date: new Date().toISOString(), plaintextBody: 'PRIVATE_BODY Please review your account.' },
+  ];
+  const differentPurposes = await findVerificationInGmail({ hint: 'Fixture', purpose: 'reset_password', want: 'link', timeoutMs: 2300, log: line => rejectionLogs.push(line) });
+  assert.ok('reason' in differentPurposes && differentPurposes.reason === 'not-found');
+  assert.ok(differentPurposes.poll.completedReads >= 2, 'the same messages were returned in several real loopback polls');
+  assert.deepEqual(differentPurposes.poll.messageChecks, { examinedMessages: 2, matchedMessages: 0, extractionUnavailableMessages: 0,
+    rejections: { 'purpose-mismatch': 1, 'purpose-unproven': 1 } }, 'counts are unique within the lookup, including repeated parsing/thread reads');
+  assert.doesNotMatch(JSON.stringify(differentPurposes.poll.messageChecks) + rejectionLogs.join('\n'), /PRIVATE_|private@|https?:|fixture\.invalid/, 'structured decisions and logs disclose no mail body, subject, ID, sender, link, code or token');
   const realNow = Date.now;
   try {
     let logicalNow = realNow();

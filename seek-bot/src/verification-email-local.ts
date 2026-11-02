@@ -121,25 +121,48 @@ function trustedOpaqueDestination(url: URL, email: LocalVerificationEmail, ask: 
   return hosts.some(host => url.hostname === host || url.hostname.endsWith(`.${host}`));
 }
 
-/** The same identity/purpose test drives extraction and missing-format diagnostics. */
-export function isRequestedVerificationEmail(email: LocalVerificationEmail, ask: VerificationRequest): boolean {
-  if (!verificationContextWords(ask).length) return false;
+export type VerificationEmailMatchReason = 'matched' | 'context-missing' | 'identity-unproven' | 'purpose-mismatch' | 'purpose-unproven' | 'auth-language-unproven';
+export interface VerificationEmailMatchDecision {
+  matched: boolean;
+  reason: VerificationEmailMatchReason;
+  /** Only abstract decisions leave this helper. Skipped gates are omitted,
+   * rather than reported as false or revealing unrelated message purposes. */
+  checks: { contextPresent: boolean; identityMatched?: boolean; providerRealmMatched?: boolean;
+    requestedPurposeCompatible?: boolean; authenticationLanguageRecognized?: boolean };
+}
+
+/** One decision drives both acceptance and private diagnostics; there is no
+ * second regex implementation that could disagree or relax mailbox safety. */
+export function verificationEmailMatchDecision(email: LocalVerificationEmail, ask: VerificationRequest): VerificationEmailMatchDecision {
+  const checks: VerificationEmailMatchDecision['checks'] = { contextPresent: verificationContextWords(ask).length > 0 };
+  const finish = (reason: VerificationEmailMatchReason): VerificationEmailMatchDecision => ({ matched: reason === 'matched', reason, checks });
+  if (!checks.contextPresent) return finish('context-missing');
   const content = `${email.subject}\n${email.text}`;
   // Tracking query strings can mention a company without identifying the
   // sender or destination. Use hosts, never arbitrary URL parameters.
   const hosts = email.links.flatMap(link => { try { return [new URL(link.url).hostname]; } catch { return []; } });
   const identity = `${email.sender || ''}\n${content}\n${hosts.join('\n')}`;
-  if (!matchesContext(identity, ask) && !matchesSenderDomainAlias(email, ask)) return false;
+  checks.identityMatched = matchesContext(identity, ask);
+  checks.providerRealmMatched = matchesSenderDomainAlias(email, ask);
+  if (!checks.identityMatched && !checks.providerRealmMatched) return finish('identity-unproven');
   const resetMail = resetPurpose(email.subject) || (!activationPurpose(email.subject) && !signInPurpose(email.subject) && resetPurpose(email.text));
   const activationMail = activationPurpose(email.subject);
-  if (ask.purpose && ask.purpose !== 'reset_password' && resetMail) return false;
-  if (ask.purpose === 'sign_in' && activationMail) return false;
-  if (ask.purpose === 'reset_password' && !resetMail) return false;
+  checks.requestedPurposeCompatible = false;
+  if (ask.purpose && ask.purpose !== 'reset_password' && resetMail) return finish('purpose-mismatch');
+  if (ask.purpose === 'sign_in' && activationMail) return finish('purpose-mismatch');
+  if (ask.purpose === 'reset_password' && !resetMail) return finish(activationMail || signInPurpose(email.subject) ? 'purpose-mismatch' : 'purpose-unproven');
+  checks.requestedPurposeCompatible = true;
   // Purpose recognition is authoritative for authentication language too.
   // Requiring a second, differently worded reset regex here rejects genuine
   // "Password Reset" messages despite recognizing their requested purpose.
-  return resetMail || activationMail || signInPurpose(email.subject)
+  checks.authenticationLanguageRecognized = resetMail || activationMail || signInPurpose(email.subject)
     || /verif|pass[ -]?code|one.time|security code|sign[ .-]?in|log[ .-]?in|\bOTP\b|authentication|access code|activat|confirm/i.test(content);
+  return finish(checks.authenticationLanguageRecognized ? 'matched' : 'auth-language-unproven');
+}
+
+/** The same identity/purpose test drives extraction and missing-format diagnostics. */
+export function isRequestedVerificationEmail(email: LocalVerificationEmail, ask: VerificationRequest): boolean {
+  return verificationEmailMatchDecision(email, ask).matched;
 }
 
 /** Parse untrusted mailbox text as data. No prompts or mailbox bodies go to an AI service. */

@@ -1,6 +1,33 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isRequestedVerificationEmail, readVerificationEmailsLocally as read, verificationSenderHint } from './verification-email-local.js';
+import { isRequestedVerificationEmail, readVerificationEmailsLocally as read, verificationSenderHint, verificationEmailMatchDecision } from './verification-email-local.js';
+
+test('abstract match diagnostics identify the exact failed gate without changing acceptance or disclosing mail', () => {
+  const base = { position: 0, sender: 'noreply@fixture.invalid', subject: 'Fixture security notice PRIVATE_SUBJECT',
+    text: 'PRIVATE_BODY', links: [{ text: 'PRIVATE_LABEL', url: 'https://fixture.invalid/private-token-marker' }] };
+  const cases = [
+    { email: base, ask: {}, reason: 'context-missing', matched: false },
+    { email: { ...base, sender: 'private@other.invalid', subject: 'Other security notice', links: [] }, ask: { hint: 'Fixture', purpose: 'reset_password' as const }, reason: 'identity-unproven', matched: false },
+    { email: { ...base, subject: 'Fixture password reset' }, ask: { hint: 'Fixture', purpose: 'account_verification' as const }, reason: 'purpose-mismatch', matched: false },
+    { email: { ...base, subject: 'Fixture account activation' }, ask: { hint: 'Fixture', purpose: 'reset_password' as const }, reason: 'purpose-mismatch', matched: false },
+    { email: { ...base, subject: 'Fixture account activation' }, ask: { hint: 'Fixture', purpose: 'sign_in' as const }, reason: 'purpose-mismatch', matched: false },
+    { email: base, ask: { hint: 'Fixture', purpose: 'reset_password' as const }, reason: 'purpose-unproven', matched: false },
+    { email: base, ask: { hint: 'Fixture', purpose: 'sign_in' as const }, reason: 'auth-language-unproven', matched: false },
+    ...(['sign_in', 'account_verification'] as const).map(purpose => ({ email: { ...base, subject: 'Fixture verification', text: 'PRIVATE_BODY Your security code is 482913.' }, ask: { hint: 'Fixture', purpose }, reason: 'matched', matched: true })),
+    { email: { ...base, subject: 'Fixture password reset' }, ask: { hint: 'Fixture', purpose: 'reset_password' as const }, reason: 'matched', matched: true },
+  ];
+  for (const fixture of cases) {
+    const decision = verificationEmailMatchDecision(fixture.email, fixture.ask);
+    assert.equal(decision.reason, fixture.reason);
+    assert.equal(decision.matched, fixture.matched);
+    assert.equal(isRequestedVerificationEmail(fixture.email, fixture.ask), fixture.matched);
+    assert.doesNotMatch(JSON.stringify(decision), /PRIVATE_|private|482913|https?:|@|fixture\.invalid/i);
+    if (fixture.reason === 'identity-unproven') assert.equal(decision.checks.requestedPurposeCompatible, undefined, 'unrelated mail does not disclose purpose or imply a skipped check was false');
+  }
+  const opaque = { ...base, subject: 'Fixture password reset', text: 'Reset your Fixture password.', links: [] };
+  assert.equal(verificationEmailMatchDecision(opaque, { hint: 'Fixture', purpose: 'reset_password' }).reason, 'matched');
+  assert.equal(read([opaque], { hint: 'Fixture', purpose: 'reset_password', want: 'link' }), null, 'matching identity/purpose remains distinct from extraction failure');
+});
 
 test('explicit multiword identity-provider aliases match their sender DNS label within the active authentication realm', () => {
   const email = {position:0,sender:'Identity service <noreply@login.fixtureidentity.invalid>',subject:'Your one-time code',
