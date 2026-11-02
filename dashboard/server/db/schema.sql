@@ -1041,6 +1041,6 @@ CREATE TABLE IF NOT EXISTS application_review_operator_holds (
   released_by_user_id BIGINT REFERENCES users(id),
   resolution_evidence TEXT,
   CHECK ((released_at IS NULL AND released_by_user_id IS NULL AND resolution_evidence IS NULL)
-    OR (released_at IS NOT NULL AND released_by_user_id IS NOT NULL AND length(btrim(resolution_evidence)) BETWEEN 1 AND 2000))
+    OR (released_at IS NOT NULL AND released_by_user_id IS NOT NULL AND resolution_evidence IS NOT NULL AND length(btrim(resolution_evidence)) BETWEEN 1 AND 2000))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS application_review_one_active_hold_idx ON application_review_operator_holds(user_id,job_key) WHERE released_at IS NULL;

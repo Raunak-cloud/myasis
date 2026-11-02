@@ -59,6 +59,7 @@ try {
   await assert.rejects(holdApplicationReview(actor, owner, selection(first), 'Fixture unknown fact', run), /unavailable or blocked/);
   await query('UPDATE users SET blocked_at=NULL WHERE id=$1', [owner]);
   const held = await holdApplicationReview(actor, owner, selection(first), 'Fixture unknown fact', run);
+  await assert.rejects(query('UPDATE application_review_operator_holds SET released_at=now(),released_by_user_id=$2,resolution_evidence=NULL WHERE id=$1', [held.id, actor]), /check constraint/, 'SQL NULL must not bypass human resolution evidence');
   assert.equal((await query('SELECT * FROM application_reviews')).length, 0, 'holding before import creates no fake ready draft or credit consumption');
   assert.ok((await pendingReviewKeys(owner)).includes('listing:seek:before-import'));
   assert.deepEqual(await pendingReviewKeys(other), []);
