@@ -65,7 +65,9 @@ capture screenshots only for recovery or errors.
 Application helpers are temporary, account-attempt scoped compositions of
 existing browser and document capabilities. The specialist has no live browser
 executor or host shell. Only successful isolated tests publish a named tool;
-every live operation re-enters the applying agent's ordinary permission and
+the specialist sends the definition as JSON text to preserve mixed arrays and
+literal values across provider tool-call formats, followed by local validation.
+Every live operation re-enters the applying agent's ordinary permission and
 approval checks. A failed operation stops without an automatic retry token,
 because it may already have changed the page. Fixture success does not prove
 live employer acceptance.

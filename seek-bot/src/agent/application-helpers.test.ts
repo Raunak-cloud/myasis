@@ -47,7 +47,11 @@ test('specialist shorthand inputs become bounded closed schemas without extra mo
 
 test('the advertised complete recipe actually renders its asserted document bytes',async()=>{
  const helpers=new ApplicationHelpers(agentOnlyTools);
- assert.equal((await helpers.test(helperRecipeExample)).status,'fixture-tested');
+ assert.equal((await helpers.test({definition_json:JSON.stringify(helperRecipeExample)})).status,'fixture-tested');
+ await assert.rejects(helpers.test({definition_json:'{broken'}),/valid JSON object/);
+ await assert.rejects(helpers.test({definition_json:JSON.stringify(helperRecipeExample),unknown:'not allowed'}),/undeclared/);
+ const denied=structuredClone(helperRecipeExample) as any;denied.steps[0]={tool:'open_emailed_link',args:{}};
+ await assert.rejects(helpers.test({definition_json:JSON.stringify(denied)}),/enum|match|advertised|capability/);
 });
 
 test('a document helper creates and attaches a real combined document in an isolated inventory',async()=>{
@@ -95,7 +99,7 @@ test('the specialist tests and hands a named helper to MiniMax; the applier uses
    let call: {name:string;args:unknown}|undefined;
    if(body.tools?.some((t:any)=>t.function.name==='test_application_helper')){
     child++;assert.equal(body.model,'minimax/minimax-m3.1-flash');
-    if(child===1){assert.equal(await page.locator('#name').inputValue(),'','specialist has not touched the parent');call={name:'test_application_helper',args:filler};}
+    if(child===1){assert.deepEqual(body.tools[0].function.parameters.required,['definition_json']);assert.equal(await page.locator('#name').inputValue(),'','specialist has not touched the parent');call={name:'test_application_helper',args:{definition_json:JSON.stringify(filler)}};}
     else{
      const result=JSON.parse(body.messages.filter((m:any)=>m.role==='tool').at(-1).content);assert.equal(result.status,'fixture-tested');helperName=result.name;
      assert.equal(await page.locator('#name').inputValue(),'','test ran only in a separate synthetic browser');

@@ -120,7 +120,7 @@ export async function consultApplicationSpecialist(
           if(reply.toolCalls.length!==1||call.name!==helperBuilderTool.name)throw Error('Supply exactly one helper test, or return normal JSON advice. No live action ran.');
           result=await options.helpers!.test(call.args);
           recordDiagnostic({severity:'info',category:'helper_test_passed',stage:'recovery',tool:helperBuilderTool.name,message:JSON.stringify(result)});
-        }catch(error){result={status:'test-failed',published:false,error:(error as Error).message,workingExample:helperRecipeExample,instruction:'Repair your call using this exact structure and normal JSON strings for literals. No live browser action ran.'};recordDiagnostic({severity:'warning',category:'helper_test_failed',stage:'recovery',tool:helperBuilderTool.name,message:(error as Error).message});}
+        }catch(error){result={status:'test-failed',published:false,error:(error as Error).message,workingExample:{definition_json:JSON.stringify(helperRecipeExample)},instruction:'Send only definition_json containing the serialized definition. Preserve literal strings and mixed arrays inside that text. No live browser action ran.'};recordDiagnostic({severity:'warning',category:'helper_test_failed',stage:'recovery',tool:helperBuilderTool.name,message:(error as Error).message});}
         messages.push({role:'tool',tool_call_id:call.id,content:data(result)});
       }
       reply=undefined;

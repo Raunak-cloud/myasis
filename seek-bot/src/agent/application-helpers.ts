@@ -70,7 +70,7 @@ function parameterSchema(schema:unknown,depth=0):void{
   if(s.type==='string'&&(!Number.isInteger(s.maxLength)||Number(s.maxLength)>40000||Number(s.maxLength)<1))throw Error('String inputs need maxLength between 1 and 40000.');
   if(s.enum!==undefined&&(!Array.isArray(s.enum)||s.enum.length>50||s.enum.some(v=>v!==null&&!['string','number','boolean'].includes(typeof v))))throw Error('Use small scalar parameter enums.');
 }
-export const helperBuilderTool:ToolSchema={name:'test_application_helper',description:
+const helperDefinitionTool:ToolSchema={name:'test_application_helper',description:
   'Build and test a temporary helper for a genuinely missing operation. Compose the advertised browser_action/create_file/convert_file tools; no host code, new account access, auth, recursion or application sends. Templates: {"$input":"field.path"}, {"$result":"0.field.path"}, {"$concat":[...]}, {"$json":template}. Literal text is a normal JSON string, without a $literal wrapper. Each step has tool and args. Test the actual returned object: create_file returns file_id/name/bytes/format; inspecting one input returns value directly. Tests use only dummy inputs in a separate cookie-free, network-blocked browser and temporary document inventory. Only passing definitions become callable. A test proves the fixture, not employer acceptance. Complete working example (adapt this exact structure): '+JSON.stringify(helperRecipeExample),
   parameters:{type:'object',additionalProperties:false,properties:{
     name:{type:'string',pattern:'^[a-z][a-z0-9_]{1,38}$'},description:{type:'string',minLength:10,maxLength:1200},parameters:{...inputSchema,description:'Input schema example: {"properties":{"letter":{"type":"string"},"resume":{"type":"string"}},"required":["letter","resume"]}. Object type and closed properties are applied automatically. String maxLength defaults to 40000, array maxItems to 32; smaller bounds are welcome. Only typed properties, required, enums and scalar size/range constraints. No patterns or refs.'},
@@ -78,6 +78,14 @@ export const helperBuilderTool:ToolSchema={name:'test_application_helper',descri
     tests:{type:'array',minItems:1,maxItems:3,items:{type:'object',additionalProperties:false,properties:{html:{type:'string',maxLength:40000},input:objectSchema,
       assertions:{type:'array',minItems:1,maxItems:12,items:{type:'object',additionalProperties:false,properties:{step:{type:'integer',minimum:0,maximum:11},path:{type:'string',maxLength:200},equals:{}},required:['step','path','equals']}}},required:['html','input','assertions']}},
   },required:['name','description','parameters','steps','tests']}};
+
+/** Keep arbitrary recipe data out of provider-specific nested tool coercion.
+ * JSON text preserves heterogeneous arrays and literal values; the parsed
+ * definition still passes the exact same local schema and capability checks. */
+export const helperBuilderTool:ToolSchema={...helperDefinitionTool,
+ description:'Send ONE definition_json string containing the complete serialized JSON helper definition. Do not send nested definition fields as tool arguments. Preserve arrays and literal strings inside that JSON text. '+helperDefinitionTool.description,
+ parameters:{type:'object',additionalProperties:false,properties:{definition_json:{type:'string',minLength:2,maxLength:100000,
+  description:'JSON.stringify of the complete definition (name, description, parameters, steps, tests). JSON data only, never host code. The documented complete example is the content to serialize.'}},required:['definition_json']}};
 
 function at(value:unknown,path:string):unknown {
   let current=value;
@@ -130,10 +138,15 @@ export class ApplicationHelpers {
   }
   async test(raw:unknown):Promise<ObjectValue>{
     if(this.testing)throw Error('Another helper test is already running.');
+    if(raw&&typeof raw==='object'&&Object.hasOwn(raw,'definition_json')){
+      const wireIssue=toolInputIssue(raw,helperBuilderTool.parameters);if(wireIssue)throw Error(wireIssue);
+      try{raw=JSON.parse((raw as ObjectValue).definition_json as string);}catch{throw Error('definition_json must contain one valid JSON object. Serialize the complete documented example; no helper was published.');}
+    }
+    if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('The helper definition must be a JSON object.');
     if(JSON.stringify(raw).length>100000)throw Error('Helper definition is too large.');
     const definition=structuredClone(raw) as HelperDefinition;
     if(definition&&typeof definition==='object')definition.parameters=normalizeParameters(definition.parameters);
-    const issue=toolInputIssue(definition,helperBuilderTool.parameters);if(issue)throw Error(issue);
+    const issue=toolInputIssue(definition,helperDefinitionTool.parameters);if(issue)throw Error(issue);
     if(definition.parameters.type!=='object')throw Error('Helper parameters must be an object JSON schema.');
     parameterSchema(definition.parameters);
     const digest=createHash('sha256').update(JSON.stringify(definition)).digest('hex');
