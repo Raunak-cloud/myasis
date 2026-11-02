@@ -6,8 +6,18 @@ import { isAdmin } from './admin-access.js';
 import { isExternalApplicationUrl } from '../../seek-bot/src/job-board-url.js';
 import { withCoverLetter } from '../../seek-bot/src/application-review-content.js';
 import { USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
+import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { userDir } from './userdata.js';
+import type { PoolClient } from 'pg';
 
 export interface ReviewSelection { id: string; revision: string; retry?: boolean }
+export interface ApplicationReviewOperatorHold {
+  id: string; draftId: string; revision: string; actorUserId: string; reason: string; heldAt: string;
+}
+const holdMetadata = `CASE WHEN h.id IS NULL THEN NULL ELSE jsonb_build_object('id',h.id::text,'draftId',h.draft_id::text,
+  'revision',h.revision,'actorUserId',h.actor_user_id::text,'reason',h.reason,'heldAt',h.held_at) END`;
 export class ApplicationReviewError extends Error {}
 const recovered = new Set<string>();
 
@@ -30,15 +40,101 @@ export function reviewSelection(value: unknown): ReviewSelection[] {
 }
 
 export async function listApplicationReviews(userId: string) {
-  return query<{ id: string; status: string; detail: string | null; application: PreparedApplication }>(
-    `SELECT id::text, status, detail, payload AS application FROM application_reviews
-     WHERE user_id=$1 ORDER BY updated_at DESC LIMIT 100`, [userId]);
+  return query<{ id: string; status: string; detail: string | null; application: PreparedApplication; operator_hold: ApplicationReviewOperatorHold | null }>(
+    `SELECT r.id::text,r.status,r.detail,r.payload AS application,${holdMetadata} AS operator_hold FROM application_reviews r
+     LEFT JOIN application_review_operator_holds h ON h.user_id=r.user_id AND h.job_key=r.job_key AND h.released_at IS NULL
+     WHERE r.user_id=$1 ORDER BY r.updated_at DESC LIMIT 100`, [userId]);
 }
 
 export async function pendingReviewKeys(userId: string): Promise<string[]> {
   const rows = await query<{ payload: PreparedApplication }>(
-    "SELECT payload FROM application_reviews WHERE user_id=$1 AND status IN ('ready','approved')", [userId]);
-  return rows.flatMap(row => applicationKeys(row.payload.job));
+    `SELECT payload FROM application_reviews WHERE user_id=$1 AND status IN ('ready','approved')
+     UNION ALL SELECT jsonb_build_object('job',job) AS payload FROM application_review_operator_holds WHERE user_id=$1 AND released_at IS NULL`, [userId]);
+  return [...new Set(rows.flatMap(row => applicationKeys(row.payload.job)))];
+}
+
+function operatorText(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !value.trim() || value.length > 2000) throw new ApplicationReviewError(`Provide ${label} of 1 to 2,000 characters.`);
+  return value.trim();
+}
+async function verifyOperator(connection: PoolClient, actorUserId: string, userId: string): Promise<void> {
+  if (!/^\d+$/.test(actorUserId) || !/^\d+$/.test(userId)) throw new ApplicationReviewError('Invalid operator or application owner.');
+  const actor = await connection.query<{ email: string }>('SELECT email FROM users WHERE id=$1 AND blocked_at IS NULL FOR SHARE', [actorUserId]);
+  if (!isAdmin(actor.rows[0]?.email)) throw new ApplicationReviewError('Only an authenticated administrator may manage an operator hold.');
+  const owner = await connection.query('SELECT id FROM users WHERE id=$1 AND blocked_at IS NULL FOR SHARE', [userId]);
+  if (!owner.rows.length) throw new ApplicationReviewError('The application owner is unavailable or blocked.');
+}
+async function exactHeldDraft(connection: PoolClient, userId: string, selection: ReviewSelection, sourceRunId?: string): Promise<PreparedApplication> {
+  const current = (await connection.query<ConfirmationRow>('SELECT id::text,status,payload,credit_consumed FROM application_reviews WHERE user_id=$1 AND id=$2 FOR UPDATE', [userId, selection.id])).rows[0];
+  if (current && (!['ready', 'failed'].includes(current.status) || current.payload.revision !== selection.revision)) throw new ApplicationReviewError('The selected draft changed or is already confirmed. No hold was created.');
+  let source: PreparedApplication | undefined;
+  if (sourceRunId !== undefined) {
+    if (!/^\d+$/.test(sourceRunId)) throw new ApplicationReviewError('Invalid source run.');
+    const run = (await connection.query<{ started_at: Date; finished_at: Date | null }>('SELECT started_at,finished_at FROM run_starts WHERE user_id=$1 AND id=$2', [userId, sourceRunId])).rows[0];
+    if (!run) throw new ApplicationReviewError('The source run does not belong to this application owner.');
+    let log: string;
+    try { log = readFileSync(resolve(userDir(userId), 'run-log.jsonl'), 'utf8'); }
+    catch { throw new ApplicationReviewError('The owner-scoped prepared draft is unavailable. No hold was created.'); }
+    for (const line of log.split('\n')) {
+      let event: { ts?: string; status?: string; draft?: PreparedApplication };
+      try { event = JSON.parse(line); } catch { continue; }
+      const at = Date.parse(event.ts ?? '');
+      if (event.status === 'prepared' && event.draft?.id === selection.id && event.draft.revision === selection.revision
+        && at >= +new Date(run.started_at) && at <= +(run.finished_at ? new Date(run.finished_at) : new Date())) source = event.draft;
+    }
+    if (!source) throw new ApplicationReviewError('The exact draft and revision were not prepared in this owner’s source run.');
+  }
+  const draft = current?.payload ?? source;
+  if (!draft?.job?.id || !draft.job.url || !Array.isArray(draft.answers)) throw new ApplicationReviewError('The exact owner-scoped prepared draft was not found.');
+  const jobKey = `${draft.job.platform ?? 'seek'}:${draft.job.id}`;
+  const latest = (await connection.query<{ id: string; status: string; revision: string }>("SELECT id::text,status,payload->>'revision' AS revision FROM application_reviews WHERE user_id=$1 AND job_key=$2 FOR UPDATE", [userId, jobKey])).rows[0];
+  if (latest && (latest.id !== selection.id || latest.revision !== selection.revision || !['ready', 'failed'].includes(latest.status))) throw new ApplicationReviewError('A different or confirmed draft is current for this job. No hold was created.');
+  return draft;
+}
+
+/** An operator hold is separate from candidate choices, model answers, billing
+ * and submission status. A durable job-scoped ledger also protects a draft
+ * whose normal run import has not happened yet. */
+export async function holdApplicationReview(actorUserId: string, userId: string, selection: ReviewSelection, reason: unknown, sourceRunId?: string): Promise<ApplicationReviewOperatorHold> {
+  reviewSelection([selection]); const explanation = operatorText(reason, 'an operator hold reason');
+  const connection = await getPool().connect();
+  try {
+    await connection.query('BEGIN'); await verifyOperator(connection, actorUserId, userId);
+    await connection.query('SELECT pg_advisory_xact_lock($1::bigint)', [userId]);
+    const draft = await exactHeldDraft(connection, userId, selection, sourceRunId), jobKey = `${draft.job.platform ?? 'seek'}:${draft.job.id}`;
+    const existing = (await connection.query<{ id: string; draft_id: string; revision: string; actor_user_id: string; reason: string; held_at: Date }>('SELECT id::text,draft_id::text,revision,actor_user_id::text,reason,held_at FROM application_review_operator_holds WHERE user_id=$1 AND job_key=$2 AND released_at IS NULL FOR UPDATE', [userId, jobKey])).rows[0];
+    if (existing) {
+      if (existing.draft_id !== selection.id || existing.revision !== selection.revision || existing.actor_user_id !== actorUserId || existing.reason !== explanation) throw new ApplicationReviewError('An operator hold already exists for this job. Its original record was preserved.');
+      await connection.query('COMMIT');
+      return { id: existing.id, draftId: existing.draft_id, revision: existing.revision, actorUserId: existing.actor_user_id, reason: existing.reason, heldAt: new Date(existing.held_at).toISOString() };
+    }
+    const held = (await connection.query<{ id: string; held_at: Date }>(`INSERT INTO application_review_operator_holds(id,user_id,job_key,draft_id,revision,job,source_run_id,actor_user_id,reason)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id::text,held_at`, [randomUUID(), userId, jobKey, draft.id, draft.revision, JSON.stringify(draft.job), sourceRunId ?? null, actorUserId, explanation])).rows[0];
+    await connection.query('COMMIT');
+    return { id: held.id, draftId: draft.id, revision: draft.revision, actorUserId, reason: explanation, heldAt: new Date(held.held_at).toISOString() };
+  } catch (error) { await connection.query('ROLLBACK'); throw error; }
+  finally { connection.release(); }
+}
+
+/** Only an explicit administrator resolution can release a hold. Both the
+ * original held revision and the currently displayed draft must be identified;
+ * a model import, answer save or candidate confirmation never clears it. */
+export async function releaseApplicationReviewHold(actorUserId: string, userId: string, holdId: string, original: ReviewSelection, current: ReviewSelection, resolutionEvidence: unknown): Promise<void> {
+  reviewSelection([original]); reviewSelection([current]);
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(holdId)) throw new ApplicationReviewError('Invalid operator hold.');
+  const resolution = operatorText(resolutionEvidence, 'the human resolution evidence');
+  const connection = await getPool().connect();
+  try {
+    await connection.query('BEGIN'); await verifyOperator(connection, actorUserId, userId);
+    await connection.query('SELECT pg_advisory_xact_lock($1::bigint)', [userId]);
+    const hold = (await connection.query<{ job_key: string; draft_id: string; revision: string }>('SELECT job_key,draft_id::text,revision FROM application_review_operator_holds WHERE user_id=$1 AND id=$2 AND released_at IS NULL FOR UPDATE', [userId, holdId])).rows[0];
+    if (!hold || hold.draft_id !== original.id || hold.revision !== original.revision) throw new ApplicationReviewError('The original held draft changed or the hold is no longer active.');
+    const row = (await connection.query<ConfirmationRow & { job_key: string }>('SELECT id::text,job_key,status,payload,credit_consumed FROM application_reviews WHERE user_id=$1 AND id=$2 FOR UPDATE', [userId, current.id])).rows[0];
+    if (!row || row.job_key !== hold.job_key || row.payload.revision !== current.revision || !['ready', 'failed'].includes(row.status)) throw new ApplicationReviewError('Reload the current unconfirmed draft before releasing its hold.');
+    await connection.query('UPDATE application_review_operator_holds SET released_at=clock_timestamp(),released_by_user_id=$3,resolution_evidence=$4 WHERE user_id=$1 AND id=$2 AND released_at IS NULL', [userId, holdId, actorUserId, resolution]);
+    await connection.query('COMMIT');
+  } catch (error) { await connection.query('ROLLBACK'); throw error; }
+  finally { connection.release(); }
 }
 
 export async function saveApplicationReview(userId: string, draft: PreparedApplication): Promise<void> {
@@ -58,6 +154,8 @@ export async function saveApplicationReview(userId: string, draft: PreparedAppli
       AND (application_reviews.payload->>'preparedAt') < (EXCLUDED.payload->>'preparedAt')
     RETURNING credit_consumed`,
     [userId, `${draft.job.platform ?? 'seek'}:${draft.job.id}`, draft.id, JSON.stringify(draft)]);
+    // Operator holds are independent durable records keyed to this owner/job.
+    // Importing a newer model draft cannot erase or release an active hold.
     if (saved.rows[0] && !saved.rows[0].credit_consumed) {
       const owner = await connection.query<{ email: string }>('SELECT email FROM users WHERE id=$1', [userId]);
       if (!isAdmin(owner.rows[0]?.email)) {
@@ -73,12 +171,12 @@ export async function saveApplicationReview(userId: string, draft: PreparedAppli
   } finally { connection.release(); }
 }
 
-interface ConfirmationRow { id: string; status: string; payload: PreparedApplication; credit_consumed: boolean }
+interface ConfirmationRow { id: string; status: string; payload: PreparedApplication; credit_consumed: boolean; operator_hold?: ApplicationReviewOperatorHold | null }
 function confirmedVersions(rows: ConfirmationRow[], selections: ReviewSelection[]): PreparedApplication[] {
   const selected = new Map(selections.map(item => [item.id, item]));
   if (rows.length !== selections.length || rows.some(row => {
     const selection = selected.get(row.id);
-    return row.status !== (selection?.retry === true ? 'failed' : 'ready') || !row.credit_consumed
+    return Boolean(row.operator_hold) || row.status !== (selection?.retry === true ? 'failed' : 'ready') || !row.credit_consumed
       || row.payload.revision !== selection?.revision;
   })) {
     throw new ApplicationReviewError('An application changed or is no longer ready. Reload and review it again.');
@@ -89,7 +187,9 @@ function confirmedVersions(rows: ConfirmationRow[], selections: ReviewSelection[
 /** Paid preparations can be confirmed even when no unused application credits remain. */
 export async function applicationsForConfirmation(userId: string, selections: ReviewSelection[]): Promise<PreparedApplication[]> {
   const rows = await query<ConfirmationRow>(
-    'SELECT id::text,status,payload,credit_consumed FROM application_reviews WHERE user_id=$1 AND id=ANY($2::uuid[])',
+    `SELECT r.id::text,r.status,r.payload,r.credit_consumed,${holdMetadata} AS operator_hold FROM application_reviews r
+     LEFT JOIN application_review_operator_holds h ON h.user_id=r.user_id AND h.job_key=r.job_key AND h.released_at IS NULL
+     WHERE r.user_id=$1 AND r.id=ANY($2::uuid[])`,
     [userId, selections.map(item => item.id)]);
   return confirmedVersions(rows, selections);
 }
@@ -101,10 +201,13 @@ export async function editApplicationCoverLetter(userId: string, selection: Revi
   const connection = await getPool().connect();
   try {
     await connection.query('BEGIN');
+    await connection.query('SELECT pg_advisory_xact_lock($1::bigint)', [userId]);
     const result = await connection.query<ConfirmationRow>(
-      'SELECT id::text,status,payload,credit_consumed FROM application_reviews WHERE user_id=$1 AND id=$2 FOR UPDATE', [userId, selection.id]);
+      `SELECT r.id::text,r.status,r.payload,r.credit_consumed,${holdMetadata} AS operator_hold FROM application_reviews r
+       LEFT JOIN application_review_operator_holds h ON h.user_id=r.user_id AND h.job_key=r.job_key AND h.released_at IS NULL
+       WHERE r.user_id=$1 AND r.id=$2 FOR UPDATE OF r`, [userId, selection.id]);
     const row = result.rows[0];
-    if (!row || !['ready', 'failed'].includes(row.status) || !row.credit_consumed || row.payload.revision !== selection.revision) {
+    if (!row || row.operator_hold || !['ready', 'failed'].includes(row.status) || !row.credit_consumed || row.payload.revision !== selection.revision) {
       throw new ApplicationReviewError('An application changed or is no longer editable. Reload and review it again.');
     }
     const current = row.payload;
@@ -122,8 +225,11 @@ export async function claimApplicationReviews(userId: string, selections: Review
   const connection = await getPool().connect();
   try {
     await connection.query('BEGIN');
+    await connection.query('SELECT pg_advisory_xact_lock($1::bigint)', [userId]);
     const result = await connection.query<ConfirmationRow>(
-      'SELECT id::text,status,payload,credit_consumed FROM application_reviews WHERE user_id=$1 AND id=ANY($2::uuid[]) FOR UPDATE',
+      `SELECT r.id::text,r.status,r.payload,r.credit_consumed,${holdMetadata} AS operator_hold FROM application_reviews r
+       LEFT JOIN application_review_operator_holds h ON h.user_id=r.user_id AND h.job_key=r.job_key AND h.released_at IS NULL
+       WHERE r.user_id=$1 AND r.id=ANY($2::uuid[]) FOR UPDATE OF r`,
       [userId, selections.map(item => item.id)]);
     const applications = confirmedVersions(result.rows, selections);
     await connection.query("UPDATE application_reviews SET status='approved',detail=NULL,updated_at=now() WHERE user_id=$1 AND id=ANY($2::uuid[])", [userId, selections.map(item => item.id)]);

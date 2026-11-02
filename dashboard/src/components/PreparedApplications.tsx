@@ -4,6 +4,7 @@ import { plainReason, preparedStatusLabel, userFacingError } from '../run-messag
 import { decodeSettingText, encodeSettingText } from '../runSettings';
 interface Review {
   id: string; status: string; detail: string | null;
+  operator_hold?: { reason: string } | null;
   application: {
     revision: string; job: { title: string; company: string; location: string; url: string };
     resume?: string; coverLetter?: string; answers: Array<{ question: string; answer: string }>;
@@ -56,7 +57,8 @@ export function PreparedApplications({ running, onStarted, onCountChange, canCha
     if (signal?.aborted) return;
     setReviews(applications);
     setLoading(false); setLoadError('');
-    onCountChange(applications.filter(item => item.status === 'ready').length);
+    onCountChange(applications.filter(item => item.status === 'ready' && !item.operator_hold).length);
+    setSelected(previous => new Set([...previous].filter(id => applications.some(item => item.id === id && item.status === 'ready' && !item.operator_hold))));
   }, [onCountChange]);
   const editingLetter = editing !== null;
   useEffect(() => {
@@ -67,7 +69,7 @@ export function PreparedApplications({ running, onStarted, onCountChange, canCha
     const timer = window.setInterval(refresh, 10000);
     return () => { controller.abort(); window.clearInterval(timer); };
   }, [running, load, editingLetter, busy]);
-  const chosen = reviews.filter(item => item.status === 'ready' && selected.has(item.id));
+  const chosen = reviews.filter(item => item.status === 'ready' && !item.operator_hold && selected.has(item.id));
   async function saveInstructions() {
     if (savingInstructions || !preferencesLoaded || !preferencesChanged || words > COVER_LETTER_INSTRUCTION_WORD_LIMIT
       || (modeChanged && (letterTooLong || coverLetterMode === 'reuse' && !reusableLetter.trim()))) return;
@@ -107,7 +109,7 @@ export function PreparedApplications({ running, onStarted, onCountChange, canCha
   async function decide(action: 'submit' | 'dismiss', retry?: Review) {
     const applications = retry ? [{ id: retry.id, revision: retry.application.revision, retry: true }]
       : chosen.map(item => ({ id: item.id, revision: item.application.revision }));
-    if (busy || running || editing || !applications.length || retry && (action !== 'submit' || retry.status !== 'failed')) return;
+    if (busy || running || editing || !applications.length || retry && (action !== 'submit' || retry.status !== 'failed' || retry.operator_hold)) return;
     setBusy(true); setError(''); setNotice('');
     try {
       const response = await fetch(`/api/application-reviews/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -154,22 +156,22 @@ export function PreparedApplications({ running, onStarted, onCountChange, canCha
       const normalizeText = (text: string) => text.replace(/\s+/g, ' ').trim();
       const coverLetter = normalizeText(item.application.coverLetter || '');
       const answers = item.application.answers.filter(answer => !coverLetter || normalizeText(answer.answer) !== coverLetter);
-      return <article className={`prepared-application${item.status === 'ready' && selected.has(item.id) ? ' selected' : ''}`} key={item.id}>
+      return <article className={`prepared-application${item.status === 'ready' && !item.operator_hold && selected.has(item.id) ? ' selected' : ''}`} key={item.id}>
       <label className="prepared-choice"><input type="checkbox" aria-label={`Select ${item.application.job.title} at ${item.application.job.company}`}
-        disabled={item.status !== 'ready' || running || busy} checked={selected.has(item.id)}
+        disabled={item.status !== 'ready' || Boolean(item.operator_hold) || running || busy} checked={!item.operator_hold && selected.has(item.id)}
         onChange={event => setSelected(previous => { const next = new Set(previous); if (event.target.checked) next.add(item.id); else next.delete(item.id); return next; })}/>
         <span className="prepared-job"><strong>{item.application.job.title}</strong><span className="job-meta">{item.application.job.company} · {item.application.job.location}</span></span>
       </label>
-      <span className={`prepared-status ${item.status}`}>{preparedStatusLabel(item.status, running)}</span>
-      {item.detail && <p className="job-meta prepared-detail">{plainReason(item.detail)}</p>}
-      {item.status === 'failed' && <button type="button" className="btn prepared-retry" disabled={running || busy || Boolean(editing)}
+      <span className={`prepared-status ${item.operator_hold ? 'held' : item.status}`}>{item.operator_hold ? 'Needs review' : preparedStatusLabel(item.status, running)}</span>
+      {(item.operator_hold?.reason || item.detail) && <p className="job-meta prepared-detail">{plainReason(item.operator_hold?.reason || item.detail || '')}</p>}
+      {item.status === 'failed' && !item.operator_hold && <button type="button" className="btn prepared-retry" disabled={running || busy || Boolean(editing)}
         onClick={() => void decide('submit', item)}>Retry application</button>}
       <details><summary>Review application</summary>
         <div className="prepared-content">
         {item.application.email && <p className="job-meta">Email application<br/>To: {item.application.email.to}<br/>Subject: {item.application.email.subject}<br/>Attachments: resume{item.application.email.attachCoverLetter ? ' and cover letter' : ''}</p>}
         <p className="job-meta">Resume: {item.application.resume || 'No resume recorded'}</p>
         {/^https?:\/\//i.test(item.application.job.url) && <p><a href={item.application.job.url} target="_blank" rel="noreferrer">View job listing ↗</a></p>}
-        <div className="prepared-letter-heading"><h3>Cover letter</h3>{['ready', 'failed'].includes(item.status) && editing?.id !== item.id && <button type="button" className="btn" disabled={running || busy || Boolean(editing)}
+        <div className="prepared-letter-heading"><h3>Cover letter</h3>{!item.operator_hold && ['ready', 'failed'].includes(item.status) && editing?.id !== item.id && <button type="button" className="btn" disabled={running || busy || Boolean(editing)}
           onClick={() => { setEditing({ id: item.id, revision: item.application.revision, text: item.application.coverLetter ?? '' }); setNotice(''); }}>Edit cover letter</button>}</div>
         {editing?.id === item.id ? <div className="prepared-letter-editor">
           <textarea aria-label={`Cover letter for ${item.application.job.title} at ${item.application.job.company}`} rows={18} maxLength={20_000} value={editing.text}
