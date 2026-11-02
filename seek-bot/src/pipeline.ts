@@ -57,9 +57,9 @@ export async function cachedAssessment<T>(input: unknown, compute: () => Promise
   finally { if (assessmentsInFlight.get(path) === task) assessmentsInFlight.delete(path); }
 }
 
-/** Extractive retrieval: retained passages stay verbatim and in source order. */
-export function relevantEvidence(text: string, query: string, maxChars = 8000): string {
-  if (text.length <= maxChars) return text;
+/** Original retained source spans, without synthetic omission annotations. */
+export function selectedEvidencePassages(text: string, query: string, maxChars = 8000): string[] {
+  if (text.length <= maxChars) return [text];
   const terms = new Set((query.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []));
   const chunks = text.match(/[\s\S]{1,700}(?:\s|$)/g) ?? [text];
   const ranked = chunks.map((body, index) => ({ body, index, score:
@@ -67,5 +67,11 @@ export function relevantEvidence(text: string, query: string, maxChars = 8000): 
   })).sort((a, b) => b.score - a.score || a.index - b.index);
   const selected: typeof ranked = []; let budget = Math.max(0, maxChars - 100);
   for (const chunk of ranked) { if (chunk.body.length <= budget) { selected.push(chunk); budget -= chunk.body.length; } }
-  return '[Selected verbatim passages; omitted text is not evidence of absence.]\n' + selected.sort((a,b) => a.index-b.index).map(c => c.body).join('\n[...]\n');
+  return selected.sort((a,b) => a.index-b.index).map(c => c.body);
+}
+
+/** Extractive retrieval: retained passages stay verbatim and in source order. */
+export function relevantEvidence(text: string, query: string, maxChars = 8000): string {
+  const passages = selectedEvidencePassages(text, query, maxChars);
+  return text.length <= maxChars ? text : '[Selected verbatim passages; omitted text is not evidence of absence.]\n' + passages.join('\n[...]\n');
 }

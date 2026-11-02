@@ -60,12 +60,18 @@ globalThis.fetch = async (url, init) => {
   const schema = body.response_format.json_schema.schema.properties.roleFitCheck;
   assert.ok(schema.required.includes('currentIntent') && schema.required.includes('primaryOutputs'));
   assert.ok(!schema.properties.currentIntent.properties.source.enum.includes('cover-letter'));
+  assert.equal(schema.properties.currentIntent.properties.quote, undefined);
+  assert.equal(schema.properties.primaryOutputs.items.properties.employerQuote, undefined);
   const correction = prompt.includes('RESPONSE FORMAT CORRECTION');
   const role = roleForCurrentCase();
-  if (mode === 'misattributed' && !correction) role.currentIntent.quote = oldLetter;
-  if (mode === 'invented-employer') role.primaryOutputs[0].employerQuote = 'Create financial statements and perform a statutory audit.';
+  const { quote: _quote, ...currentIntent } = role.currentIntent;
+  const employerIds = schema.properties.primaryOutputs.items.properties.employerPassageId.enum;
+  const wire = { ...role, currentIntent: { ...currentIntent, passageId: active.id === 'open-intent' ? '' : schema.properties.currentIntent.properties.passageId.enum[1] },
+    primaryOutputs: role.primaryOutputs.map(({ employerQuote: _employerQuote, ...output }) => ({ ...output, employerPassageId: employerIds[0] })) };
+  if (mode === 'misattributed' && !correction) wire.currentIntent.passageId = employerIds[0];
+  if (mode === 'invented-employer') wire.primaryOutputs[0].employerPassageId = 'p_invented_employer';
   return Response.json({ choices: [{ message: { content: JSON.stringify({ decision: active.expected, matchScore: active.expected === 'apply' ? 85 : 25,
-    reason: active.mapping, evidence: ['Agent-owned fit judgment.'], injectionSuspected: false, roleFitCheck: role }) } }], usage: { prompt_tokens: 100, completion_tokens: 150 } });
+    reason: active.mapping, evidence: ['Agent-owned fit judgment.'], injectionSuspected: false, roleFitCheck: wire }) } }], usage: { prompt_tokens: 100, completion_tokens: 150 } });
 };
 try {
   for (const model of ['celeris', 'minimax']) await withApplicationModel({ DATA_DIR: directory, APPLICATION_AI_MODEL: model, OPENROUTER_API_KEY: 'fixture-only', CELERIS_API_KEY: 'fixture-only' }, async () => {
@@ -76,6 +82,8 @@ try {
       const job = { id: `${model}-${fixture.id}`, title: fixture.title, company: 'Synthetic employer', location: 'Sydney', description: fixture.duties, url: `https://fixture.invalid/${fixture.id}` };
       const before = calls, result = await assessFit(job, profile);
       assert.equal(result.decision, fixture.expected); assert.equal(calls - before, 1, 'one existing fitter call for a valid response; no second reviewer');
+      assert.equal(result.roleFitCheck?.currentIntent?.quote, config.aiInstructions, 'canonical stored evidence is dereferenced from the exact current source');
+      if (result.roleFitCheck?.primaryOutputs?.length) assert.equal(result.roleFitCheck.primaryOutputs[0].employerQuote, fixture.duties);
       if (result.decision !== 'uncertain') { const cacheCalls = calls; await assessFit(job, profile); assert.equal(calls, cacheCalls, 'new provenance-qualified decisions remain cacheable'); }
     }
     active = cases[0]; config.aiInstructions = bounded;
@@ -85,6 +93,19 @@ try {
     mode = 'invented-employer'; const invalid = calls;
     await assert.rejects(assessFit({ id: `${model}-invented-duty`, title: active.title, company: 'Synthetic employer', location: 'Sydney', description: active.duties, url: 'https://fixture.invalid/duty' }, profile), /usable decision after a format retry/);
     assert.equal(calls - invalid, 2, 'ungrounded employer evidence cannot add an unbounded retry or another semantic classifier');
+    active = cases[0]; mode = 'valid';
+    const sourceJob = { id: `${model}-source-change`, title: active.title, company: 'Synthetic employer', location: 'Sydney', description: active.duties, url: 'https://fixture.invalid/source-change' };
+    await assessFit(sourceJob, profile);
+    const sourceCalls = calls;
+    await assessFit(sourceJob, profile); assert.equal(calls, sourceCalls);
+    config.aiInstructions = bounded + ' Avoid night shifts.';
+    const revised = await assessFit(sourceJob, profile);
+    assert.equal(calls, sourceCalls + 1, 'changing current preference source invalidates low-level transport cache');
+    assert.equal(revised.roleFitCheck?.currentIntent?.quote, config.aiInstructions);
+    const changedJob = { ...sourceJob, description: sourceJob.description + ' Preserve the current employer qualifier.' };
+    const revisedEmployer = await assessFit(changedJob, profile);
+    assert.equal(calls, sourceCalls + 2, 'changing supplied employer evidence also invalidates low-level transport cache');
+    assert.equal(revisedEmployer.roleFitCheck?.primaryOutputs?.[0].employerQuote, changedJob.description);
   });
   active = cases[0]; config.aiInstructions = bounded;
   const sources: FitProvenanceSources = { 'current-standing-instructions': bounded, 'current-target-role': 'Data governance', 'current-search-preferences': 'Business & Data Analyst', employerText: active.duties };
