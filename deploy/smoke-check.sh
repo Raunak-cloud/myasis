@@ -5,6 +5,13 @@ set -euo pipefail
 APP=$(cd "$(dirname "$0")/.." && pwd)
 cd "$APP"
 for script in deploy/deploy.sh deploy/public-site.sh deploy/smoke-check.sh deploy/install-repair-pilot.sh deploy/repair-pilot-sandbox.sh; do bash -n "$script"; done
+REPLAY_REQUIRED=${1:-0}
+
+# Each group uses its own process state and fixture directories. Check every
+# child exit status; launching a background job alone never establishes success.
+check_dashboard() (
+  trap - EXIT
+  set -euo pipefail
 cd "$APP/dashboard"
 npm run test:statuses
 node --test server/form-lab/engine.test.mjs
@@ -24,7 +31,12 @@ node --test server/form-lab/engine.test.mjs
 ../seek-bot/node_modules/.bin/tsx server/application-review-holds.test.ts
 ../seek-bot/node_modules/.bin/tsx server/application-review-document-restore.test.ts
 
-if [ "${1:-0}" = 1 ]; then
+)
+
+check_bot() (
+  trap - EXIT
+  set -euo pipefail
+if [ "$REPLAY_REQUIRED" = 1 ]; then
   cd "$APP/seek-bot"
   node --test dist/answer-eligibility.test.js dist/agent/personal-declaration-policy.test.js
   node --test dist/question-snapshot.test.js dist/question-patterns.test.js dist/answer-gate.test.js dist/agent/agent-only-evidence.test.js
@@ -64,4 +76,25 @@ if [ "${1:-0}" = 1 ]; then
     fi
   fi
 fi
+)
+
+CHECK_LOG_DIR=$(mktemp -d "$APP/output/deploy-checks.XXXXXX")
+cleanup_check_logs() {
+  local check_status=$?
+  if [ "$check_status" = 0 ]; then rm -rf "$CHECK_LOG_DIR";
+  else printf 'Check logs retained at %s\n' "$CHECK_LOG_DIR" >&2; fi
+  return "$check_status"
+}
+trap cleanup_check_logs EXIT
+check_dashboard > "$CHECK_LOG_DIR/dashboard.log" 2>&1 &
+dashboard_pid=$!
+check_bot > "$CHECK_LOG_DIR/bot.log" 2>&1 &
+bot_pid=$!
+checks_failed=0
+if wait "$dashboard_pid"; then echo 'Dashboard checks passed'; else checks_failed=1; echo 'Dashboard checks failed' >&2; fi
+cat "$CHECK_LOG_DIR/dashboard.log"
+if wait "$bot_pid"; then echo 'Bot checks passed'; else checks_failed=1; echo 'Bot checks failed' >&2; fi
+cat "$CHECK_LOG_DIR/bot.log"
+[ "$checks_failed" = 0 ] || exit 1
+
 echo 'Limited deployment checks passed'
