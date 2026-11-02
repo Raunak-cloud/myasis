@@ -35,11 +35,12 @@ const signInPurpose = (text: string) => /\bsign[ _.-]?in\b|\blog[ _.-]?in\b|\bma
 
 /** Private mail purpose is part of the requested operation, not just sender
  * identity. Ignore opaque token/query values when interpreting a link. */
-function linkPurpose(link: { text: string; url: string }): { reset: boolean; activation: boolean; signIn: boolean } {
+function linkPurpose(link: { text: string; url: string }): { reset: boolean; activation: boolean; signIn: boolean; explicit: boolean } {
   const url = new URL(link.url);
   const actions = [...url.searchParams].filter(([name]) => /^(?:action|type|mode|purpose|career_ns|login_ns|request)$/i.test(name)).map(([, value]) => value).join(' ');
   const text = `${link.text} ${url.pathname} ${actions}`.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_/.-]/g, ' ');
-  return { reset: resetPurpose(text) || /\breset\b/i.test(text), activation: activationPurpose(text), signIn: signInPurpose(text) };
+  return { reset: resetPurpose(text) || /\b(?:reset|passwordreset|pwdreset)\b/i.test(text), activation: activationPurpose(text), signIn: signInPurpose(text),
+    explicit: /verif|confirm|activat|sign.in|log.?in|reset|magic|authenticat/i.test(text) };
 }
 
 type VerificationRequest = { hint?: string; site?: string; purpose?: VerificationPurpose };
@@ -95,20 +96,25 @@ export function readVerificationEmailsLocally(emails: LocalVerificationEmail[], 
       const authenticationInstruction = /\b(?:verify|confirm|activate)\s+(?:your\s+)?(?:email|account|registration|identity)\b|\breset\s+(?:your\s+)?password\b|\b(?:one.time|magic|verification|activation|password.reset)\s+link\b/i.test(email.text);
       const opaqueResetLink = ask.purpose === 'reset_password' && resetMail && /\breset\s+(?:(?:your|the)\s+)?password\b|\bpassword[ -]reset\s+link\b/i.test(email.text);
       if (!authenticationSubject && !authenticationInstruction) continue;
-      const links = email.links.filter(link => {
+      const candidates = email.links.flatMap(link => {
         try {
           const url = new URL(link.url);
+          const purpose = linkPurpose(link);
           if (ask.purpose) {
-            const purpose = linkPurpose(link);
-            if (ask.purpose === 'reset_password' && (purpose.activation && !purpose.reset || purpose.signIn && !purpose.reset)) return false;
-            if (ask.purpose !== 'reset_password' && purpose.reset) return false;
-            if (ask.purpose === 'sign_in' && purpose.activation) return false;
+            if (ask.purpose === 'reset_password' && (purpose.activation && !purpose.reset || purpose.signIn && !purpose.reset)) return [];
+            if (ask.purpose !== 'reset_password' && purpose.reset) return [];
+            if (ask.purpose === 'sign_in' && purpose.activation) return [];
           }
-          return url.protocol === 'https:' && !url.username && !url.password
-            && !/unsubscribe|privacy|terms|help|support|tracking/i.test(`${link.text} ${url.pathname}`)
-            && (opaqueResetLink || /verif|confirm|activat|sign.in|log.?in|reset|magic|authenticat/i.test(`${link.text} ${url.pathname} ${url.searchParams.toString()}`));
-        } catch { return false; }
+          if (url.protocol !== 'https:' || url.username || url.password
+            || /unsubscribe|privacy|terms|help|support|tracking/i.test(`${link.text} ${url.pathname}`)) return [];
+          return purpose.explicit || opaqueResetLink ? [{ link, explicit: purpose.explicit }] : [];
+        } catch { return []; }
       });
+      // Opaque reset destinations are a fallback, not peers of an explicit
+      // action. A harmless employer/footer link must not make the real reset
+      // action ambiguous. Two explicit actions still require disambiguation.
+      const explicit = candidates.filter(candidate => candidate.explicit);
+      const links = (explicit.length ? explicit : candidates).map(candidate => candidate.link);
       const unique = [...new Map(links.map(link => [new URL(link.url).href, link])).values()];
       if (unique.length === 1) return { kind: 'link' as const, value: unique[0].url, subject: email.subject };
     }

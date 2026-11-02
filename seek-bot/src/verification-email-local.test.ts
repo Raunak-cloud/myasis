@@ -2,6 +2,30 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { isRequestedVerificationEmail, readVerificationEmailsLocally as read } from './verification-email-local.js';
 
+test('an explicit reset action takes priority over an unrelated footer website', () => {
+  const action = 'https://careers.fixture.invalid/Careers/passwordreset/fixture-token/?username=fixture-user';
+  const email = { position: 0, subject: 'Fixture password reset', sender: 'noreply@fixture.invalid',
+    text: 'To reset your password, use the link below. Visit our website for more information.', links: [
+      { text: 'Reset your password', url: action },
+      { text: 'Sidekick', url: 'https://sidekick.fixture.invalid/' },
+    ] };
+  const ask = { hint: 'Fixture', site: 'careers.fixture.invalid', purpose: 'reset_password' as const, want: 'link' as const };
+  assert.equal(read([email], ask)?.value, action, 'the footer is only an opaque fallback, not a second reset action');
+  assert.equal(read([{ ...email, links: [...email.links, { text: 'Reset password', url: action.replace('fixture-token', 'other-token') }] }], ask), null,
+    'multiple explicit reset actions remain ambiguous');
+  assert.equal(read([email], { ...ask, purpose: 'account_verification' }), null, 'a reset cannot become an activation');
+});
+
+test('opaque query values cannot turn a footer into an explicit action', () => {
+  const action = 'https://fixture.invalid/opaque?hash=fixture-token';
+  const email = { position: 0, subject: 'Fixture password reset', text: 'To reset your password, click the link below.', links: [
+    { text: 'Click here', url: action },
+    { text: 'Website', url: 'https://fixture.invalid/?token=reset-private-marker' },
+  ] };
+  assert.equal(read([email], { hint: 'Fixture', purpose: 'reset_password', want: 'link' }), null,
+    'secret token contents cannot resolve two otherwise opaque destinations');
+});
+
 test('code labels accept independent linking words, punctuation and layout whitespace', () => {
   for (const separator of [' ', ': ', ' is ', ' is: ', ' is :\n', '\n:\n', ' = ', ' - ', ' – ', ' — ', ' is\u00a0—\u00a0']) {
     for (const label of ['verification code', 'security PIN', 'passcode', 'OTP', 'code', 'PIN']) {
