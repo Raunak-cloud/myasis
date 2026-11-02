@@ -451,10 +451,11 @@ async function main() {
         adapter, keyword, scope, total: 0, pages: 0, seen: new Set<string>(), exhausted: false,
       }))));
 
-    /** Order of review: in-scope listings first, then the pre-ranking's priority. */
+    /** Unknown cards can still resolve in scope. Do not let feed certainty
+     * outrank the matching agent's current discovery priority. */
     const scopeRank = (job: JobListing): number => {
       if (runScope() === 'all') return 0;
-      if (!job.applicationMode || job.applicationMode === 'unknown') return 1; // the board's panel will say
+      if (!job.applicationMode || job.applicationMode === 'unknown') return 0; // the board's panel will say
       return outsideScope(job.applicationMode) ? 2 : 0;
     };
     /**
@@ -473,7 +474,9 @@ async function main() {
       if (promising) return promising;
       const recommended = recommendedFirst(a) - recommendedFirst(b);
       if (recommended) return recommended;
-      return (reviewPriorities.get(reviewKey(b))?.priority ?? 0) - (reviewPriorities.get(reviewKey(a))?.priority ?? 0);
+      const priority = (reviewPriorities.get(reviewKey(b))?.priority ?? 0) - (reviewPriorities.get(reviewKey(a))?.priority ?? 0);
+      if (priority) return priority;
+      return runScope() === 'all' ? 0 : Number(!a.applicationMode || a.applicationMode === 'unknown') - Number(!b.applicationMode || b.applicationMode === 'unknown');
     };
 
     let nextPage = 1;

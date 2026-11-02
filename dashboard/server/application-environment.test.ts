@@ -4,6 +4,7 @@ import { accountApplicationEnvironment, applicationRunEnvironment } from './runn
 import { getPool } from './db/index.js';
 import { loadUserSettings, runSettingsForUser, saveUserSettings } from './settings.js';
 import { userDir } from './userdata.js';
+import { applicationModelLabel } from '../../seek-bot/src/application-model-catalog.js';
 
 const pool = getPool();
 after(async () => { await pool.end(); });
@@ -44,11 +45,18 @@ test('MiniMax credentials are added only after rechecking the admin owner and se
     pool.query=(async(sql:string,params:unknown[])=>sql.includes('FROM run_starts')
       ? {rows:params[0]==='authorized-run'?[{email:'admin@fixture.invalid'}]:[]}
       : {rows:[{id:params[0],email:params[0]==='admin'?'admin@fixture.invalid':'customer@fixture.invalid'}]}) as typeof originalQuery;
-    const oneTime={...settings,ADMIN_APPLICATION_MODEL:'minimax'};
+    const oneTime={...settings,APPLICATION_AI_MODEL:'celeris',ADMIN_APPLICATION_MODEL:'minimax'};
     assert.equal((await accountApplicationEnvironment('customer',oneTime)).APPLICATION_AI_MODEL,'celeris','an unbound marker cannot override the customer policy');
-    assert.equal((await accountApplicationEnvironment('customer',oneTime,'authorized-run')).APPLICATION_AI_MODEL,'minimax','an audited active admin can select a model for this run only');
+    const authorized=await accountApplicationEnvironment('customer',oneTime,'authorized-run');
+    const worker={...applicationRunEnvironment({APPLICATION_AI_MODEL:'celeris',CELERIS_API_KEY:'legacy-process-key'}),...authorized};
+    assert.equal(worker.APPLICATION_AI_MODEL,'minimax','an audited active admin can select a model for this run only');
+    assert.equal(applicationModelLabel(worker.APPLICATION_AI_MODEL),'MiniMax M3.1','the run header uses the effective worker model, not the saved customer default');
+    assert.equal(worker.CELERIS_API_KEY,'','the truthful label does not enable the unselected provider');
+    assert.equal(oneTime.APPLICATION_AI_MODEL,'celeris','one-time execution does not change the saved model snapshot');
     await assert.rejects(accountApplicationEnvironment('customer',oneTime,'unverified-run'),/no valid administrator/);
-    assert.equal((await accountApplicationEnvironment('customer',settings)).APPLICATION_AI_MODEL,'celeris','the customer default remains unchanged');
+    const defaultWorker=await accountApplicationEnvironment('customer',settings);
+    assert.equal(defaultWorker.APPLICATION_AI_MODEL,'celeris','the customer default remains unchanged');
+    assert.equal(applicationModelLabel(defaultWorker.APPLICATION_AI_MODEL),'Celeris Magnus','an ordinary customer run retains its effective Celeris label');
     pool.query=operatorQuery;
     process.env.CELERIS_API_KEY = '';
     assert.equal((await accountApplicationEnvironment('admin', settings)).APPLICATION_AI_MODEL, 'minimax', 'MiniMax does not depend on the unselected provider credential');
