@@ -55,16 +55,16 @@ async function scenario(id: string, calls: Call[], options: { specialistFails?: 
     if (options.model === 'minimax') assert.equal(body.model, MINIMAX_APPLICATION_MODEL);
     if (isSpecialistFixtureRequest(body)) {
       specialists++;
-      assert.deepEqual(body.tools?.map((tool:any)=>tool.function.name),['test_application_helper'],'specialist can test isolated helpers but has no live browser or submission tool');
-      assert.equal(body.tool_choice, 'auto', 'the specialist is not forced to execute a helper or any live action');
+      assert.deepEqual(body.tools?.map((tool:any)=>tool.function.name),['test_application_helper','return_application_advice'],'specialist can test isolated helpers or return typed advice but has no live browser or submission tool');
+      assert.equal(body.tool_choice, 'required', 'the specialist may choose its typed advice terminal without executing a helper or any live action');
       assert.match(body.messages[1].content, /Login with Google/);
       assert.match(body.messages[1].content, /parent-history/);
       assert.equal(await page.locator('#city').inputValue(), '', 'specialist cannot change browser state');
       if (options.specialistFails) return new Response('Fixture provider unavailable', { status: 401 });
-      return Response.json({ usage: { prompt_tokens: 100, completion_tokens: 30 }, choices: [{ message: {
-        content: JSON.stringify({ advice: 'Repeated code waits do not establish progress. The current page offers another sign-in method.',
+      return Response.json({ usage: { prompt_tokens: 100, completion_tokens: 30 }, choices: [{ message: { content: null,
+        tool_calls: [{ id: `specialist-${specialists}`, type: 'function', function: { name: 'return_application_advice', arguments: fixtureToolArguments(body, 'return_application_advice', { advice: 'Repeated code waits do not establish progress. The current page offers another sign-in method.',
           evidence: [{ source: 'page', detail: 'Login with Google is visible.' }], unknowns: [],
-          nextSteps: ['Inspect the observed Login with Google control, use the existing candidate session, then verify the actual employer form.'] }),
+          nextSteps: ['Inspect the observed Login with Google control, use the existing candidate session, then verify the actual employer form.'] }) } }],
       } }] });
     }
     const review = readiness(body); if (review) return review;
