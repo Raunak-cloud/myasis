@@ -2,6 +2,8 @@
 # Small automatic checks. deploy.sh bounds this entire phase to 180 seconds.
 # Comprehensive suites remain available through their manual commands.
 set -euo pipefail
+# Keep background groups in the timeout-managed process group.
+set +m
 APP=$(cd "$(dirname "$0")/.." && pwd)
 cd "$APP"
 for script in deploy/deploy.sh deploy/public-site.sh deploy/smoke-check.sh deploy/install-repair-pilot.sh deploy/repair-pilot-sandbox.sh; do bash -n "$script"; done
@@ -86,6 +88,10 @@ cleanup_check_logs() {
   return "$check_status"
 }
 trap cleanup_check_logs EXIT
+# A signal can interrupt wait with $? still zero; preserve failure for cleanup.
+trap 'exit 143' TERM
+trap 'exit 130' INT
+trap 'exit 129' HUP
 check_dashboard > "$CHECK_LOG_DIR/dashboard.log" 2>&1 &
 dashboard_pid=$!
 check_bot > "$CHECK_LOG_DIR/bot.log" 2>&1 &
