@@ -4,6 +4,12 @@
 export function isSpecialistFixtureRequest(body:any):boolean {
   return /^You are (?:a read-only |an )application specialist assisting the applying agent\b/.test(String(body.messages?.[0]?.content));
 }
+/** Scripted providers must obey the offered wire schema too. The canonical
+ * argument validator remains in the actual client and dispatch path. */
+export function fixtureToolArguments(body:any,name:string,args:Record<string,unknown>):string {
+  const parameters=body.tools?.find((tool:any)=>tool.function?.name===name)?.function?.parameters;
+  return JSON.stringify(parameters?.properties?.arguments_json?{arguments_json:JSON.stringify(args)}:args);
+}
 export function specialistFixtureReply(body: any): Response | undefined {
   if (isSpecialistFixtureRequest(body)) {
     return Response.json({ usage: { prompt_tokens: 0, completion_tokens: 0 }, choices: [{ message: {

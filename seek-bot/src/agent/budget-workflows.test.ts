@@ -5,7 +5,7 @@ import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,readdirSync,rmSync} fro
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {chromium} from 'patchright';
-import {specialistFixtureReply} from './specialist-fixture.js';
+import {specialistFixtureReply,isSpecialistFixtureRequest} from './specialist-fixture.js';
 
 const directory=mkdtempSync(join(tmpdir(),'owtomate-budget-workflows-'));
 Object.assign(process.env,{DATA_DIR:directory,CELERIS_API_KEY:'fictional-key',COST_TRACKING:'false',FORM_CORPUS_DIR:join(directory,'corpus'),
@@ -78,7 +78,7 @@ test('Culture Amp style empty search box plus specialist advice completes withou
  const prepare:Call={name:'prepare_application',args:{answers:[],resume_id:'cv',submit_selector:'#send'}};
  globalThis.fetch=async(_url,init)=>{
   const body=JSON.parse(String(init?.body)) as Body;
-  if(!body.tools?.length){specialists++;return Response.json({choices:[{message:{content:JSON.stringify({advice:'Australia is selected; the empty input is the search box. Prepare directly.',evidence:[{source:'page',detail:'Australia +61 is aria-selected=true.'}],unknowns:[],nextSteps:['Prepare for candidate confirmation.']})}}],usage:{prompt_tokens:Math.round(.04*1_000_000/CELERIS_RATES.promptUncached),completion_tokens:0}});}
+  if(isSpecialistFixtureRequest(body)){specialists++;return Response.json({choices:[{message:{content:JSON.stringify({advice:'Australia is selected; the empty input is the search box. Prepare directly.',evidence:[{source:'page',detail:'Australia +61 is aria-selected=true.'}],unknowns:[],nextSteps:['Prepare for candidate confirmation.']})}}],usage:{prompt_tokens:Math.round(.04*1_000_000/CELERIS_RATES.promptUncached),completion_tokens:0}});}
   turns++;assert.ok(turns<=7,'no repeated recovery/result reports can consume the completion reserve');
   if(turns===1)return packet([{name:'browser_action',args:{action:'fill',selector:'#name',value:'Fictional Candidate'}}],.10);
   if(turns===2||turns===3)return packet([{name:'browser_action',args:{action:'click',selector:'#country',undeclared:true}}],.02);
@@ -101,7 +101,7 @@ test('Culture Amp style empty search box plus specialist advice completes withou
 test('a post-send specialist charge leaves one receipt-only record, never another send',{timeout:10000},async()=>{
  const f=await fixture(form);let turns=0,specialists=0;
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;
-  if(!body.tools?.length){specialists++;return Response.json({choices:[{message:{content:JSON.stringify({advice:'Inspect the actual receipt.',evidence:[],unknowns:[],nextSteps:[]})}}],usage:{prompt_tokens:150000,completion_tokens:0}});}
+  if(isSpecialistFixtureRequest(body)){specialists++;return Response.json({choices:[{message:{content:JSON.stringify({advice:'Inspect the actual receipt.',evidence:[],unknowns:[],nextSteps:[]})}}],usage:{prompt_tokens:150000,completion_tokens:0}});}
   turns++;
   if(turns===1)return packet([{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],.01);
   if(turns===2)return packet([review()],.01);
@@ -115,7 +115,7 @@ test('a post-send specialist charge leaves one receipt-only record, never anothe
 test('a final-record-only reply cannot retry a send or claim the skipped retry succeeded',{timeout:10000},async()=>{
  const f=await fixture(form);let turns=0;
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;
-  if(!body.tools?.length)return Response.json({choices:[{message:{content:JSON.stringify({advice:'Use the existing evidence.',evidence:[],unknowns:[],nextSteps:[]})}}],usage:{prompt_tokens:150000,completion_tokens:0}});
+  if(isSpecialistFixtureRequest(body))return Response.json({choices:[{message:{content:JSON.stringify({advice:'Use the existing evidence.',evidence:[],unknowns:[],nextSteps:[]})}}],usage:{prompt_tokens:150000,completion_tokens:0}});
   turns++;
   if(turns===1)return packet([{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],.01);
   if(turns===2)return packet([review()],.01);

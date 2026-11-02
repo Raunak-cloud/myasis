@@ -1,4 +1,4 @@
-import { isSpecialistFixtureRequest } from './specialist-fixture.js';
+import { isSpecialistFixtureRequest, fixtureToolArguments } from './specialist-fixture.js';
 /** Real browser, isolated forms and scripted providers. No real mail, paid calls or applications. */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -55,8 +55,8 @@ async function scenario(id: string, calls: Call[], options: { specialistFails?: 
     if (options.model === 'minimax') assert.equal(body.model, MINIMAX_APPLICATION_MODEL);
     if (isSpecialistFixtureRequest(body)) {
       specialists++;
-      assert.equal(body.tools, undefined);
-      assert.equal(body.tool_choice, undefined);
+      assert.deepEqual(body.tools?.map((tool:any)=>tool.function.name),['test_application_helper'],'specialist can test isolated helpers but has no live browser or submission tool');
+      assert.equal(body.tool_choice, 'auto', 'the specialist is not forced to execute a helper or any live action');
       assert.match(body.messages[1].content, /Login with Google/);
       assert.match(body.messages[1].content, /parent-history/);
       assert.equal(await page.locator('#city').inputValue(), '', 'specialist cannot change browser state');
@@ -75,7 +75,7 @@ async function scenario(id: string, calls: Call[], options: { specialistFails?: 
     assert.ok(call, `Unexpected parent decision in ${id}; specialist calls: ${specialists}`);
     if (call.name === 'browser_action' && call.args.selector === '#google') assert.equal(specialists, 1, 'automatic advice arrives before the next recovery action');
     return Response.json({ usage: { prompt_tokens: options.exhausted ? 3_000_000 : 100, completion_tokens: 10 }, choices: [{ message: { role: 'assistant', content: null,
-      tool_calls: [{ id: `${id}-${parents}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } }] } }] });
+      tool_calls: [{ id: `${id}-${parents}`, type: 'function', function: { name: call.name, arguments: fixtureToolArguments(body,call.name,call.args) } }] } }] });
   };
   try {
     const execute = () => runAgentOnlyApplication({ simulation: 'isolated-form', page,
