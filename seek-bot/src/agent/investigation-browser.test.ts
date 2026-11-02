@@ -1,3 +1,4 @@
+import { isSpecialistFixtureRequest } from './specialist-fixture.js';
 import assert from 'node:assert/strict';
 import { mkdtempSync,mkdirSync,writeFileSync,rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -88,7 +89,7 @@ try {
     ...Array.from({length:3},()=>({name:'finish',args:{status:'skipped',reason:'Reset outcome is still uncertain after safe checks.',evidence:'Candidate access is still being checked'}}))];
   globalThis.fetch=(async(_url,init)=>{
     const body=JSON.parse(String(init?.body));
-    if(String(body.messages?.[0]?.content).includes('read-only application specialist'))return Response.json({choices:[{message:{content:JSON.stringify({advice:'The outcome remains unknown; preserve it honestly without another reset.',evidence:[{source:'page',detail:'Candidate access is still being checked'}],unknowns:['Reset acceptance'],nextSteps:['Report unresolved access honestly.']})}}]});
+    if(isSpecialistFixtureRequest(body))return Response.json({choices:[{message:{content:JSON.stringify({advice:'The outcome remains unknown; preserve it honestly without another reset.',evidence:[{source:'page',detail:'Candidate access is still being checked'}],unknowns:['Reset acceptance'],nextSteps:['Report unresolved access honestly.']})}}]});
     const call=stopCalls[index++];assert.ok(call,'Investigation cannot loop indefinitely');
     return Response.json({choices:[{message:{tool_calls:[{id:'stop-'+index,type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}]}}]});
   }) as typeof fetch;
