@@ -36,6 +36,15 @@ test('helpers publish only after actual native fixture assertions; bad contracts
  assert.equal(helpers.schemas().length,1);
 });
 
+test('specialist shorthand inputs become bounded closed schemas without extra model repair turns',async()=>{
+ const helpers=new ApplicationHelpers(agentOnlyTools),short=structuredClone(filler);
+ short.parameters={target:{type:'string'},value:{type:'string'}};
+ const published=await helpers.test(short),schema=helpers.schemas()[0].parameters;
+ const input=(schema.properties as any).input;
+ assert.equal(input.type,'object');assert.equal(input.additionalProperties,false);assert.equal(input.properties.value.maxLength,40000);
+ assert.equal(published.status,'fixture-tested');
+});
+
 test('a document helper creates and attaches a real combined document in an isolated inventory',async()=>{
  const helpers=new ApplicationHelpers(agentOnlyTools),expected='Synthetic cover letter\n\nSynthetic resume';
  const definition:HelperDefinition={name:'combined_document',description:'Create one document containing both supplied texts and attach it to the supplied input.',parameters:{type:'object',additionalProperties:false,properties:{letter:str,resume:str,target:str},required:['letter','resume','target']},

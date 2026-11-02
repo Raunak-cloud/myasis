@@ -26,7 +26,29 @@ const forbiddenKeys=new Set(['__proto__','constructor','prototype']);
 const allowedTools=new Set(['browser_action','create_file','convert_file']);
 const allowedActions=new Set(['fill','type','click','check','select','press','inspect','script','wait','hover','scroll','set_input_files']);
 const objectSchema={type:'object',additionalProperties:true};
+const inputSchema={type:'object',additionalProperties:false,properties:{type:{type:'string',enum:['object']},properties:objectSchema,required:{type:'array',maxItems:30,items:{type:'string',maxLength:100}},additionalProperties:{type:'boolean',enum:[false]}},required:['properties']};
 const schemaKeys=new Set(['type','properties','required','additionalProperties','items','enum','minLength','maxLength','minimum','maximum','minItems','maxItems','description']);
+/** Models commonly supply a field dictionary or omit mechanical size bounds.
+ * Canonicalize those equivalent forms and impose bounds locally, rather than
+ * spending model turns repairing schema boilerplate. No new capability or
+ * executable schema extension is accepted. */
+function normalizeParameters(raw:unknown):ObjectValue{
+  if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('Helper parameters must describe named inputs.');
+  const root=structuredClone(raw) as ObjectValue;
+  const schema: ObjectValue=root.type===undefined&&root.properties===undefined?{type:'object',properties:root}:root;
+  const visit=(node:unknown,depth=0)=>{
+    if(depth>6||!node||typeof node!=='object'||Array.isArray(node))throw Error('Use small typed helper inputs.');
+    const item=node as ObjectValue;
+    if(item.type===undefined&&item.properties)item.type='object';
+    if(item.type==='object'){
+      item.additionalProperties??=false;
+      if(item.properties&&typeof item.properties==='object')Object.values(item.properties).forEach(child=>visit(child,depth+1));
+    }
+    if(item.type==='string')item.maxLength??=40000;
+    if(item.type==='array'){item.maxItems??=32;visit(item.items,depth+1);}
+  };
+  schema.type??='object';visit(schema);return schema;
+}
 function parameterSchema(schema:unknown,depth=0):void{
   if(depth>6||!schema||typeof schema!=='object'||Array.isArray(schema))throw Error('Use a small, explicit helper parameter schema.');
   const s=schema as ObjectValue;
@@ -45,7 +67,7 @@ function parameterSchema(schema:unknown,depth=0):void{
 export const helperBuilderTool:ToolSchema={name:'test_application_helper',description:
   'Build and test a temporary helper for a genuinely missing operation. Compose the advertised browser_action/create_file/convert_file tools; no host code, new account access, auth, recursion or application sends. Templates: {"$input":"field.path"}, {"$result":"0.field.path"}, {"$concat":[...]}, {"$json":template}. Each step resolves fresh and uses the ordinary tool schema. Use synthetic HTML and dummy inputs, never real credentials. Tests run in a separate cookie-free, network-blocked browser and temporary document inventory. Assert real returned readbacks, not success prose. Only passing definitions become callable by the applying agent. A test proves the fixture, not employer acceptance.',
   parameters:{type:'object',additionalProperties:false,properties:{
-    name:{type:'string',pattern:'^[a-z][a-z0-9_]{1,38}$'},description:{type:'string',minLength:10,maxLength:1200},parameters:{...objectSchema,description:'Small typed JSON schema: object properties with additionalProperties=false; strings require maxLength<=40000, arrays maxItems<=32. Only type/properties/required/additionalProperties/items/enum/minLength/maxLength/minimum/maximum/minItems/maxItems/description. No refs, executable patterns or schema extensions.'},
+    name:{type:'string',pattern:'^[a-z][a-z0-9_]{1,38}$'},description:{type:'string',minLength:10,maxLength:1200},parameters:{...inputSchema,description:'Input schema example: {"properties":{"letter":{"type":"string"},"resume":{"type":"string"}},"required":["letter","resume"]}. Object type and closed properties are applied automatically. String maxLength defaults to 40000, array maxItems to 32; smaller bounds are welcome. Only typed properties, required, enums and scalar size/range constraints. No patterns or refs.'},
     steps:{type:'array',minItems:1,maxItems:12,items:{type:'object',additionalProperties:false,properties:{tool:{type:'string',enum:[...allowedTools]},args:objectSchema},required:['tool','args']}},
     tests:{type:'array',minItems:1,maxItems:3,items:{type:'object',additionalProperties:false,properties:{html:{type:'string',maxLength:40000},input:objectSchema,
       assertions:{type:'array',minItems:1,maxItems:12,items:{type:'object',additionalProperties:false,properties:{step:{type:'integer',minimum:0,maximum:11},path:{type:'string',maxLength:200},equals:{}},required:['step','path','equals']}}},required:['html','input','assertions']}},
@@ -102,9 +124,10 @@ export class ApplicationHelpers {
   }
   async test(raw:unknown):Promise<ObjectValue>{
     if(this.testing)throw Error('Another helper test is already running.');
-    const issue=toolInputIssue(raw,helperBuilderTool.parameters);if(issue)throw Error(issue);
     if(JSON.stringify(raw).length>100000)throw Error('Helper definition is too large.');
     const definition=structuredClone(raw) as HelperDefinition;
+    if(definition&&typeof definition==='object')definition.parameters=normalizeParameters(definition.parameters);
+    const issue=toolInputIssue(definition,helperBuilderTool.parameters);if(issue)throw Error(issue);
     if(definition.parameters.type!=='object')throw Error('Helper parameters must be an object JSON schema.');
     parameterSchema(definition.parameters);
     const digest=createHash('sha256').update(JSON.stringify(definition)).digest('hex');
