@@ -9,6 +9,8 @@ import { getPool, query } from './db/index.js';
 import { userDir, USERS_DIR } from './userdata.js';
 import { saveApplicationReview, holdApplicationReview, releaseApplicationReviewHold, applicationsForConfirmation, claimApplicationReviews, pendingReviewKeys, listApplicationReviews, editApplicationCoverLetter } from './application-reviews.js';
 import type { PreparedApplication } from '../../seek-bot/src/application-review-types.js';
+import { preserveDocument, verifiedDocumentPath } from '../../seek-bot/src/application-documents.js';
+import { applicationRevision } from '../../seek-bot/src/application-review-content.js';
 
 // Real independent local PostgreSQL transactions; entirely synthetic owners,
 // private fixture directory and a generated disposable schema. No production.
@@ -89,6 +91,10 @@ try {
   await saveApplicationReview(owner, replacement);
   visible = (await listApplicationReviews(owner))[0];
   assert.equal(visible.id, replacement.id); assert.equal(visible.operator_hold?.draftId, first.id, 'later imports preserve original hold attribution');
+  writeFileSync(resolve(directory, 'run-log.jsonl'), '', 'utf8');
+  assert.equal((await holdApplicationReview(actor, owner, selection(first), 'Fixture unknown fact', run)).id, held.id, 'an existing hold survives a new draft and rotated working journal without rewriting its evidence');
+  await assert.rejects(holdApplicationReview(actor, owner, selection(first), 'Fixture unknown fact', '999'), /different operator, source or reason/);
+  writeFileSync(resolve(directory, 'run-log.jsonl'), log.join('\n') + '\n');
   await assert.rejects(claimApplicationReviews(owner, [selection(replacement)]), /no longer ready/);
   assert.deepEqual((await query('SELECT credit_consumed FROM application_reviews WHERE user_id=$1', [owner]))[0], before, 'holding and replacing do not manipulate the credit flag');
   await assert.rejects(releaseApplicationReviewHold(outsider, owner, held.id, selection(first), selection(replacement), 'Human fixture reply'), /administrator/);
@@ -122,7 +128,24 @@ try {
       : [holdApplicationReview(actor, owner, selection(item), 'Import race hold', run), saveApplicationReview(owner, item)]);
     await assert.rejects(claimApplicationReviews(owner, [selection(item)]), /no longer ready/);
   }
-  console.log('PASS: exact pre/post-import operator holds, attribution, ownership, blocked accounts, unchanged answers/credits, explicit resolution, approved/applied protection, six claim/hold and six import/hold races in isolated local PostgreSQL.');
+  const letterText = 'Original candidate letter.', file = resolve(directory, 'Uploaded letter.txt');
+  writeFileSync(file, letterText);
+  const artifact = preserveDocument(file, directory);
+  const document = { role: 'cover-letter' as const, provenance: 'file' as const, fileId: 'supporting:fixture', name: artifact.name, sha256: artifact.sha256, bytes: artifact.bytes, text: letterText };
+  const attached = { ...draft('editable-attachment'), coverLetter: letterText, documents: [document] };
+  await saveApplicationReview(owner, attached);
+  await assert.rejects(editApplicationCoverLetter(other, selection(attached), 'Foreign edit'), /no longer editable/);
+  const changedLetter = await editApplicationCoverLetter(owner, selection(attached), 'Candidate edited letter.');
+  assert.equal(changedLetter.coverLetter, 'Candidate edited letter.');
+  assert.notEqual(changedLetter.revision, attached.revision);
+  assert.notEqual(changedLetter.documents?.[0].sha256, artifact.sha256);
+  const roundTrip = (await listApplicationReviews(owner)).find(item => item.id === changedLetter.id)!.application;
+  assert.equal(applicationRevision(roundTrip), changedLetter.revision, 'PostgreSQL JSONB key ordering must not change a document approval digest');
+  assert.equal(readFileSync(verifiedDocumentPath(document, directory), 'utf8'), letterText, 'editing preserves the original uploaded bytes');
+  assert.equal(readFileSync(verifiedDocumentPath(changedLetter.documents![0], directory), 'utf8'), changedLetter.coverLetter);
+  await assert.rejects(applicationsForConfirmation(owner, [selection(attached)]), /no longer ready/);
+  assert.equal((await applicationsForConfirmation(owner, [selection(changedLetter)]))[0].revision, changedLetter.revision);
+  console.log('PASS: exact pre/post-import operator holds, attribution, ownership, blocked accounts, unchanged answers/credits, explicit resolution, approved/applied protection, six claim/hold and six import/hold races; owner-isolated attached letter edits preserve original bytes and invalidate stale approvals in local PostgreSQL.');
 } finally {
   await pool.end();
   if (created) await admin.query(`DROP SCHEMA ${schema} CASCADE`);

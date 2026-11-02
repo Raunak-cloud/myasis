@@ -41,6 +41,9 @@ test('the evidence inventory distinguishes readable documents from actual upload
   const bundle=await bundled.combineApprovedDocuments();
   assert.equal(bundle.letter_pages,1);assert.equal(bundle.resume_pages,1);
   assert.equal((await PDFDocument.load(readFileSync(bundled.resolve(bundle.file_id).path))).getPageCount(),2);
+  const convertedResume=await bundled.convert('30','pdf');
+  assert.equal((await PDFDocument.load(readFileSync(bundled.resolve(convertedResume.file_id).path))).getPageCount(),1,
+    'an approved resume format conversion checks its original source hash, not equality with rendered PDF bytes');
   await assert.rejects(()=>bundled.create('other','Changed content','txt'),/candidate-approved/);
   const exact='Dear team,\n\nExact confirmed Unicode letter: café — SQL.\n\nKind regards,\nFixture\n';
   const canonical=new AgentFiles('canonical-letter',{resumeId:'30',resumeHash:hash,coverLetter:exact} as never);
@@ -51,6 +54,7 @@ test('the evidence inventory distinguishes readable documents from actual upload
   await assert.rejects(()=>canonical.create('Rewritten letter',exact.replace('café','cafe'),'txt'),/candidate-approved/);
   await assert.rejects(()=>new AgentFiles('no-approved-letter').createApprovedLetter('Letter','txt'),/candidate-approved cover letter/);
   writeFileSync(join(dir,'resumes','CV.txt'),'Changed CV bytes');
+  assert.throws(()=>bundled.resolve(convertedResume.file_id),/resume has changed/,'derived resume cannot hide a changed original source');
   await assert.rejects(()=>bundled.combineApprovedDocuments(),/resume has changed/);
   await assert.rejects(()=>new AgentFiles('missing-approval').combineApprovedDocuments(),/confirmed letter/);
  }finally{prior===undefined?delete process.env.DATA_DIR:process.env.DATA_DIR=prior;rmSync(dir,{recursive:true,force:true});}

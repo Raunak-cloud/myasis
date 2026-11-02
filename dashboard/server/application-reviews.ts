@@ -4,7 +4,7 @@ import type { PreparedApplication } from '../../seek-bot/src/application-review-
 import { consumeApplicationCredit } from './application-credits.js';
 import { isAdmin } from './admin-access.js';
 import { isExternalApplicationUrl } from '../../seek-bot/src/job-board-url.js';
-import { withCoverLetter } from '../../seek-bot/src/application-review-content.js';
+import { reviseAttachedCoverLetter } from '../../seek-bot/src/application-documents.js';
 import { USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -101,6 +101,16 @@ export async function holdApplicationReview(actorUserId: string, userId: string,
   try {
     await connection.query('BEGIN'); await verifyOperator(connection, actorUserId, userId);
     await connection.query('SELECT pg_advisory_xact_lock($1::bigint)', [userId]);
+    // Repeating an already verified hold is a read of its durable ledger, not
+    // a new claim about a later draft or a working journal that may rotate.
+    const retained = (await connection.query<{ id: string; draft_id: string; revision: string; actor_user_id: string; source_run_id: string | null; reason: string; held_at: Date }>(
+      'SELECT id::text,draft_id::text,revision,actor_user_id::text,source_run_id::text,reason,held_at FROM application_review_operator_holds WHERE user_id=$1 AND draft_id=$2 AND revision=$3 AND released_at IS NULL FOR UPDATE',
+      [userId, selection.id, selection.revision])).rows[0];
+    if (retained) {
+      if (retained.actor_user_id !== actorUserId || retained.reason !== explanation || retained.source_run_id !== (sourceRunId ?? null)) throw new ApplicationReviewError('The existing hold has different operator, source or reason evidence. Its original record was preserved.');
+      await connection.query('COMMIT');
+      return { id: retained.id, draftId: retained.draft_id, revision: retained.revision, actorUserId: retained.actor_user_id, reason: retained.reason, heldAt: new Date(retained.held_at).toISOString() };
+    }
     const draft = await exactHeldDraft(connection, userId, selection, sourceRunId), jobKey = `${draft.job.platform ?? 'seek'}:${draft.job.id}`;
     const existing = (await connection.query<{ id: string; draft_id: string; revision: string; actor_user_id: string; reason: string; held_at: Date }>('SELECT id::text,draft_id::text,revision,actor_user_id::text,reason,held_at FROM application_review_operator_holds WHERE user_id=$1 AND job_key=$2 AND released_at IS NULL FOR UPDATE', [userId, jobKey])).rows[0];
     if (existing) {
@@ -211,7 +221,9 @@ export async function editApplicationCoverLetter(userId: string, selection: Revi
       throw new ApplicationReviewError('An application changed or is no longer editable. Reload and review it again.');
     }
     const current = row.payload;
-    const application = withCoverLetter(current, value);
+    let application: PreparedApplication;
+    try { application = await reviseAttachedCoverLetter(current, value, userDir(userId)); }
+    catch { throw new ApplicationReviewError('Could not save the cover letter. Please try again.'); }
     await connection.query("UPDATE application_reviews SET payload=$3,detail=CASE WHEN status='ready' THEN NULL ELSE detail END,updated_at=now() WHERE user_id=$1 AND id=$2 AND status IN ('ready','failed')",
       [userId, selection.id, JSON.stringify(application)]);
     await connection.query('COMMIT');

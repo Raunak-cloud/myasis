@@ -8,6 +8,8 @@ import type { AgentFiles } from './agent-files.js';
 export interface RecoveryScope { runId: string; jobId: string; platform: string; mode: string; contextHash: string }
 export interface RecoveryWork {
   captured: ToolContext['captured']; actions: ToolContext['actions']; coverLetter?: string;
+  documents?: ToolContext['documents']; uploads?: ReturnType<AgentFiles['checkpointUploads']>;
+  letterWitness?: ReturnType<AgentFiles['checkpointLetterWitness']>;
   resumeUsed?: string; resumeName?: string; files: ReturnType<AgentFiles['checkpoint']>;
   pendingCredentials?: Array<[string, NonNullable<ToolContext['pendingCredentials']> extends Map<string, infer T> ? T : never]>;
 }

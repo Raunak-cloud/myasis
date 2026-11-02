@@ -1,9 +1,11 @@
 import { basename } from 'node:path';
-import type { Browser, BrowserContext, Locator, Page, Route, Request } from 'patchright';
+import { randomUUID } from 'node:crypto';
+import type { Browser, BrowserContext, ElementHandle, Locator, Page, Route, Request } from 'patchright';
 import { applicationAllowance } from '../application-allowance.js';
 import { APPLICATION_WRITING_STYLE } from '../application-answer-policy.js';
 import { applicationAgentIdentity, applicationModelEnvironment } from '../application-model.js';
 import { cleanCoverLetter, coverLetterInstructionPrompt, isCoverLetterField } from '../cover-letter-policy.js';
+import { observedApprovedCoverLetter } from '../application-letter.js';
 import { readSavedForm } from './saved-form.js';
 import { waitForChallengeToClear, workingIn } from '../browser.js';
 import { BrowserOperationTimeout } from '../browser-deadline.js';
@@ -58,6 +60,7 @@ import { addIndeedCoverLetter } from './indeed-cover-letter.js';
 import { jobBoardForUrl } from '../job-board-url.js';
 import { extractEmployerQuestions } from './question-evidence.js';
 import { browserCommandContract } from './browser-command-schema.js';
+import {isSnapshotOperation,snapshotProperties} from './browser-snapshot-command.js';
 import { RecoveryRecord, RecoveryRecordError, recoveryContextHash, type RecoveryWork } from './recovery-record.js';
 import { currentApplicationWorker } from '../application-workers.js';
 import { investigationTool, investigateApplicationState } from './investigation.js';
@@ -65,7 +68,21 @@ import {ApplicationHelpers} from './application-helpers.js';
 
 const string = { type: 'string' };
 const batchActions = ['click', 'fill', 'type', 'select', 'check', 'press', 'hover', 'wait', 'inspect', 'set_input_files', 'script'];
-const browserActions = [...batchActions, 'scroll', 'navigate', 'select_page', 'dialog'];
+/** Opaque identity of the actual live node, never a positional DOM guess.
+ * Browser-internal transport state changes no form values or DOM attributes. */
+async function uploadTargetIdentity(handle: ElementHandle<Node>): Promise<string> {
+  return handle.evaluate((node, proposed) => {
+    if (!(node instanceof Element)) throw Error('The upload target is not an element.');
+    const key = Symbol.for('owtomate.private-upload-identities.v1');
+    const owner = node.ownerDocument.defaultView; if (!owner) throw Error('The upload document is unavailable.');
+    let identities = Reflect.get(owner, key) as WeakMap<Node, string> | undefined;
+    if (identities && !(identities instanceof WeakMap)) throw Error('The native upload identity store is unavailable.');
+    if (!identities) { identities = new WeakMap<Node, string>(); Object.defineProperty(owner, key, { value: identities }); }
+    const known = identities.get(node); if (known) return known;
+    identities.set(node, proposed); return proposed;
+  }, randomUUID());
+}
+const browserActions = [...batchActions, 'scroll', 'navigate', 'select_page', 'dialog','take_snapshot'];
 const schema = (name: string, description: string, properties: Record<string, unknown>, required: string[] = [], constraints: Record<string, unknown> = {}): ToolSchema => ({
   name, description, parameters: { type: 'object', additionalProperties: false, properties, required, ...constraints },
 });
@@ -74,8 +91,10 @@ const schema = (name: string, description: string, properties: Record<string, un
 export const agentOnlyTools: ToolSchema[] = [
   applicationReviewTool,
   schema('add_cover_letter', 'Indeed fast path: supply your complete truthful tailored letter. Opens the known Supporting documents → Add → Write a cover letter flow, fills with normal input events, saves locally and reads back. Does not draft or submit the application. Use once when the application offers a letter channel. On fallback, inspect the live page and finish with normal browser tools; preserve completed work and do not call this shortcut repeatedly. Approved submissions always use the exact approved letter.', { text: { type: 'string', minLength: 1 } }, ['text']),
-  schema('prepare_application', 'After filling and inspecting the final application review, save the actual completed form for confirmation, or check an approved reconstruction. Nothing is submitted. Captured browser answers are retained; pass an empty answers array when no additions are needed. Use actual saved values and selected option labels, not profile shorthand. Correct the form and inspect its readback before preparing; use save_progress for verified wizard answers absent from captured state. Supply the complete cover letter and selected account resume ID.', {
+  schema('prepare_application', 'After filling and inspecting the final application review, save the actual completed form for confirmation, or check an approved reconstruction. Nothing is submitted. Captured browser answers are retained; pass an empty answers array when no additions are needed. Use actual saved values and selected option labels, not profile shorthand. Correct the form and inspect its readback before preparing; use save_progress for verified wizard answers absent from captured state. Supply the selected account resume ID. Declare the attached cover letter with cover_letter_file_id and other attached non-resume files with supporting_file_ids; exact uploaded bytes and readable source text are retained. Never infer document roles from filenames. For a text-only letter supply cover_letter; omitting it preserves known letter text.', {
     resume_id: string, cover_letter: string,
+    cover_letter_file_id: { type: 'string', minLength: 1, description: 'Exact file_id of the attached cover letter. Its authoritative source text and bytes are retained without retranscription.' },
+    supporting_file_ids: { type: 'array', maxItems: 10, items: { type: 'string', minLength: 1 }, description: 'Exact file_ids of any other attached non-resume documents, excluding the cover letter and selected resume.' },
     submit_ref: { type: 'string', description: 'Observed ref of the actual final send control on this completed online application.' },
     submit_selector: { type: 'string', description: 'CSS selector for that final send control when a ref is unavailable.' },
     answers: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { question: string, answer: string }, required: ['question', 'answer'] } },
@@ -87,18 +106,20 @@ export const agentOnlyTools: ToolSchema[] = [
   schema('browser_batch', 'Execute your own ordered native browser commands, browser scripts and read-only inspections in one call. Scripts follow the same contract and permissions as browser_action. Each command uses fresh locators and normal browser events; fill/select/check return current values and validation together. inspect returns labelled current values for all matching targets, masking private values, and never edits. Stops at the first actual error or page handoff. Include wait conditions with the action that causes a change. Only batch actions whose targets and dependencies you have inspected; inspect after unexpected changes. No automatic field answering or widget repair.', {
     actions: { type: 'array', minItems: 1, maxItems: MAX_BROWSER_BATCH, items: { type: 'object', additionalProperties: false, properties: {
       action: { type: 'string', enum: batchActions },
-      file_ids: fileIdsProperty, file_chooser: { type: 'boolean' },
+      file_ids: fileIdsProperty, replaces_file_ids: { type: 'array', maxItems: 10, items: { type: 'string', minLength: 1 }, description: 'For set_input_files only: exact previously uploaded IDs that you observed are replaced/removed by this upload or clear, including when a widget remounts. Never infer replacement from a filename or DOM position.' }, file_chooser: { type: 'boolean' },
       script: { type: 'string', minLength: 1, description: 'For action=script: the same browser-side function, expression or async body accepted by browser_action. Executes once in order; runtime failure stops the batch.' },
       script_intent: { type: 'string', enum: ['inspect', 'act'], description: 'For script only: inspect declares read-only inspection; act declares interaction. The normal browser_action permissions still apply.' },
       ...browserTargetProperties, ...browserWaitProperties, value: string, sends_application: { type: 'boolean', description: 'Required on every click/press in Semi auto and approved reconstruction: true transmits the application; false is preparatory.' },
     }, required: ['action'], ...browserCommandContract(batchActions) } },
   }, ['actions']),
-  schema('take_snapshot', 'Read the current accessibility tree, including iframe refs. Target the relevant form, widget or sections with ref, selector or a direct Playwright locator. Multiple matching sections return one bounded page snapshot so all included accessibility references remain consistent; narrow the locator for a focused section. Inspect an open menu before choosing an option. Ask for a screenshot when visual evidence is useful.', { screenshot: { type: 'boolean' }, ...browserTargetProperties }),
-  schema('browser_action', 'Required arguments: action=script needs script containing your complete code; action=set_input_files needs file_ids (an array of inventory IDs, even for one file) and a target; action=wait needs a current target or wait with a target/URL condition. A timeout alone is not a wait. Act directly on the observed browser. You author values, choose interactions and decide when to submit. inspect reads current values and constraints for all matching targets in one evaluation, labelling each result; private values are masked. Clicks and writes require one intended target. Fill/select/check report actual readback and validation. type appends text with native keyboard events; fill replaces text using normal input events. Use type when an inspected widget needs key events, clearing first when replacing text. For autocomplete: type, inspect the fresh suggestions, then click an observed option; typing alone is not a committed selection. Native date inputs use YYYY-MM-DD; text dates follow the observed placeholder/description. Re-observe after dynamic changes. Use an observed ref, a standard Playwright locator (role/label/placeholder/text/test_id/css), or a CSS selector. Script accepts a browser-side function or async JavaScript body with return, never Node code.', {
+  schema('take_snapshot', 'Read the current accessibility tree, including iframe refs. Target the relevant form, widget or sections with ref, selector or a direct Playwright locator. Multiple matching sections return one bounded page snapshot so all included accessibility references remain consistent; narrow the locator for a focused section. Inspect an open menu before choosing an option. Ask for a screenshot when visual evidence is useful.', snapshotProperties),
+  schema('browser_action', 'action=take_snapshot is the same read-only operation as standalone take_snapshot, with optional screenshot and target arguments only. Required arguments: action=script needs script containing your complete code; action=set_input_files needs file_ids (an array of inventory IDs, even for one file) and a target; action=wait needs a current target or wait with a target/URL condition. A timeout alone is not a wait. Act directly on the observed browser. You author values, choose interactions and decide when to submit. inspect reads current values and constraints for all matching targets in one evaluation, labelling each result; private values are masked. Clicks and writes require one intended target. Fill/select/check report actual readback and validation. type appends text with native keyboard events; fill replaces text using normal input events. Use type when an inspected widget needs key events, clearing first when replacing text. For autocomplete: type, inspect the fresh suggestions, then click an observed option; typing alone is not a committed selection. Native date inputs use YYYY-MM-DD; text dates follow the observed placeholder/description. Re-observe after dynamic changes. Use an observed ref, a standard Playwright locator (role/label/placeholder/text/test_id/css), or a CSS selector. Script accepts a browser-side function or async JavaScript body with return, never Node code.', {
     action: { type: 'string', enum: browserActions },
     file_ids: fileIdsProperty,
+    replaces_file_ids: { type: 'array', maxItems: 10, items: { type: 'string', minLength: 1 }, description: 'For set_input_files only: exact previously uploaded IDs that you observed are replaced/removed by this upload or clear, including when a widget remounts. Native selection does not establish employer acceptance. Retired selections remain in recovery history.' },
     file_chooser: { type: 'boolean', description: 'For set_input_files only: true clicks your selected upload trigger and attaches through the native file chooser. Otherwise target the actual file input directly.' },
     ...browserTargetProperties, ...browserWaitProperties, value: string,
+    screenshot: {type:'boolean',description:'Only for action=take_snapshot: request a privacy-masked screenshot with the next observation. That read-only action accepts the same target arguments as standalone take_snapshot, without mutation/send arguments.'},
     script: { type: 'string', description: 'Required and nonempty for action=script: your complete browser-side function or async body with return. Unused for other actions.' },
     script_intent: { type: 'string', enum: ['inspect', 'act'], description: 'For script only: inspect declares read-only evidence gathering, not execution of a repair. Use act for any DOM write, interaction or navigation. Default act. This does not grant permissions, bypass Semi auto or change send confirmation.' },
     x: { type: 'number' }, y: { type: 'number' }, page_index: { type: 'integer', minimum: 0 },
@@ -258,11 +279,12 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     throw new RecoveryRecordError('Continuation must retain the original application spending meter and maximum.');
   const retained = restored.work;
   if(options.continuation && !retained) throw new RecoveryRecordError('Continuation has no retained work in its shared recovery record.');
-  if(retained) files.restore(retained.files);
+  if(retained) { files.witnessApprovedLetter(retained.letterWitness ?? []); files.restore(retained.files); files.restoreUploads(retained.uploads); }
   const ctx: ToolContext = { page: options.page, job: options.job, profile: options.profile, recoveryRecord: shared,
     observation: { url: options.page.url(), title: '', actions: [], fields: [], text: '' },
     captured: retained?.captured ?? approved?.answers.map(answer => ({ ...answer })) ?? [], actions: retained?.actions ?? [], log,
-    ...(retained ? { coverLetter:retained.coverLetter,resumeUsed:retained.resumeUsed,resumeName:retained.resumeName,
+    uploadedDocuments: files.checkpointUploads().flatMap(upload => upload.files.map(file => ({ fileId: file.id, sha256: file.sha256, coverLetterDigest: file.coverLetterDigest }))),
+    ...(retained ? { coverLetter:retained.coverLetter,documents:retained.documents,letterWitness:retained.letterWitness,resumeUsed:retained.resumeUsed,resumeName:retained.resumeName,
       pendingCredentials:retained.pendingCredentials?new Map(retained.pendingCredentials):undefined } : {}) };
   const coverLetterForRun = (text: string) => approved?.coverLetter ?? cleanCoverLetter(text);
   const selectionInstruction = options.job.source === 'chosen'
@@ -272,7 +294,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
   const suitabilityAuthority = applicationSuitabilityAuthority(options.job.source === 'chosen', Boolean(fitReview), Boolean(approved));
   const reviewInstruction = !reviewingApplications() ? '' : preparingApplications()
     ? 'SEMI AUTO: fill this application completely, including its documents and letter, but do not send it. At the final review call prepare_application with the exact answers, selected resume ID and letter. Only the candidate can authorize sending later. Use observed controls; browser scripts and coordinate actions are unavailable in this mode.'
-    : `SUBMIT ONLY THIS APPROVED APPLICATION. The browser is already at its allowed entry point. Inspect the actual saved answers, letter and resume; keep matching values instead of refilling them or re-uploading unchanged documents. At a complete final review, compare the saved content in place, call prepare_application, then submit. Do not open an optional employer preview or revisit completed steps unless needed to resolve missing or mismatched content. If the saved review is unavailable, follow observed application controls; do not navigate to formUrl yourself (some boards share that address across different jobs). Reopen/refill only missing or different fields using these exact approved answers, letter and resume; do not rewrite or paraphrase the recorded question labels or answers. When the employer needs a cover-letter attachment, use render_approved_cover_letter to render the exact confirmed text without retyping it. Call prepare_application with the selected resume ID after inspecting it; answers from earlier steps are retained, so only supply additions/corrections using actual question labels. If the form asks new questions, complete truthfully and save it for review again. The submission gate checks the actual content. ${JSON.stringify(approved)}`;
+    : `SUBMIT ONLY THIS APPROVED APPLICATION. The browser is already at its allowed entry point. Inspect the actual saved answers, letter and resume; keep matching values instead of refilling them or re-uploading unchanged documents. Any document marked requiresUpload was revised by the candidate: upload its exact approved file_id even if the employer shows the same filename, then inspect acceptance. A matching filename does not prove matching bytes. At a complete final review, compare the saved content in place, call prepare_application, then submit. Do not open an optional employer preview or revisit completed steps unless needed to resolve missing or mismatched content. If the saved review is unavailable, follow observed application controls; do not navigate to formUrl yourself (some boards share that address across different jobs). Reopen/refill only missing or different fields using these exact approved answers, letter and resume; do not rewrite or paraphrase the recorded question labels or answers. When the employer needs a cover-letter attachment, use render_approved_cover_letter to render the exact confirmed text without retyping it. Call prepare_application with the selected resume ID after inspecting it; answers from earlier steps are retained, so only supply additions/corrections using actual question labels. If the form asks new questions, complete truthfully and save it for review again. The submission gate checks the actual content. ${JSON.stringify(approved)}`;
   const messages: ChatMessage[] = [
     { role: 'system', content: `${AGENT_ONLY_PROMPT}\n${UNCERTAINTY_INVESTIGATION_POLICY}\n${applicationCompletionInstruction(applicationAgentIdentity().selection,liveRepairEnabled())}\n${reviewingApplications() ? 'CURRENT MODE: Semi auto. Candidate confirmation requirements apply.' : 'CURRENT MODE: Auto apply. Complete and send this authorized online application. prepare_application is unavailable; email applications still require explicit confirmation via prepare_email_application.'}\n${suitabilityAuthority}\n${selectionInstruction}\n${APPLICATION_WRITING_STYLE}\n${coverLetterInstructionPrompt(applicationModelEnvironment().COVER_LETTER_INSTRUCTIONS)}` },
     // The first two messages survive both observation compaction and budget
@@ -321,7 +343,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
   if (restored.controls?.turn) turnCoordinator.restore(restored.controls.turn as ReturnType<ApplicationTurnCoordinator['checkpoint']>);
   if (restored.controls?.answerSources) for (const [label, source] of restored.controls.answerSources as Array<[string,{identity:string;label:string}]>) answerSources.set(label,source);
   const recoveryWork = (): RecoveryWork => ({ captured:ctx.captured,
-    actions:ctx.actions,coverLetter:ctx.coverLetter,resumeUsed:ctx.resumeUsed,resumeName:ctx.resumeName,files:files.checkpoint(),
+    actions:ctx.actions,coverLetter:ctx.coverLetter,documents:ctx.documents,resumeUsed:ctx.resumeUsed,resumeName:ctx.resumeName,files:files.checkpoint(),uploads:files.checkpointUploads(),letterWitness:files.checkpointLetterWitness(),
     pendingCredentials:ctx.pendingCredentials?[...ctx.pendingCredentials]:undefined });
   const recoveryControls = () => ({ recovery:recovery.checkpoint(),turn:turnCoordinator.checkpoint(),haltReview,specialistEvidence:[...specialistEvidence],answerSources:[...answerSources],
     budget:{spentUsd:meter.totals.costUsd,actionAllowanceUsd:meter.limitUsd,maximumUsd:meter.maximum,finalizing:meter.finalizing} });
@@ -573,6 +595,8 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       if (!reviewingApplications()) return ok('This tool is for Semi auto applications.', 'failed');
       pendingPreparation = name;
       const form = await readSavedForm(ctx.page);
+      files.witnessApprovedLetter(form.fields);
+      ctx.letterWitness = files.checkpointLetterWitness();
       readiness.observe({ ...ctx.observation, url: form.url, fields: form.fields.map(field => field.frame ? { ...field, section: `Frame ${field.frame}: ${field.section ?? ''}` } : field) });
       if (readiness.request()) return ok('Before preparing, compare actual saved answers, documents and vacancy with candidate sources using record_application_review. Nothing was prepared or sent.', 'reobserve');
       if (!args.submit_ref && !args.submit_selector) return ok('Identify the actual final send control using submit_ref or submit_selector. A listing with email instructions is not a filled online form; use prepare_email_application for it.', 'failed');
@@ -586,10 +610,17 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         }, undefined, { timeout: 2500 })) return ok('The final online send control is unavailable. For an email-only application use prepare_email_application.', 'failed');
       ctx.captured.push(...(args.answers as typeof ctx.captured).map(answer => approved?.coverLetter !== undefined && isCoverLetterField(answer.question)
         ? { ...answer, answer: approved.coverLetter } : answer));
-      ctx.coverLetter = approved?.coverLetter ?? (typeof args.cover_letter === 'string' ? cleanCoverLetter(args.cover_letter) : undefined);
       if (approved?.resumeId && args.resume_id !== approved.resumeId) return ok('Use the exact resume ID in the approved application. Do not replace the candidate-approved document.', 'failed');
       const doc = agentOnlyDocuments().find(item => item.id === args.resume_id);
       if (!doc) return ok('Choose the selected resume ID from the account document inventory.', 'failed');
+      const documents = await files.reviewDocuments(doc.id, args.cover_letter_file_id as string | undefined, args.supporting_file_ids as string[] | undefined);
+      const attachedLetter = documents?.find(document => document.role === 'cover-letter')?.text;
+      if (attachedLetter !== undefined && typeof args.cover_letter === 'string' && args.cover_letter !== attachedLetter)
+        return ok('The supplied letter text differs from the exact attached source. Omit cover_letter to retain its authoritative text, or correct the actual attachment before preparing.', 'failed');
+      if (approved?.coverLetter !== undefined && attachedLetter !== undefined && attachedLetter !== approved.coverLetter)
+        return ok('The attached letter differs from the candidate-approved text. Prepare changed content for fresh confirmation.', 'failed');
+      ctx.coverLetter = attachedLetter ?? observedApprovedCoverLetter(approved, [...form.fields, ...(ctx.letterWitness ?? [])]) ?? (typeof args.cover_letter === 'string' ? cleanCoverLetter(args.cover_letter) : ctx.coverLetter);
+      ctx.documents = documents;
       ctx.resumeUsed = doc.id; ctx.resumeName = doc.fileName;
       return (await applicationApprovalGate(ctx)) ?? ok('The filled application matches the version the candidate confirmed. Use its final submit control.');
     }
@@ -681,7 +712,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       return consultApplicationSpecialist(ctx, args as { question: string }, { enabled: true, meter, state: specialistState, helpers,
         applicationHistory: specialistHistory() });
     }
-    if (name === 'take_snapshot') {
+    if (isSnapshotOperation(name,args)) {
       await assertCurrentRef(ctx, args);
       screenshot = args.screenshot === true;
       const snapshot = await nativeSnapshot(hasBrowserTarget(args) ? target(ctx, args) : ctx.page);
@@ -717,9 +748,17 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     if (name === 'wait_for_verification') return ok(`Configured verification service result: ${await waitForChallengeToClear(ctx.page, 45_000) ? 'surface cleared' : 'surface remains'}. Inspect the page yourself.`);
     if (name === 'record_authentication_result') return doRecordAuthenticationResult(ctx, args);
     if (name === 'create_file') return ok(JSON.stringify(await files.create(String(args.name), String(args.text), args.format as DocumentFormat)));
-    if (name === 'render_approved_cover_letter') return ok(JSON.stringify(await files.createApprovedLetter(String(args.name), args.format as DocumentFormat)));
+    if (name === 'render_approved_cover_letter') {
+      files.witnessApprovedLetter((await readSavedForm(ctx.page)).fields);
+      ctx.letterWitness = files.checkpointLetterWitness();
+      return ok(JSON.stringify(await files.createApprovedLetter(String(args.name), args.format as DocumentFormat)));
+    }
     if (name === 'convert_file') return ok(JSON.stringify(await files.convert(String(args.file_id), args.format as DocumentFormat)));
-    if (name === 'combine_approved_documents') return ok(JSON.stringify(await files.combineApprovedDocuments()));
+    if (name === 'combine_approved_documents') {
+      files.witnessApprovedLetter((await readSavedForm(ctx.page)).fields);
+      ctx.letterWitness = files.checkpointLetterWitness();
+      return ok(JSON.stringify(await files.combineApprovedDocuments()));
+    }
     if (name !== 'browser_action') throw new Error('Unknown agent-only browser tool.');
     if (reviewingApplications() && ['click', 'press'].includes(String(args.action)) && typeof args.sends_application !== 'boolean') {
       return ok('In Semi auto and approved reconstruction, every click or keypress must explicitly set sends_application: true for an application-transmitting action, false for a preparatory interaction. Missing intent cannot bypass candidate confirmation. Nothing was executed.', 'invalid-arguments');
@@ -767,24 +806,37 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       activity.update({ status: 'running', submitted: true, detail: 'The agent marked this action as a submission; receipt is not established.' });
     }
     const value = ['fill', 'type'].includes(String(args.action)) && isCoverLetterField(actionLabel) ? coverLetterForRun(String(args.value ?? '')) : String(args.value ?? '');
+    if (args.replaces_file_ids !== undefined && args.action !== 'set_input_files') throw Error('replaces_file_ids is valid only for set_input_files. No browser action ran.');
     if (!sendsApplication && ['fill', 'type', 'select', 'check', 'click', 'press', 'navigate', 'script', 'set_input_files'].includes(String(args.action))) readiness.invalidate();
     switch (args.action) {
       case 'set_input_files': {
         if (!Array.isArray(args.file_ids)) throw Error('Provide file_ids from the candidate inventory or create_file/convert_file results.');
-        const selected = args.file_ids.map(id => files.resolve(String(id)));
+        const replacements = files.validateReplacements(args.replaces_file_ids);
+        const selected = files.uploadSelection(args.file_ids.map(String));
         const input = target(ctx, args);
+        let uploadTarget: string;
         const before = await nativeReadback(input).catch(() => null) as { files?: string[] } | null;
         let readback: { files?: string[]; invalid?: boolean; validation?: string } | null;
         browserEffectEpoch++;
         if (args.file_chooser === true) {
           const [chooser] = await Promise.all([ctx.page.waitForEvent('filechooser', { timeout: 15000 }), input.click({ timeout: 8000 })]);
-          await chooser.setFiles(selected.map(file => file.path), { timeout: 15000 });
-          readback = await chooser.element().evaluate(node => ({ files: [...((node as HTMLInputElement).files ?? [])].map(file => file.name) })).catch(() => null);
+          const chooserInput = await chooser.element();
+          try {
+            uploadTarget = await uploadTargetIdentity(chooserInput);
+            await chooser.setFiles(selected.map(file => file.path), { timeout: 15000 });
+            readback = await chooserInput.evaluate(node => ({ files: [...((node as HTMLInputElement).files ?? [])].map(file => file.name) })).catch(() => null);
+          } finally { await chooserInput.dispose(); }
         } else {
-          await input.setInputFiles(selected.map(file => file.path), { timeout: 15000 });
-          readback = await nativeReadback(target(ctx, args)).catch(() => null) as typeof readback;
+          const handle = await input.elementHandle(); if (!handle) throw Error('The selected file input is unavailable. Inspect the current form.');
+          try {
+            uploadTarget = await uploadTargetIdentity(handle);
+            await handle.setInputFiles(selected.map(file => file.path), { timeout: 15000 });
+            readback = await nativeReadback(target(ctx, args)).catch(() => null) as typeof readback;
+          } finally { await handle.dispose(); }
         }
         browserMutated = true;
+        files.recordUpload(uploadTarget, selected, replacements);
+        ctx.uploadedDocuments = files.checkpointUploads().flatMap(upload => upload.files.map(file => ({ fileId: file.id, sha256: file.sha256, coverLetterDigest: file.coverLetterDigest })));
         // Audit the agent's chosen CV, without interpreting the upload control
         // or declaring employer acceptance. Generated letters do not replace it.
         const resumeIds = [...new Set(selected.map(file => file.sourceId).filter(Boolean))];
@@ -802,7 +854,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
           ctx.coverLetter = approved.coverLetter;
         if (before && readback?.files?.length && !readback.invalid && !readback.validation
           && JSON.stringify(before.files) !== JSON.stringify(readback.files)) meter.uploaded(args.file_ids.join(','));
-        return ok(JSON.stringify({ action: 'set_input_files', file_ids: args.file_ids, current: readback,
+        return ok(JSON.stringify({ action: 'set_input_files', upload_control: uploadTarget, file_ids: args.file_ids, replaced_file_ids: replacements, current: readback,
           note: 'Native browser operation completed. Inspect the employer response and saved attachment yourself; a selected file is not employer acceptance.' }));
       }
       case 'navigate': {
@@ -1136,7 +1188,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
             turnCoordinator.executed(call.name);
             if(call.name==='browser_action'&&changesBrowserState(call.args)||call.name==='browser_batch'&&Array.isArray(call.args.actions)&&call.args.actions.some(changesBrowserState))haltReview.pendingAction=false;
             result = await act(call.name, call.args);
-            if(['read_candidate_evidence','take_snapshot'].includes(call.name)&&result.kind==='ok'&&!failedToolResult(result))haltReview.pendingAction=false;
+            if((call.name==='read_candidate_evidence'||isSnapshotOperation(call.name,call.args))&&result.kind==='ok'&&!failedToolResult(result))haltReview.pendingAction=false;
             failureKind='validation';
             if (result.kind === 'ok' && result.disposition!=='uncertain' && !readiness.requested && !failedToolResult(result) && (call.name === 'browser_batch' && Array.isArray(call.args.actions) && call.args.actions.some(changesBrowserState)
               || ['complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(call.name)

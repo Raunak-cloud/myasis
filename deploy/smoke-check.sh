@@ -21,6 +21,8 @@ node --test server/form-lab/engine.test.mjs
 ../seek-bot/node_modules/.bin/tsx server/answers.test.ts
 ../seek-bot/node_modules/.bin/tsx server/attention-lifecycle.test.ts
 ../seek-bot/node_modules/.bin/tsx scripts/test-admin-user-preferences.mts
+../seek-bot/node_modules/.bin/tsx server/application-review-holds.test.ts
+../seek-bot/node_modules/.bin/tsx server/application-review-document-restore.test.ts
 
 if [ "${1:-0}" = 1 ]; then
   cd "$APP/seek-bot"
@@ -38,12 +40,16 @@ if [ "${1:-0}" = 1 ]; then
   node --test dist/agent/generation-recovery.test.js dist/agent/celeris-queue.test.js dist/agent/openrouter.test.js dist/agent/tool-input.test.js dist/agent/agent-only-transcript.test.js dist/agent/application-policy.test.js dist/agent/application-readiness.test.js dist/agent/application-turn.test.js dist/agent/consultation.test.js dist/agent/recovery-checkpoint.test.js dist/agent/recovery-record.test.js dist/agent/progress-budget.test.js dist/agent/agent-file-inventory.test.js dist/verification-email-local.test.js dist/gmail-verification.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/automatic-specialist.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/browser-command-contract.test.js
+  CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/browser-snapshot-action.test.js
+  CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/agent-document-provenance.test.js
+  CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/agent-file-tools.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/approved-letter-browser.test.js dist/agent/observe-frames.test.js dist/agent/indeed-cover-letter.test.js dist/gmail-browser-readiness.test.js dist/agent/prepared-finalization-budget.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/gmail-spam-browser.test.js
   node dist/site-credentials.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/authentication-state.test.js dist/agent/authentication-contract.test.js dist/site-auth.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/budget-workflows.test.js
   node dist/fit-assessment.test.js
+  node dist/fit-intent-provenance.test.js
   shopt -s nullglob
   CORPORA=("$APP"/seek-bot/data/users/*/form-corpus)
   if [ ${#CORPORA[@]} -gt 0 ]; then
