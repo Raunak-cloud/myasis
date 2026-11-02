@@ -7,7 +7,7 @@ import { isCoverLetterField, cleanCoverLetter } from './cover-letter-policy.js';
 export { applicationContent } from './application-review-content.js';
 import { readSavedForm } from './agent/saved-form.js';
 import { agentOnlyResumePath } from './agent/agent-only-evidence.js';
-import { observedApprovedCoverLetter } from './application-letter.js';
+import { observedApprovedCoverLetter, typedCoverLetterControls } from './application-letter.js';
 import type { ToolContext, ToolResult } from './agent/context.js';
 import type { JobListing } from './types.js';
 import type { PreparedApplication } from './application-review-types.js';
@@ -54,7 +54,16 @@ export async function applicationApprovalGate(ctx: ToolContext): Promise<ToolRes
   if (approved?.documents?.some(document => document.requiresUpload && !ctx.uploadedDocuments?.some(file => file.fileId === document.fileId && file.sha256 === document.sha256
     || document.provenance === 'text' && document.text !== undefined && file.coverLetterDigest === createHash('sha256').update(document.text).digest('hex'))))
     return { kind: 'ok', disposition: 'failed', message: 'Upload the exact candidate-revised attachment before sending. Its filename alone does not prove that the new approved bytes replaced the old employer file.' };
-  const witnessedLetter = observedApprovedCoverLetter(approved, [...form.fields, ...(ctx.letterWitness ?? [])]);
+  const currentLetterControls = typedCoverLetterControls(form.fields);
+  const witnessedLetter = observedApprovedCoverLetter(approved, form.fields, ctx.letterWitness ?? []);
+  const actualLetters = [...new Set(currentLetterControls.flatMap(field => field.currentValue === undefined ? [] : [field.currentValue]))];
+  if (actualLetters.length > 1) return { kind: 'ok', disposition: 'failed', message: 'The current cover-letter controls contain conflicting values. Inspect the intended saved letter before preparing or sending.' };
+  if (actualLetters.length === 1) {
+    const attached = ctx.documents?.find(document => document.role === 'cover-letter');
+    if (attached && actualLetters[0] && normal(actualLetters[0]) !== normal(attached.text ?? ''))
+      return { kind: 'ok', disposition: 'failed', message: 'The current inline letter differs from the bound attachment. Inspect and resolve the actual saved documents before preparing or sending.' };
+    if (!attached) ctx.coverLetter = actualLetters[0] || undefined;
+  }
   if (ctx.coverLetter === undefined && witnessedLetter !== undefined) ctx.coverLetter = witnessedLetter;
   const originalFileLetter = ctx.documents?.some(document => document.role === 'cover-letter' && document.provenance === 'file' && document.text === ctx.coverLetter);
   if (!originalFileLetter && ctx.coverLetter?.includes('\u2014') || form.fields.some(field => isCoverLetterField(field.label) && field.currentValue?.includes('\u2014'))) {
@@ -68,9 +77,12 @@ export async function applicationApprovalGate(ctx: ToolContext): Promise<ToolRes
     .map(item => [normal(item.question), { question: item.question, answer: isCoverLetterField(item.question)
       && !ctx.documents?.some(document => document.name === item.answer) ? cleanCoverLetter(item.answer) : item.answer }]));
   for (const field of form.fields) {
-    if (field.currentValue !== undefined && field.currentValue !== '' && !field.sensitive) {
-      answers.set(normal(field.label), { question: field.label, answer: field.currentValue });
-    }
+    if (field.sensitive || field.currentValue === undefined) continue;
+    if (field.currentValue === '') {
+      // File inputs often clear after the employer consumes their FileList;
+      // that is not evidence that the saved attachment was removed.
+      if (field.inputType !== 'file') answers.delete(normal(field.label));
+    } else answers.set(normal(field.label), { question: field.label, answer: field.currentValue });
   }
   const resumePath = ctx.resumeUsed ? agentOnlyResumePath(ctx.resumeUsed) : null;
   const draft: PreparedApplication = {

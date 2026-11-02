@@ -49,7 +49,47 @@ test('approved letter renders and uploads byte-exact without model transcription
   const {applicationApprovalGate}=await import('../application-review.js');
   const ctx={page,job,profile:{},observation:{},captured:result.captured,actions:[],log:()=>{},coverLetter:result.coverLetter,resumeUsed:'cv',resumeName:'CV.txt'} as never;
   assert.equal(await applicationApprovalGate(ctx),null,'an unchanged uploaded approved letter must not become a false changed draft');
+  await page.locator('#uploaded').evaluate(node=>{node.textContent='';});
+  await page.locator('#received').evaluate(node=>{node.textContent='';});
   const missing={...ctx as object,coverLetter:undefined} as never;
-  assert.ok(await applicationApprovalGate(missing),'a genuinely missing letter still requires a new confirmation');
+  const missingResult=await applicationApprovalGate(missing);
+  assert.ok(missingResult?.kind==='terminal'&&missingResult.outcome.status==='prepared','missing recorded delivery cannot be supplied from authorization text alone');
+  assert.equal(missingResult.outcome.draft.coverLetter,undefined);
+
+  const inlineDraft={...draft,answers:[{question:'Write a cover letter',answer:text}]};
+  writeFileSync(join(dir,'approved-applications.json'),JSON.stringify([inlineDraft]));
+  await page.setContent('<label>Write a cover letter<textarea id=body></textarea></label><button>Submit</button>');
+  await page.locator('#body').fill(text);
+  const witness={ref:'letter',label:'Write a cover letter',kind:'textarea' as const,required:false,currentValue:text};
+  const inline={...ctx as any,captured:inlineDraft.answers,coverLetter:undefined,letterWitness:[witness]};
+  assert.equal(await applicationApprovalGate(inline),null,'a matching current typed field proves an explicitly approved letter is present');
+  await page.locator('#body').fill('Actually changed browser letter.');
+  const altered=await applicationApprovalGate({...inline,captured:inlineDraft.answers,coverLetter:text});
+  assert.ok(altered?.kind==='terminal'&&altered.outcome.status==='prepared','current changed prose cannot inherit the previous approval');
+  assert.equal(altered.outcome.draft.coverLetter,'Actually changed browser letter.','the new draft records the actual current prose rather than authorization text');
+  assert.equal(altered.outcome.draft.answers[0].answer,'Actually changed browser letter.');
+  await page.locator('#body').fill('');
+  const cleared=await applicationApprovalGate({...inline,captured:inlineDraft.answers,coverLetter:text});
+  assert.ok(cleared?.kind==='terminal'&&cleared.outcome.status==='prepared','an observed empty optional control overrides retained text and old typed evidence');
+  assert.equal(cleared.outcome.draft.coverLetter,undefined);
+  assert.deepEqual(cleared.outcome.draft.answers,[],'fresh empty fields remove the stale captured answer');
+
+  const legacy={...inlineDraft,coverLetter:undefined};
+  writeFileSync(join(dir,'approved-applications.json'),JSON.stringify([legacy]));
+  await page.locator('#body').fill(text);
+  assert.equal(await applicationApprovalGate({...inline,coverLetter:undefined}),null,'a matching current legacy textarea remains reusable');
+  await page.locator('#body').fill('');
+  const legacyClear=await applicationApprovalGate({...inline,coverLetter:text});
+  assert.ok(legacyClear?.kind==='terminal'&&legacyClear.outcome.status==='prepared','cleared legacy prose cannot be restored from a stale witness');
+  assert.equal(legacyClear.outcome.draft.coverLetter,undefined);
+  await page.setContent('<p>The next wizard page contains no letter control.</p><button>Submit</button>');
+  assert.equal(await applicationApprovalGate({...inline,coverLetter:text}),null,'an absent wizard step retains an actual previous typed witness without treating absence as deletion');
+
+  const optionalDraft={...draft,coverLetter:undefined,answers:[{question:'Additional context',answer:'Previously approved optional note.'}]};
+  writeFileSync(join(dir,'approved-applications.json'),JSON.stringify([optionalDraft]));
+  await page.setContent('<label>Additional context<input value=""></label><button>Submit</button>');
+  const emptyOptional=await applicationApprovalGate({...ctx as any,captured:optionalDraft.answers,coverLetter:undefined,letterWitness:undefined});
+  assert.ok(emptyOptional?.kind==='terminal'&&emptyOptional.outcome.status==='prepared','fresh blank non-letter fields also invalidate captured prior answers');
+  assert.deepEqual(emptyOptional.outcome.draft.answers,[]);
  }finally{globalThis.fetch=originalFetch;await browser.close();closeCelerisQueues();keys.forEach((k,i)=>prior[i]===undefined?delete process.env[k]:process.env[k]=prior[i]);rmSync(dir,{recursive:true,force:true});}
 });

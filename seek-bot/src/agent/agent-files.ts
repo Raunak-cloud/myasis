@@ -6,7 +6,7 @@ import { convertDocument, type DocumentFormat } from '../resume.js';
 import type { ApplicationDocument, PreparedApplication } from '../application-review-types.js';
 import { documentHash, preserveDocument, verifiedDocumentPath } from '../application-documents.js';
 import { extractText } from '../knowledge.js';
-import { observedApprovedCoverLetter } from '../application-letter.js';
+import { observedApprovedCoverLetter, typedCoverLetterControls } from '../application-letter.js';
 import type { FormField } from '../types.js';
 import { agentOnlyUploadInventory, agentOnlyUploadPath } from './agent-only-evidence.js';
 import { PDFDocument } from 'pdf-lib';
@@ -29,6 +29,7 @@ export class AgentFiles {
     private readonly render: typeof convertDocument = convertDocument) {}
   witnessApprovedLetter(fields: FormField[]): void {
     const letter = observedApprovedCoverLetter(this.approved, fields);
+    if (typedCoverLetterControls(fields).length) { this.witnessedLetter = undefined; this.letterWitness = undefined; }
     if (letter !== undefined) {
       this.witnessedLetter = letter;
       this.letterWitness = fields.filter(field => !field.sensitive && field.currentValue?.replace(/\s+/g, ' ').trim() === letter.replace(/\s+/g, ' ').trim())

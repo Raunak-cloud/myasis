@@ -619,7 +619,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         return ok('The supplied letter text differs from the exact attached source. Omit cover_letter to retain its authoritative text, or correct the actual attachment before preparing.', 'failed');
       if (approved?.coverLetter !== undefined && attachedLetter !== undefined && attachedLetter !== approved.coverLetter)
         return ok('The attached letter differs from the candidate-approved text. Prepare changed content for fresh confirmation.', 'failed');
-      ctx.coverLetter = attachedLetter ?? observedApprovedCoverLetter(approved, [...form.fields, ...(ctx.letterWitness ?? [])]) ?? (typeof args.cover_letter === 'string' ? cleanCoverLetter(args.cover_letter) : ctx.coverLetter);
+      ctx.coverLetter = attachedLetter ?? observedApprovedCoverLetter(approved, form.fields, ctx.letterWitness ?? []) ?? (typeof args.cover_letter === 'string' ? cleanCoverLetter(args.cover_letter) : ctx.coverLetter);
       ctx.documents = documents;
       ctx.resumeUsed = doc.id; ctx.resumeName = doc.fileName;
       return (await applicationApprovalGate(ctx)) ?? ok('The filled application matches the version the candidate confirmed. Use its final submit control.');
