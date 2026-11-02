@@ -11,6 +11,21 @@ export function verificationContextWords(ask: { hint?: string; site?: string }):
   return contextWords(`${ask.site || ''} ${ask.hint || ''}`);
 }
 
+/** Sender hints supplement the known employer; a decorated identity-page
+ * heading must not replace it with one impossible all-words phrase. Do not
+ * promote a hosting platform or generic corporate label to an employer alias. */
+export function verificationSenderHint(company: string, jobUrl: string, supplied?: unknown): string {
+  const employer = company.trim();
+  const hint = typeof supplied === 'string' ? supplied.trim() : '';
+  if (!hint || hint.toLowerCase() === employer.toLowerCase()) return employer;
+  const generic = new Set(['company', 'corporation', 'group', 'limited', 'ltd', 'inc', 'pty', 'plc']);
+  const words = contextWords(employer).filter(word => !generic.has(word));
+  let host = '';
+  try { host = new URL(jobUrl).hostname.toLowerCase(); } catch { /* retain the supplied hint */ }
+  if (!host || !words.length || words.some(word => host.includes(word))) return hint;
+  return `${employer} | ${hint}`;
+}
+
 function matchesContext(content: string, ask: { hint?: string; site?: string }): boolean {
   const contains = (word: string) => new RegExp(`\\b${word}\\b`, 'i').test(content);
   // Site identity and each explicit sender alias are alternative evidence.

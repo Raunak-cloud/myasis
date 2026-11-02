@@ -1,6 +1,33 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isRequestedVerificationEmail, readVerificationEmailsLocally as read } from './verification-email-local.js';
+import { isRequestedVerificationEmail, readVerificationEmailsLocally as read, verificationSenderHint } from './verification-email-local.js';
+
+test('a decorated login-page sender hint retains the specific employer as an independent identity', () => {
+  const site = 'tenant-identity.login.vendor.invalid';
+  const supplied = 'Vendor Identity - Example Employer';
+  const email = { position: 0, sender: 'noreply@login.vendor.invalid', subject: 'Example Employer verification',
+    text: 'Your verification code is 482913.', links: [] };
+  assert.equal(read([email], { site, hint: supplied, purpose: 'account_verification', want: 'code' }), null);
+  const hint = verificationSenderHint('Example Employer', 'https://careers.vendor.invalid/job/42', supplied);
+  assert.equal(read([email], { site, hint, purpose: 'account_verification', want: 'code' })?.value, '482913');
+  assert.equal(read([{ ...email, subject: 'Other Employer verification' }], { site, hint, purpose: 'account_verification', want: 'code' }), null,
+    'the shared hosting platform cannot establish another employer identity');
+});
+
+test('hosting names and generic corporate labels cannot become broad independent aliases', () => {
+  for (const company of ['jobs.vendor.invalid', 'Vendor', 'Vendor Identity', 'Group Ltd']) {
+    const hint = verificationSenderHint(company, 'https://jobs.vendor.invalid/job/42', 'Example Employer');
+    assert.equal(hint, 'Example Employer');
+    assert.equal(read([{ position: 0, subject: 'Vendor verification', text: 'Your code is 482913.', links: [] }],
+      { hint, site: 'tenant-identity.login.vendor.invalid', purpose: 'sign_in', want: 'code' }), null);
+  }
+});
+
+test('omitted or identical sender hints preserve the existing employer identity', () => {
+  for (const hint of [undefined, '', ' Example Employer ']) {
+    assert.equal(verificationSenderHint('Example Employer', 'https://careers.vendor.invalid/job/42', hint), 'Example Employer');
+  }
+});
 
 test('an explicit reset action takes priority over an unrelated footer website', () => {
   const action = 'https://careers.fixture.invalid/Careers/passwordreset/fixture-token/?username=fixture-user';
