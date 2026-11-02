@@ -7,12 +7,37 @@ import { withApplicationModel, MINIMAX_APPLICATION_MODEL } from '../application-
 import { applicationChat } from './application-chat.js';
 import { CostMeter, ApplicationBudgetExhaustedError, type ChatMessage, type CelerisRequest } from './celeris.js';
 import { agentOnlyTranscript, latestObservationScreenshotOnly } from './agent-only-transcript.js';
+import { validToolInput } from './tool-input.js';
 
 const tool = { name: 'browser_action', description: 'Use the native browser', parameters: { type: 'object', properties: { action: { type: 'string' } }, required: ['action'] } };
 const reply = (cost = 0.001, finish = 'tool_calls') => ({ choices: [{ finish_reason: finish, message: {
   role: 'assistant', content: null, reasoning_details: [{ type: 'reasoning.encrypted', data: 'opaque-provider-block', index: 0 }],
   tool_calls: [{ id: 'call-one', type: 'function', function: { name: 'browser_action', arguments: '{"action":"inspect"}' } }],
 } }], usage: { prompt_tokens: 1000, prompt_tokens_details: { cached_tokens: 500 }, completion_tokens: 100, cost } });
+
+test('MiniMax wire projection leaves canonical dispatch validation and returned arguments unchanged', async () => isolated(async () => {
+  const conditional = { ...tool, parameters: { type: 'object', properties: {
+    action: { type: 'string', enum: ['click', 'inspect'] }, sends_application: { type: 'boolean' },
+  }, required: ['action'], anyOf: [
+    { properties: { action: { enum: ['click'] } }, required: ['sends_application'] },
+    { properties: { action: { enum: ['inspect'] } } },
+  ] } };
+  const original = structuredClone(conditional);
+  globalThis.fetch = (async (_url, options) => {
+    const body = JSON.parse(String(options!.body));
+    assert.deepEqual(body.tools[0].function.parameters.required, ['arguments_json']);
+    assert.match(body.tools[0].function.description, /sends_application/);
+    const response = reply();
+    response.choices[0].message.tool_calls[0].function.arguments = JSON.stringify({ arguments_json: '{"action":"click"}' });
+    return Response.json(response);
+  }) as typeof fetch;
+  const result = await applicationChat({ model: 'celeris-1-magnus', messages: [], tools: [conditional] });
+  assert.deepEqual(result.toolCalls[0].args, { action: 'click' }, 'transport must not invent missing consent or retry tokens');
+  assert.ok(result.message.role === 'assistant');
+  assert.match(result.message.tool_calls![0].function.arguments, /arguments_json/, 'provider transcript retains its original wire arguments');
+  assert.equal(validToolInput(result.toolCalls[0].args, conditional.parameters), false);
+  assert.deepEqual(conditional, original);
+}));
 
 async function isolated(work: () => Promise<void>) {
   const original = globalThis.fetch;

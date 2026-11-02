@@ -112,7 +112,9 @@ test('the specialist tests and hands a named helper to MiniMax; the applier uses
     else if(parent===3){call={name:'finish',args:{status:'applied',reason:'Fixture receipt observed.',evidence:'Application received: HELPER-FIXTURE',receipt:{quote:'Application received: HELPER-FIXTURE'}}};}
     else throw Error('Unexpected extra parent turn');parent++;
    }
-   return Response.json({choices:[{message:{content:null,tool_calls:[{id:'helper-call-'+parent+'-'+child,type:'function',function:{name:call!.name,arguments:JSON.stringify(call!.args)}}]}}],usage:{prompt_tokens:100,completion_tokens:30,cost:.001}});
+   const offered=body.tools.find((tool:any)=>tool.function.name===call!.name)?.function;
+   const wire=offered?.parameters?.properties?.arguments_json?{arguments_json:JSON.stringify(call!.args)}:call!.args;
+   return Response.json({choices:[{message:{content:null,tool_calls:[{id:'helper-call-'+parent+'-'+child,type:'function',function:{name:call!.name,arguments:JSON.stringify(wire)}}]}}],usage:{prompt_tokens:100,completion_tokens:30,cost:.001}});
   }) as typeof fetch;
   const result=await runAgentOnlyApplication({page,job:{id:'helper-native-integration',title:'Fictional developer',company:'Fixture',location:'Sydney',platform:'workday',url},profile:{name:'Fictional Candidate',email:'fictional@example.invalid',skills:[]} as never,log:()=>{}});
   assert.equal(result.outcome.status,'applied');assert.equal(result.submitPressed,true);assert.equal(child,2);assert.equal(parent,4);

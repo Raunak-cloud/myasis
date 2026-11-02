@@ -49,6 +49,10 @@ export function validToolInput(value: unknown, schema: Record<string, unknown>, 
 /** Explain the failed contract without echoing candidate answers or secrets.
  * Validation and browser behaviour stay unchanged; the agent corrects its call. */
 export function toolInputIssue(value: unknown, schema: Record<string, unknown>, path = '$'): string | null {
+  if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 1
+    && typeof (value as Record<string, unknown>).__parseError === 'string') {
+    return 'Tool argument JSON could not be decoded. Resend the complete arguments as valid JSON; when arguments_json is offered, it must encode one JSON object. No tool operation ran.';
+  }
   if (validToolInput(value, schema)) return null;
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const object = value as Record<string, unknown>, properties = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;

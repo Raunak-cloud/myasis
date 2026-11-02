@@ -9,6 +9,7 @@ import { estimateTranscriptTokens } from './loop/transcript.js';
 import { ApplicationBudgetExhaustedError, ReplyUnusableError, type CelerisReply,
   type CelerisRequest, type ChatMessage, type ToolCall } from './celeris.js';
 import { boundedReasoningEffort, GenerationRecovery, GenerationWindowError, generationFailure } from './generation-recovery.js';
+import { minimaxToolSchema, minimaxToolArguments } from './provider-tool-schema.js';
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 // Published non-discounted rates, USD/token, checked 2026-11-02. Actual usage.cost
@@ -57,7 +58,8 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
     provider: { require_parameters: true },
   };
   if (request.tools?.length) {
-    body.tools = request.tools.map(tool => ({ type: 'function', function: tool }));
+    body.tools = request.tools.map(tool => ({ type: 'function', function: identity.selection === 'minimax'
+      ? minimaxToolSchema(tool) : tool }));
     body.tool_choice = request.forceTool ? { type: 'function', function: { name: request.forceTool } }
       : request.requireTool ? 'required' : 'auto';
   }
@@ -120,6 +122,8 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
         let args: Record<string, unknown>;
         try { args = JSON.parse(call.function.arguments || '{}'); }
         catch { args = { __parseError: call.function.arguments }; }
+        const tool = request.tools?.find(tool => tool.name === call.function.name);
+        if (identity.selection === 'minimax' && tool) args = minimaxToolArguments(tool, args);
         return { id: call.id, name: call.function.name, args };
       });
       metric('model', performance.now() - started, { model: String(body.model), attempts: attempt + 1,
