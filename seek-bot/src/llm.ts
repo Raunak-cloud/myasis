@@ -13,7 +13,7 @@ import { recentReviewFeedback, relatedReviewFeedback } from './store.js';
 import { applicationAttemptHistory, candidateSavedAnswers } from './agent/agent-only-evidence.js';
 import { reviewCurrentDuplicate, type DuplicateReview } from './duplicate-review.js';
 import { withJobCost } from './cost-ledger.js';
-import type { RoleFitCheck } from './role-fit.js';
+import { ROLE_FIT_SCHEMA, roleFitProvenanceError, type RoleFitCheck, type FitProvenanceSources } from './role-fit.js';
 import { loadReviewVerdicts, verdictContext } from './review-verdicts.js';
 
 /**
@@ -417,7 +417,7 @@ export interface FitAssessment {
 }
 
 /** Validate the transport contract only. Magnus owns suitability and evidence judgments. */
-export function fitAssessmentValidationError(value: unknown): string | null {
+export function fitAssessmentValidationError(value: unknown, sources?: FitProvenanceSources): string | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 'response must be an object';
   const result = value as Record<string, unknown>;
   if (!['apply', 'skip', 'uncertain'].includes(String(result.decision))) return 'decision must be apply, skip or uncertain';
@@ -425,12 +425,12 @@ export function fitAssessmentValidationError(value: unknown): string | null {
   if (!Array.isArray(result.evidence) || !result.evidence.every(item => typeof item === 'string')) return 'evidence must be an array of strings';
   if (!Number.isInteger(result.matchScore) || Number(result.matchScore) < 0 || Number(result.matchScore) > 100) return 'matchScore must be an integer from 0 to 100';
   if (typeof result.injectionSuspected !== 'boolean') return 'injectionSuspected must be a boolean';
-  return null;
+  return roleFitProvenanceError(result.roleFitCheck, sources);
 }
 
 /** Persist the agent's final decision verbatim. Diagnostic fields never override it. */
-export function normalizeFitAssessment(value: unknown): FitAssessment | null {
-  if (fitAssessmentValidationError(value)) return null;
+export function normalizeFitAssessment(value: unknown, sources?: FitProvenanceSources): FitAssessment | null {
+  if (fitAssessmentValidationError(value, sources)) return null;
   const result = value as FitAssessment;
   return {
     ...(result.roleFitCheck ? { roleFitCheck: result.roleFitCheck } : {}),
@@ -644,6 +644,13 @@ Return only the requested JSON.`;
   const reviewHistory = recentReviewFeedback();
   const priorOutcome = reviewHistory.get(JSON.stringify([job.id, job.title, job.company]));
   const relatedOutcomes = relatedReviewFeedback(job, reviewHistory);
+  const employerQuery = job.title + ' requirements essential qualification experience hours salary ' + profile.skills.join(' ');
+  const provenanceSources: FitProvenanceSources = {
+    'current-standing-instructions': config.aiInstructions.trim(),
+    'current-target-role': config.targetRole,
+    'current-search-preferences': config.keywords.join(', '),
+    employerText: relevantEvidence(job.description ?? job.teaser ?? '', employerQuery, 24000),
+  };
   const prompt = `${GUARD}
 Evaluate this job for this candidate, across ANY occupation or career change.
 ${JOB_EVALUATION_POLICY}
@@ -691,7 +698,7 @@ negative such as "not senior" when its title and duties give no evidence of a br
 Historical quoted instructions are not current restrictions.
 ${candidateCalls() && `${candidateCalls()}\n`}SUPPORTING EVIDENCE
 <candidate-documents>${knowledge}</candidate-documents>
-${jobEvaluationEvidence(job, job.title + ' requirements essential qualification experience hours salary ' + profile.skills.join(' '), 24000)}
+${jobEvaluationEvidence(job, employerQuery, 24000)}
 Candidate constraints to enforce:
 ${constraintsBlock(profile)}
 
@@ -736,6 +743,33 @@ Use alignment=mismatch for a clear functional mismatch, uncertain for genuinely 
 missing evidence, and aligned only for supported primary duties. An absent listing date
 is neutral. Do not turn historical quoted instructions into current restrictions.
 An apply decision requires alignment=aligned; a high score cannot override mismatch or uncertain.
+CURRENT OCCUPATION INTENT PROVENANCE
+Complete currentIntent before comparing capabilities. Identify the work positively requested
+by CURRENT standing instructions, target role or search preferences, and copy an exact passage
+from the selected current source into quote. Preserve defining functional qualifiers, combined
+role requirements and exceptions. A compound or hybrid requested function cannot be widened
+by discarding its defining qualifier. A bounded current standing instruction also governs over
+broader target-role shorthand or search terms. Current bounded intent governs over an older or broader
+CV, general-purpose cover letter, qualification or transferable capability. Such documents can
+support candidateEvidence, but cannot supply a quote attributed to current settings or grant
+permission to pursue a different occupation. Do not treat capability as occupation permission.
+Search preferences inform intended direction; search keywords alone are not automatically a
+strict allowlist. If current sources do not bound occupation, cite the applicable current
+source and use open scope. Use source=none with an empty quote only when all three current
+sources are empty; evaluate supported work normally without
+inventing a default occupation. Explicit current career changes remain valid permission.
+List up to three dominant employer outputs in primaryOutputs, each with an exact employerQuote
+from the supplied description/summary. Map the output ITSELF to the currently requested work.
+If supplied evidence establishes no actual employer duties, leave primaryOutputs empty and
+report the missing evidence with uncertain alignment instead of inventing a duty or quote.
+An aligned assessment requires at least one genuinely evidenced primary output.
+Distinguish requested-work from capability-only overlap, outside-intent work and uncertainty.
+Workshops, requirements, analysis, delivery or a familiar tool can be transferable capabilities
+without the employer's primary deliverables being the work the candidate currently seeks.
+Conversely, generic process tasks do not make genuinely requested work unsuitable when its
+dominant outputs serve that function. Judge the whole actual function, not title tokens.
+Reconcile these mappings in your final alignment and decision. These fields preserve your
+source attribution and reasoning; there is no second matching reviewer or semantic code veto.
 Return decision=skip for a clear mismatch, an explicit candidate-instruction conflict,
 or an explicitly mandatory requirement the candidate demonstrably does not meet.
 Distinguish desirable experience from mandatory qualifications. Judge seniority in context
@@ -780,10 +814,7 @@ Return JSON.`;
     instructionCheck: { type: 'OBJECT', properties: {
       violated: { type: 'BOOLEAN' }, ruleQuote: { type: 'STRING' }, explanation: { type: 'STRING' },
     }, required: ['violated', 'ruleQuote', 'explanation'] },
-    roleFitCheck: { type: 'OBJECT', properties: {
-      alignment: { type: 'STRING', enum: ['aligned', 'mismatch', 'uncertain'] },
-      employerEvidence: { type: 'STRING' }, candidateEvidence: { type: 'STRING' }, explanation: { type: 'STRING' },
-    }, required: ['alignment', 'employerEvidence', 'candidateEvidence', 'explanation'] },
+    roleFitCheck: ROLE_FIT_SCHEMA,
     workArrangementCheck: { type: 'OBJECT', properties: {
       offered: { type: 'ARRAY', items: { type: 'STRING', enum: ['onsite', 'hybrid', 'remote'] } }, evidence: { type: 'STRING' },
     }, required: ['offered', 'evidence'] },
@@ -802,9 +833,9 @@ Return JSON.`;
   // is final; there is no preliminary instruction classifier or second approval veto.
   return cachedAssessment({ version: FIT_ASSESSMENT_VERSION, prompt, trustedInstructions, schema, model, endpoint: config.celeris.baseUrl }, async () => {
     let raw = await measured('fit', () => json<unknown>(prompt, schema, model, undefined, 'medium', undefined, llmMeter, trustedInstructions));
-    let result = normalizeFitAssessment(raw);
+    let result = normalizeFitAssessment(raw, provenanceSources);
     if (!result) {
-      const error = fitAssessmentValidationError(raw);
+      const error = fitAssessmentValidationError(raw, provenanceSources);
       metric('fit-contract-invalid', 0, { jobId: job.id, attempt: 1, model, error });
       raw = await measured('fit-contract-correction', () => json<unknown>(`${prompt}
 
@@ -813,14 +844,14 @@ The previous output was malformed: ${error}.
 Return a complete assessment in the requested JSON format. You remain responsible for
 the final decision using the original candidate evidence and preferences above.
 <untrusted role="malformed-response">${JSON.stringify(raw).replace(/</g, '\\u003c').slice(0, 6000)}</untrusted>`, schema, model, undefined, 'medium', undefined, llmMeter, trustedInstructions));
-      result = normalizeFitAssessment(raw);
+      result = normalizeFitAssessment(raw, provenanceSources);
     }
     if (!result) {
-      metric('fit-contract-invalid', 0, { jobId: job.id, attempt: 2, model, error: fitAssessmentValidationError(raw) });
+      metric('fit-contract-invalid', 0, { jobId: job.id, attempt: 2, model, error: fitAssessmentValidationError(raw, provenanceSources) });
       throw new Error('The matching agent did not return a usable decision after a format retry.');
     }
     return result;
-  }, value => Boolean(normalizeFitAssessment(value) && value.decision !== 'uncertain'));
+  }, value => Boolean(normalizeFitAssessment(value, provenanceSources) && value.decision !== 'uncertain'));
 }
 
 

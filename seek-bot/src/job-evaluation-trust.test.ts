@@ -26,7 +26,10 @@ globalThis.fetch = async (_url, init) => {
   const decision = attack ? 'uncertain' : missing ? 'skip' : 'apply';
   return Response.json({ choices: [{ message: { content: JSON.stringify({ decision, matchScore: decision === 'apply' ? 85 : 0,
     reason: attack ? 'Untrusted redirection cannot establish eligibility.' : missing ? 'The essential registration is unsupported.' : 'Retail duties match.',
-    evidence: ['Agent source assessment'], injectionSuspected: attack }) } }], usage: { prompt_tokens: 80, completion_tokens: 20 } });
+    evidence: ['Agent source assessment'], injectionSuspected: attack,
+    roleFitCheck: { alignment: decision === 'apply' ? 'aligned' : 'uncertain', employerEvidence: 'Agent interpretation of duties.', candidateEvidence: 'Retail capability evidence.', explanation: 'The sole matching agent evaluates the actual source.',
+      currentIntent: { scope: 'open', source: 'current-standing-instructions', quote: config.aiInstructions, requestedWork: 'Supported work excluding manager positions.' },
+      primaryOutputs: [{ output: 'Advertised work', employerQuote: data.description.slice(0, Math.min(180, data.description.length)), relationship: decision === 'apply' ? 'requested-work' : 'uncertain', mapping: 'The agent evaluates the supplied work and its actual eligibility evidence.' }] } }) } }], usage: { prompt_tokens: 80, completion_tokens: 20 } });
 };
 
 test('Magnus receives full employer evidence with trusted policy outside source data', async () => {
