@@ -1,5 +1,5 @@
 import { parseHTML } from 'linkedom';
-import { GmailMcpClient, safeGmailError, type GmailMessage } from './gmail-mcp-client.js';
+import { GmailMcpClient, GmailRequestTimeoutError, safeGmailError, type GmailMessage } from './gmail-mcp-client.js';
 import { isRequestedVerificationEmail, readVerificationEmailsLocally, verificationContextWords, type LocalVerificationEmail, type VerificationPurpose } from './verification-email-local.js';
 import type { PreparedApplication } from './application-review-types.js';
 import type { ApplyOutcome } from './types.js';
@@ -9,9 +9,9 @@ import { verificationMailboxMessageAllowed } from './gmail-verification-policy.j
 
 export const gmailAvailable = () => Boolean(process.env.GMAIL_MCP_URL && process.env.GMAIL_MCP_TOKEN && process.env.GMAIL_MCP_ACCOUNT);
 export const gmailAccount = () => process.env.GMAIL_MCP_ACCOUNT || '';
-function gmailClient(network?: typeof fetch) {
+function gmailClient(network?: typeof fetch, options?: { signal?: AbortSignal; requestTimeoutMs?: number }) {
   if (!gmailAvailable()) throw new Error('Connect Gmail in Setup before reading verification emails or submitting email applications.');
-  return new GmailMcpClient({ url: process.env.GMAIL_MCP_URL!, token: process.env.GMAIL_MCP_TOKEN!, account: gmailAccount() }, network);
+  return new GmailMcpClient({ url: process.env.GMAIL_MCP_URL!, token: process.env.GMAIL_MCP_TOKEN!, account: gmailAccount() }, network, options);
 }
 export function verificationMessage(message: GmailMessage, position: number): LocalVerificationEmail {
   const document = parseHTML(`<html><body>${message.htmlBody || ''}</body></html>`).document;
@@ -47,17 +47,36 @@ export function verificationMessageIsFresh(message: GmailMessage, earliest: numb
   const date = Date.parse(message.date || '');
   return Number.isFinite(date) ? date >= Math.max(earliest, now - VERIFICATION_MAX_AGE_MS) && date <= now + VERIFICATION_CLOCK_SKEW_MS : allowUndated;
 }
-export async function findVerificationInGmail(options: { hint?: string; site?: string; want?: 'code' | 'link' | 'either'; purpose?: VerificationPurpose; allowAlternative?: boolean; timeoutMs?: number; requestedAt?: number; signal?: AbortSignal; log?: (message: string) => void } = {}) {
+class VerificationPollWindowExpired extends Error {
+  constructor() { super('The bounded verification-email polling window ended.'); this.name = 'VerificationPollWindowExpired'; }
+}
+export interface VerificationPollSummary {
+  termination: 'matched' | 'poll-window-expired' | 'request-timeout' | 'request-error' | 'cancelled';
+  completedSearches: number; completedReads: number; completedPolls: number;
+  lastCompletedCheckAt?: string; finalCheckIncomplete: boolean;
+  siteHost?: string; purpose?: VerificationPurpose;
+}
+export async function findVerificationInGmail(options: { hint?: string; site?: string; want?: 'code' | 'link' | 'either'; purpose?: VerificationPurpose; allowAlternative?: boolean; timeoutMs?: number; requestTimeoutMs?: number; requestedAt?: number; signal?: AbortSignal; log?: (message: string) => void } = {}) {
   const timeoutMs = Math.floor(options.timeoutMs ?? 90_000), startedAt = Date.now(), deadline = startedAt + timeoutMs;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647) return { error: 'The verification email wait expired.' };
   if (options.signal?.aborted) return { error: 'The verification email wait was cancelled.' };
-  const lifetime = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs);
-  const network: typeof fetch = (input, init) => fetch(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, lifetime]) : lifetime });
+  const window = new AbortController();
+  const timer = setTimeout(() => window.abort(new VerificationPollWindowExpired()), timeoutMs);
+  const lifetime = options.signal ? AbortSignal.any([options.signal, window.signal]) : window.signal;
   let client: GmailMcpClient | undefined;
   let matchingEmailSeen = false;
   let inFlight: { operation: 'search' | 'read'; startedAt: number } | undefined;
-  let completedSearches = 0, completedReads = 0;
-  const expired = () => lifetime.aborted || Date.now() >= deadline;
+  let completedSearches = 0, completedReads = 0, completedPolls = 0;
+  let lastCompletedCheckAt: string | undefined, pollInProgress = false;
+  let siteHost: string | undefined;
+  try { if (options.site) siteHost = new URL(options.site.includes('://') ? options.site : `https://${options.site}`).hostname; } catch { /* Never persist arbitrary site text, paths or tokens. */ }
+  const checkLifetime = () => {
+    if (!lifetime.aborted && Date.now() >= deadline) window.abort(new VerificationPollWindowExpired());
+    lifetime.throwIfAborted();
+  };
+  const summary = (termination: VerificationPollSummary['termination']): VerificationPollSummary => ({ termination, completedSearches, completedReads, completedPolls,
+    ...(lastCompletedCheckAt ? { lastCompletedCheckAt } : {}), finalCheckIncomplete: pollInProgress,
+    ...(siteHost ? { siteHost } : {}), ...(options.purpose ? { purpose: options.purpose } : {}) });
   // This callback belongs to the owner/run logger. Only bounded operation
   // metadata leaves the private mailbox layer: never queries or mail content.
   const diagnostic = (event: Record<string, string | number | boolean>) => options.log?.(`  [mailbox-diagnostic] ${JSON.stringify(event)}`);
@@ -67,24 +86,27 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
     diagnostic({ operation, phase: 'started', elapsedMs: Date.now() - startedAt });
     try {
       const value = await work();
-      if (expired()) throw new Error('Mailbox request budget expired.');
+      checkLifetime();
       diagnostic({ operation, phase: 'completed', durationMs: Date.now() - stage.startedAt, ...counts(value) });
       if (operation === 'search') completedSearches++; else completedReads++;
       inFlight = undefined;
       return value;
     } catch (error) {
       diagnostic({ operation, phase: 'interrupted', durationMs: Date.now() - stage.startedAt,
-        classification: options.signal?.aborted ? 'cancelled' : expired() ? 'request-timeout' : 'request-error' });
+        classification: lifetime.reason instanceof VerificationPollWindowExpired ? 'poll-window-expired'
+          : options.signal?.aborted ? 'cancelled' : error instanceof GmailRequestTimeoutError ? 'request-timeout' : 'request-error' });
       throw error;
     }
   };
   const requestTimeout = () => ({
     error: `The Gmail mailbox request timed out while ${inFlight?.operation === 'read' ? 'reading a message' : 'searching for verification mail'}. The mailbox result is incomplete; this does not establish that the email is missing. Retry the mailbox read or inspect its connection before requesting another email.`,
-    reason: 'request-timeout' as const,
+    reason: 'request-timeout' as const, poll: summary('request-timeout'),
   });
   const waitFailure = () => matchingEmailSeen
-    ? { error: 'A matching verification email was found in Gmail, but its requested code or link could not be read. Try another supported authentication option or report the message-format problem; resending alone will not repair it.', reason: 'unreadable-message' as const }
-    : { error: 'No matching verification email arrived through Gmail MCP within the wait.', reason: 'not-found' as const };
+    ? { error: 'A matching verification email was found in Gmail, but its requested code or link could not be read. Try another supported authentication option or report the message-format problem; resending alone will not repair it.', reason: 'unreadable-message' as const, poll: summary('poll-window-expired') }
+    : completedPolls > 0
+      ? { error: `No matching verification email was found in ${completedPolls} completed Gmail check(s) as of ${lastCompletedCheckAt}. The bounded wait ended${pollInProgress ? ' before the final check completed' : ''}. This does not establish that the email never arrived or that mailbox access failed.`, reason: 'not-found' as const, poll: summary('poll-window-expired') }
+      : { error: 'The verification-email wait ended before a complete Gmail check finished. The mailbox result is unknown; this does not establish a missing email or a mailbox access failure.', reason: 'incomplete-check' as const, poll: summary('poll-window-expired') };
   const examined = new Set<string>();
   // The browser adapter explicitly selects Most recent. Do not assume an API
   // provider's thread ordering; retain the complete timestamp comparison there.
@@ -104,20 +126,20 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
     return null;
   };
   const report = (found: NonNullable<ReturnType<typeof readVerificationEmailsLocally>>) => {
-    lifetime.throwIfAborted();
-    diagnostic({ operation: 'lookup', phase: 'finished', classification: 'matched', completedSearches, completedReads });
-    options.log?.(`  Read the verification ${found.kind} through Gmail MCP.`); return found;
+    checkLifetime();
+    diagnostic({ operation: 'lookup', phase: 'finished', classification: 'matched', completedSearches, completedReads, completedPolls });
+    options.log?.(`  Read the verification ${found.kind} through Gmail MCP.`); return { ...found, poll: summary('matched') };
   };
   try {
-    client = gmailClient(network);
+    client = gmailClient(undefined, { signal: lifetime, requestTimeoutMs: options.requestTimeoutMs });
     while (Date.now() < deadline) {
-      lifetime.throwIfAborted();
+      checkLifetime(); pollInProgress = true;
       const searchEarliest = Math.max(earliest, Date.now() - VERIFICATION_MAX_AGE_MS);
       const threads = await request('search', () => client!.search(`after:${Math.floor(searchEarliest / 1000)} ${query}`),
         threads => ({ threadCount: threads.length }));
       const messages: GmailMessage[] = [];
       for (const thread of threads.slice(0, 5)) {
-        if (Date.now() >= deadline) break;
+        checkLifetime();
         const batch = (await request('read', () => client!.thread(thread.id), messages => ({ messageCount: messages.length })))
           .filter(message => verificationMessageIsFresh(message, earliest, Date.now(), orderedBrowserResults));
         diagnostic({ operation: 'filter', phase: 'completed', freshMessageCount: batch.length });
@@ -147,6 +169,7 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
         for (const message of fresh) examined.add(message.id);
         if (found) return report(found);
       }
+      checkLifetime(); completedPolls++; lastCompletedCheckAt = new Date(Date.now()).toISOString(); pollInProgress = false;
       await new Promise<void>((done, reject) => {
         const cleanup = () => { clearTimeout(timer); lifetime.removeEventListener('abort', aborted); };
         const aborted = () => { cleanup(); reject(lifetime.reason); };
@@ -155,17 +178,18 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
         if (lifetime.aborted) aborted();
       });
     }
-    const failure = inFlight && expired() ? requestTimeout() : waitFailure();
-    diagnostic({ operation: 'lookup', phase: 'finished', classification: failure.reason, completedSearches, completedReads });
+    const failure = waitFailure();
+    diagnostic({ operation: 'lookup', phase: 'finished', classification: failure.reason, completedSearches, completedReads, completedPolls });
     return failure;
   } catch (error) {
-    const failure = options.signal?.aborted ? { error: 'The verification email wait was cancelled.', reason: 'cancelled' as const }
-      : expired() ? inFlight ? requestTimeout() : waitFailure()
-      : { error: safeGmailError(error).message, reason: 'request-error' as const };
-    diagnostic({ operation: 'lookup', phase: 'finished', classification: failure.reason, completedSearches, completedReads });
+    const failure = error instanceof VerificationPollWindowExpired || lifetime.reason instanceof VerificationPollWindowExpired ? waitFailure()
+      : options.signal?.aborted ? { error: 'The verification email wait was cancelled.', reason: 'cancelled' as const, poll: summary('cancelled') }
+      : error instanceof GmailRequestTimeoutError ? requestTimeout()
+      : { error: safeGmailError(error).message, reason: 'request-error' as const, poll: summary('request-error') };
+    diagnostic({ operation: 'lookup', phase: 'finished', classification: failure.reason, completedSearches, completedReads, completedPolls });
     return failure;
   }
-  finally { await client?.close(); }
+  finally { clearTimeout(timer); window.abort(new Error('The verification-email lookup ended.')); await client?.close(); }
 }
 export async function findCodeInGmail(options: { hint?: string; timeoutMs?: number; log?: (message: string) => void } = {}) {
   const found = await findVerificationInGmail({ ...options, site: options.hint, want: 'code' });

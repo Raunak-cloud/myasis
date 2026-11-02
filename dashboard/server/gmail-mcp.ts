@@ -8,17 +8,21 @@ import { registerGmailBrowser, searchBrowserGmail, readBrowserGmail } from '../.
 
 const apiReader = gmailApiReader(gmailRequest);
 const gmailMcp = new GmailMcpService({
-  search: async (userId, query) => {
+  search: async (userId, query, signal) => {
+    signal?.throwIfAborted();
     const access = await gmailAccess(userId);
     if (!access.connected) throw new Error('Reconnect Gmail in Settings.');
-    if (access.provider === 'browser') return searchBrowserGmail(userId, query);
-    return apiReader.search(userId, query);
+    signal?.throwIfAborted();
+    if (access.provider === 'browser') return searchBrowserGmail(userId, query, signal);
+    return apiReader.search(userId, query, signal);
   },
-  thread: async (userId, threadId) => {
+  thread: async (userId, threadId, signal) => {
+    signal?.throwIfAborted();
     const access = await gmailAccess(userId);
     if (!access.connected) throw new Error('Reconnect Gmail in Settings.');
-    if (access.provider === 'browser') return readBrowserGmail(userId, threadId);
-    return apiReader.thread(userId, threadId);
+    signal?.throwIfAborted();
+    if (access.provider === 'browser') return readBrowserGmail(userId, threadId, signal);
+    return apiReader.thread(userId, threadId, signal);
   },
   send: sendApprovedApplicationEmail,
 });

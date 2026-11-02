@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+import { getEventListeners } from 'node:events';
 import type { Page } from 'patchright';
 import { browserDeadline, browserDelay, browserCleanup, BrowserOperationTimeout } from './browser-deadline.js';
 import { hasCaptchaSurface, hasHcaptchaChallenge } from './captcha/detect.js';
@@ -42,4 +43,23 @@ test('ordinary nested work completes and a stalled child does not consume the en
   });
   assert.equal(value, 'recovered');
   await delay(1);
+});
+
+test('external read cancellation preserves its typed cause, releases listeners and prevents late writes', async () => {
+  const already = new AbortController(), cause = new Error('Fixture read cancelled'); already.abort(cause);
+  let starts = 0;
+  await assert.rejects(browserDeadline('Already cancelled',100,async()=>{starts++;},already.signal),error=>error===cause);
+  assert.equal(starts,0); assert.equal(getEventListeners(already.signal,'abort').length,0);
+  const controller = new AbortController();
+  let release!:()=>void, continuation!:Promise<void>, writes=0;
+  const running=browserDeadline('Externally cancelled read',1000,()=>{
+    continuation=(async()=>{await new Promise<void>(done=>{release=done;});await browserDeadline('Late read mutation',100,async()=>{writes++;});})();
+    return continuation;
+  },controller.signal);
+  await delay(1);controller.abort(cause);
+  await assert.rejects(running,error=>error===cause); assert.equal(getEventListeners(controller.signal,'abort').length,0);
+  release();await assert.rejects(continuation,error=>error===cause);assert.equal(writes,0);
+  const successful=new AbortController();
+  assert.equal(await browserDeadline('Independent next read',100,async()=>'next',successful.signal),'next');
+  assert.equal(getEventListeners(successful.signal,'abort').length,0);
 });

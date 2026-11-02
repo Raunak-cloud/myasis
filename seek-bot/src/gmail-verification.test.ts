@@ -10,11 +10,13 @@ Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only
 const { findVerificationInGmail, verificationMessage } = await import('./gmail-mailbox.js');
 let messages: GmailMessage[] = [], reads = 0, blocked: Promise<void> | undefined;
 let blockedRead: Promise<void> | undefined, emptySearch = false;
+let searchOverride: ((signal?: AbortSignal) => Promise<Array<{ id: string }>>) | undefined;
+let lastSearchSignal: AbortSignal | undefined, lastReadSignal: AbortSignal | undefined, completedBackendReads = 0;
 let beforeThread: (() => void) | undefined;
 const queries: string[] = [];
 const service = new GmailMcpService({
-  search: async (_owner, query) => { queries.push(query); if (blocked) await blocked; return emptySearch ? [] : [{ id: 'fixture-thread' }]; },
-  thread: async () => { reads++; beforeThread?.(); if (blockedRead) await blockedRead; return messages; },
+  search: async (_owner, query, signal) => { queries.push(query); lastSearchSignal = signal; if (searchOverride) return searchOverride(signal); if (blocked) await blocked; signal?.throwIfAborted(); return emptySearch ? [] : [{ id: 'fixture-thread' }]; },
+  thread: async (_owner, _thread, signal) => { reads++; lastReadSignal = signal; beforeThread?.(); if (blockedRead) await blockedRead; signal?.throwIfAborted(); completedBackendReads++; return messages; },
   send: async () => { throw new Error('This fixture never sends email'); },
 });
 const grant = await service.grant('fixture-owner', 'candidate@fixture.invalid');
@@ -26,7 +28,7 @@ try {
   const cached = await findVerificationInGmail({ hint: 'Fixture', want: 'code', timeoutMs: 2000 });
   assert.ok(!('error' in cached) && cached.value === '482913', 'a genuinely recent cached code remains usable without a new-request timestamp');
   const knownFlow = await findVerificationInGmail({ hint: 'Fixture', want: 'code', requestedAt: Date.now(), timeoutMs: 100 });
-  assert.ok('error' in knownFlow && /within the wait/.test(knownFlow.error), 'a normal fresh-request flow still rejects that same nine-minute code without reuse evidence');
+  assert.ok('reason' in knownFlow && knownFlow.reason === 'not-found' && knownFlow.poll.completedPolls > 0, 'a normal fresh-request flow still rejects that same nine-minute code without reuse evidence');
   messages.push(message('current-request', 15_000, '729184'));
   const requestedAt = Date.now() - 30_000;
   const fresh = await findVerificationInGmail({ hint: 'Fixture', want: 'code', requestedAt, timeoutMs: 2000 });
@@ -48,7 +50,7 @@ try {
   assert.ok(!('error' in alternative) && alternative.kind === 'link', 'a newer link-only authentication email wins over an older code and is reported immediately');
   messages = [message('old-link', 60 * 60_000, '111222')];
   const old = await findVerificationInGmail({ hint: 'Fixture', want: 'code', timeoutMs: 100 });
-  assert.ok('error' in old && /within the wait/.test(old.error));
+  assert.ok('reason' in old && old.reason === 'not-found' && old.poll.completedPolls > 0);
   messages = [{ id: 'punctuation', subject: 'Fixture sign-in verification', date: new Date().toISOString(), plaintextBody: 'Your security code is:\n482913' }];
   const punctuation = await findVerificationInGmail({ hint: 'Fixture', purpose: 'sign_in', want: 'code', timeoutMs: 2000 });
   assert.ok(!('error' in punctuation) && punctuation.value === '482913');
@@ -71,7 +73,12 @@ try {
     messages = [message('expired-in-transit', 14 * 60_000, '111222')];
     beforeThread = () => { logicalNow += 2 * 60_000; beforeThread = undefined; };
     const expiredInTransit = await findVerificationInGmail({ hint: 'Fixture', want: 'code', timeoutMs: 2000 });
-    assert.ok('error' in expiredInTransit && 'reason' in expiredInTransit && expiredInTransit.reason === 'request-timeout', 'a response that returns after its lookup budget expires cannot yield an aged code or a claim that no email arrived');
+    assert.ok('reason' in expiredInTransit && expiredInTransit.reason === 'incomplete-check' && expiredInTransit.poll.completedPolls === 0, 'a response that returns after its lookup window expires cannot yield an aged code or a missing-email conclusion');
+    logicalNow=realNow();const boundaryStart=logicalNow;
+    messages=[message('just-before-window',1000,'482913')];
+    beforeThread=()=>{logicalNow=boundaryStart+1999;beforeThread=undefined;};
+    const justBeforeWindow=await findVerificationInGmail({hint:'Fixture',purpose:'sign_in',want:'code',timeoutMs:2000});
+    assert.ok(!('error'in justBeforeWindow)&&justBeforeWindow.value==='482913','a fully verified result one millisecond before the window ends remains usable');
   } finally { Date.now = realNow; beforeThread = undefined; }
 
   const diagnostics: string[] = [];
@@ -82,17 +89,63 @@ try {
   emptySearch = false; diagnostics.length = 0;
   blocked = new Promise<void>(done => { release = done; });
   const slowSearch = await findVerificationInGmail({ hint: 'Fixture', purpose: 'reset_password', want: 'link', timeoutMs: 150, log: message => diagnostics.push(message) });
-  assert.ok('reason' in slowSearch && slowSearch.reason === 'request-timeout', 'an interrupted search cannot establish a missing email');
-  assert.match(slowSearch.error!, /mailbox request timed out while searching/);
+  assert.ok('reason' in slowSearch && slowSearch.reason === 'incomplete-check', 'a first search interrupted by the poll window cannot establish a missing email or broken mailbox');
+  assert.equal(slowSearch.poll.termination, 'poll-window-expired');
   assert.doesNotMatch(slowSearch.error!, /No matching verification email arrived/);
-  assert.ok(diagnostics.some(line => /"classification":"request-timeout"/.test(line) && /"completedSearches":0/.test(line)));
+  assert.ok(diagnostics.some(line => /"classification":"incomplete-check"/.test(line) && /"completedSearches":0/.test(line)));
   release?.(); blocked = undefined; diagnostics.length = 0;
   blockedRead = new Promise<void>(done => { release = done; });
   const slowRead = await findVerificationInGmail({ hint: 'Fixture', purpose: 'reset_password', want: 'link', timeoutMs: 150, log: message => diagnostics.push(message) });
-  assert.ok('reason' in slowRead && slowRead.reason === 'request-timeout', 'finding a thread without finishing its read cannot establish no matching email');
-  assert.match(slowRead.error!, /mailbox request timed out while reading/);
-  assert.ok(diagnostics.some(line => /"classification":"request-timeout"/.test(line) && /"completedSearches":1/.test(line) && /"completedReads":0/.test(line)));
+  assert.ok('reason' in slowRead && slowRead.reason === 'incomplete-check', 'a completed search without a completed thread read is not a complete healthy check');
+  assert.equal(slowRead.poll.completedSearches, 1); assert.equal(slowRead.poll.completedPolls, 0);
+  assert.ok(diagnostics.some(line => /"classification":"incomplete-check"/.test(line) && /"completedSearches":1/.test(line) && /"completedReads":0/.test(line)));
   release?.(); blockedRead = undefined; diagnostics.length = 0;
+
+  // One complete empty poll, then an incomplete final HTTP request. This is
+  // the live failure shape: the overall window is NOT an independent I/O fault.
+  let polls = 0;
+  blocked = new Promise<void>(done => { release = done; });
+  searchOverride = async signal => { if (++polls === 1) return []; await blocked; signal?.throwIfAborted(); return [{ id: 'late-thread' }]; };
+  const healthyThenWindow = await findVerificationInGmail({ hint:'Fixture', site:'auth.fixture.invalid', purpose:'reset_password', want:'link', timeoutMs:2300 });
+  assert.ok('reason' in healthyThenWindow && healthyThenWindow.reason === 'not-found');
+  assert.equal(healthyThenWindow.poll.completedPolls, 1); assert.equal(healthyThenWindow.poll.completedReads, 0);
+  assert.equal(healthyThenWindow.poll.finalCheckIncomplete, true); assert.equal(healthyThenWindow.poll.termination, 'poll-window-expired');
+  assert.ok(healthyThenWindow.poll.lastCompletedCheckAt); assert.equal(healthyThenWindow.poll.siteHost, 'auth.fixture.invalid');
+  assert.equal(healthyThenWindow.poll.purpose, 'reset_password');
+  assert.match(healthyThenWindow.error, /as of/); assert.doesNotMatch(healthyThenWindow.error, /This is a mailbox access failure/);
+  const { verificationLookupFailureMessage } = await import('./agent/authentication.js');
+  const toolRecord = JSON.parse(verificationLookupFailureMessage(healthyThenWindow));
+  assert.deepEqual(toolRecord.poll, healthyThenWindow.poll, 'tool/shared-record text preserves structured completed-check and actual lookup-context evidence');
+  assert.doesNotMatch(toolRecord.recovery, /This is a mailbox access failure|not a delayed email/);
+  release?.(); blocked = undefined; searchOverride = undefined;
+  await new Promise(done=>setTimeout(done,30));
+  assert.ok(lastSearchSignal?.aborted, 'only the disconnected HTTP read receives cancellation');
+
+  // A separate, shorter per-request timeout must remain an incomplete request
+  // error, even though the overall polling window still has time remaining.
+  blockedRead = new Promise<void>(done => { release = done; });
+  const beforeLateRead = completedBackendReads;
+  const independentReadTimeout = await findVerificationInGmail({ hint:'Fixture', purpose:'sign_in', want:'code', timeoutMs:2000, requestTimeoutMs:100 });
+  assert.ok('reason' in independentReadTimeout && independentReadTimeout.reason === 'request-timeout');
+  assert.equal(independentReadTimeout.poll.termination,'request-timeout'); assert.equal(independentReadTimeout.poll.completedPolls,0);
+  await new Promise(done=>setTimeout(done,30)); assert.ok(lastReadSignal?.aborted);
+  release?.(); blockedRead=undefined;
+  await new Promise(done=>setTimeout(done,30)); assert.equal(completedBackendReads,beforeLateRead,'a cancelled late backend read cannot publish results after the lookup ended');
+
+  messages = [message('boundary-success', 1000, '482913')];
+  const nearBoundary = await findVerificationInGmail({ hint:'Fixture', purpose:'sign_in', want:'code', timeoutMs:300 });
+  assert.ok(!('error' in nearBoundary)&&nearBoundary.value==='482913');
+  const completedSignal=lastReadSignal, readsAtSuccess=reads;
+  await new Promise(done=>setTimeout(done,320));
+  assert.equal(completedSignal?.aborted,false,'normal HTTP completion does not cancel a successful read');
+  assert.equal(reads,readsAtSuccess,'lookup timers do not start background polling after success');
+
+  polls=0;
+  searchOverride=async()=>{if(++polls===1)return [];throw new Error('Synthetic independent connection failure');};
+  const healthyThenError=await findVerificationInGmail({hint:'Fixture',want:'code',timeoutMs:2500});
+  assert.ok('reason' in healthyThenError&&healthyThenError.reason==='request-error');
+  assert.equal(healthyThenError.poll.completedPolls,1,'prior healthy evidence cannot mask a later real network/backend failure');
+  searchOverride=undefined;
   messages = [{ id: 'private-thread-marker', subject: 'Fixture verification private-subject-marker', sender: 'private-sender@fixture.invalid', date: new Date().toISOString(), plaintextBody: 'Your security code is 729184. private-body-marker https://fixture.invalid/private-token-marker' }];
   const loggedMatch = await findVerificationInGmail({ hint: 'Fixture', purpose: 'sign_in', want: 'code', timeoutMs: 2000, log: message => diagnostics.push(message) });
   assert.ok(!('error' in loggedMatch));

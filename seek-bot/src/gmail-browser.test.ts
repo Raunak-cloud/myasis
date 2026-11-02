@@ -9,6 +9,7 @@ import { GmailMcpService } from './gmail-mcp-service.js';
 import { GmailMcpClient } from './gmail-mcp-client.js';
 import { readVerificationEmailsLocally } from './verification-email-local.js';
 import { verificationMessage } from './gmail-mailbox.js';
+import { browserDeadline } from './browser-deadline.js';
 import type { PreparedApplication } from './application-review-types.js';
 // Use a fixed ephemeral loopback port selected by the OS, then release before Chrome binds it.
 const { createServer } = await import('node:net');
@@ -74,6 +75,28 @@ try {
   await assert.rejects(withGmailBrowser('browser-owner', async () => new Promise<never>(() => {}), '', 500), /reading the requested mailbox view/, 'a stalled read reports its phase instead of poisoning the mailbox queue');
   assert.equal(context.pages().length, openBefore, 'read timeout closes its owned mailbox tab');
   assert.equal((await client.search('verification'))[0].id, 'fixturethread', 'the account can read again after a stalled request');
+  const sentinel=await context.newPage();await sentinel.goto('https://candidate.fixture.invalid/current-application');
+  const cancelledRead=new AbortController();
+  let readStarted!:()=>void,releaseRead!:()=>void,lateRead!:Promise<void>,lateWrites=0;
+  const reading=new Promise<void>(done=>{readStarted=done;});
+  const activeRead=withGmailBrowser('browser-owner',()=>{
+    lateRead=(async()=>{readStarted();await new Promise<void>(done=>{releaseRead=done;});await browserDeadline('Late reader mutation',100,async()=>{lateWrites++;});})();
+    return lateRead;
+  },'',2000,cancelledRead.signal);
+  await reading;
+  const stopOther=registerGmailBrowser('independent-fixture-owner',port,'candidate@fixture.invalid');
+  let otherStarted!:()=>void,releaseOther!:()=>void;
+  const otherReady=new Promise<void>(done=>{otherStarted=done;});
+  let otherPage:import('patchright').Page|undefined;
+  const independentRead=withGmailBrowser('independent-fixture-owner',async page=>{otherPage=page;otherStarted();await new Promise<void>(done=>{releaseOther=done;});});
+  await otherReady;
+  const cancellationCause=new Error('Fixture lookup window ended');cancelledRead.abort(cancellationCause);
+  await assert.rejects(activeRead,error=>error===cancellationCause);
+  assert.equal(sentinel.isClosed(),false,'cancelling a mailbox read never closes the candidate application');
+  assert.equal(otherPage?.isClosed(),false,'an independent owner/request reader stays open');
+  releaseRead();await assert.rejects(lateRead,error=>error===cancellationCause);assert.equal(lateWrites,0);
+  assert.equal((await client.search('verification'))[0].id,'fixturethread','the cancelled owner queue drains and its next read works');
+  releaseOther();await independentRead;stopOther();await sentinel.close();
   let releasePrior!: () => void, priorStarted!: () => void;
   const started = new Promise<void>(resolve => { priorStarted = resolve; });
   const prior = withGmailBrowser('browser-owner', async () => { priorStarted(); await new Promise<void>(resolve => { releasePrior = resolve; }); });

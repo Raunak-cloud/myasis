@@ -14,14 +14,17 @@ export class BrowserOperationTimeout extends Error {
 /** Wall-clock I/O budget, independent of application/run duration. Nested
  * operations inherit cancellation, so an abandoned solver cannot start a
  * subsequent navigation or apply a late token. A race alone cannot do that. */
-export async function browserDeadline<T>(label: string, milliseconds: number, operation: () => Promise<T>): Promise<T> {
+export async function browserDeadline<T>(label: string, milliseconds: number, operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   const parent = current.getStore();
   parent?.signal.throwIfAborted();
+  signal?.throwIfAborted();
   const controller = new AbortController();
   const budget = Math.max(1, Math.min(milliseconds, (parent?.expiresAt ?? Infinity) - Date.now()));
   const expiresAt = Date.now() + budget;
   const abortParent = () => controller.abort(parent!.signal.reason);
+  const abortExternal = () => controller.abort(signal!.reason);
   parent?.signal.addEventListener('abort', abortParent, { once: true });
+  signal?.addEventListener('abort', abortExternal, { once: true });
   const timer = setTimeout(() => controller.abort(new BrowserOperationTimeout(label, budget)), budget);
   let onAbort: (() => void) | undefined;
   try {
@@ -37,6 +40,7 @@ export async function browserDeadline<T>(label: string, milliseconds: number, op
     clearTimeout(timer);
     if (onAbort) controller.signal.removeEventListener('abort', onAbort);
     parent?.signal.removeEventListener('abort', abortParent);
+    signal?.removeEventListener('abort', abortExternal);
     // Also cancel detached continuations when the owning operation finishes.
     controller.abort(new Error(`${label} has ended.`));
   }

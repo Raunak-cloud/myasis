@@ -94,7 +94,8 @@ export async function disconnectGmail(userId: string): Promise<void> {
     } catch { /* Removing the local grant immediately disables every MCP lease. */ }
   }
 }
-export async function gmailRequest<T = Record<string, any>>(userId: string, path: string, options: { method?: 'GET' | 'POST'; data?: unknown; params?: Record<string, string | number> } = {}): Promise<T> {
+export async function gmailRequest<T = Record<string, any>>(userId: string, path: string, options: { method?: 'GET' | 'POST'; data?: unknown; params?: Record<string, string | number>; signal?: AbortSignal } = {}): Promise<T> {
+  options.signal?.throwIfAborted();
   if (accountUnavailable(userId)) throw new GmailServiceError('reconnect', 'This account is unavailable.');
   const row = await one<{ refresh_token: string; scope: string }>(`SELECT g.refresh_token,g.scope FROM google_connections g JOIN users u ON u.id=g.user_id
     JOIN profiles p ON p.user_id=g.user_id WHERE g.user_id=$1 AND u.blocked_at IS NULL AND lower(trim(p.email))=lower(g.gmail_email)`, [userId]);
@@ -107,8 +108,10 @@ export async function gmailRequest<T = Record<string, any>>(userId: string, path
     entry = { encrypted: row.refresh_token, oauth }; active.set(userId, entry);
   }
   try {
+    options.signal?.throwIfAborted();
     return (await entry.oauth.request<T>({ url: `https://gmail.googleapis.com/gmail/v1/users/me/${path}`, ...options, retry: false, timeout: 20_000, maxContentLength: 2_000_000 })).data;
   } catch (error) {
+    if (options.signal?.aborted) throw options.signal.reason;
     const response = (error as { response?: { status?: number; data?: { error?: string | { errors?: Array<{ reason?: string }> } } } }).response;
     const status = response?.status, providerError = response?.data?.error;
     const reasons = typeof providerError === 'object' ? providerError?.errors?.map(detail => detail.reason) || [] : [];
