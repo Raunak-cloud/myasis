@@ -60,6 +60,25 @@ function linkPurpose(link: { text: string; url: string }): { reset: boolean; act
 
 type VerificationRequest = { hint?: string; site?: string; purpose?: VerificationPurpose };
 
+/** An explicitly named multiword identity provider may spell its brand as one
+ * DNS label. Accept that spelling only from the actual sender address, with the
+ * current authentication host inside that sender's exact DNS realm. Display
+ * names, body mentions and tracking URLs cannot establish this fallback. */
+function matchesSenderDomainAlias(email: LocalVerificationEmail, ask: VerificationRequest): boolean {
+  try {
+    const site = new URL(ask.site?.includes('://') ? ask.site : `https://${ask.site || ''}`);
+    if (site.username || site.password) return false;
+    const address = (email.sender || '').trim().match(/(?:^|<)[^<>\s@]+@([a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)>?$/i);
+    const domain = address?.[1].toLowerCase();
+    if (!domain || domain.split('.').length < 2 || domain.split('.').some(label => !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label))) return false;
+    const host = site.hostname.toLowerCase();
+    if (host !== domain && !host.endsWith(`.${domain}`)) return false;
+    const labels = new Set(domain.split('.'));
+    return (ask.hint || '').split(/[/|,;]+/).map(contextWords)
+      .some(words => words.length > 1 && labels.has(words.join('')));
+  } catch { return false; }
+}
+
 /** The same identity/purpose test drives extraction and missing-format diagnostics. */
 export function isRequestedVerificationEmail(email: LocalVerificationEmail, ask: VerificationRequest): boolean {
   if (!verificationContextWords(ask).length) return false;
@@ -68,7 +87,7 @@ export function isRequestedVerificationEmail(email: LocalVerificationEmail, ask:
   // sender or destination. Use hosts, never arbitrary URL parameters.
   const hosts = email.links.flatMap(link => { try { return [new URL(link.url).hostname]; } catch { return []; } });
   const identity = `${email.sender || ''}\n${content}\n${hosts.join('\n')}`;
-  if (!matchesContext(identity, ask)) return false;
+  if (!matchesContext(identity, ask) && !matchesSenderDomainAlias(email, ask)) return false;
   const resetMail = resetPurpose(email.subject) || (!activationPurpose(email.subject) && !signInPurpose(email.subject) && resetPurpose(email.text));
   const activationMail = activationPurpose(email.subject);
   if (ask.purpose && ask.purpose !== 'reset_password' && resetMail) return false;

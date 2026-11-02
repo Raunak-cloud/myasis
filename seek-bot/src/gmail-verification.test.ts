@@ -51,6 +51,10 @@ try {
   messages = [{ id: 'punctuation', subject: 'Fixture sign-in verification', date: new Date().toISOString(), plaintextBody: 'Your security code is:\n482913' }];
   const punctuation = await findVerificationInGmail({ hint: 'Fixture', purpose: 'sign_in', want: 'code', timeoutMs: 2000 });
   assert.ok(!('error' in punctuation) && punctuation.value === '482913');
+  messages = [{ id:'identity-provider-code',subject:'Your one-time code',sender:'noreply@login.fixtureidentity.invalid',date:new Date().toISOString(),plaintextBody:'482913 is your one-time code.' }];
+  const branded = await findVerificationInGmail({hint:'Example Employer | Fixture Identity',site:'employer.login.fixtureidentity.invalid',purpose:'sign_in',want:'code',requestedAt:Date.now(),timeoutMs:2000});
+  assert.ok(!('error' in branded) && branded.kind==='code' && branded.value==='482913','the browser relay can correlate an explicitly named provider with its sender DNS label');
+  assert.ok('error' in await findVerificationInGmail({hint:'Example Employer | Fixture Identity',site:'employer.login.other.invalid',purpose:'sign_in',want:'code',timeoutMs:100}),'a different authentication realm cannot consume that provider code');
   messages = [{ id: 'unreadable', subject: 'Fixture sign-in verification', date: new Date().toISOString(), plaintextBody: 'Your security code is unavailable. Please contact support.' }];
   const unreadable = await findVerificationInGmail({ hint: 'Fixture', purpose: 'sign_in', want: 'code', timeoutMs: 150 });
   assert.ok('error' in unreadable && 'reason' in unreadable && unreadable.reason === 'unreadable-message');

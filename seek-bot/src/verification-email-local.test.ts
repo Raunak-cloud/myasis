@@ -2,6 +2,22 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { isRequestedVerificationEmail, readVerificationEmailsLocally as read, verificationSenderHint } from './verification-email-local.js';
 
+test('explicit multiword identity-provider aliases match their sender DNS label within the active authentication realm', () => {
+  const email = {position:0,sender:'Identity service <noreply@login.fixtureidentity.invalid>',subject:'Your one-time code',
+    text:'482913 is your one-time code. This code expires in ten minutes.',links:[]};
+  const ask = {hint:'Example Employer | Fixture Identity',site:'employer-identity.login.fixtureidentity.invalid',purpose:'sign_in' as const,want:'code' as const};
+  assert.equal(read([email],ask)?.value,'482913');
+  assert.equal(read([email],{...ask,site:'login.fixtureidentity.invalid'})?.value,'482913');
+  assert.equal(read([email],{...ask,hint:'Example Employer'}),null,'a shared provider never overrides an employer-only hint');
+  for(const sender of ['FixtureIdentity <noreply@other.invalid>','noreply@login.fixtureidentity.invalid.attacker.invalid','noreply@other.fixtureidentity.invalid']) {
+    assert.equal(read([{...email,sender}],ask),null,'a compact display name, sibling realm, or suffix lookalike cannot establish the sender identity');
+  }
+  assert.equal(read([email],{...ask,site:'otheridentity.invalid'}),null);
+  assert.equal(read([email],{...ask,site:'employer-identity.login.fixtureidentity.invalid.attacker.invalid'}),null);
+  assert.equal(read([{...email,sender:'noreply@other.invalid',links:[{text:'Help',url:'https://login.fixtureidentity.invalid/help'}]}],ask),null,'links cannot stand in for the sender domain');
+  assert.equal(read([{...email,subject:'Reset your password'}],ask),null,'sender normalization cannot change the requested authentication purpose');
+});
+
 test('a decorated login-page sender hint retains the specific employer as an independent identity', () => {
   const site = 'tenant-identity.login.vendor.invalid';
   const supplied = 'Vendor Identity - Example Employer';
