@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve, sep } from 'node:path';
 import { chromium } from 'patchright';
 // Shared visible-message grounding remains for employer-reported duplicates.
 import { employerMessageEvidence as submissionReceipt } from './employer-message.js';
+import { doRecordAuthenticationResult } from './authentication.js';
+import { stagePendingCredential, pendingCredential, storedCredential } from '../site-credentials.js';
+import { withApplicationModel } from '../application-model.js';
+import type { ToolContext } from './context.js';
 
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 try {
@@ -31,10 +38,67 @@ try {
   assert.ok(await submissionReceipt(page, 'Your application has been successfully submitted.'));
   await page.setContent('<main>Application sent</main>');
   assert.ok(await submissionReceipt(page, 'Application sent'), 'fresh reads do not depend on an old observation');
+  const pending = 'There is already an account with the email candidate@fixture.invalid, but it is not activated yet.';
+  await page.setContent('<main><p>There is already an account with the email <strong>candidate@fixture.invalid</strong>, but it is not activated <em>yet</em>.</p></main>');
+  assert.equal((await page.locator('p').innerText()).trim(), pending);
+  assert.ok(await submissionReceipt(page, pending), 'inline email formatting and sentence punctuation preserve exact rendered wording');
+  await page.setContent(`<main><p style="display:contents">${pending}</p></main>`);
+  assert.ok(await submissionReceipt(page, pending), 'a display:contents message has visible text despite lacking its own box');
+  const activation = 'A link to activate your account has been sent to candidate@fixture.invalid.';
+  await page.setContent(`<main><section><h1>Account Already Exists</h1><div>${pending}</div><p>A link to activate your account has been sent to <a href="mailto:candidate@fixture.invalid">candidate@fixture.invalid</a>.</p><button>Resend</button></section></main>`);
+  assert.ok(await submissionReceipt(page, `Account Already Exists\n\n${pending}\n\n${activation}`), 'block boundaries add separators while a trailing control cannot corrupt the whole employer message');
+  assert.equal(await submissionReceipt(page, 'Your account has been created and activated.'), null, 'actual pending activation cannot establish a fabricated success summary');
+  assert.equal(await submissionReceipt(page, 'There is already an account with the email candidate@fixture.invalid'), null, 'a truncated quote cannot drop the pending-activation qualifier');
+  await page.setContent('<main><p>Your application was <span>sub</span><span>mitted</span>.<br>Receipt: <b>FIXTURE</b>123.</p></main>');
+  assert.ok(await submissionReceipt(page, 'Your application was submitted. Receipt: FIXTURE123.'), 'inline node boundaries do not invent spaces inside words or receipt identifiers; BR supplies a real separator');
+  await page.setContent('<main>Your application <button>was not</button>submitted</main>');
+  assert.equal(await submissionReceipt(page, 'Your application submitted'), null, 'removing a control must not splice fragments into a different assertion');
+  await page.setContent('<main><p hidden>Application received: PRIVATE</p><p style="opacity:0">Application received: PRIVATE</p><p contenteditable>Application received: PRIVATE</p><p data-owtomate-private-auth="verification-code">Application received: PRIVATE</p></main>');
+  assert.equal(await submissionReceipt(page, 'Application received: PRIVATE'), null, 'hidden, editable and explicitly private text cannot establish employer evidence');
+  await page.setContent('<main><p style="content-visibility:hidden">Your account is now activated.</p><div style="content-visibility:hidden"><section><p>Check your email to activate your account.</p></section></div></main>');
+  assert.equal(await submissionReceipt(page, 'Your account is now activated.'), null, 'content-visibility:hidden region cannot establish activation');
+  assert.equal(await submissionReceipt(page, 'Check your email to activate your account.'), null, 'a hidden content-visibility ancestor cannot establish pending verification');
+  await page.setContent('<main><div contenteditable><p style="display:contents">Your account is now activated.</p></div></main>');
+  assert.equal(await submissionReceipt(page, 'Your account is now activated.'), null, 'display:contents does not make candidate-authored text employer evidence');
+  await page.setContent('<main><p contenteditable="plaintext-only">Your account is now activated.</p><p role="textbox">Your account is now activated.</p><div role="checkbox"><p>Your account is now activated.</p></div></main>');
+  assert.equal(await submissionReceipt(page, 'Your account is now activated.'), null, 'plaintext-only editors and custom widget states remain controls, not employer evidence');
+  await page.setContent('<main><div id=slotted-message>candidate@fixture.invalid</div></main>');
+  await page.locator('#slotted-message').evaluate(node => { node.attachShadow({mode:'open'}).innerHTML='<p>Activation is pending for <slot></slot>.</p>'; });
+  assert.ok(await submissionReceipt(page, 'Activation is pending for candidate@fixture.invalid.'), 'composed slot text preserves exact inline punctuation');
+  await page.locator('#slotted-message').evaluate(node => { node.shadowRoot!.innerHTML='Activation is still pending.'; });
+  assert.ok(await submissionReceipt(page, 'Activation is still pending.'), 'direct shadow-root text is rendered employer copy');
+  await page.locator('#slotted-message').evaluate(node => { node.setAttribute('role', 'button'); });
+  assert.equal(await submissionReceipt(page, 'Activation is still pending.'), null, 'composed shadow text retains the host control boundary');
+  await page.setContent('<main><div id=slotted-private><span contenteditable>Your account is now activated.</span></div></main>');
+  await page.locator('#slotted-private').evaluate(node => { node.attachShadow({mode:'open'}).innerHTML='<slot></slot>'; });
+  assert.equal(await submissionReceipt(page, 'Your account is now activated.'), null, 'slotted candidate-authored text cannot establish employer activation');
   await page.setContent('<iframe srcdoc="<main>Application received: FRAME123</main>"></iframe>');
   await page.frameLocator('iframe').getByText('Application received: FRAME123').waitFor();
   assert.ok(await submissionReceipt(page, 'Application received: FRAME123'), 'actual frame receipts remain supported');
   await page.locator('iframe').evaluate(node => (node as HTMLElement).style.display = 'none');
   assert.equal(await submissionReceipt(page, 'Application received: FRAME123'), null);
+  const directory = mkdtempSync(join(tmpdir(), 'owtomate-employer-message-'));
+  try {
+    await withApplicationModel({ DATA_DIR: directory }, async () => {
+      await page.route('https://ats.fixture.invalid/**', route => route.fulfill({ contentType: 'text/html', body: '<main></main>' }));
+      await page.goto('https://ats.fixture.invalid/registration');
+      const email = 'candidate@fixture.invalid', company = 'Fixture employer';
+      stagePendingCredential(page.url(), email, company, 'create_account', { format: 'readable-v1' });
+      const ctx = { page, profile: { name: 'Fixture Candidate', email }, job: { company }, actions: [] } as unknown as ToolContext;
+      await page.setContent('<main><p>There is already an account with the email <b>candidate@fixture.invalid</b>, but it is not activated yet.</p></main>');
+      await doRecordAuthenticationResult(ctx, { purpose: 'create_account', outcome: 'needs_verification', evidence: pending });
+      assert.equal(pendingCredential(page.url(), email, company, 'create_account')?.phase, 'needs_verification', 'formatted employer evidence durably preserves the real pending-verification phase');
+      assert.equal(storedCredential(page.url(), email), null, 'recording activation-pending evidence never accepts an unverified password');
+      await doRecordAuthenticationResult(ctx, { purpose: 'create_account', outcome: 'accepted', evidence: 'Your account is now activated.' });
+      assert.equal(storedCredential(page.url(), email), null, 'a claimed activation without the current employer message cannot promote a pending password');
+      await page.setContent('<main><p>Your account is now <b>activated</b>.</p></main>');
+      await doRecordAuthenticationResult(ctx, { purpose: 'create_account', outcome: 'accepted', evidence: 'Your account is now activated.' });
+      assert.ok(storedCredential(page.url(), email), 'fresh exact activation evidence can recover the durable credential across contexts');
+    });
+  } finally {
+    const target = resolve(directory);
+    assert.ok(target.startsWith(resolve(tmpdir()) + sep));
+    rmSync(target, { recursive: true, force: true });
+  }
   console.log('PASS: control-only states, invented/truncated quotes and hidden/editable text rejected; complete fresh employer messages and visible frames grounded without success phrase rules. No real employer submission.');
 } finally { await browser.close(); }
