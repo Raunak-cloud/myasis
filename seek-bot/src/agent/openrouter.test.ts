@@ -120,6 +120,47 @@ test('unreported charges reserve a nonzero budget instead of granting unlimited 
   await assert.rejects(applicationChat({ model: 'celeris-1-magnus', messages: [], meter }), ApplicationBudgetExhaustedError);
 }));
 
+test('failed HTTP200 generations retry inference only, discard partial calls and retain both charges', async()=>isolated(async()=>{
+ const originalRandom=Math.random;Math.random=()=>0;
+ try{
+  const requests:any[]=[];
+  globalThis.fetch=(async(_url,options)=>{
+   requests.push(JSON.parse(String(options!.body)));
+   if(requests.length===1){const bad=reply(.003,'error');bad.choices[0].message.tool_calls[0].function.arguments='{"action":"click","selector":"#send"}';return Response.json(bad);}
+   return Response.json(reply(.001));
+  }) as typeof fetch;
+  const meter=new CostMeter(1),messages:ChatMessage[]=[{role:'user',content:'Current saved form. No new send has happened.'}];
+  const result=await applicationChat({model:'celeris-1-magnus',messages,tools:[tool],maxTokens:8192,meter});
+  assert.equal(requests.length,2);assert.deepEqual(requests[1],requests[0],'same model, tools, transcript and token allowance; no failed tool appended or replayed');
+  assert.equal(result.toolCalls[0].args.action,'inspect','failed generation cannot leak its partial send call');
+  assert.equal(meter.totals.calls,2);assert.equal(meter.totals.costUsd,.004);
+ }finally{Math.random=originalRandom;}
+}));
+
+test('choice-level transient errors are retried while explicit auth errors and content filters stop', async()=>isolated(async()=>{
+ const originalRandom=Math.random;Math.random=()=>0;
+ try{
+  let calls=0;
+  globalThis.fetch=(async()=>++calls===1?Response.json({choices:[{finish_reason:'error',error:{code:429,message:'Synthetic capacity limit'}}],usage:{cost:.001}}):Response.json(reply())) as typeof fetch;
+  await applicationChat({model:'celeris-1-magnus',messages:[],meter:new CostMeter(1)});assert.equal(calls,2);
+  for(const code of [400,401,402,403]){
+   calls=0;globalThis.fetch=(async()=>{calls++;return Response.json({choices:[{finish_reason:'error',error:{code,message:'Synthetic fictional-private-key rejection'}}]});}) as typeof fetch;
+   await assert.rejects(applicationChat({model:'celeris-1-magnus',messages:[]}),error=>{assert.match(String(error),new RegExp('OpenRouter '+code));assert.doesNotMatch(String(error),/fictional-private-key/);return true;});assert.equal(calls,1);
+  }
+  calls=0;globalThis.fetch=(async()=>{calls++;return Response.json({choices:[{finish_reason:'content_filter'}],usage:{cost:.001}});}) as typeof fetch;
+  await assert.rejects(applicationChat({model:'celeris-1-magnus',messages:[]}),/content_filter/);assert.equal(calls,1,'policy failures never enter empty-message recovery');
+ }finally{Math.random=originalRandom;}
+}));
+
+test('failed generations with no message remain bounded by attempts and the original application budget', async()=>isolated(async()=>{
+ const originalRandom=Math.random;Math.random=()=>0;
+ try{
+  let calls=0;globalThis.fetch=(async()=>{calls++;return Response.json({choices:[{finish_reason:'error'}],usage:{prompt_tokens:100,completion_tokens:1,cost:.001}});}) as typeof fetch;
+  await assert.rejects(applicationChat({model:'celeris-1-magnus',messages:[],meter:new CostMeter(1)}),/finish_reason=error/);assert.equal(calls,3);
+  calls=0;await assert.rejects(applicationChat({model:'celeris-1-magnus',messages:[],meter:new CostMeter(.001)}),ApplicationBudgetExhaustedError);assert.equal(calls,1);
+ }finally{Math.random=originalRandom;}
+}));
+
 test('structured specialist responses use MiniMax and a server retry respects the remaining deadline', async () => isolated(async () => {
   let calls = 0;
   globalThis.fetch = (async (_url, options) => {
