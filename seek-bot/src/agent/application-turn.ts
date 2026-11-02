@@ -14,6 +14,11 @@ interface TurnState {
  * Completion is a one-way, bounded, read-only lane: it cannot fund editing,
  * another specialist, or a send even if a review later earns progress credit. */
 export class ApplicationTurnCoordinator {
+  checkpoint() { return { completing: this.completing, records: this.records, decisions: this.decisions }; }
+  restore(saved: ReturnType<ApplicationTurnCoordinator['checkpoint']>): void {
+    if (typeof saved.completing !== 'boolean' || !Number.isSafeInteger(saved.records) || saved.records < 0 || !Number.isSafeInteger(saved.decisions) || saved.decisions < 0) throw Error('Invalid completion checkpoint.');
+    this.completing = saved.completing; this.records = saved.records; this.decisions = saved.decisions;
+  }
   private completing = false;
   private records = 0;
   private decisions = 0;

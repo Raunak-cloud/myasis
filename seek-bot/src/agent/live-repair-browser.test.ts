@@ -3,6 +3,8 @@ import {cpSync,mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,symlinkSy
 import {tmpdir} from 'node:os';
 import {resolve,join} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {createHash} from 'node:crypto';
+import {DatabaseSync} from 'node:sqlite';
 import {chromium} from 'patchright';
 import {closeCelerisQueues} from '../../../shared/celeris-queue.mjs';
 import {createReadinessFixtureReply} from './readiness-fixture.js';
@@ -39,17 +41,20 @@ try {
   const context=await browser.newContext(),page=await context.newPage();
   await context.route('**/*',route=>new URL(route.request().url()).hostname.endsWith('.invalid')?route.fulfill({contentType:'text/html',body:
     '<main><h1>Developer at Fixture Employer</h1><form onsubmit="event.preventDefault();window.sends++;document.querySelector(\'main\').textContent=\'Application received FIXTURE-REPAIR-1\'">'+
-    '<label>Name<input id=name required oninput="window.nameWrites++"></label><label>City<input id=city required></label><button id=noop type=button onclick="window.noop++">Inspect details</button><button id=send>Submit application</button></form></main>'}):route.abort());
+    '<label>Name<input id=name required oninput="window.nameWrites++"></label><label>Supporting attachment<input id=attachment type=file onchange="window.uploadWrites++"></label><label>City<input id=city required></label><button id=noop type=button onclick="window.noop++">Inspect details</button><button id=send>Submit application</button></form></main>'}):route.abort());
   const url=`https://employer.fixture.invalid/job/${prepare?'prepare':'auto'}`;await page.goto(url);
   privacy.rememberPrivateAuthenticationValue(page,'fixture-retained-secret');
-  await page.evaluate('window.sends=0;window.nameWrites=0;window.noop=0',undefined,undefined,false);
-  let index=0,recoveryReplies=0,resumed=false,markerSeen=false,allowanceChecks=0;
+  await page.evaluate('window.sends=0;window.nameWrites=0;window.uploadWrites=0;window.noop=0',undefined,undefined,false);
+  let index=0,recoveryReplies=0,resumed=false,markerSeen=false,allowanceChecks=0,concurrencyChecked=false,recordId='',specialistCalls=0;
+  const letter='Synthetic supporting attachment',fileId='generated:'+createHash('sha256').update(JSON.stringify(['Letter.txt','txt',letter])).digest('hex');
   const readinessReply=createReadinessFixtureReply();
   const calls=[
    {name:'finish',args:{status:'needs-human',reason:'Malformed fixture stop',evidence:'No actual question supplied',questions:[]}},
    ...prepare?[{name:'browser_action',args:{action:'click',selector:'#send'}}]:[],
    ...prepare?[{name:'browser_action',args:{action:'click',target_mode:'coordinates',selector:'#noop',x:0,y:0,sends_application:false}}]:[],
    {name:'browser_action',args:{action:'fill',target_mode:'selector',selector:'#name',ref:'f999',locator:{by:'css',value:'input',frame:'frame999'},x:0,y:0,script:'',value:'Fixture Applicant'}},
+   {name:'create_file',args:{name:'Letter.txt',text:letter,format:'txt'}},
+   {name:'browser_action',args:{action:'set_input_files',selector:'#attachment',file_ids:[fileId]}},
    {name:'create_file',args:{name:'../invalid.txt',text:'Fixture',format:'txt'}},
    {name:'create_file',args:{name:'../invalid.txt',text:'Fixture',format:'txt'}},
    {name:'browser_action',args:{action:'fill',selector:'#city',value:'Sydney'}},
@@ -60,6 +65,12 @@ try {
   ];
   globalThis.fetch=(async(_url,init)=>{
     const body=JSON.parse(String(init?.body)),forced=body.tool_choice?.function?.name;
+    if(!concurrencyChecked){concurrencyChecked=true;await assert.rejects(runAgentOnlyApplication(options),/active writer/);}
+    if(String(body.messages?.[0]?.content).includes('read-only application specialist')) {
+      specialistCalls++;
+      if(resumed){assert.match(JSON.stringify(body.messages),/Letter.txt/,'specialist receives actual attachment readback retained across repair');assert.ok(JSON.stringify(body.messages).includes(recordId));}
+      return Response.json({usage:{prompt_tokens:100,completion_tokens:10},choices:[{message:{role:'assistant',content:JSON.stringify({advice:'Retain completed work and continue the controlled fixture.',evidence:[{source:'parent-history',detail:'Malformed fixture calls were rejected.'}],unknowns:[],nextSteps:['Use the next supported scripted operation and verify current content.']})}}]});
+    }
     if(forced==='record_recovery_plan'||forced==='record_recovery_result'){
       const name=await page.locator('#name').inputValue(),city=await page.locator('#city').inputValue();
       const args=forced==='record_recovery_plan'?{observed_issue:'Deliberately malformed fixture calls were rejected.',evidence:['No application send was executed.'],previous_approaches:['Malformed fixture calls'],next_action:'Continue with the next supported scripted operation.',verification:'Read actual saved name and city.'}
@@ -67,15 +78,16 @@ try {
       return Response.json({usage:{prompt_tokens:0,completion_tokens:0},choices:[{message:{role:'assistant',content:null,tool_calls:[{id:`recovery-${++recoveryReplies}`,type:'function',function:{name:forced,arguments:JSON.stringify(args)}}]}}]});
     }
     const review=readinessReply(body);if(review)return review;
-    if(resumed){assert.match(JSON.stringify(body.messages),/VALIDATED_GENERATION_FIXTURE/);markerSeen=true;}
+    if(resumed){assert.match(JSON.stringify(body.messages),/VALIDATED_GENERATION_FIXTURE/);assert.ok(JSON.stringify(body.messages).includes(recordId));assert.ok(JSON.stringify(body.messages).includes(fileId));markerSeen=true;}
     const call=calls[index++];assert.ok(call,'Unexpected additional model decision');
     return Response.json({usage:{prompt_tokens:1000,completion_tokens:10},choices:[{message:{role:'assistant',content:null,tool_calls:[{id:`fixture-${index}`,type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}]}}]});
   }) as typeof fetch;
   const options:AgentRunOptions={simulation:'isolated-form',page,job:{id:`repair-${prepare}`,title:'Developer',company:'Fixture Employer',location:'Sydney',platform:'workday',url},
-    profile:{name:'Fixture Applicant',email:'fixture@example.invalid',skills:[]} as never,log:()=>{},testRepairRequested:()=>index>=(prepare?6:4)};
+    profile:{name:'Fixture Applicant',email:'fixture@example.invalid',skills:[]} as never,log:()=>{},testRepairRequested:()=>index>=(prepare?8:6)};
   await withApplicationAllowance(()=>{allowanceChecks++;return true;},async()=>{
     const original=await runAgentOnlyApplication(options);assert.ok(original.repair,'Repeated error must hand off at a safe boundary before ending the run');
     const checkpoint=original.repair!,spent=checkpoint.meter.totals.costUsd,writes=await page.evaluate('window.nameWrites',undefined,undefined,false);
+    recordId=checkpoint.recoveryId;assert.ok(recordId);assert.equal('captured' in checkpoint,false,'handoff carries a shared record reference, not forked work');
     const trace=JSON.parse(readFileSync(join(directory,'traces',`attempt-${checkpoint.attemptId}.json`),'utf8'));
     assert.equal(traceProvesNoSend(trace,'100',checkpoint.attemptId),true);
     assert.equal(trace.steps[0].execution,'not-started','an empty candidate question is rejected before a stopping decision executes');
@@ -89,11 +101,19 @@ try {
     assert.equal(markerSeen,true,'The same page must be observed through the repaired module graph');
     assert.ok(checkpoint.meter.totals.costUsd>spent,'Earlier paid usage must remain in the same meter');
     assert.equal(await page.evaluate('window.nameWrites',undefined,undefined,false),writes,'Already-completed Name is not refilled');
+    assert.equal(await page.evaluate('window.uploadWrites',undefined,undefined,false),1,'retained attachment is not uploaded again');
     assert.equal(await page.evaluate('window.sends',undefined,undefined,false),prepare?0:1);
     assert.equal(await page.evaluate('window.noop',undefined,undefined,false),1,'explicit element mode ignores unused padded coordinates and stale iframe locators');
     assert.equal(result.outcome.status,prepare?'prepared':'rehearsed');
     if(!prepare)assert.ok(allowanceChecks>0,'The original quota callback must survive the repaired graph');
     assert.equal(result.repair,undefined);
+    const db=new DatabaseSync(join(directory,'application-recovery.sqlite'),{readOnly:true});
+    try {
+      const saved=JSON.parse(String(db.prepare('SELECT state FROM recovery_records WHERE id=?').get(recordId)!.state));
+      assert.equal(saved.status,'finished');assert.equal(saved.consultation.calls,specialistCalls);assert.ok(specialistCalls<=2);assert.equal(saved.work.files[0].id,fileId);
+      assert.ok(saved.work.captured.some((answer:{question:string;answer:string})=>answer.answer==='Fixture Applicant'));
+      assert.equal(db.prepare('SELECT count(*) AS n FROM recovery_writers').get()!.n,0,'writer lease released after completion');
+    } finally {db.close();}
   });
   await context.close();
  }

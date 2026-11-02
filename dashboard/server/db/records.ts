@@ -215,10 +215,12 @@ interface RunEventRow {
 /** Matched by `run_events_dedupe_idx (user_id, job_id, status, ts)`. */
 export async function insertRunEventRow(uid: string, e: RunEventRow): Promise<void> {
   await query(
-    `INSERT INTO run_events (
+    `WITH owner_job_lock AS (
+       SELECT pg_advisory_xact_lock(hashtextextended($15,0))
+     ) INSERT INTO run_events (
        user_id, job_id, status, title, company, reason, url, ts, questions,
        review_disposition, review_listing_fingerprint, review_context_fingerprint, review_expires_at, review_content_fingerprint
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+     ) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14 FROM owner_job_lock
      ON CONFLICT (user_id, job_id, status, ts) DO UPDATE SET
        questions = COALESCE(EXCLUDED.questions, run_events.questions),
        review_disposition = COALESCE(EXCLUDED.review_disposition, run_events.review_disposition),
@@ -234,6 +236,7 @@ export async function insertRunEventRow(uid: string, e: RunEventRow): Promise<vo
       e.reviewCache?.contextFingerprint ?? null,
       e.reviewCache?.expiresAt ?? null,
       e.reviewCache?.contentFingerprint ?? null,
+      `candidate-answers:${uid}:${e.jobId??''}`,
     ],
   );
 }

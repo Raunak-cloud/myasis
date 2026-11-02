@@ -24,6 +24,8 @@ const resumesDirectory = () => resolve(config.dataDir, 'resumes');
 const answersPath = () => resolve(config.dataDir, 'answers.json');
 
 export interface SavedAnswer {
+  snapshot?: import('./question-snapshot.js').QuestionSnapshot;
+  response?: import('./question-snapshot.js').QuestionResponse;
   question: string;
   answer: string;
   /** When the candidate last saved it; the dashboard's export carries it. */
@@ -46,7 +48,7 @@ export function savedAnswerTimes(): Map<string, number> | null {
   for (const item of answers) {
     const at = Date.parse(item.createdAt ?? '');
     if (!Number.isFinite(at)) return null;
-    times.set(answerKey(item.question), at);
+    times.set(answerKey(item.snapshot ? `${item.snapshot.id}:${item.snapshot.revision}` : item.question), at);
   }
   return times;
 }

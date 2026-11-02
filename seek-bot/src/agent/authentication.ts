@@ -14,6 +14,11 @@ import { GMAIL_IO_TIMEOUT_MS } from '../gmail-mcp-client.js';
 
 // Private credential transport. Magnus chooses controls; native fill emits normal input events.
 const authenticationStarted = new WeakMap<ToolContext, Map<string, number>>();
+const authKey = (ctx: ToolContext,purpose: string) => `${hostOf(ctx.page.url())}|${purpose}`;
+function uncertainAuthentication(ctx: ToolContext,purpose: string,message: string): ToolResult {
+  ctx.recoveryRecord?.openUncertainty('authentication',authKey(ctx,purpose),message);
+  return ok(`${message} The outcome is uncertain, not a confirmed failure. Investigate the current form, observed control or saved activity with investigate_application_state. Preserve pending work; absence of a success message does not authorize rejection, credential promotion or another reset.`, 'uncertain');
+}
 
 function rememberAuthenticationStart(ctx: ToolContext, site: string) {
   let starts = authenticationStarted.get(ctx);
@@ -93,6 +98,8 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
   const unsupported = values.filter((entry) => entry.value === null);
   const missingCredential = unsupported.some((entry) => isAuthenticationPasswordField(entry.field));
   if (missingCredential) {
+    const reset = pendingCredential(ctx.page.url(), ctx.profile.email, ctx.job.company, 'reset_password');
+    if(reset) return uncertainAuthentication(ctx,'reset_password','A saved password-reset proposal exists, but the employer acceptance has not been established. No unverified password was filled for sign-in.');
     const pending = pendingCredential(ctx.page.url(), ctx.profile.email, ctx.job.company, 'create_account');
     if (pending) return ok('A saved pending registration exists for this candidate and employer. Its private credential metadata survived the earlier attempt, but it is not verified and was not filled for sign-in. Resume the employer activation flow, requesting a fresh verification email if needed. After actual account activation, call record_authentication_result with purpose=create_account, outcome=accepted and the complete current employer message; the saved proposal can then be recovered for sign-in.', 'reobserve');
     return ok('No verified usable password is available for this account and site. No credential was guessed or filled. Inspect supported registration, passwordless or authorized account recovery options; a previously existing account needs its real credential. Do not repeat the rejected sign-in or claim the candidate supplied a wrong password.', 'reobserve');
@@ -115,6 +122,7 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
     if (value === null) continue;
     try {
       assertLive();
+      if(isAuthenticationPasswordField(field))rememberPrivateAuthenticationValue(ctx.page,value);
       await (selected.get(field.ref) ?? browserTarget(ctx.page, { ref: field.ref })).fill(value, { timeout: 8000 });
       filled.push(field.label);
       filledRefs.add(field.ref);
@@ -133,6 +141,7 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
   );
   assertLive();
   if (filled.length) rememberAuthenticationStart(ctx, site);
+  if(failed.length)ctx.recoveryRecord?.openUncertainty('authentication',authKey(ctx,purpose),'A private authentication fill did not finish cleanly. Inspect the current controls before repeating it; no acceptance or rejection is established by the transport error.');
   if (credentialFilled) {
     const email = ctx.profile.email;
     // Held until the site accepts it: a sign-up refused because the account already exists must not replace the password it has.
@@ -165,11 +174,12 @@ export async function doRecordAuthenticationResult(ctx: ToolContext, args: Recor
   assertLive();
   const purpose = String(args.purpose ?? ''), outcome = String(args.outcome ?? '');
   if (!['sign_in', 'create_account', 'reset_password'].includes(purpose)
-    || !['accepted', 'rejected', 'needs_verification'].includes(outcome)) {
-    return ok('Supply purpose and an explicit outcome: accepted, rejected or needs_verification. Nothing has been recorded.', 'invalid-arguments');
+    || !['accepted', 'rejected', 'needs_verification', 'uncertain'].includes(outcome)) {
+    return ok('Supply purpose and an explicit outcome: accepted, rejected, needs_verification or uncertain. Nothing has been recorded.', 'invalid-arguments');
   }
+  if(outcome==='uncertain')return uncertainAuthentication(ctx,purpose,'The agent could not establish the authentication outcome. No acceptance or rejection was recorded.');
   const evidence = await employerMessageEvidence(ctx.page, String(args.evidence ?? ''));
-  if (!evidence) return ok('Copy the complete current employer message as evidence. Typed values, button labels and a narrative summary cannot establish authentication. Nothing has been recorded.', 'reobserve');
+  if (!evidence) return uncertainAuthentication(ctx,purpose,'Copy the complete current employer message as evidence. Typed values, button labels and a narrative summary cannot establish authentication. Nothing has been recorded.');
   // Password reset/registration acceptance and an authenticated session are
   // separate outcomes. The agent judges the fresh employer message for each.
   if (outcome === 'accepted' && purpose === 'sign_in') {
@@ -179,7 +189,7 @@ export async function doRecordAuthenticationResult(ctx: ToolContext, args: Recor
       const passwordInputs = frame.locator('[data-owtomate-private-auth="password"]');
       for (const input of await passwordInputs.all()) {
         if (await input.isVisible() && await input.isEnabled()) {
-          return ok('Authentication is still on an editable password form. Record rejected or needs_verification when appropriate, or inspect the actual authenticated account/application page before reporting accepted. No credential or success audit was saved.', 'reobserve');
+          return uncertainAuthentication(ctx,purpose,'Authentication is still on an editable password form. Record rejected or needs_verification when appropriate, or inspect the actual authenticated account/application page before reporting accepted. No credential or success audit was saved.');
         }
       }
     }
@@ -196,6 +206,7 @@ export async function doRecordAuthenticationResult(ctx: ToolContext, args: Recor
     }
     if (purpose !== 'sign_in' || ctx.pendingCredentials?.get(site)?.purpose !== 'reset_password') ctx.pendingCredentials?.delete(site);
     ctx.actions.push({ ...action, kind: 'authentication-rejected' });
+    ctx.recoveryRecord?.resolveUncertainty('authentication','rejected',evidence.quote,authKey(ctx,purpose));
     // Retire the actual private value too; another click must not resubmit it.
     for (const frame of ctx.page.frames()) {
       if (frame !== ctx.page.mainFrame() && !await (await frame.frameElement()).isVisible()) continue;
@@ -211,6 +222,7 @@ export async function doRecordAuthenticationResult(ctx: ToolContext, args: Recor
     const proposal = ctx.pendingCredentials?.get(site);
     const retained = purpose !== 'sign_in' && markPendingVerification(ctx.page.url(), email, ctx.job.company, purpose as CredentialPurpose, proposal?.purpose === purpose ? proposal : undefined);
     ctx.actions.push({ ...action, kind: 'authentication-prepared' });
+    ctx.recoveryRecord?.resolveUncertainty('authentication','needs_verification',evidence.quote,authKey(ctx,purpose));
     return ok('Recorded pending verification. No account creation, reset or sign-in success was recorded. ' + (retained ? 'The private pending credential metadata is saved for this candidate and employer across future runs; complete actual verification before accepting it or signing in.' : 'No new password proposal was available to save; requesting an email alone does not establish a credential.'), 'reobserve');
   }
   const accepted = { ...action, kind: purpose === 'create_account' ? 'account-created' as const : purpose === 'reset_password' ? 'password-reset' as const : 'signed-in' as const };
@@ -221,6 +233,7 @@ export async function doRecordAuthenticationResult(ctx: ToolContext, args: Recor
     }
   }
   ctx.actions.push(accepted);
+  ctx.recoveryRecord?.resolveUncertainty('authentication','accepted',evidence.quote,authKey(ctx,purpose));
   return ok('Recorded accepted authentication with current employer evidence.' + (purpose === 'reset_password' || purpose === 'create_account' ? ' This confirms the credential change, not a signed-in session. If the site returned to sign-in, use complete_authentication with purpose=sign_in next.' : ''));
 }
 

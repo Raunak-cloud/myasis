@@ -3,6 +3,7 @@ import type { ApplicationAction, BlockedQuestion, CandidateProfile, FitRejection
 import type { Observation } from './observe.js';
 import type { SiteCredential } from '../site-auth.js';
 import { jobBoardForHost } from '../job-board-url.js';
+import type { RecoveryRecord } from './recovery-record.js';
 
 export type AgentTermination =
   | { status: 'applied' }
@@ -22,10 +23,12 @@ export type AgentTermination =
 
 /** Expected handoffs need a fresh observation, not expensive failure recovery.
  * Keep this separate from prose, which can quote arbitrary form wording. */
-export type ToolDisposition = 'completed' | 'reobserve' | 'failed' | 'invalid-arguments';
+export type ToolDisposition = 'completed' | 'reobserve' | 'uncertain' | 'failed' | 'invalid-arguments';
 export type ToolResult = { kind: 'ok'; message: string; disposition?: ToolDisposition } | { kind: 'terminal'; outcome: AgentTermination };
 
 export interface ToolContext {
+  /** Parent-owned state. Specialists receive read-only projections, no browser lease. */
+  recoveryRecord?: RecoveryRecord;
   page: Page;
   job: JobListing;
   profile: CandidateProfile;

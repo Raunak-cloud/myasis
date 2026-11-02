@@ -54,6 +54,10 @@ const review = `<main><h1>Review application</h1><form method="post" action="/re
 globalThis.fetch = (async (_url, init) => {
   const body = JSON.parse(String(init?.body));
     const reviewReply = readinessFixtureReply(body); if (reviewReply) return reviewReply;
+  if(String(body.messages?.[0]?.content).includes('read-only application specialist')) return Response.json({choices:[{message:{role:'assistant',content:JSON.stringify({
+    advice:'Use current form evidence and the next scripted operation; no send or approval is authorized.',
+    evidence:[{source:'parent-history',detail:'The fixture contains deliberate failed approaches.'}],unknowns:[],nextSteps:['Inspect current form state.'],
+  })}}]});
   assert.ok(body.tools?.length, 'no independent submission classifier or receipt reviewer may be called');
   const offered: string[] = body.tools.map((tool: { function: { name: string } }) => tool.function.name).sort();
   const forced = body.tool_choice?.function?.name;
@@ -176,6 +180,7 @@ try {
   calls = [
     { name: 'browser_action', args: { action: 'click', selector: 'button', sends_application: true } },
     { name: 'finish', args: { status: 'skipped', reason: 'Employer delivery remains unconfirmed', evidence: 'The button only says Please wait...' } },
+    { name: 'finish', args: { status: 'skipped', reason: 'Employer delivery remains unconfirmed after a read-only investigation', evidence: 'The button only says Please wait...' } },
   ];
   const pending = await runAgentOnlyApplication({ page, job: { ...autoJob, id: 'agent-owned-pending' }, profile, log: () => {} });
   assert.equal(pending.outcome.status, 'skipped');
@@ -211,6 +216,8 @@ try {
     { name: 'browser_action', args: { action: 'script', script: "throw new Error('Fixture failed approach two')" } },
     { name: 'browser_action', args: { action: 'fill', selector: '#city', value: 'Sydney' } },
     { name: 'finish', args: { status: 'skipped', reason: 'Fixture completed its correction without a submission.', evidence: 'City reads Sydney.' } },
+    { name: 'finish', args: { status: 'skipped', reason: 'Fixture completed its correction without a submission.', evidence: 'City reads Sydney.' } },
+    { name: 'finish', args: { status: 'skipped', reason: 'Fixture completed its correction without a submission.', evidence: 'City reads Sydney.' } },
   ];
   const rejectedCheckpoint = await runAgentOnlyApplication({ page, job: { ...autoJob, id: 'checkpoint-invalid' }, profile, log: () => {} });
   assert.equal(rejectedCheckpoint.outcome.status, 'skipped');
@@ -228,7 +235,7 @@ try {
   assert.equal(finalRecoveryReceipt.outcome.status, 'applied', 'a final reply that crosses the budget retains the observed receipt');
   assert.equal(calls.length, 0);
   await context.close();
-  console.log('PASS: agent-owned classification and receipts; five Semi auto login/widget/approval flows, Auto location entry, transient receipt, agent-directed correction and uncertain-send audit. No secondary model requests or real applications.');
+  console.log('PASS: agent-owned classification and receipts; five Semi auto login/widget/approval flows, Auto location entry, transient receipt, agent-directed correction and uncertain-send audit. Optional specialists stay read-only; no real applications.');
 } finally {
   globalThis.fetch = originalFetch;
   await browser.close();

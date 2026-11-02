@@ -453,6 +453,10 @@ CREATE TABLE IF NOT EXISTS saved_answers (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (user_id, question)
 );
+-- Additive: historical answers/events remain untouched. Versioned form facts
+-- retain typed values and their original employer schema through run export.
+ALTER TABLE saved_answers ADD COLUMN IF NOT EXISTS question_schema JSONB;
+ALTER TABLE saved_answers ADD COLUMN IF NOT EXISTS answer_value JSONB;
 
 -- Every run this installation has started, written before the child is
 -- spawned rather than after it finishes.

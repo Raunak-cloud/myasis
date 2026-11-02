@@ -120,8 +120,8 @@ try {
     assert.match(run.result.outcome.status === 'rehearsed' ? run.result.outcome.stoppedAt : '', /Agent judgement: skipped/);
     assert.equal(run.result.submitPressed, false); assert.equal(run.sends, 0);
   });
-  await test('a possible send is never escalated into another automatic recovery or send', async () => {
-    const run = await scenario('uncertain-send', [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }, stop], { postSend: true });
+  await test('a possible send gets a bounded read-only investigation without a specialist or another send', async () => {
+    const run = await scenario('uncertain-send', [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }, stop, stop], { postSend: true });
     assert.equal(run.specialists, 0); assert.equal(run.result.outcome.status, 'skipped');
     assert.equal(run.result.submitPressed, true); assert.equal(run.sends, 1);
   });

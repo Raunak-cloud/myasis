@@ -9,21 +9,12 @@ import { loadRepairRelease, repairId, repairPilotEnabled, REPAIR_RELEASE_ROOT } 
 import { traceProvesNoSend } from '../repair-safety.js';
 import { currentAttempt, recordDiagnostic } from './attempt-diagnostics.js';
 import type { ProgressBudget } from './progress-budget.js';
-import type { AgentFiles } from './agent-files.js';
 import type { AgentRunOptions, AgentRunResult } from './loop.js';
-import type { ToolContext } from './context.js';
-import type { HaltReviewState } from './halt-review.js';
-import type { ConsultationState } from './consultation.js';
 
 export interface RepairContinuation {
+  /** Owner-scoped shared record; never a serialized browser action to replay. */
+  recoveryId: string;
   attemptId: string; runId: string; page: Page; meter: ProgressBudget;
-  captured: AgentRunResult['captured']; actions: AgentRunResult['actions'];
-  files: ReturnType<AgentFiles['checkpoint']>;
-  coverLetter?: string; resumeUsed?: string; resumeName?: string;
-  pendingCredentials?: ToolContext['pendingCredentials'];
-  haltReview?: HaltReviewState;
-  specialistState?: ConsultationState;
-  specialistEvidence?: Set<string>;
 }
 export function liveRepairEnabled(): boolean {
   const env=applicationModelEnvironment();
@@ -120,7 +111,7 @@ export async function recoverDuringRun(options:AgentRunOptions,original:AgentRun
         // continuation may now write to its existing page; no run is started.
         const result=await run({...options,page:checkpoint.page,continuation:checkpoint});
         deps.event('repair_completed',ticket.caseId);
-        return {...result,repair:undefined,steps:original.steps+result.steps,actions:[...original.actions,...result.actions]};
+        return {...result,repair:undefined,steps:original.steps+result.steps};
       }
       await deps.sleep(1000);
     }

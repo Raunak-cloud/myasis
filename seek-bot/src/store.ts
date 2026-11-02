@@ -7,7 +7,7 @@ import type { ReviewCacheMetadata } from './review-cache.js';
 import { recordSubmittedCost } from './cost-ledger.js';
 import { sameApplication } from './application-identity.js';
 import type { JobListing } from './types.js';
-import { blockedQuestionKey, normaliseBlockedQuestions } from './blocked-questions.js';
+import { blockedQuestionKey, normaliseBlockedQuestions, mergePendingQuestions } from './blocked-questions.js';
 import type { BlockedQuestion } from './types.js';
 
 const appliedPath = () => resolve(config.dataDir, 'applied.json');
@@ -127,7 +127,7 @@ export function recentReviewFeedback(): Map<string, ReviewFeedback> {
           if (snapshotAt !== undefined && typeof row.jobId === 'string' && Date.parse(row.ts) > snapshotAt) {
             const questions = normaliseBlockedQuestions(row.questions);
             if (row.status === 'needs-human' && questions.length && typeof row.title === 'string' && typeof row.company === 'string') {
-              outstanding.set(row.jobId, { title: row.title, company: row.company, reason: row.reason ?? '', at: row.ts, questions });
+              outstanding.set(row.jobId, { title: row.title, company: row.company, reason: row.reason ?? '', at: row.ts, questions: mergePendingQuestions(outstanding.get(row.jobId)?.questions??[],questions) });
             } else if (row.status === 'answered' && Array.isArray(row.questions) && row.questions.length) {
               const answered = new Set(questions.map(blockedQuestionKey));
               const current = outstanding.get(row.jobId);

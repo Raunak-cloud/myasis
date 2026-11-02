@@ -8,6 +8,7 @@
  * run slot — only to stop on the same unanswered question.
  */
 import { blockedQuestionKey } from './blocked-questions.js';
+import { questionAnswerable } from './question-snapshot.js';
 
 /** A question as the answer bank keys it (dashboard answers.ts saveAnswers), compared without case. */
 export function answerKey(question: string): string {
@@ -18,7 +19,7 @@ interface LastReview {
   at: string;
   status: string;
   questions?: ReadonlyArray<{ question?: unknown; prompt?: unknown }>;
-  unansweredQuestions?: ReadonlyArray<{ question?: unknown; prompt?: unknown }>;
+  unansweredQuestions?: ReadonlyArray<{ question?: unknown; prompt?: unknown; snapshot?: import('./question-snapshot.js').QuestionSnapshot }>;
 }
 
 /**
@@ -32,7 +33,12 @@ interface LastReview {
 export function waitingForAnswers(last: LastReview | undefined, answeredAt: ReadonlyMap<string, number> | null): boolean {
   // The exported current state already reconciles partial answers, dismissal
   // and delayed imports. Historical outcomes remain advisory evidence.
-  if (last?.unansweredQuestions) return last.unansweredQuestions.length > 0;
+  if (last?.unansweredQuestions) {
+    // Incomplete/legacy tasks cannot collect accurate answers in the UI.
+    // Revisit them during the next ordinary eligible run to recapture the
+    // employer form; no extra run is started and confirmation stays intact.
+    return last.unansweredQuestions.some(q=>q.snapshot&&questionAnswerable(q.snapshot));
+  }
   if (!last || last.status !== 'needs-human' || !answeredAt) return false;
   const stoppedAt = Date.parse(last.at);
   const asked = (last.questions ?? [])

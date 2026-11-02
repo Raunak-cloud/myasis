@@ -4,16 +4,20 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { build } from 'vite';
 import react from '@vitejs/plugin-react';
+import { sealQuestionSnapshot } from '../../seek-bot/src/question-snapshot-node';
+import type { QuestionResponse, QuestionControl } from '../../seek-bot/src/question-snapshot';
+import { mkdirSync } from 'node:fs';
 const { chromium } = createRequire(import.meta.url)('../../seek-bot/node_modules/patchright') as typeof import('../../seek-bot/node_modules/patchright/index.js');
 
 // Bundle only this component and fixture. No dashboard server, database,
 // candidate account, run or employer service is started or contacted.
 const result = await build({ configFile: false, root: resolve(import.meta.dirname, '..'), plugins: [react()], define: { 'process.env.NODE_ENV': '"production"' }, logLevel: 'error', build: { write: false, minify: false, lib: { entry: resolve(import.meta.dirname, 'attention-form.fixture.tsx'), formats: ['iife'], name: 'AttentionFormFixture' } } });
 const bundle = (Array.isArray(result) ? result : [result]).flatMap(value => 'output' in value ? value.output : []).find(value => value.type === 'chunk');
+const styles=(Array.isArray(result)?result:[result]).flatMap(value=>'output' in value?value.output:[]).filter(value=>value.type==='asset'&&value.fileName.endsWith('.css')).map(value=>value.type==='asset'?String(value.source):'').join('\n');
 assert.ok(bundle && bundle.type === 'chunk');
 const server = createServer((req, res) => {
   res.setHeader('Content-Type', req.url === '/fixture.js' ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8');
-  res.end(req.url === '/fixture.js' ? bundle.code : '<div id="root"></div><script src="/fixture.js"></script>');
+  res.end(req.url === '/fixture.js' ? bundle.code : `<meta name="viewport" content="width=device-width,initial-scale=1"><style>${styles}</style><div id="root"></div><script src="/fixture.js"></script>`);
 });
 await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
 const address = server.address(); assert.ok(address && typeof address !== 'string');
@@ -22,7 +26,7 @@ try {
   browser = await chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : { executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome-stable' }) });
   const page = await browser.newPage();
   page.on('pageerror', error => { console.error(error.message); });
-  const writes: Array<{ jobId: string; answers: Array<{ question: string; prompt: string; answer: string }> }> = [];
+  const writes: Array<{ jobId: string; answers: Array<{ questionId: string; revision: string; response: QuestionResponse }> }> = [];
   let mode = 'failed';
   let release: (() => void) | undefined;
   let holdStarted: (() => void) | undefined;
@@ -38,7 +42,7 @@ try {
   await page.getByRole('button', { name: 'Save answers', exact: true }).click();
   await page.getByText('Could not save the answers. Please try again.', { exact: true }).waitFor();
   assert.equal(await notice.inputValue(), 'Two weeks'); assert.equal(await reason.inputValue(), 'Relevant work');
-  assert.deepEqual(writes[0].answers.map(answer => [answer.prompt, answer.answer]), [['What is your notice period?', 'Two weeks'], ['Why do you want this role?', 'Relevant work']], 'identical short labels keep their own draft and answer context');
+  assert.deepEqual(writes[0].answers.map(a=>[a.questionId,a.response.part0]), [['q2_'+ '1'.repeat(64),'Two weeks'],['q2_'+ '2'.repeat(64),'Relevant work']], 'same component IDs in separate questions retain their own typed responses');
   mode = 'malformed';
   await Promise.all([page.waitForResponse(response => new URL(response.url()).pathname === '/api/answers'), page.getByRole('button', { name: 'Save answers', exact: true }).click()]);
   await page.locator('.answer-actions button:not([disabled])').waitFor();
@@ -57,20 +61,42 @@ try {
   await page.evaluate(() => document.dispatchEvent(new CustomEvent('attention-fixture', { detail: JSON.stringify({ error: 'Could not check your jobs. Please try again.' }) })));
   await page.getByRole('alert').waitFor();
   assert.equal(await notice.inputValue(), 'One month', 'a background refresh error cannot unmount unsaved answers');
-  await page.evaluate(() => {
-    document.dispatchEvent(new CustomEvent('attention-fixture', { detail: JSON.stringify({ error: null, items: [{ jobId: 'fixture-job', title: 'Fixture role', company: 'Fixture employer', kind: 'question', reason: '', url: 'https://example.test', at: '2026-10-30T00:00:00Z', questions: [{ question: 'Tell us more', prompt: 'Which clearance do you hold?', options: ['None', 'Baseline'] }] }] }) }));
-  });
-  const choices = page.getByRole('combobox', { name: 'Which clearance do you hold?' });
-  assert.equal(await choices.inputValue(), '', 'a new question with an old caption cannot inherit its answer');
-  await page.getByRole('button', { name: 'Enter a different answer: Tell us more' }).click();
-  await page.getByRole('textbox', { name: 'Which clearance do you hold?' }).fill('Secret');
-  await page.getByRole('button', { name: 'Use captured choices: Tell us more' }).click();
-  assert.equal(await choices.inputValue(), 'Secret', 'switching controls keeps a custom answer visibly selected');
-  await page.getByRole('button', { name: 'Enter a different answer: Tell us more' }).click();
-  assert.equal(await page.getByRole('textbox', { name: 'Which clearance do you hold?' }).inputValue(), 'Secret');
-  await page.evaluate(() => document.dispatchEvent(new CustomEvent('attention-fixture', { detail: JSON.stringify({ items: [{ jobId: 'fixture-job', title: 'Fixture role', company: 'Fixture employer', kind: 'question', reason: '', url: 'https://example.test', at: '2026-10-30T00:00:00Z', questions: [{ question: 'Tell us more *', prompt: 'Which clearance do you hold? *', options: ['None', 'Baseline'] }] }] }) })));
-  assert.equal(await page.getByRole('textbox', { name: 'Which clearance do you hold? *', exact: true }).inputValue(), 'Secret', 'a marker-only background restatement cannot hide a draft');
-  console.log('PASS: repeated captions, save failures, malformed success, in-flight edits, refresh errors and control switching retain correct candidate drafts. Fixture only.');
+  const base:QuestionControl={id:'part0',label:'Which clearance do you hold?',kind:'radio',required:true,multiple:false,constraints:{},choices:[{id:'choice0',label:'None',value:'none',disabled:false},{id:'choice1',label:'Baseline',value:'base',disabled:false},{id:'choice2',label:'NV2',value:'nv2',disabled:true}]};
+  const snapshot=sealQuestionSnapshot({version:2,source:{origin:'https://employer.example',path:'/apply'},prompt:base.label,context:['Eligibility'],help:['Select your current clearance.'],controls:[base],completeness:'complete'});
+  const update=async (questions:unknown[])=>page.evaluate(questions=>document.dispatchEvent(new CustomEvent('attention-fixture',{detail:JSON.stringify({error:null,items:[{jobId:'fixture-job',title:'Fixture role',company:'Fixture employer',kind:'question',reason:'',url:'https://example.test',at:'2026-10-30T00:00:00Z',questions}]})})),questions);
+  await update([{question:snapshot.prompt,snapshot}]);
+  assert.equal(await page.getByRole('radio').count(),3,'all original radio buttons are rendered');
+  assert.equal(await page.getByRole('combobox').count(),0);
+  assert.equal(await page.getByRole('textbox').count(),0,'finite choices never offer an invented free-text escape');
+  assert.equal(await page.getByRole('radio',{name:'NV2',exact:true}).isDisabled(),true);
+  await page.getByRole('radio',{name:'Baseline',exact:true}).check();
+  mode='success';await page.getByRole('button',{name:'Save answers',exact:true}).click();
+  await page.waitForFunction(()=>document.documentElement.dataset.saved==='2');
+  assert.deepEqual(writes.at(-1)!.answers[0],{questionId:snapshot.id,revision:snapshot.revision,response:{part0:'choice1'}});
+  const controls:QuestionControl[]=[{...base,kind:'date',label:'Available from',choices:[],constraints:{min:'2026-01-01',max:'2027-12-31'}},{...base,id:'part1',kind:'checkbox-group',label:'Regions',multiple:true},{...base,id:'part2',kind:'select',label:'Work patterns',multiple:true}];
+  const complex=sealQuestionSnapshot({...snapshot,prompt:'Availability and preferences',controls});
+  await update([{question:complex.prompt,snapshot:complex}]);
+  assert.equal(await page.getByLabel('Available from',{exact:true}).getAttribute('type'),'date');
+  await page.getByLabel('Available from',{exact:true}).fill('2026-11-03');
+  await page.getByRole('checkbox',{name:'None',exact:true}).check();
+  await page.getByRole('checkbox',{name:'Baseline',exact:true}).check();
+  await page.getByRole('listbox',{name:'Work patterns',exact:true}).selectOption(['choice0','choice1']);
+  mkdirSync(resolve(import.meta.dirname,'../../output/attention-review'),{recursive:true});
+  for(const width of [1440,390]) {
+    await page.setViewportSize({width,height:1000});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'original controls stay within desktop and mobile width');
+    await page.screenshot({path:resolve(import.meta.dirname,`../../output/attention-review/controls-${width}.png`),fullPage:true});
+  }
+  await page.getByRole('button',{name:'Save answers',exact:true}).click();
+  await page.waitForFunction(()=>document.documentElement.dataset.saved==='3');
+  assert.deepEqual(writes.at(-1)!.answers[0].response,{part0:'2026-11-03',part1:['choice0','choice1'],part2:['choice0','choice1']});
+  await update([{question:'Month',kind:'text'}]);
+  await page.getByText('The original question and controls need to be captured again before you can answer.').waitFor();
+  assert.equal(await page.getByRole('textbox').count(),0,'legacy fragments are not represented as complete questions');
+  assert.equal(await page.getByRole('button',{name:'Save answers',exact:true}).isDisabled(),true);
+  await update([{question:snapshot.prompt,snapshot:{...snapshot,completeness:'recapture'}}]);
+  assert.equal(await page.getByRole('radio').count(),0,'incomplete catalogs cannot collect partial answers');
+  console.log('PASS: repeated captions, save failures, malformed success, in-flight edits, refresh errors and typed original controls retain correct candidate drafts. Fixture only.');
 } finally {
   await browser?.close();
   await new Promise<void>((done, reject) => server.close(error => error ? reject(error) : done()));

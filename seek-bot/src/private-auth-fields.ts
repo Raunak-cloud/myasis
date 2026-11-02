@@ -63,6 +63,12 @@ export async function privateAuthenticationValues(page: Page): Promise<string[]>
   return [...values];
 }
 
+/** Reuse values already inspected by the normal observation/authentication
+ * transport; recovery persistence must not introduce extra browser calls. */
+export function rememberedPrivateAuthenticationValues(page: Page): string[] {
+  return [...new Set([...(knownValues.get(page) ?? []), ...page.frames().flatMap(frame => [...(knownValues.get(frame) ?? [])])])];
+}
+
 export function redactPrivateAuthenticationText(text: string, values: string[]): string {
   for (const value of values.filter(value => value.length >= 4).sort((a, b) => b.length - a.length)) {
     const html = value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');

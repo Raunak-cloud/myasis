@@ -1,3 +1,4 @@
+import { sealQuestionSnapshot } from '../../seek-bot/src/question-snapshot-node.js';
 import { EMPLOYER_SOURCES } from '../../seek-bot/src/employer-source-config.js';
 import { PLAN_LIMITS } from '../src/pricing.js';
 import { withCoverLetter } from '../../seek-bot/src/application-review-content.js';
@@ -10,6 +11,8 @@ import { resolve, sep } from 'node:path';
 import { WebSocketServer } from 'ws';
 const { chromium } = createRequire(import.meta.url)('../../seek-bot/node_modules/patchright') as typeof import('../../seek-bot/node_modules/patchright/index.js');
 
+const answerQuestions=[['Country of birth',['Australia','Canada','Nepal']],['Audit services',['Yes','No']]] as const;
+const capturedQuestions=answerQuestions.map(([prompt,options])=>{const snapshot=sealQuestionSnapshot({version:2,source:{origin:'https://fixture.invalid',path:'/apply'},prompt,context:[],help:[],completeness:'complete',controls:[{id:'part0',label:prompt,kind:'select',required:true,multiple:false,constraints:{},choices:options.map((label,i)=>({id:`choice${i}`,label,value:label,disabled:false}))}]});return {question:prompt,snapshot};});
 // Serve only the built frontend and fixture APIs: no database, worker or employer is contacted.
 const dist = resolve(import.meta.dirname, '../dist');
 let admin = true;
@@ -93,7 +96,7 @@ const server = createServer(async (req, res) => {
       '/api/run/status': { running: searchStarted || preparingFixture || adminManualRunning, mode: searchStarted ? 'search' : preparingFixture || adminManualRunning ? 'live' : null, applicationMode: adminManualRunning ? adminManualMode : preparingFixture ? 'semi-auto' : null, prepared: 0, startedAt: searchStarted || preparingFixture || adminManualRunning ? new Date().toISOString() : null, finishedAt: null, applied: 0, isOwner: true },
       '/api/run/last': { startedAt: null }, '/api/run/stream': null, '/api/autorun': null,
       '/api/today': { runs: 0, reviewed: 0, submitted: 0 }, '/api/applications': [],
-      '/api/attention': attentionFixture ? [{ jobId: 'handoff-fixture', title: 'Fixture Developer', company: 'Fixture Employer', kind: 'question', reason: 'Your answer is needed', at: new Date().toISOString(), url: 'https://fixture.invalid', questions: [{ question: 'Country of birth', kind: 'select', options: ['Australia', 'Canada'] }, { question: 'Audit services', kind: 'select', options: ['Unrelated skill'] }] }] : [],
+      '/api/attention': attentionFixture ? [{ jobId: 'handoff-fixture', title: 'Fixture Developer', company: 'Fixture Employer', kind: 'question', reason: 'Your answer is needed', at: new Date().toISOString(), url: 'https://fixture.invalid', questions: capturedQuestions }] : [],
       '/api/answers': { saved: 2 },
       '/api/skipped': { items: skippedFixture ? [{ jobId: 'skip-fixture', title: 'Skipped Fixture Role', company: 'Fixture Employer', kind: 'fit', reason: 'Experience does not match', url: '', at: new Date().toISOString(), verdict: null, note: null }] : [] },
       '/api/board-resumes': { boards: [] }, '/api/gmail/status': { connected: false },
@@ -467,17 +470,15 @@ try {
   const answerPage = await answerContext.newPage();
   await answerPage.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   await answerPage.goto(`${origin}/?tab=attention`);
-  await answerPage.getByRole('button', { name: /^Enter a different answer: Country of birth$/ }).click();
-  await answerPage.getByRole('textbox', { name: 'What should Owtomate enter for “Country of birth”?', exact: true }).fill('Nepal');
-  await answerPage.getByRole('button', { name: /^Enter a different answer: Audit services$/ }).click();
-  await answerPage.getByRole('textbox', { name: 'What should Owtomate enter for “Audit services”?', exact: true }).fill('No');
+  await answerPage.getByRole('combobox',{name:'Country of birth',exact:true}).selectOption('choice2');
+  await answerPage.getByRole('combobox',{name:'Audit services',exact:true}).selectOption('choice1');
   const runsBeforeSave = writes.filter(write => write.path === '/api/run').length;
   await Promise.all([
     answerPage.waitForResponse(response => new URL(response.url()).pathname === '/api/answers' && response.request().method() === 'POST'),
     answerPage.getByRole('button', { name: 'Save answers', exact: true }).click(),
   ]);
   const answerWrite = writes.filter(write => write.path === '/api/answers').at(-1)!;
-  assert.deepEqual(answerWrite.body, { jobId: 'handoff-fixture', answers: [{ question: 'Country of birth', answer: 'Nepal' }, { question: 'Audit services', answer: 'No' }] });
+  assert.deepEqual(answerWrite.body, {jobId:'handoff-fixture',answers:capturedQuestions.map(({snapshot},i)=>({questionId:snapshot.id,revision:snapshot.revision,response:{part0:i===0?'choice2':'choice1'}}))});
   assert.equal(writes.filter(write => write.path === '/api/run').length, runsBeforeSave, 'saving explicit facts does not submit or start a live job');
   await answerContext.close();
   // Retention policy is visible with both populated and empty skipped history.

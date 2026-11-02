@@ -5,14 +5,10 @@ import { blockedQuestionKey } from '../../../seek-bot/src/blocked-question-key';
 
 export type AttentionKind = 'captcha' | 'verification' | 'question' | 'off-platform' | 'error';
 
-/** A blocked question with the choices the form offered, when it had any. */
-interface BlockedQuestion {
-  question: string;
-  /** Complete request for the candidate; the short question identifies its form control. */
-  prompt?: string;
-  kind?: 'text' | 'textarea' | 'select' | 'radio' | 'checkbox';
-  options?: string[];
-}
+import type { CapturedQuestion as BlockedQuestion } from '../../../seek-bot/src/question-snapshot';
+import type { QuestionResponse } from '../../../seek-bot/src/question-snapshot';
+import { EmployerQuestion } from './EmployerQuestion';
+import { questionResponseIssue } from '../../../seek-bot/src/question-snapshot';
 
 export interface AttentionItem {
   jobId: string;
@@ -27,7 +23,7 @@ export interface AttentionItem {
 }
 
 /** The question as the candidate should read it: the written-out one when there is one, else the form's own label. */
-const questionText = (q: BlockedQuestion) => q.prompt?.trim() || `What should Owtomate enter for “${q.question.replace(/[\s*:]+$/, '')}”?`;
+const questionText = (q: BlockedQuestion) => q.snapshot?.prompt || q.prompt || q.question;
 const questionKey = blockedQuestionKey;
 
 /**
@@ -35,116 +31,33 @@ const questionKey = blockedQuestionKey;
  * the answer bank, which every later run reads. Unanswered questions stay
  * visible until the rest of the group is answered.
  */
-function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => void }) {
+export function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => void }) {
   const questions = item.questions ?? [];
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [writtenAnswers, setWrittenAnswers] = useState<Record<string, boolean>>({});
+  const [values, setValues] = useState<Record<string, QuestionResponse>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const answered = questions.filter((q) => (values[questionKey(q)] ?? '').trim());
-  const set = (question: string, value: string) => setValues((current) => ({ ...current, [question]: value }));
-
+  const answered=questions.filter(q=>q.snapshot&&values[questionKey(q)]&&questionResponseIssue(q.snapshot,values[questionKey(q)])===null);
   async function save() {
-    if (saving || !answered.length) return;
-    setSaving(true);
-    setError(null);
-    const submitted = answered.map(q => ({ question: q.question, prompt: q.prompt, answer: values[questionKey(q)].trim() }));
+    if(saving||!answered.length)return;
+    setSaving(true);setError(null);
+    const submitted=answered.map(q=>({questionId:q.snapshot!.id,revision:q.snapshot!.revision,response:values[questionKey(q)]}));
     try {
-      const response = await fetch('/api/answers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jobId: item.jobId,
-          answers: submitted,
-        }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!response.ok || !body || body.saved !== submitted.length) throw new Error(body?.error ?? 'Could not save the answers. Please try again.');
-      setValues(current => {
-        const next = { ...current };
-        for (const answer of submitted) {
-          const key = questionKey(answer);
-          if (current[key]?.trim() === answer.answer) delete next[key];
-        }
+      const response=await fetch('/api/answers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobId:item.jobId,answers:submitted})});
+      const body=await response.json().catch(()=>null);
+      if(!response.ok||body?.saved!==submitted.length)throw new Error(body?.error??'Could not save the answers. Please try again.');
+      setValues(current=>{
+        const next={...current};
+        for(const q of answered){const key=questionKey(q);if(JSON.stringify(current[key])===JSON.stringify(values[key]))delete next[key];}
         return next;
       });
       onSaved?.();
-    } catch (reason) {
-      setError((reason as Error).message);
-    } finally {
-      setSaving(false);
-    }
+    }catch(reason){setError((reason as Error).message);}finally{setSaving(false);}
   }
-
-  /**
-   * Each question gets the control the form used. A dropdown or radio group
-   * is offered as the same choice — a free-text box in its place produced
-   * answers that matched none of the options on retry. A checkbox is a
-   * yes/no. Searchable or virtual lists can be incomplete, so the candidate
-   * may also write their known answer. Retry still grounds and validates it
-   * against the employer's fresh form; this is never a direct option click.
-   */
-  const control = (q: BlockedQuestion) => {
-    const key = questionKey(q);
-    const value = values[key] ?? '';
-    if (q.options?.length) {
-      return (
-        <div>
-          {writtenAnswers[key] ? (
-            <>
-              <input className="input" aria-label={questionText(q)} value={value} maxLength={4000} onChange={(e) => set(key, e.target.value)} />
-              <small>Owtomate will check this against the employer’s choices when retrying.</small>
-            </>
-          ) : (
-            <select className="input" aria-label={questionText(q)} value={value} onChange={(e) => set(key, e.target.value)}>
-              <option value="">Choose…</option>
-              {value && !q.options.includes(value) && <option value={value}>{value}</option>}
-              {q.options.map((option) => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-          )}
-          <button type="button" className="btn" aria-label={`${writtenAnswers[key] ? 'Use captured choices' : 'Enter a different answer'}: ${q.question}`} onClick={(e) => {
-            e.preventDefault();
-            // Switching control types must not discard an answer already typed.
-            setWrittenAnswers(current => ({ ...current, [key]: !current[key] }));
-          }}>
-            {writtenAnswers[key] ? 'Use captured choices' : 'My answer isn’t listed'}
-          </button>
-        </div>
-      );
-    }
-    if (q.kind === 'checkbox') {
-      return (
-        <select className="input" aria-label={questionText(q)} value={value} onChange={(e) => set(key, e.target.value)}>
-          <option value="">Choose…</option>
-          <option value="Yes">Yes</option>
-          <option value="No">No</option>
-        </select>
-      );
-    }
-    if (q.kind === 'textarea') {
-      return <textarea className="input" aria-label={questionText(q)} rows={3} maxLength={4000} value={value} onChange={(e) => set(key, e.target.value)} />;
-    }
-    return <input className="input" aria-label={questionText(q)} value={value} maxLength={4000} onChange={(e) => set(key, e.target.value)} />;
-  };
-
-  return (
-    <div className="answer-form">
-      {questions.map((q) => (
-        <label key={questionKey(q)} className="answer-row">
-          <span className="answer-label">{questionText(q)}</span>
-          {control(q)}
-        </label>
-      ))}
-      {error && <div className="banner banner-bad">{userFacingError(error)}</div>}
-      <div className="answer-actions">
-        <button className="btn primary" disabled={saving || !answered.length} onClick={save} title="Saved for every future run.">
-          {saving ? 'Saving…' : 'Save answers'}
-        </button>
-      </div>
-    </div>
-  );
+  return <form className="answer-form" noValidate onSubmit={e=>{e.preventDefault();void save();}}>
+    {questions.map(q=>q.snapshot?<EmployerQuestion key={questionKey(q)} snapshot={q.snapshot} value={values[questionKey(q)]??{}} onChange={v=>setValues(current=>({...current,[questionKey(q)]:v}))}/>:<div key={questionKey(q)} className="answer-row"><span>{questionText(q)}</span><small>The original question and controls need to be captured again before you can answer.</small></div>)}
+    {error&&<div role="alert" className="banner banner-bad">{userFacingError(error)}</div>}
+    <div className="answer-actions"><button className="btn primary" disabled={saving||!answered.length} type="submit">{saving?'Saving…':'Save answers'}</button></div>
+  </form>;
 }
 
 interface TraceStep {

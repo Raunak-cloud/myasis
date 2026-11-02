@@ -33,6 +33,24 @@ export function recoveryInput(name: string, value: Record<string, unknown>): Rec
 /** Schedules an agent-authored plan/check, never answers or repairs a form.
  * Ref churn, screenshots, clocks and narration cannot clear a stalled state. */
 export class RecoveryCheckpoint {
+  checkpoint() {
+    return { version: 1 as const, pending: this.pending, edges: [...this.edges], seen: [...this.seen], credited: [...this.credited],
+      progressCandidate: this.progressCandidate, transitions: this.transitions, note: this.note, budgetReview: this.budgetReview,
+      reviewable: this.reviewable, phase: this.phase, previous: this.previous, browserTurn: this.browserTurn, failures: this.failures,
+      unchanged: this.unchanged, furtherInspections: this.furtherInspections, actionPending: this.actionPending,
+      specialistPending: this.specialistPending, readResults: [...this.readResults], repeatedReads: this.repeatedReads,
+      readNotice: this.readNotice, failedInteractions: this.memory.checkpoint() };
+  }
+  restore(saved: ReturnType<RecoveryCheckpoint['checkpoint']>): void {
+    if (saved.version !== 1) throw Error('Unsupported recovery checkpoint.');
+    this.pending = saved.pending; this.edges = new Map(saved.edges); this.seen = new Set(saved.seen); this.credited = new Set(saved.credited);
+    this.progressCandidate = saved.progressCandidate; this.transitions = saved.transitions; this.note = saved.note;
+    this.budgetReview = saved.budgetReview; this.reviewable = saved.reviewable; this.phase = saved.phase; this.previous = saved.previous;
+    this.browserTurn = saved.browserTurn; this.failures = saved.failures; this.unchanged = saved.unchanged;
+    this.furtherInspections = saved.furtherInspections; this.actionPending = saved.actionPending; this.specialistPending = saved.specialistPending;
+    this.readResults = new Set(saved.readResults); this.repeatedReads = saved.repeatedReads; this.readNotice = saved.readNotice;
+    this.memory.restore(saved.failedInteractions);
+  }
   private readonly memory = new InteractionMemory();
   private observation?: Observation;
   private pending: string[] = [];

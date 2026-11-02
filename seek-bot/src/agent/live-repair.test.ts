@@ -7,8 +7,8 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
 const caseId='00000000-0000-4000-8000-000000000001',attemptId='00000000-0000-4000-8000-000000000002';
-const checkpoint={attemptId,runId:'100',page:{isClosed:()=>false},meter:{totals:{costUsd:.08}},captured:[{question:'Name',answer:'Fixture'}],files:[],actions:[]} as unknown as RepairContinuation;
-const original={outcome:{status:'skipped',reason:'Paused for repair'},captured:checkpoint.captured,actions:[],submitPressed:false,steps:3,usage:'fixture',repair:checkpoint} as AgentRunResult;
+const checkpoint={recoveryId:attemptId,attemptId,runId:'100',page:{isClosed:()=>false},meter:{totals:{costUsd:.08}}} as unknown as RepairContinuation;
+const original={outcome:{status:'skipped',reason:'Paused for repair'},captured:[{question:'Name',answer:'Fixture'}],actions:[],submitPressed:false,steps:3,usage:'fixture',repair:checkpoint} as AgentRunResult;
 const options={page:checkpoint.page,job:{id:'fixture'},profile:{}} as AgentRunOptions;
 test('cooperative recovery keeps the current run, page, answers and exact spending meter; resumes at most once',async()=>{
   let now=0,resumes=0;const events:string[]=[];
@@ -16,7 +16,7 @@ test('cooperative recovery keeps the current run, page, answers and exact spendi
     ticket:()=>now<1000?null:{status:'in_run_ready',caseId,runId:'100',attemptId,expiresAt:Date.now()+10000},event:name=>events.push(name),
     load:async()=>async next=>{
       resumes++;assert.equal(next.page,checkpoint.page);assert.equal(next.continuation?.meter,checkpoint.meter);
-      assert.equal(next.continuation?.captured,checkpoint.captured);assert.equal(next.job,options.job);
+      assert.equal(next.continuation?.recoveryId,checkpoint.recoveryId);assert.equal(next.job,options.job);
       return {...original,repair:undefined,outcome:{status:'prepared',draft:{} as never},steps:2};
     }});
   assert.equal(resumes,1);assert.equal(result.outcome.status,'prepared');assert.equal(result.steps,5);assert.equal(result.repair,undefined);

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { answerKey, waitingForAnswers } from './answer-gate.js';
+import { sealQuestionSnapshot } from './question-snapshot-node.js';
 
 const stopped = '2026-10-10T10:00:00.000Z';
 const before = Date.parse('2026-10-10T09:00:00.000Z');
@@ -39,7 +40,10 @@ test('every required question in a group needs an answer in its full context', (
 });
 
 test('the current exported question snapshot supersedes historical outcomes and answer times', () => {
-  assert.equal(waitingForAnswers({ ...blocked, status: 'skipped', unansweredQuestions: [{ question: 'Still required' }] }, null), true);
+  const snapshot=sealQuestionSnapshot({version:2,source:{origin:'https://employer.test',path:'/apply'},prompt:'Still required',context:[],help:[],completeness:'complete',controls:[{id:'part0',label:'Still required',kind:'text',multiple:false,required:true,choices:[],constraints:{}}]});
+  assert.equal(waitingForAnswers({ ...blocked, status: 'skipped', unansweredQuestions: [{ question: 'Still required',snapshot }] }, null), true);
+  assert.equal(waitingForAnswers({ ...blocked, unansweredQuestions: [{ question: 'Month' }] }, null), false,'a legacy fragment is recaptured during the next ordinary run');
+  assert.equal(waitingForAnswers({ ...blocked, unansweredQuestions: [{ question: snapshot.prompt,snapshot:{...snapshot,completeness:'recapture'} }] }, null), false);
   assert.equal(waitingForAnswers({ ...blocked, unansweredQuestions: [] }, new Map()), false);
 });
 

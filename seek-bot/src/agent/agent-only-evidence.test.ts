@@ -5,10 +5,27 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { withApplicationModel } from '../application-model.js';
-import { agentOnlyDocuments, agentOnlyEvidence, agentOnlyResumePath, applicationHistory, applicationAttemptHistory } from './agent-only-evidence.js';
+import { agentOnlyDocuments, agentOnlyEvidence, agentOnlyResumePath, applicationHistory, applicationAttemptHistory, candidateSavedAnswers } from './agent-only-evidence.js';
+import { sealQuestionSnapshot } from '../question-snapshot-node.js';
 
 const directories: string[] = [];
 const originalFetch = globalThis.fetch;
+
+test('typed answers retain exact original choices without inflating every evidence/model overview',async()=>{
+  const record=owner('TYPED'), foreign=owner('FOREIGN_TYPED');
+  const snapshot=sealQuestionSnapshot({version:2,source:{origin:'https://employer.example',path:'/jobs/fixture'},prompt:'Which region?',context:['Preferred workplace'],help:[],completeness:'complete',controls:[{id:'part0',label:'Region',kind:'select',required:true,multiple:false,constraints:{},choices:Array.from({length:20},(_,i)=>({id:`choice${i}`,label:`Original region ${i}`,value:`ORIGINAL_${i}`,disabled:false}))}]});
+  writeFileSync(join(record.dir,'answers.json'),JSON.stringify([{question:snapshot.prompt,answer:'Original region 1',snapshot,response:{part0:'choice1'},createdAt:'2026-11-02T00:00:00Z'}]));
+  const id=`saved-answer:${snapshot.id}:${snapshot.revision}`;
+  await withApplicationModel(record.env,async()=>{
+    const overview=JSON.stringify(candidateSavedAnswers());
+    assert.ok(overview.includes('Preferred workplace'));assert.ok(!overview.includes('Original region 19'));
+    const exact=await agentOnlyEvidence(id,0,24000);
+    assert.ok(exact.includes('Original region 19'));assert.ok(exact.includes('ORIGINAL_19'));
+    assert.ok(exact.includes('"part0":"choice1"'));
+    assert.ok((await agentOnlyEvidence('document-inventory')).includes(id));
+  });
+  await withApplicationModel(foreign.env,async()=>assert.ok(!(await agentOnlyEvidence(id)).includes('ORIGINAL_19')));
+});
 
 test('attempt recovery includes prior failure reasons and exact questions without another account or confirmed history', () => {
   const record = owner('RECOVERY'), foreign = owner('OTHER_RECOVERY');
@@ -196,11 +213,21 @@ test('malformed owner manifests fail softly without exposing default or other ac
   await withApplicationModel(record.env, async () => {
     assert.deepEqual(agentOnlyDocuments(), []);
     assert.equal(agentOnlyResumePath('selected'), null);
-    const evidence = await agentOnlyEvidence();
-    assert.ok(evidence.includes('"savedAnswerCount":0'));
-    assert.ok(!evidence.includes('full supported employment'));
+    await assert.rejects(agentOnlyEvidence(),/evidence-source failure/,'a corrupt bank cannot masquerade as an absence of saved facts');
     assert.ok(applicationHistory().includes('"applied":[]'));
   });
+});
+
+test('large versioned answer banks remain readable beyond the old manifest limit',async()=>{
+  const record=owner('LARGE_ANSWERS');
+  const choices=Array.from({length:300},(_,i)=>({id:`choice${i}`,label:`Employer location ${i} - ${'region '.repeat(25)}`,value:`location-${i}`,disabled:false}));
+  const answers=Array.from({length:100},(_,i)=>{
+    const snapshot=sealQuestionSnapshot({version:2,source:{origin:'https://employer.test',path:`/jobs/${i}`},prompt:'Preferred location',context:[],help:[],completeness:'complete',controls:[{id:'part0',label:'Preferred location',kind:'select',required:true,multiple:false,choices,constraints:{}}]});
+    return {question:snapshot.prompt,answer:choices[0].label,snapshot,response:{part0:'choice0'}};
+  });
+  const json=JSON.stringify(answers);assert.ok(Buffer.byteLength(json)>5_000_000);
+  writeFileSync(join(record.dir,'answers.json'),json);
+  withApplicationModel(record.env,()=>assert.equal(candidateSavedAnswers().length,100));
 });
 
 test('custom cover letter preferences remain available and old application history is queryable with bounded pagination', async () => {

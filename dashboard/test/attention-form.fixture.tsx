@@ -1,10 +1,17 @@
 import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AttentionPanel, type AttentionItem } from '../src/components/AttentionPanel';
+import type { QuestionSnapshot } from '../../seek-bot/src/question-snapshot';
+import '../src/index.css';
+
+function question(prompt:string,index:string,kind:'text'|'textarea'='text') {
+  const snapshot:QuestionSnapshot={version:2,id:`q2_${index.repeat(64)}`,revision:index.repeat(64),source:{origin:'https://employer.example',path:'/apply'},prompt,context:[],help:[],completeness:'complete',controls:[{id:'part0',label:prompt,kind,required:true,multiple:false,choices:[],constraints:{}}]};
+  return {question:prompt,snapshot};
+}
 
 const initial: AttentionItem[] = [{ jobId: 'fixture-job', title: 'Fixture role', company: 'Fixture employer', kind: 'question', reason: 'Required facts', url: 'https://example.test', at: '2026-10-30T00:00:00Z', questions: [
-  { question: 'Tell us more', prompt: 'What is your notice period?' },
-  { question: 'Tell us more', prompt: 'Why do you want this role?', kind: 'textarea' },
+  question('What is your notice period?','1'),
+  question('Why do you want this role?','2','textarea'),
 ] }];
 document.documentElement.dataset.saved = '0';
 export function Fixture() {

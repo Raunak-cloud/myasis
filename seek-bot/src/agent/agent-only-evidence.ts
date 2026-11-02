@@ -7,6 +7,8 @@ import { extractText } from '../knowledge.js';
 import { workPreferenceEvidence } from '../work-preferences.js';
 import { readAgentActivities } from './agent-activity.js';
 import { recentReviewFeedback } from '../store.js';
+import { verifiedQuestionSnapshot } from '../question-snapshot-node.js';
+import { questionAnswerText, questionResponseIssue, type QuestionResponse } from '../question-snapshot.js';
 
 export interface AgentOnlyDocument { id: string; label: string; fileName: string }
 type ManifestRecord = Record<string, unknown>;
@@ -43,10 +45,16 @@ function records(name: string): ManifestRecord[] {
   const path = ownerFile(name);
   if (!path) return [];
   try {
-    if (lstatSync(path).size > 5_000_000) return [];
+    // Versioned question catalogs are larger than old label/value facts.
+    // Keep the transport bounded without mistaking a large bank for no facts.
+    if (lstatSync(path).size > (name==='answers.json'?64_000_000:5_000_000)) throw new Error('Manifest size limit exceeded.');
     const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
+    if(name==='answers.json'&&!Array.isArray(parsed))throw new Error('Invalid answer-bank shape.');
     return Array.isArray(parsed) ? parsed.filter((record): record is ManifestRecord => Boolean(record && typeof record === 'object' && !Array.isArray(record))) : [];
-  } catch { return []; }
+  } catch {
+    if(name==='answers.json')throw new Error('Saved candidate answers could not be read safely. This is an evidence-source failure, not a missing candidate fact.');
+    return [];
+  }
 }
 
 function resumeRecords(): AgentOnlyDocument[] {
@@ -110,9 +118,15 @@ async function approvedText(path: string | null): Promise<string> {
 /** No AI calls and no writes. Initial evidence is bounded; the same function
  * retrieves verbatim passages by any follow-up query, so omissions never become
  * an independent blocker. The full current profile is supplied by the parent. */
-export function candidateSavedAnswers() {
+export function candidateSavedAnswers(includeFullSchema = false) {
   return records('answers.json').filter(item => typeof item.question === 'string' && typeof item.answer === 'string')
-    .map(item => ({ question: item.question, answer: item.answer, ...(typeof item.createdAt === 'string' ? { createdAt: item.createdAt } : {}) }));
+    .flatMap(item => {
+      const s=item.snapshot;
+      if(s!==undefined&&(!verifiedQuestionSnapshot(s)||questionResponseIssue(s,item.response)))throw new Error('A saved question snapshot or response is invalid. Recover the candidate evidence source before requesting that fact again.');
+      return [{ question: item.question, answer:verifiedQuestionSnapshot(s)?questionAnswerText(s,item.response as QuestionResponse):item.answer,
+        ...(verifiedQuestionSnapshot(s)?{snapshot:includeFullSchema?s:{id:s.id,revision:s.revision,prompt:s.prompt,source:s.source,context:s.context},response:item.response}:{}),
+        ...(typeof item.createdAt === 'string' ? { createdAt: item.createdAt } : {}) }];
+    });
 }
 
 export async function agentOnlyEvidence(query = '', offset = 0, maxChars = MAX_EVIDENCE): Promise<string> {
@@ -120,13 +134,16 @@ export async function agentOnlyEvidence(query = '', offset = 0, maxChars = MAX_E
   const knowledge = records('knowledge.json').filter(record => record.enabled === true && typeof record.id === 'string' && typeof record.label === 'string')
     .filter(record => record.kind === 'note' && typeof record.text === 'string'
       || record.kind === 'file' && typeof record.fileName === 'string' && Boolean(ownerFile(record.fileName, 'knowledge')));
+  const fullAnswer=query.startsWith('saved-answer:')?candidateSavedAnswers(true).find(a=>a.snapshot&&query===`saved-answer:${a.snapshot.id}:${a.snapshot.revision}`):undefined;
+  if(fullAnswer)return evidencePage('',JSON.stringify(fullAnswer),offset,maxChars);
   const answers = candidateSavedAnswers();
   // Retrieval IDs and upload IDs are different capabilities. The agent chooses
   // any attachment explicitly; supplying evidence never uploads it by itself.
   const inventory = JSON.stringify({ resumes: resumes.map(record => ({ ...record, file_id: record.id, uploadable: true })),
     supportingDocuments: knowledge.map(record => ({ id: record.id, label: record.label, kind: record.kind, uploadable: record.kind === 'file',
       ...(record.kind === 'file' ? { file_id: `supporting:${record.id}`, fileName: record.fileName }
-        : { attachment: 'Read this note by id. If you choose to attach its text, create_file returns an uploadable file_id.' }) })), savedAnswerCount: answers.length });
+        : { attachment: 'Read this note by id. If you choose to attach its text, create_file returns an uploadable file_id.' }) })), savedAnswerCount: answers.length,
+    savedAnswers:answers.filter(a=>a.snapshot).map(a=>({id:`saved-answer:${a.snapshot!.id}:${a.snapshot!.revision}`,question:a.question})) });
   if (query === 'document-inventory') return evidencePage(inventory, inventory, offset, maxChars);
   const sections = [preferenceEvidence(), 'SAVED CANDIDATE ANSWERS\n' + JSON.stringify(answers),
     ...(await Promise.all(resumes.map(async item => `### Resume ${item.id}: ${item.label}\n${await approvedText(ownerFile(item.fileName, 'resumes'))}`))),

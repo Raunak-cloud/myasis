@@ -1,0 +1,57 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { sealQuestionSnapshot, verifiedQuestionSnapshot } from './question-snapshot-node.js';
+import { questionResponseIssue, questionAnswerText, type QuestionControl } from './question-snapshot.js';
+import { normaliseBlockedQuestions, mergePendingQuestions, blockedQuestionKey } from './blocked-questions.js';
+const control:QuestionControl={id:'part0',label:'Clearance',kind:'radio',required:true,multiple:false,choices:[{id:'choice0',label:'None',value:'none',disabled:false},{id:'choice1',label:'NV2',value:'nv2',disabled:false}],constraints:{}};
+const snapshot=(changes={})=>sealQuestionSnapshot({version:2,source:{origin:'https://employer.example',path:'/apply'},prompt:'Which clearance do you hold? *',context:['Employment'],help:['Choose your current clearance.'],controls:[control],completeness:'complete',...changes});
+test('full snapshots survive serialization; identity and revision have separate purposes',()=>{
+  const a=snapshot(),b=snapshot({prompt:'Which clearance do you hold?'}), c=snapshot({context:['Previous employment']});
+  assert.equal(a.id,b.id);assert.notEqual(a.revision,b.revision);assert.notEqual(a.id,c.id);
+  assert.ok(verifiedQuestionSnapshot(JSON.parse(JSON.stringify(a))));
+  assert.equal(verifiedQuestionSnapshot({...a,prompt:'Invented replacement'}),false);
+  const q={question:a.prompt,snapshot:a};
+  assert.deepEqual(normaliseBlockedQuestions([q,q]),[qWithPrompt(q)]);
+  assert.equal(normaliseBlockedQuestions([{...q,snapshot:{...a,prompt:'Invented'}}]).length,0);
+  const other={question:c.prompt,snapshot:c};
+  assert.equal(mergePendingQuestions([q,other],[{question:b.prompt,snapshot:b}]).length,2);
+  assert.notEqual(blockedQuestionKey(q),blockedQuestionKey({snapshot:b}));
+  const changedControl=snapshot({controls:[{...control,kind:'select'}]});
+  assert.equal(changedControl.id,a.id,'a changed widget is a new revision of the same question');
+  assert.notEqual(changedControl.revision,a.revision);
+  assert.deepEqual(mergePendingQuestions([q],[{question:changedControl.prompt,snapshot:changedControl}]),[{question:changedControl.prompt,snapshot:changedControl}]);
+  assert.equal(normaliseBlockedQuestions([q,{question:changedControl.prompt,snapshot:changedControl}]).length,0,'one event cannot silently pick between conflicting revisions');
+  assert.equal(normaliseBlockedQuestions([q,{question:'Broken',snapshot:{...a,revision:'broken'}}]).length,0,'a malformed versioned group never silently drops one required question');
+  const legacy={question:'Required licence number'};
+  assert.deepEqual(mergePendingQuestions([legacy],[q]),[legacy,q],'recapture of a different question must preserve older unanswered facts');
+  assert.deepEqual(mergePendingQuestions([q],[legacy]),[q,legacy],'a legacy importer cannot erase a newer canonical question');
+});
+function qWithPrompt<T extends {question:string}>(q:T){return {...q,prompt:q.question};}
+test('finite choices are typed, complete, and never fall back to free text',()=>{
+  const a=snapshot();
+  assert.equal(questionResponseIssue(a,{part0:'choice0'}),null);
+  assert.ok(questionResponseIssue(a,{part0:'None'}));
+  assert.ok(questionResponseIssue(a,{part0:'choice99'}));
+  assert.ok(questionResponseIssue(a,{part0:'choice0',injected:'value'}));
+  assert.ok(questionResponseIssue({...a,completeness:'recapture'},{part0:'choice0'}));
+  const grouped=snapshot({controls:[{...control,kind:'checkbox-group',multiple:true}]});
+  assert.equal(questionResponseIssue(grouped,{part0:['choice0','choice1']}),null);
+  assert.ok(questionResponseIssue(grouped,{part0:['choice0','choice0']}));
+  assert.ok(questionResponseIssue(grouped,{part0:'choice0'}));
+  assert.equal(questionAnswerText(grouped,{part0:['choice0','choice1']}),'None; NV2');
+  const requiredChecks=snapshot({controls:[{...grouped.controls[0],choices:grouped.controls[0].choices.map(o=>({...o,required:true}))}]});
+  assert.ok(questionResponseIssue(requiredChecks,{part0:['choice0']}),'individually required checkboxes stay individually required');
+  assert.equal(questionResponseIssue(requiredChecks,{part0:['choice0','choice1']}),null);
+  const placeholder=snapshot({controls:[{...control,kind:'select',choices:[{id:'choice0',label:'Choose',value:'',disabled:false,placeholder:true},...control.choices.slice(1)]}]});
+  assert.ok(questionResponseIssue(placeholder,{part0:'choice0'}),'an empty native placeholder is not an answer to a required select');
+});
+test('dates, number constraints and every composite component are validated',()=>{
+  const date=snapshot({controls:[{...control,kind:'date',choices:[],constraints:{min:'1990-01-01',max:'2026-12-31'}}]});
+  for(const v of ['bad','2026-02-30','1989-12-31','2027-01-01'])assert.ok(questionResponseIssue(date,{part0:v}));
+  assert.equal(questionResponseIssue(date,{part0:'2000-02-29'}),null);
+  const composite=snapshot({controls:[{...control,kind:'month',choices:[],constraints:{}},{...control,id:'part1',label:'Day',kind:'number',choices:[],constraints:{min:'1',max:'31',step:'1'}}]});
+  assert.ok(questionResponseIssue(composite,{part0:'2000-12'}));
+  assert.ok(questionResponseIssue(composite,{part0:'2000-13',part1:'3'}));
+  assert.ok(questionResponseIssue(composite,{part0:'2000-12',part1:'1.5'}));
+  assert.equal(questionResponseIssue(composite,{part0:'2000-12',part1:'3'}),null);
+});

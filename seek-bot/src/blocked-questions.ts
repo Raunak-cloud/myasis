@@ -1,6 +1,16 @@
 import type { ApplyOutcome, BlockedQuestion } from './types.js';
 import { blockedQuestionKey } from './blocked-question-key.js';
+import { verifiedQuestionSnapshot } from './question-snapshot-node.js';
 export { blockedQuestionKey };
+
+/** A retry can discover another missing fact without erasing earlier ones.
+ * A new revision supersedes only the same semantic question. */
+export function mergePendingQuestions(prior: BlockedQuestion[], next: BlockedQuestion[]): BlockedQuestion[] {
+  if(![...prior,...next].some(question=>question.snapshot))return next;
+  const merged=new Map<string,BlockedQuestion>();
+  for(const question of [...prior,...next])merged.set(question.snapshot?.id??`legacy:${blockedQuestionKey(question)}`,question);
+  return [...merged.values()];
+}
 
 export function isCredentialQuestion(item: { question?: unknown; prompt?: unknown }): boolean {
   return [item?.question, item?.prompt].some(value => typeof value === 'string' && /\bpass(word|phrase)\b/i.test(value));
@@ -11,8 +21,19 @@ export function normaliseBlockedQuestions(raw: unknown): BlockedQuestion[] {
   if (!Array.isArray(raw)) return [];
   const questions: BlockedQuestion[] = [];
   const seen = new Set<string>();
+  const revisions = new Map<string,string>();
   for (const entry of raw) {
     const item = typeof entry === 'string' ? { question: entry } : entry && typeof entry === 'object' && !Array.isArray(entry) ? entry : {};
+    if (item.snapshot !== undefined) {
+      const snapshot:unknown=item.snapshot;
+      if (!verifiedQuestionSnapshot(snapshot) || isCredentialQuestion({question: JSON.stringify(snapshot.controls.map(c=>c.label)), prompt:snapshot.prompt})) return [];
+      const revision=revisions.get(snapshot.id);
+      if(revision!==undefined&&revision!==snapshot.revision)return [];
+      revisions.set(snapshot.id,snapshot.revision);
+      const key=blockedQuestionKey(item);
+      if (!seen.has(key)) { seen.add(key); questions.push({question:snapshot.prompt,prompt:snapshot.prompt,snapshot}); }
+      continue;
+    }
     if (typeof item.question !== 'string') continue;
     const question = blockedQuestionKey({ question: item.question });
     // Credentials must never be requested or stored in the plain-text answer bank.

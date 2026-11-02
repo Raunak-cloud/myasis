@@ -20,6 +20,43 @@ able to extend it up to US$1.00. Configure these through `AGENT_BUDGET_USD` and
 `AGENT_PROGRESS_BUDGET_USD`; unchanged pages do not earn extra spending.
 Normal turns use medium reasoning; failed actions receive higher effort.
 
+The applying agent, read-only specialist and in-run repair continuation use one
+owner-local `application-recovery.sqlite` record. It retains completed answers,
+generated document references, tool evidence, recovery history and consultation
+counts. Browser readbacks are separate from model-authored assessments. The
+prompt shows a bounded window; complete tool evidence stays in the same journal.
+Private authentication values and reset/activation URL tokens are withheld.
+
+Only one controller may hold a browser worker's writer lease. A live process's
+lease cannot expire underneath an operation; SQLite serializes competing claims.
+Specialist replies are versioned against their input evidence and stale replies
+are discarded. A tested in-run repair resumes by record ID, retaining the original
+browser and spending meter, then re-observes the form and repeats required accuracy
+checks. Candidate, job, run, mode and approval changes reject the continuation.
+An interrupted mutating tool or possible send requires actual-state reconciliation;
+the record never replays it. This persistence does not automatically restart a
+crashed run, authorize pending credentials, or confirm Semi auto drafts.
+
+Unknown outcomes enter an investigation state in that shared record. The
+`investigate_application_state` tool reads the current form, an observed control
+or this posting's owner-scoped history without clicking, navigating or sending.
+Identical checks reuse evidence; four checks per issue survive interruptions
+without extending spending limits. A technical stop gets one safe form check
+when no investigation has been performed and action funding remains. No extra
+recovery report is required. Confirmed authentication acceptance/rejection still
+requires current employer evidence; a missing success message records uncertainty
+without accepting, rejecting or discarding a pending credential. Possible sends
+remain protected from replay. An inconclusive investigation stays unresolved.
+
+Offline checks after compiling:
+
+```sh
+node --test dist/agent/recovery-record.test.js dist/agent/consultation.test.js
+node --test dist/agent/investigation.test.js
+node dist/agent/investigation-browser.test.js
+node dist/agent/live-repair-browser.test.js
+```
+
 Every account defaults to a fresh viewport screenshot alongside the normal form
 observation for each Magnus decision. Previous observation images are removed
 before the next request while their text and action history remain. This applies
@@ -365,3 +402,63 @@ Browser scripts execute only in the browser, without host Node/filesystem access
 The conversation keeps a stable cacheable prefix until compaction is necessary. Superseded DOM trees are then retired in chunks while candidate facts, exact approval, current draft and agent-authored progress remain. Context-limit and transient generation failures retry with the same live browser and spending meter; browser actions are never replayed by a model retry. Resource ceilings remain unchanged.
 
 Run `npm run test:agent`, `npm run test:native-browser` and `npm run test:saved-form`. These use real browser fixtures with scripted model responses, including five prepared/confirmed applications. Fixture turn counts do not establish live cost or success rates.
+
+### Needs attention question snapshots
+
+`question-snapshot.ts` is the shared versioned contract for capture, storage,
+rendering, validation, answer export and later reuse. Capture reads original
+employer labels/group headings, all native options, component types and
+constraints directly from the live control; the compact observation and model
+prose cannot replace them. Logical groups are deduplicated by source and full
+context with SHA-256 identities. Revisions include the exact copy, choices and
+constraints, so a changed question cannot consume an old response. Repeated
+unscoped fields are rejected rather than merged by a bare label.
+
+Answers reference the authoritative owner/job snapshot and revision. Typed
+responses, their original schema and lifecycle events commit atomically. The
+importer and answer writer share an owner/job advisory lock; partial answers
+resolve only their exact revisions. Discovery of a second missing question
+retains earlier unanswered versioned questions. No historical event is rewritten.
+
+Legacy fragments, incomplete virtual option catalogs and unsupported widgets
+are displayed as needing recapture, never invented free-text/Yes-No questions.
+They can be recaptured when a normal eligible run revisits the application;
+this does not create runs, alter fit criteria or authorize unconfirmed sends.
+Native file controls retain their type/accept metadata but require the existing
+owner-scoped document workflow rather than accepting a path as a candidate fact.
+Saved-answer overviews retain context; exact schemas are available through
+the `saved-answer:id:revision` evidence inventory IDs without copying every
+unselected option into each model request.
+
+Checks: `node --test dist/question-snapshot.test.js dist/answer-gate.test.js`,
+`node dist/agent/question-evidence.test.js`, and from `dashboard`,
+`node ../seek-bot/node_modules/tsx/dist/cli.mjs server/answers-lifecycle.test.ts`
+and `node ../seek-bot/node_modules/tsx/dist/cli.mjs test/attention-form.browser.test.mts`.
+These use synthetic browser forms and temporary PostgreSQL tables, not live
+applications or candidate data.
+
+The robustness audit additionally covers hidden referenced accessible names,
+display-contents labels, composed shadow/slot groups, form-owner separation,
+radio catalogs outside the apparent question and controls changing into private
+authentication fields. Capture is rechecked against the live schema before a
+task is recorded. Widget/constraint changes revise the same semantic question;
+conflicting simultaneous versions are rejected. A canonical retry retains older
+unanswered legacy tasks until a real answer/outcome resolves them.
+
+Value validation follows native HTML date/month/week/time/number ranges and
+steps (including declared default step bases). Employer regexes are data, checked
+in a time-bounded server worker rather than the API or candidate UI thread.
+Blank facts never resolve a task; explicit empty choice sets remain typed facts.
+An exact committed response can acknowledge a lost-response retry without
+writing another event. Changed stale responses still fail. Question and answer
+exports use atomic file replacement, larger structured answer banks remain
+readable, and a corrupt bank is a technical source failure, not absent evidence.
+
+Additional checks: `node --test dist/agent/question-robustness-browser.test.js
+dist/question-patterns.test.js`; from dashboard run
+`node ../seek-bot/node_modules/tsx/dist/cli.mjs server/answers-concurrency.test.ts`.
+The latter requires localhost PostgreSQL and creates/drops only its own randomly
+named schema, exercising independent connections and import/save races.
+Standards used: [accessible names](https://www.w3.org/TR/accname-1.2/),
+[HTML controls/validation](https://html.spec.whatwg.org/multipage/input.html),
+and [PostgreSQL advisory locks](https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS).

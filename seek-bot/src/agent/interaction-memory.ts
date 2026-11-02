@@ -2,6 +2,8 @@
  * chooses an answer, repairs a widget, blocks an action or calls another model. */
 export class InteractionMemory {
   private failures = new Map<string, { target: string; error: string; count: number }>();
+  checkpoint() { return [...this.failures.entries()]; }
+  restore(entries: ReturnType<InteractionMemory['checkpoint']>): void { this.failures = new Map(entries.slice(-6)); }
 
   failed(tool: string, args: Record<string, unknown>, url: string, error: string): void {
     let location = '';

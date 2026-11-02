@@ -7,6 +7,7 @@ import { withApplicationModel } from '../application-model.js';
 import { CostMeter } from './celeris.js';
 import { consultApplicationSpecialist, consultationToolSchema, newConsultationState, type ConsultationOptions } from './consultation.js';
 import type { ToolContext, ToolResult } from './context.js';
+import { RecoveryRecord } from './recovery-record.js';
 
 const directories: string[] = [];
 const originalFetch = globalThis.fetch;
@@ -18,10 +19,10 @@ function account(marker: string, model = 'celeris') {
   const dir = mkdtempSync(join(tmpdir(), 'consultation-')); directories.push(dir);
   const answers = JSON.stringify([{ question: 'Confirmed account email', answer: `${marker}@example.invalid` }]);
   writeFileSync(join(dir, 'answers.json'), answers);
-  writeFileSync(join(dir, 'knowledge.json'), JSON.stringify([{ id: marker, kind: 'note', label: 'Career details', text: `${marker} knowledge record`, enabled: true }]));
+  writeFileSync(join(dir, 'knowledge.json'), JSON.stringify([{ id: marker, kind: 'note', label: 'Career details', text: `${marker} knowledge record: referral source for Retail Assistant`, enabled: true }]));
   mkdirSync(join(dir, 'resumes'));
   writeFileSync(join(dir, 'resumes.json'), JSON.stringify([{ id: 'current', label: 'Selected CV', fileName: 'cv.txt', isDefault: true }]));
-  writeFileSync(join(dir, 'resumes', 'cv.txt'), `${marker} selected CV with supported employment`);
+  writeFileSync(join(dir, 'resumes', 'cv.txt'), `${marker} selected CV with supported employment as Retail Assistant`);
   return { dir, answers, env: { APPLICATION_AI_MODEL: model, CELERIS_API_KEY: `private-celeris-${marker}`,
     DATA_DIR: dir, COST_TRACKING: 'false', TARGET_ROLE: `${marker} retail assistant`, MIN_HOURLY_RATE: '22',
     AI_INSTRUCTIONS_B64: Buffer.from(`${marker} avoid overnight shifts`).toString('base64') } };
@@ -86,6 +87,40 @@ test('parallel account consultations isolate full candidate evidence, preference
     assert.ok(body.messages[1].content.includes('\\u003c/untrusted>'), 'page cannot escape its evidence wrapper');
     assert.match(body.messages[0].content, /cannot launch or delegate/);
   }
+});
+
+test('specialist reads the shared actual readback, discards stale replies and retains its call count after handoff', async () => {
+  const owner=account('SHARED_RECORD'), ctx=context('SHARED_RECORD');let calls=0;
+  const scope={runId:'42',jobId:ctx.job.id,platform:'workday',mode:'prepare',contextHash:'confirmed-candidate'};
+  let record=new RecoveryRecord(owner.dir,'main',scope,'shared');ctx.recoveryRecord=record;
+  const work={captured:ctx.captured,actions:ctx.actions,files:[],coverLetter:ctx.coverLetter};
+  record.checkpoint(work,{recovery:{note:'Agent thought resume was missing.'}},ctx.observation);
+  const upload=record.begin('browser_action','set_input_files',true);
+  record.complete(upload,JSON.stringify({current:{label:'Resume',files:['Actually uploaded CV.pdf']}}),'completed',work,false);
+  try {
+    await withApplicationModel(owner.env,async()=>{
+      let release!:()=>void,started!:()=>void;
+      const gate=new Promise<void>(r=>{release=r;}),ready=new Promise<void>(r=>{started=r;});
+      globalThis.fetch=async(_url,init)=>{
+        calls++;
+        const body=String(init?.body);
+        assert.match(body,/Actually uploaded CV.pdf/);assert.match(body,/Agent thought resume was missing/);
+        assert.match(body,/shared-recovery-record/);assert.match(body,/applying-agent-only/);
+        assert.ok(!body.includes('synthetic-hidden-password'));
+        started();await gate;return success('celeris');
+      };
+      const reply=consultApplicationSpecialist(ctx,{question:'Is the resume missing?'},options());await ready;
+      record.checkpoint({...work,captured:[...ctx.captured,{question:'City',answer:'Sydney'}]},{});
+      release();assert.match(message(await reply),/stale advice was discarded/);
+      assert.equal(record.snapshot().consultation.advice,undefined);
+      record.finish('paused');record.release();
+      record=new RecoveryRecord(owner.dir,'main',scope,'shared',undefined,true);ctx.recoveryRecord=record;
+      globalThis.fetch=async()=>{calls++;return success('celeris');};
+      assert.match(message(await consultApplicationSpecialist(ctx,{question:'Inspect the fresh city.'},options())),/READ-ONLY SPECIALIST ADVICE/);
+      assert.match(message(await consultApplicationSpecialist(ctx,{question:'One more.'},options())),/two optional specialist consultations/);
+      assert.equal(calls,2);assert.equal(record.snapshot().consultation.calls,2);
+    });
+  } finally { record.release(); }
 });
 
 test('the selected provider receives a read-only structured request without fallback or tools', async () => {

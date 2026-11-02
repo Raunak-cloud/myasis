@@ -1,5 +1,6 @@
 import { loadReviewMemory } from '../job-review-memory.js';
-import { writeFileSync, existsSync, unlinkSync, readFileSync } from 'node:fs';
+import { writeFileSync, existsSync, unlinkSync, readFileSync, renameSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { getPool, query } from './index.js';
 import { saveApplicationReview, recordReviewedOutcome, ApplicationReviewError } from '../application-reviews.js';
@@ -13,6 +14,16 @@ import { listAnswers } from '../answers.js';
 import type { CandidateProfile } from '../candidate-profile.js';
 import { verdictsForRun } from '../skipped.js';
 import { syncCostJournal } from '../application-costs.js';
+
+/** Publish complete snapshots: an interrupted export must not truncate the
+ * authoritative candidate-evidence transport a live reader is opening. */
+function writeRunSnapshot(dir:string,name:string,value:unknown):void {
+  const destination=resolve(dir,name),temporary=resolve(dir,`${name}.${randomUUID()}.tmp`);
+  try {
+    writeFileSync(temporary,JSON.stringify(value,null,2),{flag:'wx',mode:0o600});
+    renameSync(temporary,destination);
+  }finally{if(existsSync(temporary))unlinkSync(temporary);}
+}
 
 /**
  * Bridges Postgres (authoritative) and the per-user directory seek-bot
@@ -136,11 +147,11 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
   // The answer bank, read by seek-bot's knowledge.ts on every form step. When each
   // answer was given decides whether a job that stopped for it is opened again.
   const { answers, attention, reviewHistory, asOf } = await loadAnswerStateForRun(userId);
-  writeFileSync(resolve(dir, 'answers.json'), JSON.stringify(answers.map(({ question, answer, createdAt }) => ({ question, answer, createdAt })), null, 2));
+  writeRunSnapshot(dir,'answers.json',answers);
   // This is current state, separate from the immutable historical outcomes.
   // A partial answer or a late import must leave the same questions visible
   // to the applying agent that the candidate sees in Needs attention.
-  writeFileSync(resolve(dir, 'attention.json'), JSON.stringify({ asOf, items: attention }, null, 2));
+  writeRunSnapshot(dir,'attention.json',{asOf,items:attention});
   const apps = await query<ApplicationExportRow>(
     `SELECT job_id, title, company, location, url, platform, score, salary,
             work_arrangement, age_days_at_apply, cover_letter, answers, score_reasons, applied_at,

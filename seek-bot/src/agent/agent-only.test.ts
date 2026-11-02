@@ -589,7 +589,7 @@ try {
   }, () => [{ name: 'finish', args: { status: 'skipped', reason: 'Controlled dialog test completed', evidence: 'Import acknowledgement was handled; no application sent.' } }]];
   const dialogRun = await runApplicationAgent({ page, job: { ...job, id: 'native-dialog-recovery' }, profile, log: () => {} });
   assert.equal(dialogRun.outcome.status, 'skipped');
-  assert.equal(dialogRun.steps, 4, 'the technical stop is reobserved after one bounded specialist consultation');
+  assert.equal(dialogRun.steps, 5, 'the uncertain click gets one read-only investigation and one bounded specialist consultation before its controlled stop');
   assert.equal(dialogRun.submitPressed, false);
   assert.equal(script.length, 0);
   // The applying agent retrieves evidence and chooses whether to ask or send.

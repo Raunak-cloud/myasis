@@ -1,6 +1,9 @@
 import type { ToolContext } from './context.js';
 import { locate } from './browser-target.js';
 import { normaliseBlockedQuestions } from '../blocked-questions.js';
+import { captureQuestion } from './question-capture.js';
+import { sealQuestionSnapshot, verifiedQuestionSnapshot } from '../question-snapshot-node.js';
+import { preparePrivateAuthenticationFields } from '../private-auth-fields.js';
 
 /** The displayed/saved context comes from the grounded employer quote, never
  * an unverified paraphrase that could turn a technical problem into a task. */
@@ -12,7 +15,7 @@ export function quotedQuestions(raw: unknown) {
  * or model-authored prose. Ambiguous or stale controls fail closed. */
 export async function extractEmployerQuestions(ctx: ToolContext, raw: unknown): Promise<{ questions?: ReturnType<typeof quotedQuestions>; issue?: string }> {
   if (!Array.isArray(raw) || raw.length < 1 || raw.length > 30) return { issue: 'No current question fields were identified.' };
-  const grounded: Array<{ field_ref: string; form_quote: string; kind?: string; options?: string[] }> = [];
+  const grounded: Array<{ field_ref: string; form_quote: string; snapshot: ReturnType<typeof sealQuestionSnapshot> }> = [];
   for (const item of raw) {
     const ref = item?.field_ref;
     if (typeof ref !== 'string') return { issue: 'A current question field was not identified.' };
@@ -21,43 +24,31 @@ export async function extractEmployerQuestions(ctx: ToolContext, raw: unknown): 
     if ((!field && !action) || field?.sensitive || field?.privateKind || field?.currentValue === '[private credential]') return { issue: 'The question field is unavailable or private.' };
     const target = locate(ctx.page, field?.kind === 'radio' && field.ref === ref ? `${ref}:0` : ref);
     if (!target || await target.count().catch(() => 0) !== 1) return { issue: 'The question control changed.' };
-    const quote = await target.evaluate(element => {
-      const visible = (el: Element) => el.checkVisibility({ checkVisibilityCSS: true, checkOpacity: true });
-      if (!visible(element) && !element.matches('input[type="radio"],input[type="checkbox"],input[type="file"],input[role="combobox"],input[aria-haspopup]')) return '';
-      const root = element.getRootNode() as Document | ShadowRoot;
-      const text = (el: Element | null) => {
-        if (!el || !visible(el)) return '';
-        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), parts: string[] = [];
-        while (walker.nextNode()) {
-          const p = walker.currentNode.parentElement;
-          if (p && !p.closest('input,textarea,select,script,style,[contenteditable], [role="option"]') && visible(p)) parts.push(walker.currentNode.textContent || '');
-        }
-        return parts.join(' ').replace(/\s+/g, ' ').trim();
-      };
-      const input = element as HTMLInputElement;
-      const labels = [...(input.labels ?? [])].map(text).filter(Boolean);
-      const labelled = (element.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean).map(id => text(root.getElementById(id))).filter(Boolean);
-      const label = [...labels, ...labelled, element.getAttribute('aria-label') || ''].find(Boolean) || '';
-      const group = element.closest('fieldset,[role="group"],[role="radiogroup"]');
-      let heading = '';
-      if (group) {
-        const groupRoot = group.getRootNode() as Document | ShadowRoot;
-        heading = text(group.querySelector('legend')) || (group.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean).map(id => text(groupRoot.getElementById(id))).filter(Boolean).join(' ') || group.getAttribute('aria-label') || '';
-      }
-      if (heading && (element.matches('input[type="radio"]') || group?.getAttribute('role') === 'radiogroup')) return heading;
-      if (heading && label && !heading.toLowerCase().includes(label.toLowerCase())) return `${heading} ${label}`;
-      return heading || label;
-    }).catch(() => '');
-    if (!quote || quote.length > 500) return { issue: 'The employer question could not be extracted reliably.' };
-    if (field && quote.replace(/[\s:*]+$/g, '').toLowerCase() === field.label.replace(/[\s:*]+$/g, '').toLowerCase()
-      && ctx.observation.fields.filter(f => f.label.trim().toLowerCase() === field.label.trim().toLowerCase()).length > 1) {
-      return { issue: 'Repeated field labels lack a distinguishable employer section.' };
-    }
-    grounded.push({ field_ref: ref, form_quote: quote, ...(field ? { kind: field.kind, options: field.options } : {}) });
+    const handle=await target.elementHandle({timeout:2500}).catch(()=>null);
+    try {
+      const frame=await handle?.ownerFrame();
+      if(!frame)return {issue:'The current question frame is unavailable.'};
+      await preparePrivateAuthenticationFields(frame);
+    }finally{await handle?.dispose();}
+    const captured = await target.evaluate(captureQuestion, undefined, {timeout:2500}).catch(() => null);
+    if (!captured) return {issue:'The full employer question and its control group could not be captured reliably. Inspect the current form and its local heading.'};
+    const quote = captured.prompt;
+    if (!quote || quote.length > 4000) return { issue: 'The employer question could not be extracted reliably.' };
+    // Use the supplied listing identity for provenance, not a browser path
+    // that can contain private authentication/reset tokens.
+    captured.source.path = ctx.job ? `/jobs/${encodeURIComponent(ctx.job.id)}` : '';
+    grounded.push({ field_ref: ref, form_quote: quote, snapshot: sealQuestionSnapshot(captured) });
   }
-  const issue = await questionEvidenceIssue(ctx, grounded);
+  const byIdentity=new Map<string,string>();
+  for(const question of grounded) {
+    const revision=byIdentity.get(question.snapshot.id);
+    if(revision&&revision!==question.snapshot.revision)return {issue:'Two current controls share a question identity but have different schemas. Inspect their original section headings before requesting an answer.'};
+    byIdentity.set(question.snapshot.id,question.snapshot.revision);
+  }
+  const distinct=[...new Map(grounded.map(q=>[q.snapshot.id,q])).values()];
+  const issue = await questionEvidenceIssue(ctx, distinct);
   if (issue) return { issue };
-  return { questions: quotedQuestions(grounded) };
+  return { questions: quotedQuestions(distinct) };
 }
 
 /** Ground the question in a current employer control. The agent still judges
@@ -68,7 +59,7 @@ export async function questionEvidenceIssue(ctx: ToolContext, raw: unknown): Pro
   if (quotedQuestions(raw).length !== raw.length) return 'Use distinct, complete question labels and employer quotes of at most 500 characters. Credentials and malformed questions cannot create candidate tasks.';
   for (const item of raw) {
     if (!item || typeof item !== 'object' || typeof item.field_ref !== 'string' || typeof item.form_quote !== 'string'
-      || !item.form_quote.trim() || item.form_quote.length > 2000) {
+      || !item.form_quote.trim() || item.form_quote.length > (item.snapshot ? 4000 : 2000)) {
       return 'Each question needs its current field_ref and the complete verbatim form_quote from that control or its question group.';
     }
     const field = ctx.observation.fields.find(field => field.ref === item.field_ref || field.kind === 'radio'
@@ -84,12 +75,23 @@ export async function questionEvidenceIssue(ctx: ToolContext, raw: unknown): Pro
     const handle = await target.elementHandle({ timeout: 2500 }).catch(() => null);
     try {
       let frame = await handle?.ownerFrame();
+      if(!frame)return 'The current question frame is unavailable.';
+      await preparePrivateAuthenticationFields(frame);
       for (; frame?.parentFrame(); frame = frame.parentFrame()) {
         const host = await frame.frameElement();
         try { if (!await host.isVisible()) return 'The question belongs to a hidden frame. Inspect its current visible form before requesting an answer.'; }
         finally { await host.dispose(); }
       }
     } finally { await handle?.dispose(); }
+    if (item.snapshot !== undefined) {
+      if (!verifiedQuestionSnapshot(item.snapshot)) return 'The captured question schema is invalid. Inspect the employer form again.';
+      const current = await target.evaluate(captureQuestion, undefined, {timeout:2500}).catch(() => null);
+      if (!current) return 'The complete question changed or is no longer available. Inspect the current form again.';
+      current.source.path = ctx.job ? `/jobs/${encodeURIComponent(ctx.job.id)}` : '';
+      const fresh = sealQuestionSnapshot(current);
+      if (fresh.id !== item.snapshot.id || fresh.revision !== item.snapshot.revision) return 'The employer question or its options changed during capture. Inspect the current form again.';
+      continue;
+    }
     const grounded = await target.evaluate((element, evidence) => {
       const normalise = (text: string): string => text.normalize('NFKC').replace(/\s+/g, ' ').replace(/[\s:*]+$/, '').trim().toLowerCase();
       const quote = normalise(evidence.quote);

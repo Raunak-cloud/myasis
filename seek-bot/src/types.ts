@@ -276,6 +276,7 @@ export interface FormField {
  * "Yes - full time", and the saved answer then matched nothing on retry.
  */
 export interface BlockedQuestion {
+  snapshot?: import('./question-snapshot.js').QuestionSnapshot;
   question: string;
   /** Complete candidate-facing request; `question` stays the exact form label used on retry. */
   prompt?: string;

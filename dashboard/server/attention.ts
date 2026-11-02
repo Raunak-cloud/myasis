@@ -1,7 +1,7 @@
 import { query } from './db/index.js';
 import type { BlockedQuestion } from '../../seek-bot/src/types.js';
 import { normaliseBlockedQuestions as normaliseQuestions } from '../../seek-bot/src/blocked-questions.js';
-import { blockedQuestionKey } from '../../seek-bot/src/blocked-questions.js';
+import { blockedQuestionKey, mergePendingQuestions } from '../../seek-bot/src/blocked-questions.js';
 export { normaliseQuestions };
 import { plainReason } from '../src/run-messages.js';
 export { plainReason } from '../src/run-messages.js';
@@ -95,6 +95,8 @@ export function resolveAttention(events: RunEventRow[], applied: ReadonlySet<str
     }
 
     // Later entries win: a job may have been retried and resolved differently.
+    const prior=latest.get(e.job_id)?.questions??[];
+    const merged=mergePendingQuestions(prior,questions);
     latest.set(e.job_id, {
       jobId: e.job_id,
       title: e.title ?? `Job ${e.job_id}`,
@@ -103,7 +105,7 @@ export function resolveAttention(events: RunEventRow[], applied: ReadonlySet<str
       reason: plainReason(String(reason)).slice(0, 300),
       url: e.url ?? `https://www.seek.com.au/job/${e.job_id}`,
       at: new Date(at).toISOString(),
-      ...(questions.length ? { questions } : {}),
+      ...(merged.length ? { questions: merged } : {}),
     });
   }
 
