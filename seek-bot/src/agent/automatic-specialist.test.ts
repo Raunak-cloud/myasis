@@ -1,3 +1,4 @@
+import { isSpecialistFixtureRequest } from './specialist-fixture.js';
 /** Real browser, isolated forms and scripted providers. No real mail, paid calls or applications. */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -52,7 +53,7 @@ async function scenario(id: string, calls: Call[], options: { specialistFails?: 
     if (String(_url).includes('mailbox.fixture.invalid')) return Response.json({ error: 'Fixture mailbox unavailable' }, { status: 401 });
     const body = JSON.parse(String(init?.body));
     if (options.model === 'minimax') assert.equal(body.model, MINIMAX_APPLICATION_MODEL);
-    if (String(body.messages?.[0]?.content).includes('read-only application specialist')) {
+    if (isSpecialistFixtureRequest(body)) {
       specialists++;
       assert.equal(body.tools, undefined);
       assert.equal(body.tool_choice, undefined);

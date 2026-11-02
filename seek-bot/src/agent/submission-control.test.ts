@@ -1,3 +1,4 @@
+import { isSpecialistFixtureRequest } from './specialist-fixture.js';
 import { createReadinessFixtureReply } from './readiness-fixture.js';
 const readinessFixtureReply = createReadinessFixtureReply();
 import assert from 'node:assert/strict';
@@ -54,7 +55,7 @@ const review = `<main><h1>Review application</h1><form method="post" action="/re
 globalThis.fetch = (async (_url, init) => {
   const body = JSON.parse(String(init?.body));
     const reviewReply = readinessFixtureReply(body); if (reviewReply) return reviewReply;
-  if(String(body.messages?.[0]?.content).includes('read-only application specialist')) return Response.json({choices:[{message:{role:'assistant',content:JSON.stringify({
+  if(isSpecialistFixtureRequest(body)) return Response.json({choices:[{message:{role:'assistant',content:JSON.stringify({
     advice:'Use current form evidence and the next scripted operation; no send or approval is authorized.',
     evidence:[{source:'parent-history',detail:'The fixture contains deliberate failed approaches.'}],unknowns:[],nextSteps:['Inspect current form state.'],
   })}}]});
