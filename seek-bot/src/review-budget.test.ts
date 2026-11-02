@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
-import type { AppliedRecord, JobListing } from './types.js';
+import type { AppliedRecord, BlockedQuestion, JobListing } from './types.js';
+import { sealQuestionSnapshot } from './question-snapshot-node.js';
 
 type FixtureJob = JobListing & { reviewPriority?: number; searchPage?: number; searchScope?: 'office' | 'remote' | 'unscoped'; detailDescription?: string; cardConflict?: boolean; wall?: boolean; searchOnlyJob?: boolean; detailApplied?: boolean; loadingFirst?: boolean; fitError?: boolean; fitReject?: boolean; matchScore?: number; lateApplied?: boolean; delayMs?: number; detailDelayMs?: number; fitDelayMs?: number; detailError?: boolean; formUrl?: string; uncertain?: boolean; preSendFailure?: boolean };
 const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
@@ -15,7 +16,7 @@ const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
 
 /** Exercise the compiled main loop with offline boundary adapters, real history
  * and a one-review budget. No browser, model or employer is contacted. */
-function run(jobs: FixtureJob[], options: { repairTarget?: FixtureJob; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[]; workArrangements?: string[]; onsiteCity?: string } = {}) {
+function run(jobs: FixtureJob[], options: { waiting?: Array<{ job: FixtureJob; questions: BlockedQuestion[] }>; savedAnswers?: unknown[]; attentionOnFit?: { job: FixtureJob; questions: BlockedQuestion[] }; repairTarget?: FixtureJob; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[]; workArrangements?: string[]; onsiteCity?: string } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-review-budget-'));
   const url = (file: string) => pathToFileURL(join(directory, file)).href;
   try {
@@ -23,6 +24,11 @@ function run(jobs: FixtureJob[], options: { repairTarget?: FixtureJob; priorRevi
     writeFileSync(join(directory, 'applied.json'), JSON.stringify(options.history ?? []));
     writeFileSync(join(directory, 'jobs.json'), JSON.stringify(jobs));
     writeFileSync(join(directory, 'events.jsonl'), '');
+    const attention = (items: NonNullable<typeof options.waiting>) => ({ asOf: new Date().toISOString(), items: items.map(({ job: item, questions }) => ({
+      jobId: item.id, title: item.title, company: item.company, url: item.url, at: new Date().toISOString(), reason: 'Exact required candidate question remains unanswered.', questions,
+    })) });
+    writeFileSync(join(directory, 'attention.json'), JSON.stringify(attention(options.waiting ?? [])));
+    writeFileSync(join(directory, 'answers.json'), JSON.stringify(options.savedAnswers ?? []));
     writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify(jobs.filter(item => options.approvedIds?.includes(item.id)).map(item => ({ job: item }))));
     writeFileSync(join(directory, 'pending-application-keys.json'), JSON.stringify(options.pendingKeys ?? []));
     writeFileSync(join(directory, 'boundary.mjs'), `
@@ -87,6 +93,10 @@ export const finishedCoverLetterForJob = async () => 'Fixture letter';
 import { config } from './config.mjs';
 export const assessFit = async job => {
   record('fit',job.id);
+  const updatedAttention=${JSON.stringify(options.attentionOnFit ? attention([options.attentionOnFit]) : null)};
+  if(updatedAttention && job.id===updatedAttention.items[0].jobId) {
+    const {writeFileSync}=await import('node:fs');writeFileSync(new URL('./attention.json',import.meta.url),JSON.stringify(updatedAttention));
+  }
   await new Promise(done => setTimeout(done,job.fitDelayMs||0));
   record('fit-finish',job.id);
   if(job.fitError) { await new Promise(done => setTimeout(done,20)); throw Error('The matching agent did not return a usable decision after a format retry.'); }
@@ -144,12 +154,83 @@ ${options.queue ? "process.argv[1]='queue.js';" : ''} await import('./main.mjs')
     });
     const events = readFileSync(join(directory, 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
     const history: AppliedRecord[] = JSON.parse(readFileSync(join(directory, 'applied.json'), 'utf8'));
-    return { output, events, history };
+    return { output, events, history, attention: JSON.parse(readFileSync(join(directory, 'attention.json'), 'utf8')) };
   } finally {
     assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + sep + 'owtomate-review-budget-'));
     rmSync(directory, { recursive: true, force: true });
   }
 }
+
+const requiredAnswerSnapshot = (options = ['Yes', 'No']) => sealQuestionSnapshot({ version: 2,
+  source: { origin: 'https://employer.fixture.invalid', path: '' }, prompt: 'Do you hold the required current licence?', context: [], help: [], completeness: 'complete',
+  controls: [{ id: 'part0', label: 'Do you hold the required current licence?', kind: 'checkbox-group', required: true, multiple: true,
+    choices: options.map((label, index) => ({ id: `choice${index}`, label, value: label, disabled: false })), constraints: {} }],
+});
+for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply'} defers exact current unanswered questions before model review and application`, () => {
+  const blocked = job('waiting'), fresh = job('different-job', { company: blocked.company, applicationUrl: 'https://employer.fixture.invalid/shared/apply' });
+  const snapshot = requiredAnswerSnapshot();
+  const result = run([blocked, fresh], { apply: true, prepare, waiting: [{ job: blocked, questions: [{ question: snapshot.prompt, snapshot }] }] });
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), [fresh.id]);
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), [fresh.id]);
+  assert.match(result.output, /waiting for your answers/);
+});
+test('an exact structured response reopens a pending job without deleting old ambiguous fragments', () => {
+  const blocked = job('answered'), snapshot = requiredAnswerSnapshot();
+  const result = run([blocked], { apply: true, prepare: true,
+    waiting: [{ job: blocked, questions: [{ question: 'Yes' }, { question: snapshot.prompt, snapshot }] }],
+    savedAnswers: [{ question: snapshot.prompt, answer: 'No', snapshot, response: { part0: ['choice1'] }, createdAt: new Date().toISOString() }],
+  });
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), [blocked.id]);
+  assert.equal(result.attention.items[0].questions.length, 2, 'eligibility reads never erase question/audit history');
+});
+for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply'} respects a complete current pending task without native required markup`, () => {
+  const blocked = job('custom-validation'), fresh = job('fresh-after-custom-validation');
+  const snapshot = sealQuestionSnapshot({ version: 2, source: { origin: 'https://employer.fixture.invalid', path: '' },
+    prompt: 'Please describe your circumstances.', context: [], help: [], completeness: 'complete',
+    controls: [{ id: 'part0', label: 'Please describe your circumstances.', kind: 'textarea', required: false, multiple: false, choices: [], constraints: {} }],
+  });
+  const waiting = [{ job: blocked, questions: [{ question: snapshot.prompt, snapshot }] }];
+  const held = run([blocked, fresh], { apply: true, prepare, waiting });
+  assert.deepEqual(held.events.filter(event => event.stage === 'fit').map(event => event.id), [fresh.id]);
+  assert.deepEqual(held.events.filter(event => event.stage === 'apply').map(event => event.id), [fresh.id]);
+  const reopened = run([blocked], { apply: true, prepare, waiting,
+    savedAnswers: [{ question: snapshot.prompt, answer: 'Synthetic applicant response.', snapshot, response: { part0: 'Synthetic applicant response.' } }],
+  });
+  assert.deepEqual(reopened.events.filter(event => event.stage === 'apply').map(event => event.id), [blocked.id]);
+});
+test('changed question revisions cannot be released by an older structured answer', () => {
+  const blocked = job('changed-question'), previous = requiredAnswerSnapshot(), current = requiredAnswerSnapshot(['Yes', 'No', 'Other']);
+  const result = run([blocked, job('fresh-after-change')], { apply: true,
+    waiting: [{ job: blocked, questions: [{ question: current.prompt, snapshot: current }] }],
+    savedAnswers: [{ question: previous.prompt, answer: 'No', snapshot: previous, response: { part0: ['choice1'] } }],
+  });
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['fresh-after-change']);
+});
+test('legacy fragments and incomplete captures remain eligible for ordinary recapture', () => {
+  for (const questions of [[{ question: 'Yes' }], [{ question: 'Month' }], [{ question: 'Current licence?', snapshot: sealQuestionSnapshot({ ...requiredAnswerSnapshot(), completeness: 'recapture' }) }]]) {
+    const blocked = job('legacy');
+    const result = run([blocked], { apply: true, prepare: true, waiting: [{ job: blocked, questions }] });
+    assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), [blocked.id]);
+  }
+});
+test('equal board IDs on a different source and different forms are not pending-question duplicates', () => {
+  const original = job('same-id', { url: 'https://www.seek.com.au/job/12345678' });
+  const other = job('same-id', { platform: 'indeed', url: 'https://www.indeed.com/viewjob?jk=fixture' });
+  const snapshot = requiredAnswerSnapshot();
+  const result = run([other], { apply: true, platform: 'indeed', waiting: [{ job: original, questions: [{ question: snapshot.prompt, snapshot }] }] });
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), [other.id]);
+});
+test('pending state is re-read after matching and before the applying agent starts', () => {
+  const target = job('late-question'), snapshot = requiredAnswerSnapshot();
+  const result = run([target], { apply: true, prepare: true, attentionOnFit: { job: target, questions: [{ question: snapshot.prompt, snapshot }] } });
+  assert.ok(result.events.some(event => event.stage === 'fit'));
+  assert.equal(result.events.some(event => event.stage === 'apply'), false);
+});
+test('the existing exact operator repair target may recapture a pending question without a new bypass', () => {
+  const target = job('repair-waiting'), snapshot = requiredAnswerSnapshot();
+  const result = run([target], { apply: true, prepare: true, repairTarget: target, waiting: [{ job: target, questions: [{ question: snapshot.prompt, snapshot }] }] });
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), [target.id]);
+});
 
 for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply'} searches the office city and nationwide remote before using the review allowance`, () => {
   const wrongCity = Array.from({ length: 15 }, (_, i) => job(`wrong-city-${i}`, { searchScope: 'unscoped', location: 'Brisbane QLD', cardConflict: true }));

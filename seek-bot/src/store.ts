@@ -94,6 +94,8 @@ interface ReviewFeedback {
   at: string;
   status: string;
   reason: string;
+  /** Source identity prevents equal numeric IDs on different boards colliding. */
+  url?: string;
   /** The questions a needs-human stop was waiting on, when it was. */
   questions?: Array<{ question?: unknown; prompt?: unknown }>;
   /** Current owner state; an empty array explicitly resolves historical questions. */
@@ -104,7 +106,7 @@ interface ReviewFeedback {
 export function recentReviewFeedback(): Map<string, ReviewFeedback> {
   const result = new Map<string, ReviewFeedback>();
   let snapshotAt: number | undefined;
-  const outstanding = new Map<string, { title: string; company: string; reason: string; at: string; questions: BlockedQuestion[] }>();
+  const outstanding = new Map<string, { title: string; company: string; reason: string; at: string; url?: string; questions: BlockedQuestion[] }>();
   try {
     const state = JSON.parse(readFileSync(resolve(config.dataDir, 'attention.json'), 'utf8'));
     const at = Date.parse(state.asOf);
@@ -113,7 +115,8 @@ export function recentReviewFeedback(): Map<string, ReviewFeedback> {
       for (const item of state.items) {
         const questions = normaliseBlockedQuestions(item?.questions);
         if (typeof item?.jobId === 'string' && typeof item.title === 'string' && typeof item.company === 'string' && typeof item.reason === 'string' && typeof item.at === 'string' && questions.length) {
-          outstanding.set(item.jobId, { title: item.title, company: item.company, reason: item.reason, at: item.at, questions });
+          outstanding.set(item.jobId, { title: item.title, company: item.company, reason: item.reason, at: item.at,
+            ...(typeof item.url === 'string' ? { url: item.url } : {}), questions });
         }
       }
     }
@@ -127,7 +130,8 @@ export function recentReviewFeedback(): Map<string, ReviewFeedback> {
           if (snapshotAt !== undefined && typeof row.jobId === 'string' && Date.parse(row.ts) > snapshotAt) {
             const questions = normaliseBlockedQuestions(row.questions);
             if (row.status === 'needs-human' && questions.length && typeof row.title === 'string' && typeof row.company === 'string') {
-              outstanding.set(row.jobId, { title: row.title, company: row.company, reason: row.reason ?? '', at: row.ts, questions: mergePendingQuestions(outstanding.get(row.jobId)?.questions??[],questions) });
+              outstanding.set(row.jobId, { title: row.title, company: row.company, reason: row.reason ?? '', at: row.ts,
+                ...(typeof row.url === 'string' ? { url: row.url } : {}), questions: mergePendingQuestions(outstanding.get(row.jobId)?.questions??[],questions) });
             } else if (row.status === 'answered' && Array.isArray(row.questions) && row.questions.length) {
               const answered = new Set(questions.map(blockedQuestionKey));
               const current = outstanding.get(row.jobId);
@@ -145,6 +149,7 @@ export function recentReviewFeedback(): Map<string, ReviewFeedback> {
         if (typeof reason !== 'string') continue;
         result.set(JSON.stringify([row.jobId, row.title, row.company]), {
           at: row.ts, status: row.status, reason: reason.slice(0, 1200),
+          ...(typeof row.url === 'string' ? { url: row.url } : {}),
           ...(Array.isArray(row.questions) ? { questions: row.questions } : {}),
         });
       } catch { /* A partial log line must not break discovery. */ }
@@ -155,10 +160,11 @@ export function recentReviewFeedback(): Map<string, ReviewFeedback> {
     for (const [key, feedback] of result) {
       const [jobId] = JSON.parse(key) as string[];
       represented.add(jobId);
-      result.set(key, { ...feedback, unansweredQuestions: outstanding.get(jobId)?.questions ?? [] });
+      result.set(key, { ...feedback, ...(outstanding.get(jobId)?.url ? { url: outstanding.get(jobId)!.url } : {}), unansweredQuestions: outstanding.get(jobId)?.questions ?? [] });
     }
     for (const [jobId, item] of outstanding) {
-      if (!represented.has(jobId)) result.set(JSON.stringify([jobId, item.title, item.company]), { at: item.at, status: 'needs-human', reason: item.reason, unansweredQuestions: item.questions });
+      if (!represented.has(jobId)) result.set(JSON.stringify([jobId, item.title, item.company]), { at: item.at, status: 'needs-human', reason: item.reason,
+        ...(item.url ? { url: item.url } : {}), unansweredQuestions: item.questions });
     }
   }
   return result;

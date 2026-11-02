@@ -57,6 +57,7 @@ import { reviewDuplicate, DuplicateReviewQueue } from './duplicate-review.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 import { approvedApplications, approvedApplication, pendingApplicationKeys, preparingApplications } from './application-review.js';
 import { applicationKeys } from './application-identity.js';
+import { waitingForCurrentAnswers } from './answer-eligibility.js';
 
 const searchOnly = process.argv.includes('--search-only');
 const doSync = process.argv.includes('--sync');
@@ -234,6 +235,13 @@ async function main() {
     };
     const targetedAdapters = new Set<PlatformId>();
     const bump = (reason: string) => skips.set(reason, (skips.get(reason) ?? 0) + 1);
+    const waitingOnCandidate = (job: JobListing): boolean => {
+      // These existing explicit flows may inspect/recapture an old question;
+      // none grants an answer, changes approval or permits an extra send.
+      if (approvedApplication(job) || job.source === 'chosen'
+        || repairTarget && repairTarget.id === job.id && repairTarget.platform === (job.platform ?? 'seek')) return false;
+      return waitingForCurrentAnswers(job);
+    };
     const skipExistingApplication = (job: JobListing): boolean => {
       const review = reviewDuplicate(job, index.all);
       if (review.decision !== 'duplicate') return false;
@@ -285,7 +293,10 @@ async function main() {
           continue;
         }
 
-        // Waiting on the candidate (Needs attention): retrying cannot help until they answer.
+        if (waitingOnCandidate(job)) {
+          bump('waiting for your answers');
+          continue;
+        }
 
         const prior = approvedApplication(job) || job.source === 'chosen' ? undefined : reviewCache.suppression(job, reviewContext);
         if (prior) {
@@ -1180,6 +1191,11 @@ async function main() {
           }
           if (skipExistingApplication(job)) {
             restoreReviewSlot(job, true);
+            continue;
+          }
+          if (waitingOnCandidate(job)) {
+            restoreReviewSlot(job, true);
+            bump('waiting for your answers');
             continue;
           }
 

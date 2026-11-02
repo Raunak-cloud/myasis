@@ -26,6 +26,7 @@ node --test server/form-lab/engine.test.mjs
 
 if [ "${1:-0}" = 1 ]; then
   cd "$APP/seek-bot"
+  node --test dist/answer-eligibility.test.js dist/agent/personal-declaration-policy.test.js
   node --test dist/question-snapshot.test.js dist/question-patterns.test.js dist/answer-gate.test.js dist/agent/agent-only-evidence.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/question-robustness-browser.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/question-evidence.test.js
