@@ -126,7 +126,7 @@ test('a final-record-only reply cannot retry a send or claim the skipped retry s
  try{const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'skipped');assert.equal(r.submitPressed,true);assert.equal(turns,4);assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),1);}finally{await f.context.close();}
 });
 
-test('Semi auto preparation, exact approval and changed-answer reapproval keep their confirmation boundaries',{timeout:10000},async()=>{
+test('Semi auto preparation, exact approval and in-place answer repair keep their confirmation boundaries',{timeout:10000},async()=>{
  const f=await fixture(form);process.env.APPLICATION_REVIEW_MODE='prepare';let turns=0;
  const prepare:Call={name:'prepare_application',args:{answers:[],resume_id:'cv',submit_selector:'#send'}};
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;turns++;
@@ -145,9 +145,30 @@ test('Semi auto preparation, exact approval and changed-answer reapproval keep t
    assert.equal(turns,5);return packet([finish('applied',{receipt:{quote:'Application received: BUDGET-FIX'}})]);
   };
   const approved=await runAgentOnlyApplication(f);assert.equal(approved.outcome.status,'applied');assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),1);
-  await f.page.evaluate(html=>{document.body.innerHTML=html;},form);await f.page.locator('#name').fill('Changed candidate answer');turns=0;
-  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;turns++;assert.ok(turns<=3);return packet([body.tool_choice?.function?.name==='record_application_review'?review():prepare]);};
-  const changed=await runAgentOnlyApplication(f);assert.equal(changed.outcome.status,'prepared');assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),1,'changed content cannot send using the old confirmation');
+  await f.page.evaluate(html=>{document.body.innerHTML=html;document.addEventListener('click',event=>{
+   if((event.target as Element).closest('#send'))document.documentElement.dataset.sentName=(document.querySelector('#name') as HTMLInputElement)?.value;
+  },true);},form);await f.page.locator('#name').fill('Changed candidate answer');turns=0;
+  const approvalBefore=readFileSync(join(directory,'approved-applications.json'),'utf8');
+  let repairPhase:'blocked'|'restored'|'receipt'|'done'='blocked';
+  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;turns++;assert.ok(turns<=10,'bounded correction must complete without a re-preparation loop');
+   if(body.tool_choice?.function?.name==='record_application_review')return packet([review()]);
+   const lastTool=(body.messages as Array<{role?:string;content?:unknown}>).filter(message=>message.role==='tool').at(-1);
+   if(repairPhase==='blocked'){
+    if(!String(lastTool?.content).includes('Restore the approved answer'))return packet([prepare]);
+    assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),1,'changed content never transmits');
+    repairPhase='restored';return packet([{name:'browser_action',args:{action:'fill',selector:'#name',value:'Fictional Candidate'}}]);
+   }
+   if(repairPhase==='restored'){
+    if(!String(lastTool?.content).includes('matches the version the candidate confirmed'))return packet([prepare]);
+    repairPhase='receipt';return packet([{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}]);
+   }
+   assert.equal(repairPhase,'receipt','one repaired send is followed only by receipt verification');
+   repairPhase='done';return packet([finish('applied',{receipt:{quote:'Application received: BUDGET-FIX'}})]);
+  };
+  const changed=await runAgentOnlyApplication(f);assert.equal(changed.outcome.status,'applied');assert.equal(repairPhase,'done');
+  assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),2,'exactly one corrected submission follows the earlier approved submission');
+  assert.equal(await f.page.evaluate(()=>document.documentElement.dataset.sentName),'Fictional Candidate','the actual click carries the restored approved value');
+  assert.equal(readFileSync(join(directory,'approved-applications.json'),'utf8'),approvalBefore,'in-place recovery retains the exact candidate approval');
  }finally{process.env.APPLICATION_REVIEW_MODE='';await f.context.close();}
 });
 

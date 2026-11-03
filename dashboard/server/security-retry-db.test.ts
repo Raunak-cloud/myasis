@@ -13,6 +13,7 @@ const dbUrl=new URL(String(pool.options.connectionString));
 assert.ok(['localhost','127.0.0.1','[::1]'].includes(dbUrl.hostname),'Fixtures require a local database.');
 const control=new pg.Client({connectionString:pool.options.connectionString});
 const previousAdmins=process.env.ADMIN_EMAILS;
+const originalQuery=pool.query;
 process.env.ADMIN_EMAILS='admin@security.fixture.invalid';
 const reason='The employer anti-bot security check could not be completed.';
 const revision='a'.repeat(64);
@@ -71,14 +72,27 @@ try{
  const legacy=await newDraft('2','legacy','failed'),oldAt=new Date(Date.now()-2*60*60_000);
  await query('UPDATE application_reviews SET detail=$3 WHERE user_id=$1 AND id=$2',['2',legacy.id,reason]);
  await query('INSERT INTO run_events(user_id,job_id,status,reason,ts) VALUES($1,$2,$3,$4,$5)',['2','legacy','skipped',reason,oldAt]);
- const before=await query('SELECT status,detail,payload,credit_consumed,updated_at FROM application_reviews WHERE id=$1',[legacy.id]);
+ let afterConcurrentEdit:unknown;
+ let injectEdit=true;
+ const rawQuery=originalQuery.bind(pool) as (sql:string,params?:unknown[])=>Promise<{rows:unknown[]}>;
+ pool.query=(async(sql:string,params?:unknown[])=>{
+  if(injectEdit&&/UPDATE application_reviews SET security_retry_after/.test(sql)){
+   injectEdit=false;
+   await rawQuery("UPDATE application_reviews SET payload=jsonb_set(payload,'{coverLetter}',to_jsonb('Concurrent saved letter edit'::text)),updated_at=clock_timestamp() WHERE id=$1",[legacy.id]);
+   afterConcurrentEdit=(await rawQuery('SELECT status,detail,payload,credit_consumed,updated_at FROM application_reviews WHERE id=$1',[legacy.id])).rows;
+  }
+  return rawQuery(sql,params);
+ }) as typeof originalQuery;
  assert.equal(await backfillSecurityRetryCooldowns(),1);
+ pool.query=originalQuery;
+ assert.equal(injectEdit,false,'the test raced a real saved-letter edit with cooldown initialization');
  const recovered=await query<{security_retry_after:Date}>('SELECT security_retry_after FROM application_reviews WHERE id=$1',[legacy.id]);
  assert.equal(+recovered[0].security_retry_after,+oldAt+SECURITY_RETRY_DELAY_MS,'existing failures use their actual event time');
  assert.equal(await backfillSecurityRetryCooldowns(),0,'backfill is idempotent');
- assert.deepEqual(await query('SELECT status,detail,payload,credit_consumed,updated_at FROM application_reviews WHERE id=$1',[legacy.id]),before,'initialization preserves approval, document, credit and audit fields');
+ assert.deepEqual(await query('SELECT status,detail,payload,credit_consumed,updated_at FROM application_reviews WHERE id=$1',[legacy.id]),afterConcurrentEdit,'initialization preserves concurrent letter edits, approval, credit and audit fields');
  console.log('PASS security retry: eight-hour persistence, direct/concurrent API denial, owner isolation, real admin exemption, non-security recovery, unchanged deadline on edits/imports, expiry single claim, applied clearing and idempotent historical initialization. Synthetic local PostgreSQL only.');
 }finally{
+ pool.query=originalQuery;
  await pool.end();if(created)await control.query(`DROP SCHEMA ${schema} CASCADE`);await control.end();
  if(previousAdmins===undefined)delete process.env.ADMIN_EMAILS;else process.env.ADMIN_EMAILS=previousAdmins;
 }

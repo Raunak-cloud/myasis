@@ -12,7 +12,8 @@ Ordinary form, credential, mailbox and provider failures do not receive this sec
 The original recorded failure time determines the deadline. Reimports and document edits do not
 extend it. Additive migration initializes existing failed reviews from their matching run event,
 falling back to the recorded failure update time for legacy rows without an event. It preserves
-existing outcome, approval, document, credit and audit fields, and uses an exact timestamp CAS.
+existing outcome, approval, document, credit and audit fields. Its outcome check also preserves
+concurrent letter edits while initializing the independent failure deadline.
 
 The customer sees a disabled countdown and a full local date/time. Browser/server clock offset is
 refreshed from the reviews API; the server remains authoritative. The shared customer component
