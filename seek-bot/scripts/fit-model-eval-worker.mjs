@@ -22,7 +22,10 @@ assert.equal(original.split(needle).length, 2, 'Only the fitter model selection 
 const models = ['celeris-1', 'celeris-1-magnus'];
 const fitters = {};
 for (const model of models) {
-  const source = model === 'celeris-1' ? original.replace(needle, "const model = 'celeris-1';") : original;
+  // Evaluation copies use the raw transport so the requested comparison model
+  // is honored without weakening the production Magnus-only review route.
+  const base = "import { celerisChat } from './agent/celeris.js';\n" + original.replace("role === 'job-review' ? reviewChat", "role === 'job-review' ? celerisChat");
+  const source = model === 'celeris-1' ? base.replace(needle, "const model = 'celeris-1';") : base;
   const path = resolve(dist, `.fit-eval-${shard}-${model}.js`);
   writeFileSync(path, source, { mode: 0o600 });
   fitters[model] = (await import(pathToFileURL(path).href)).assessFit;

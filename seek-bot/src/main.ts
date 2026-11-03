@@ -7,7 +7,7 @@ import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
 import { applyToEmployerJob } from './agent/apply-employer-job.js';
 import { withApplicationAllowance } from './application-allowance.js';
 import { applicationFailureContext } from './application-diagnostics.js';
-import { applicationModelAvailable, applicationAgentIdentity, assertApplicationBrowserConfigured } from './application-model.js';
+import { reviewModelAvailable, assertReviewModelConfigured, applicationAgentIdentity, assertApplicationBrowserConfigured } from './application-model.js';
 import { applicationWorkerPage } from './application-worker-page.js';
 import { ApplicationSlots, AsyncMutex, nextApplicationCandidate, withApplicationWorker } from './application-workers.js';
 import { applyToIndeedJob } from './apply-indeed.js';
@@ -145,6 +145,7 @@ async function main() {
   if (!directExternalUrl && !config.keywords.length && !config.targetRole) throw new Error('Set your job search terms or target role before running.');
   console.log(`Profile: ${profile.name} · ${profile.suburb ?? ''} · relocate=${profile.willingToRelocate}`);
 
+  assertReviewModelConfigured();
   if (!searchOnly) assertApplicationBrowserConfigured();
   if (config.coverLetter.mode === 'reuse' && !config.coverLetter.reusableText) {
     throw new Error('Cover-letter mode is set to reuse, but no reusable cover letter was provided.');
@@ -158,7 +159,7 @@ async function main() {
   console.log(
     `Cover letters: ${config.coverLetter.mode === 'reuse' ? 'reuse the provided letter' : 'AI-tailored for every job'}`,
   );
-  if (!applicationModelAvailable()) {
+  if (!reviewModelAvailable()) {
     console.warn(
       '\n⚠  Matching service unavailable — using keyword scoring only, with no stack-fit check.\n' +
         '   Scoring alone is lenient: it rates .NET/Dynamics roles highly off generic\n' +
@@ -273,7 +274,7 @@ async function main() {
     /** Keep enough backups for unavailable/already-applied listings. */
     const candidateCap = Math.max(12, config.limits.maxApplicationsPerRun * 3);
     const discoveryTarget = calculateDiscoveryTarget(config.limits.maxEvaluations, candidateCap);
-    let rankingAvailable = applicationModelAvailable();
+    let rankingAvailable = reviewModelAvailable();
     const priorRejections = new Set<string>();
     const listingKey = (job: JobListing) => `${job.platform ?? 'seek'}:${job.id}`;
 
@@ -971,7 +972,7 @@ async function main() {
             : null;
           const fitPromise = chosenFit
             ? Promise.resolve({ fit: chosenFit })
-            : applicationModelAvailable()
+            : reviewModelAvailable()
             ? assessFit(job, profile).then(
                 (fit) => ({ fit }),
                 (error) => ({ error: (error as Error).message }),

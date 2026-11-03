@@ -13,7 +13,7 @@ import { browserRunEnvironment } from './browser-run-policy.js';
 import { browserBenchmarkInProgress } from './browser-benchmark-lock.js';
 import { applicationWorkerEnvironment } from './application-worker-policy.js';
 import { loadUserSettings } from './settings.js';
-import { isApplicationModel, applicationModelLabel } from '../../seek-bot/src/application-model-catalog.js';
+import { applicationModelLabel } from '../../seek-bot/src/application-model-catalog.js';
 import { applicationModelForAccount } from './application-model-policy.js';
 import { applicationAgentModeForAccount, applicationScreenshotsForAccount } from './application-agent-policy.js';
 import { accountUnavailable, AccountDeletionError } from './account-lifecycle.js';
@@ -43,26 +43,24 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
   const serverEnv = { ...readEnv(), ...process.env };
   const admin = isAdmin(owner.email);
   const selectedSettings = settings ?? await loadUserSettings(userId);
-  let selected = applicationModelForAccount(selectedSettings.APPLICATION_AI_MODEL, admin);
+  const selected = applicationModelForAccount(selectedSettings.APPLICATION_AI_MODEL, admin);
   if (runStartId && selectedSettings.ADMIN_APPLICATION_MODEL) {
     const operators = await query<{ email: string }>(
       `SELECT actor.email FROM run_starts run JOIN users actor ON actor.id=run.started_by
        WHERE run.id=$1 AND run.user_id=$2 AND run.trigger='admin' AND actor.blocked_at IS NULL`, [runStartId,userId]);
-    if (!isAdmin(operators[0]?.email) || !isApplicationModel(selectedSettings.ADMIN_APPLICATION_MODEL)) throw new Error('This run has no valid administrator model authorization.');
-    selected = selectedSettings.ADMIN_APPLICATION_MODEL;
+    if (!isAdmin(operators[0]?.email) || selectedSettings.ADMIN_APPLICATION_MODEL !== 'minimax') throw new Error('This run has no valid administrator model authorization.');
   }
   const agentMode = applicationAgentModeForAccount(selectedSettings.APPLICATION_AGENT_MODE, admin);
-  if (selected === 'celeris' && !serverEnv.CELERIS_API_KEY?.trim()) throw new Error('Celeris is not configured. Add CELERIS_API_KEY in Admin settings before starting a run.');
-  if (selected !== 'celeris' && !serverEnv.OPENROUTER_API_KEY?.trim()) throw new Error(`${applicationModelLabel(selected)} is not configured. Add OPENROUTER_API_KEY in Admin settings before starting a run.`);
+  if (!serverEnv.CELERIS_API_KEY?.trim()) throw new Error('Magnus job review is not configured. Add CELERIS_API_KEY in Admin settings before starting a run.');
+  if (!serverEnv.OPENROUTER_API_KEY?.trim()) throw new Error(`${applicationModelLabel(selected)} is not configured. Add OPENROUTER_API_KEY in Admin settings before starting a run.`);
   const queuePolicy = Object.fromEntries(['CELERIS_WORKSPACE_ID', 'CELERIS_QUEUE_FILE', 'CELERIS_MAX_CONCURRENT_REQUESTS', 'CELERIS_MIN_INTERVAL_MS']
     .flatMap(key => serverEnv[key]?.trim() ? [[key, serverEnv[key]!]] : []));
   return { ...queuePolicy, DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
     APPLICATION_AGENT_MODE: agentMode,
     APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: applicationScreenshotsForAccount(selectedSettings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, admin, selected),
-    CELERIS_API_KEY: selected === 'celeris' ? serverEnv.CELERIS_API_KEY! : '',
-    // Explicitly blank the unselected credential: the worker loads .env with
-    // dotenv, which otherwise restores a key omitted from its inherited env.
-    OPENROUTER_API_KEY: selected !== 'celeris' ? serverEnv.OPENROUTER_API_KEY! : '' };
+    // Both stages need their server-owned key; never accept a client key.
+    CELERIS_API_KEY: serverEnv.CELERIS_API_KEY!,
+    OPENROUTER_API_KEY: serverEnv.OPENROUTER_API_KEY! };
 }
 
 /** Retired experiment settings and credentials never reach a new worker. */
@@ -466,7 +464,7 @@ class Run {
     if (emailOnly) this.push('sys', '  Sending your confirmed email applications.');
     else {
       this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
-      this.push('sys', `  application AI: ${applicationModelLabel(env.APPLICATION_AI_MODEL)}`);
+      this.push('sys', `  job review: Celeris Magnus · applying/supervision: ${applicationModelLabel(env.APPLICATION_AI_MODEL)}`);
       this.push('sys', '  application decisions: Agent-only');
     }
     const shown = Object.entries(overrides)
@@ -554,7 +552,7 @@ class Run {
       COST_TRACKING: 'true',
     };
     this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
-    this.push('sys', `  application AI: ${applicationModelLabel(env.APPLICATION_AI_MODEL)}`);
+    this.push('sys', `  job review: Celeris Magnus · applying/supervision: ${applicationModelLabel(env.APPLICATION_AI_MODEL)}`);
     this.push('sys', '  application decisions: Agent-only');
     // Set only once the scan is really starting: a refused start must not overwrite the record of one in flight.
     this.runStartId = runStartId ?? null;

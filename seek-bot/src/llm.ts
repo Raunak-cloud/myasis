@@ -1,6 +1,6 @@
 import { config, expectedSalaryAnswer } from './config.js';
 import { CostMeter, ReplyUnusableError, type CelerisModel, type ChatMessage } from './agent/celeris.js';
-import { applicationChat } from './agent/application-chat.js';
+import { applicationChat, reviewChat, rankingChat } from './agent/application-chat.js';
 import type { CandidateProfile, JobListing } from './types.js';
 import { cachedAssessment, relevantEvidence, selectedEvidencePassages, measured, metric } from './pipeline.js';
 import { FIT_ASSESSMENT_VERSION, FIT_CLASSIFIER_MODEL } from './model-versions.js';
@@ -130,11 +130,7 @@ function profileBlock(p: CandidateProfile): string {
     .join('\n');
 }
 
-/**
- * Cover-letter prose is written by Celeris Magnus, like everything else here.
- * Gemini wrote the letters until October 2026; its monthly cap refused
- * mid-application on 28 September and the fallback to Magnus became the rule.
- */
+/** Application writing uses the same MiniMax route as the applying agent. */
 async function letterJson<T>(prompt: string, schema: object, effort?: 'medium'): Promise<T> {
   return json<T>(prompt, schema, 'celeris-1-magnus', undefined, effort);
 }
@@ -148,6 +144,7 @@ async function json<T>(
   deadline?: number,
   meter: CostMeter = llmMeter,
   trustedInstructions?: string,
+  role: 'application' | 'job-review' | 'ranking' = 'application',
 ): Promise<T> {
   const messages: ChatMessage[] = [
     ...(trustedInstructions ? [{ role: 'system' as const, content: trustedInstructions }] : []),
@@ -165,7 +162,7 @@ async function json<T>(
     thinking: model === 'celeris-1-magnus',
     meter,
   };
-  const reply = await applicationChat(request);
+  const reply = await (role === 'job-review' ? reviewChat : role === 'ranking' ? rankingChat : applicationChat)(request);
   if (!reply.text) throw new ReplyUnusableError('Model returned an empty structured response');
   return JSON.parse(reply.text) as T;
 }
@@ -536,7 +533,7 @@ priority does not reject the job. Return JSON.`;
   const result = await cachedAssessment(
     { version: 'review-ranking-v1', prompt, schema, model: 'celeris-1', endpoint: config.celeris.baseUrl },
     () => measured('review-ranking', () =>
-      json<{ jobs: ReviewPriority[] }>(prompt, schema, 'celeris-1', 200 + batch.length * RANKING_TOKENS_PER_JOB)),
+      json<{ jobs: ReviewPriority[] }>(prompt, schema, 'celeris-1', 200 + batch.length * RANKING_TOKENS_PER_JOB, undefined, undefined, llmMeter, undefined, 'ranking')),
     value => {
       const ids = new Set(batch.map(reviewKey));
       return ids.size === batch.length && Array.isArray(value?.jobs) && value.jobs.length === batch.length
@@ -848,7 +845,7 @@ Return JSON.`;
       return { result: resolved.error ? null : normalizeFitAssessment(resolved.value, provenanceSources),
         error: resolved.error ?? fitAssessmentValidationError(resolved.value, provenanceSources) };
     };
-    let raw = await measured('fit', () => json<unknown>(prompt, schema, model, undefined, 'medium', undefined, llmMeter, trustedInstructions));
+    let raw = await measured('fit', () => json<unknown>(prompt, schema, model, undefined, 'medium', undefined, llmMeter, trustedInstructions, 'job-review'));
     let { result, error } = validateWire(raw);
     if (!result) {
       metric('fit-contract-invalid', 0, { jobId: job.id, attempt: 1, model, error });
@@ -858,7 +855,7 @@ RESPONSE FORMAT CORRECTION
 The previous output was malformed: ${error}.
 Return a complete assessment in the requested JSON format. You remain responsible for
 the final decision using the original candidate evidence and preferences above.
-<untrusted role="malformed-response">${JSON.stringify(raw).replace(/</g, '\\u003c').slice(0, 6000)}</untrusted>`, schema, model, undefined, 'medium', undefined, llmMeter, trustedInstructions));
+<untrusted role="malformed-response">${JSON.stringify(raw).replace(/</g, '\\u003c').slice(0, 6000)}</untrusted>`, schema, model, undefined, 'medium', undefined, llmMeter, trustedInstructions, 'job-review'));
       ({ result, error } = validateWire(raw));
     }
     if (!result) {

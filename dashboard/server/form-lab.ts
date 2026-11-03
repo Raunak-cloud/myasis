@@ -68,7 +68,8 @@ async function sendCode(entry:Entry,message:{to:string;subject:string;text:strin
 async function execute(entry:Entry){
  let desktop:SigninDesktop|undefined,transport:any,lease:Awaited<ReturnType<typeof gmailRunConnection>>|undefined;
  try{
-  const env=await accountApplicationEnvironment(entry.meta.owner,{APPLICATION_AI_MODEL:entry.meta.model});
+  // Isolated fictional form comparisons are the sole explicit provider override.
+  const env={...await accountApplicationEnvironment(entry.meta.owner),APPLICATION_AI_MODEL:entry.meta.model};
   if(entry.stopped)throw Error('Test cancelled.');
   if(entry.lab.definition.account){
    const access=await gmailAccess(entry.meta.owner);if(!access.connected||access.account!==entry.meta.email)throw Error('Reconnect the admin Gmail account before this test.');

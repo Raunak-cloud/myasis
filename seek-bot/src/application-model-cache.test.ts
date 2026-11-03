@@ -36,6 +36,16 @@ try {
     assert.equal((await cachedAssessment(current, compute, accept)).computation, 2);
   });
 
+  await withApplicationModel(owners[0], async () => {
+    let calls=0;
+    const input={version:'stage-independent-review'};
+    const first=await cachedAssessment(input,async()=>({ok:true,computation:++calls}),accept);
+    await withApplicationModel({...owners[0],APPLICATION_AI_MODEL:'minimax'},async()=>{
+      const next=await cachedAssessment(input,async()=>({ok:true,computation:++calls}),accept);
+      assert.deepEqual(next,first,'applying settings cannot change the Magnus review cache identity');
+    });
+    assert.equal(calls,1);
+  });
   let started = 0;
   const releases: Array<() => void> = [];
   const compute = () => new Promise<{ ok: boolean; computation: number }>(done => {

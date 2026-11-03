@@ -1,3 +1,4 @@
+import { fixtureToolArguments } from './agent/specialist-fixture.js';
 import { createReadinessFixtureReply } from './agent/readiness-fixture.js';
 const readinessFixtureReply = createReadinessFixtureReply();
 import assert from 'node:assert/strict';
@@ -13,6 +14,8 @@ import { nextApplicationCandidate } from './application-workers.js';
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-application-review-'));
 process.env.DATA_DIR = directory;
 process.env.CELERIS_API_KEY = 'fixture-only';
+process.env.OPENROUTER_API_KEY = 'fixture-only';
+process.env.APPLICATION_AI_MODEL = 'minimax';
 process.env.COST_TRACKING = 'false';
 process.env.RESUME_SELECT = '';
 process.env.FORM_CORPUS_DIR = join(directory, 'form-corpus');
@@ -94,11 +97,12 @@ try {
   const savedLetterProgressNote = 'Retain the actual inspected saved-review letter without rewriting it.';
   globalThis.fetch = (async (_url, init) => {
     const body = JSON.parse(String(init?.body));
+    assert.equal(body.model, 'minimax/minimax-m3.1-flash', 'the real application loop uses MiniMax');
     const reviewReply = readinessFixtureReply(body); if (reviewReply) return reviewReply;
     if (!body.tools?.length) return Response.json({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ sends_application: true }) } }] });
     const call = calls.shift() ?? { name: 'finish', args: { status: 'skipped', reason: 'Fixture complete', evidence: 'Fixture only' } };
     return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: `call-${++turn}`, type: 'function',
-      function: { name: call.name, arguments: JSON.stringify(call.args) } }] } }] });
+      function: { name: call.name, arguments: fixtureToolArguments(body,call.name,call.args) } }] } }] });
   }) as typeof fetch;
   const result = await runAgentOnlyApplication({ page, job, profile, log: () => {} });
   assert.equal(result.outcome.status, 'prepared', 'the actual agent returns a filled application for review');
@@ -178,12 +182,13 @@ try {
   });
   globalThis.fetch = (async (_url, init) => {
     const body = JSON.parse(String(init?.body));
+    assert.equal(body.model, 'minimax/minimax-m3.1-flash', 'the real application loop uses MiniMax');
     const reviewReply = readinessFixtureReply(body); if (reviewReply) return reviewReply;
     assert.ok(body.tools?.length, 'the applying agent owns send intent without an independent classifier');
     const call = calls.shift();
     if (call?.name === 'save_progress' && call.args.note === savedLetterProgressNote) {
       const inspectedCall = body.messages.flatMap((message: any) => message.role === 'assistant' ? message.tool_calls ?? [] : [])
-        .findLast((item: any) => { let args; try { args = JSON.parse(item.function.arguments); } catch { return false; }
+        .findLast((item: any) => { let args; try { args = JSON.parse(item.function.arguments); if(args.arguments_json) args=JSON.parse(args.arguments_json); } catch { return false; }
           return item.function.name === 'browser_action' && args.action === 'inspect' && args.selector === 'input[type="hidden"][name="letter"]'; });
       assert.ok(inspectedCall, 'the saved review letter must first be inspected through the real browser tool');
       const actualReadback = body.messages.findLast((message: any) => message.role === 'tool' && message.tool_call_id === inspectedCall.id);
@@ -208,7 +213,7 @@ try {
     // A stale plan may repeat Apply before noticing its popup. The handoff
     // must cancel that second click and require a fresh form observation.
     const plan = call.args.selector === '#entry' && /\/jobs\/[135]$/.test(page.url()) ? [call, call] : [call];
-    return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: plan.map(item => ({ id: `e2e-${++turn}`, type: 'function', function: { name: item.name, arguments: JSON.stringify(item.args) } })) } }] });
+    return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: plan.map(item => ({ id: `e2e-${++turn}`, type: 'function', function: { name: item.name, arguments: fixtureToolArguments(body,item.name,item.args) } })) } }] });
   }) as typeof fetch;
   const authoredLetter = 'Dear employer,\n\nI am interested in this developer role — I build reliable software.\n\nFixture Applicant';
   const letter = cleanCoverLetter(authoredLetter);

@@ -1,4 +1,3 @@
-import { isApplicationModel } from '../../seek-bot/src/application-model-catalog.js';
 import { EMPLOYER_SOURCE_DEFAULTS } from '../../seek-bot/src/employer-source-config.js';
 import { query } from './db/index.js';
 import { upsertSettingRow } from './db/records.js';
@@ -86,7 +85,7 @@ function normalizeSetting(key: string, value: string): string {
  * silently discard jobs the account never chose to exclude.
  */
 export const RUN_SETTING_DEFAULTS: Record<string, string> = {
-  APPLICATION_AI_MODEL: 'celeris',
+  APPLICATION_AI_MODEL: 'minimax',
   APPLICATION_AGENT_MODE: 'agent-only',
   APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'true',
   KEYWORDS: '',
@@ -158,7 +157,7 @@ export async function loadUserSettings(userId: string): Promise<Record<string, s
   // the only place they can be waived for an operator of this installation.
   for (const row of rows) {
     if (row.key === 'PAGES_PER_KEYWORD') continue; // Retired; old saved values have no effect.
-    if (row.key === 'APPLICATION_AI_MODEL') out[row.key] = isApplicationModel(row.value) ? row.value : 'celeris';
+    if (row.key === 'APPLICATION_AI_MODEL') out[row.key] = 'minimax';
     else if (row.key === 'APPLICATION_AGENT_MODE') out[row.key] = 'agent-only';
     else if (row.key === 'APPLICATION_AGENT_MODE_AUTHORIZED') continue;
     else if (!row.key.startsWith('APPLICATION_AI_')) out[row.key] = row.value;

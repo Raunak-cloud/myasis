@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { config } from './config.js';
-import { applicationModelIdentity } from './application-model.js';
+import { reviewModelIdentity } from './application-model.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 import { FIT_ASSESSMENT_VERSION, FIT_CLASSIFIER_MODEL } from './model-versions.js';
 import { loadReviewVerdicts, verdictContext } from './review-verdicts.js';
@@ -94,7 +94,7 @@ export function reviewContextFingerprint(profile: CandidateProfile): string {
     minScore: config.rules.minScore,
     model: FIT_CLASSIFIER_MODEL,
     endpoint: config.celeris.baseUrl,
-    applicationModel: applicationModelIdentity(),
+    applicationModel: reviewModelIdentity(),
   });
 }
 

@@ -9,7 +9,7 @@ import { cases } from './fit-model-cases.mjs';
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-fit-model-contract-'));
 Object.assign(process.env, { DATA_DIR: directory, APPLICATION_AI_MODEL: 'celeris', CELERIS_API_KEY: 'fixture-only', COST_TRACKING: 'false', DRY_RUN: 'true' });
 const dist = resolve(import.meta.dirname, '../dist');
-const source = readFileSync(resolve(dist, 'llm.js'), 'utf8'), needle = 'const model = FIT_CLASSIFIER_MODEL;';
+const source = "import { celerisChat } from './agent/celeris.js';\n" + readFileSync(resolve(dist, 'llm.js'), 'utf8').replace("role === 'job-review' ? reviewChat", "role === 'job-review' ? celerisChat"), needle = 'const model = FIT_CLASSIFIER_MODEL;';
 assert.equal(source.split(needle).length, 2);
 const paths = [], wire = [], originalFetch = globalThis.fetch;
 try {

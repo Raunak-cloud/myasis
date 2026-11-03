@@ -24,107 +24,39 @@ test('worker environment excludes retired controls and unknown credentials witho
   assert.deepEqual(input, before);
 });
 
-test('MiniMax credentials are added only after rechecking the admin owner and selected model', async () => {
+test('new manual, scheduled and admin workers receive both stage credentials from the server only', async () => {
   const originalQuery = pool.query;
-  const names = ['CELERIS_API_KEY', 'OPENROUTER_API_KEY', 'ADMIN_EMAILS'] as const;
-  const previous = Object.fromEntries(names.map(name => [name, process.env[name]]));
-  Object.assign(process.env, { CELERIS_API_KEY: 'fictional-celeris', OPENROUTER_API_KEY: 'fictional-openrouter', ADMIN_EMAILS: 'admin@fixture.invalid' });
-  pool.query = (async (_sql: string, params: unknown[]) => ({ rows: [{ id: params[0], email: params[0] === 'admin' ? 'admin@fixture.invalid' : 'customer@fixture.invalid' }] })) as typeof originalQuery;
+  const names = ['CELERIS_API_KEY','OPENROUTER_API_KEY','ADMIN_EMAILS'] as const;
+  const prior = Object.fromEntries(names.map(name => [name,process.env[name]]));
+  Object.assign(process.env,{CELERIS_API_KEY:'server-review-key',OPENROUTER_API_KEY:'server-apply-key',ADMIN_EMAILS:'admin@fixture.invalid'});
+  pool.query = (async(sql:string,params:unknown[]) => ({rows: sql.includes('FROM run_starts')
+    ? params[0]==='authorized'?[{email:'admin@fixture.invalid'}]:[]
+    : [{id:params[0],email:params[0]==='admin'?'admin@fixture.invalid':'customer@fixture.invalid'}]})) as typeof originalQuery;
   try {
-    const settings = { APPLICATION_AI_MODEL: 'minimax', OPENROUTER_API_KEY: 'forged-client-key' };
-    const [admin, customer] = await Promise.all(['admin', 'customer'].map(id => accountApplicationEnvironment(id, settings)));
-    assert.equal(admin.APPLICATION_AI_MODEL, 'minimax');
-    assert.equal(admin.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'false');
-    assert.equal(customer.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'true');
-    assert.equal(admin.OPENROUTER_API_KEY, 'fictional-openrouter');
-    assert.equal(admin.CELERIS_API_KEY, '', 'the unselected provider cannot be restored by dotenv');
-    assert.equal(customer.APPLICATION_AI_MODEL, 'celeris');
-    assert.equal(customer.OPENROUTER_API_KEY, '', 'blank explicitly prevents worker dotenv from restoring a machine key');
-    assert.equal((await accountApplicationEnvironment('admin', {})).OPENROUTER_API_KEY, '');
-    const operatorQuery=pool.query;
-    pool.query=(async(sql:string,params:unknown[])=>sql.includes('FROM run_starts')
-      ? {rows:params[0]==='authorized-run'?[{email:'admin@fixture.invalid'}]:[]}
-      : {rows:[{id:params[0],email:params[0]==='admin'?'admin@fixture.invalid':'customer@fixture.invalid'}]}) as typeof originalQuery;
-    const oneTime={...settings,APPLICATION_AI_MODEL:'celeris',ADMIN_APPLICATION_MODEL:'minimax'};
-    assert.equal((await accountApplicationEnvironment('customer',oneTime)).APPLICATION_AI_MODEL,'celeris','an unbound marker cannot override the customer policy');
-    const authorized=await accountApplicationEnvironment('customer',oneTime,'authorized-run');
-    const worker={...applicationRunEnvironment({APPLICATION_AI_MODEL:'celeris',CELERIS_API_KEY:'legacy-process-key'}),...authorized};
-    assert.equal(worker.APPLICATION_AI_MODEL,'minimax','an audited active admin can select a model for this run only');
-    assert.equal(applicationModelLabel(worker.APPLICATION_AI_MODEL),'MiniMax M3.1','the run header uses the effective worker model, not the saved customer default');
-    assert.equal(worker.CELERIS_API_KEY,'','the truthful label does not enable the unselected provider');
-    assert.equal(oneTime.APPLICATION_AI_MODEL,'celeris','one-time execution does not change the saved model snapshot');
-    await assert.rejects(accountApplicationEnvironment('customer',oneTime,'unverified-run'),/no valid administrator/);
-    const defaultWorker=await accountApplicationEnvironment('customer',settings);
-    assert.equal(defaultWorker.APPLICATION_AI_MODEL,'celeris','the customer default remains unchanged');
-    assert.equal(applicationModelLabel(defaultWorker.APPLICATION_AI_MODEL),'Celeris Magnus','an ordinary customer run retains its effective Celeris label');
-    pool.query=operatorQuery;
-    process.env.CELERIS_API_KEY = '';
-    assert.equal((await accountApplicationEnvironment('admin', settings)).APPLICATION_AI_MODEL, 'minimax', 'MiniMax does not depend on the unselected provider credential');
-    process.env.CELERIS_API_KEY = 'fictional-celeris';
-    process.env.OPENROUTER_API_KEY = '';
-    await assert.rejects(accountApplicationEnvironment('admin', settings), /MiniMax M3.1 is not configured/);
+    for (const owner of ['admin','customer']) for (const selected of ['celeris','minimax','retired']) {
+      const settings={APPLICATION_AI_MODEL:selected,CELERIS_API_KEY:'forged-review',OPENROUTER_API_KEY:'forged-apply'};
+      const env=await accountApplicationEnvironment(owner,settings);
+      assert.equal(env.APPLICATION_AI_MODEL,'minimax');
+      assert.equal(env.CELERIS_API_KEY,'server-review-key');
+      assert.equal(env.OPENROUTER_API_KEY,'server-apply-key');
+      assert.equal(env.DATA_DIR,userDir(owner));
+      assert.equal(env.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN,'false');
+      assert.equal(env.APPLICATION_AGENT_MODE,'agent-only');
+      assert.equal(settings.APPLICATION_AI_MODEL,selected,'no saved preference mutation');
+    }
+    await assert.rejects(accountApplicationEnvironment('customer',{ADMIN_APPLICATION_MODEL:'celeris'},'authorized'),/no valid administrator/);
+    await assert.rejects(accountApplicationEnvironment('customer',{ADMIN_APPLICATION_MODEL:'minimax'},'unverified'),/no valid administrator/);
+    assert.equal((await accountApplicationEnvironment('customer',{ADMIN_APPLICATION_MODEL:'minimax'},'authorized')).APPLICATION_AI_MODEL,'minimax');
+    process.env.CELERIS_API_KEY='';
+    await assert.rejects(accountApplicationEnvironment('customer',{}),/Magnus job review is not configured/);
+    process.env.CELERIS_API_KEY='server-review-key';process.env.OPENROUTER_API_KEY='';
+    await assert.rejects(accountApplicationEnvironment('customer',{}),/MiniMax M3.1 is not configured/);
+    await assert.rejects(accountApplicationEnvironment('../customer',{}),/account is not available/);
+    pool.query=(async()=>({rows:[]})) as typeof originalQuery;
+    await assert.rejects(accountApplicationEnvironment('customer',{}),/account is not available/);
   } finally {
-    pool.query = originalQuery;
-    for (const name of names) { if (previous[name] === undefined) delete process.env[name]; else process.env[name] = previous[name]; }
-  }
-});
-
-test('application environment rechecks active ownership and only returns that owner data directory', async () => {
-  const originalQuery = pool.query, originalKey = process.env.CELERIS_API_KEY;
-  let available = true, queries = 0;
-  process.env.CELERIS_API_KEY = 'fixture-only';
-  pool.query = (async (sql: string, params: unknown[]) => {
-    queries++;
-    assert.match(sql, /FROM users WHERE id = \$1 AND blocked_at IS NULL/);
-    assert.deepEqual(params, ['owner-account']);
-    return { rows: available ? [{ id: 'owner-account' }] : [] };
-  }) as typeof originalQuery;
-  try {
-    await assert.rejects(accountApplicationEnvironment('../owner-account'), /account is not available/);
-    assert.equal(queries, 0);
-    assert.deepEqual(await accountApplicationEnvironment('owner-account', {}), { DATA_DIR: userDir('owner-account'), APPLICATION_AI_MODEL: 'celeris', APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'true', CELERIS_API_KEY: 'fixture-only', OPENROUTER_API_KEY: '' });
-    available = false;
-    await assert.rejects(accountApplicationEnvironment('owner-account', {}), /account is not available/);
-    available = true;
-    process.env.CELERIS_API_KEY = '';
-    await assert.rejects(accountApplicationEnvironment('owner-account', {}), /Celeris is not configured/);
-  } finally {
-    pool.query = originalQuery;
-    if (originalKey === undefined) delete process.env.CELERIS_API_KEY; else process.env.CELERIS_API_KEY = originalKey;
-  }
-});
-
-test('runtime always selects Celeris and always uses Agent-only for admins and ordinary accounts', async () => {
-  const originalQuery = pool.query;
-  const names = ['CELERIS_API_KEY', 'ADMIN_EMAILS', 'APPLICATION_AGENT_MODE', 'APPLICATION_AGENT_MODE_AUTHORIZED'] as const;
-  const previous = Object.fromEntries(names.map(name => [name, process.env[name]]));
-  Object.assign(process.env, { CELERIS_API_KEY: 'fictional-celeris', ADMIN_EMAILS: 'admin@fixture.invalid', APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true' });
-  pool.query = (async (_sql: string, params: unknown[]) => ({ rows: [{ id: params[0], email: params[0] === 'admin' ? 'admin@fixture.invalid' : 'customer@fixture.invalid' }] })) as typeof originalQuery;
-  try {
-    const [admin, customer] = await Promise.all(['admin', 'customer'].map(owner => accountApplicationEnvironment(owner, { APPLICATION_AI_MODEL: 'retired', APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true' })));
-    assert.equal(admin.APPLICATION_AI_MODEL, 'celeris');
-    assert.equal(admin.CELERIS_API_KEY, 'fictional-celeris');
-    assert.equal(admin.APPLICATION_AGENT_MODE, 'agent-only');
-    assert.equal(admin.APPLICATION_AGENT_MODE_AUTHORIZED, undefined);
-    assert.equal('HUMANIZER_MODE' in admin, false);
-    assert.equal(customer.APPLICATION_AI_MODEL, 'celeris');
-    assert.equal(customer.CELERIS_API_KEY, 'fictional-celeris');
-    assert.equal(customer.APPLICATION_AGENT_MODE, 'agent-only');
-    assert.equal(customer.APPLICATION_AGENT_MODE_AUTHORIZED, undefined);
-    const defaultAdmin = await accountApplicationEnvironment('admin', {});
-    assert.equal(defaultAdmin.APPLICATION_AGENT_MODE, 'agent-only');
-    assert.equal(defaultAdmin.APPLICATION_AGENT_MODE_AUTHORIZED, undefined);
-    const enabled = { APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'true' };
-    assert.equal((await accountApplicationEnvironment('admin', enabled)).APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'true');
-    assert.equal((await accountApplicationEnvironment('customer', enabled)).APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'true');
-    const disabled = { APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'false' };
-    assert.equal((await accountApplicationEnvironment('customer', disabled)).APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'true', 'legacy off values cannot disable normal account screenshots');
-    assert.equal((await accountApplicationEnvironment('admin', disabled)).APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'false', 'admins retain an explicit comparison mode');
-    assert.equal(defaultAdmin.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'true');
-    assert.equal(applicationRunEnvironment(enabled).APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, undefined, 'shared environment cannot bypass the account check');
-  } finally {
-    pool.query = originalQuery;
-    for (const name of names) { if (previous[name] === undefined) delete process.env[name]; else process.env[name] = previous[name]; }
+    pool.query=originalQuery;
+    for(const name of names) if(prior[name]===undefined) delete process.env[name];else process.env[name]=prior[name];
   }
 });
 
@@ -142,12 +74,12 @@ test('model selection persists while retired form-review controls stay hidden', 
     return { rows: Object.entries(stored).map(([key, value]) => ({ key, value })) };
   }) as typeof originalQuery;
   try {
-    assert.deepEqual(await loadUserSettings('owner-account'), { APPLICATION_AI_MODEL: 'celeris', APPLICATION_AGENT_MODE: 'agent-only', KEYWORDS: 'retail assistant', PLATFORMS_CHOSEN: '1' });
-    const saved = await saveUserSettings('owner-account', { APPLICATION_AI_MODEL: 'celeris', APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true', KEYWORDS: 'sales assistant' });
-    assert.deepEqual(writes, [['owner-account', 'APPLICATION_AI_MODEL', 'celeris'], ['owner-account', 'APPLICATION_AGENT_MODE', 'agent-only'], ['owner-account', 'KEYWORDS', 'sales assistant']]);
-    assert.equal(saved.APPLICATION_AI_MODEL, 'celeris');
+    assert.deepEqual(await loadUserSettings('owner-account'), { APPLICATION_AI_MODEL: 'minimax', APPLICATION_AGENT_MODE: 'agent-only', KEYWORDS: 'retail assistant', PLATFORMS_CHOSEN: '1' });
+    const saved = await saveUserSettings('owner-account', { APPLICATION_AI_MODEL: 'minimax', APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true', KEYWORDS: 'sales assistant' });
+    assert.deepEqual(writes, [['owner-account', 'APPLICATION_AI_MODEL', 'minimax'], ['owner-account', 'APPLICATION_AGENT_MODE', 'agent-only'], ['owner-account', 'KEYWORDS', 'sales assistant']]);
+    assert.equal(saved.APPLICATION_AI_MODEL, 'minimax');
     assert.equal(saved.PLATFORMS_CHOSEN, '1');
-    assert.equal((await runSettingsForUser('owner-account')).APPLICATION_AI_MODEL, 'celeris');
+    assert.equal((await runSettingsForUser('owner-account')).APPLICATION_AI_MODEL, 'minimax');
     assert.equal((await runSettingsForUser('owner-account')).APPLICATION_AGENT_MODE, 'agent-only');
     assert.equal(saved.APPLICATION_AGENT_MODE_AUTHORIZED, undefined);
     assert.equal(saved.APPLICATION_AI_FORM_REVIEW_MODE, undefined);

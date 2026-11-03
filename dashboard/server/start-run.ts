@@ -1,4 +1,4 @@
-import { isApplicationModel, type ApplicationModel } from '../../seek-bot/src/application-model-catalog.js';
+import { type ApplicationModel } from '../../seek-bot/src/application-model-catalog.js';
 import { EMPLOYER_SOURCES, isEmployerSource } from '../../seek-bot/src/employer-source-config.js';
 import { runner, type RunMode } from './runner.js';
 import { runSettingsSnapshotForUser, USER_SETTABLE_SETTINGS_KEYS, DAILY_APPLICATION_CAP_CHOSEN } from './settings.js';
@@ -198,7 +198,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     const oneTime = request.oneTime;
     if (!oneTime || typeof oneTime !== 'object' || Array.isArray(oneTime)
       || (oneTime.allowMissingSalary !== undefined && typeof oneTime.allowMissingSalary !== 'boolean')
-      || (oneTime.applicationModel !== undefined && !isApplicationModel(oneTime.applicationModel))
+      || (oneTime.applicationModel !== undefined && oneTime.applicationModel !== 'minimax')
       || (oneTime.maxApplications !== undefined && (!Number.isInteger(oneTime.maxApplications) || oneTime.maxApplications < 1 || oneTime.maxApplications > USER_RUN_LIMITS.MAX_APPS_PER_DAY))
       || (oneTime.maxEvaluations !== undefined && (!Number.isInteger(oneTime.maxEvaluations) || oneTime.maxEvaluations < 1 || oneTime.maxEvaluations > 150))) {
       return { ok: false, status: 400, error: `Use 1–${USER_RUN_LIMITS.MAX_APPS_PER_DAY} applications and 1–150 job reviews for a one-time run.` };

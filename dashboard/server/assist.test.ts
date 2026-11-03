@@ -9,10 +9,11 @@ import { EMPTY_PROFILE } from './candidate-profile.js';
 
 test('Dashboard answers stay account-scoped, including concurrent requests, empty banks and database failures', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-answer-isolation-'));
-  const names = ['DATA_DIR', 'CELERIS_API_KEY', 'ADMIN_EMAILS'] as const;
+  const names = ['DATA_DIR', 'CELERIS_API_KEY', 'OPENROUTER_API_KEY', 'ADMIN_EMAILS'] as const;
   const previous = Object.fromEntries(names.map(name => [name, process.env[name]]));
   process.env.DATA_DIR = directory;
   process.env.CELERIS_API_KEY = 'fixture-only';
+  process.env.OPENROUTER_API_KEY = 'fixture-only';
   process.env.ADMIN_EMAILS = 'admin-fixture@example.test';
   const { applicationModelEnvironment } = await import(new URL('../../seek-bot/dist/application-model.js', import.meta.url).href) as typeof import('../../seek-bot/src/application-model.js');
   const sharedAnswer = 'SHARED_WORKER_ANSWER_MUST_NOT_ENTER_DASHBOARD';
@@ -89,9 +90,9 @@ test('Dashboard answers stay account-scoped, including concurrent requests, empt
       for (const answer of answers) assert.equal(prompt.includes(answer), owner === account);
     }
   }
-  assert.match(routedModels.get('Bob') ?? '', /^celeris-1/);
-  assert.match(routedModels.get('Alice') ?? '', /^celeris-1/);
-  assert.match(routedModels.get('Empty') ?? '', /^celeris-1/);
+  assert.match(routedModels.get('Bob') ?? '', /^minimax\//);
+  assert.match(routedModels.get('Alice') ?? '', /^minimax\//);
+  assert.match(routedModels.get('Empty') ?? '', /^minimax\//);
   assert.equal(process.env.DATA_DIR, directory, 'concurrent dashboard accounts never mutate the global data directory');
 
   banks.Alice = ['ALICE_UPDATED_ANSWER'];
@@ -102,5 +103,5 @@ test('Dashboard answers stay account-scoped, including concurrent requests, empt
   assert.match(failed.error ?? '', /Fixture answer-bank failure/);
   assert.equal(prompts.length, callsBeforeFailure, 'database failure must not fall back to another bank');
 
-  assert.ok([...routedModels.values()].every(value => value === 'celeris-1-magnus'), 'extension suggestions use Magnus directly without the retired form engine');
+  assert.ok([...routedModels.values()].every(value => value === 'minimax/minimax-m3.1-flash'), 'extension suggestions use the same MiniMax application route as the browser agent');
 });

@@ -8,7 +8,7 @@ const directory = mkdtempSync(join(tmpdir(), 'owtomate-fit-intent-'));
 Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', COST_TRACKING: 'false' });
 const { config } = await import('./config.js');
 const { assessFit, normalizeFitAssessment } = await import('./llm.js');
-const { withApplicationModel, applicationModelIdentity, MINIMAX_APPLICATION_MODEL } = await import('./application-model.js');
+const { withApplicationModel } = await import('./application-model.js');
 const originalFetch = globalThis.fetch;
 const bounded = 'Seek data analytics, business intelligence and data governance work, including combined Business & Data Analyst roles whose primary outputs are data products. Keep this current career direction.';
 const oldLetter = 'I am interested in Business Analysis and broad business transformation opportunities.';
@@ -48,9 +48,8 @@ function roleForCurrentCase(): RoleFitCheck & { currentIntent: CurrentOccupation
 globalThis.fetch = async (url, init) => {
   calls++;
   const body = JSON.parse(String(init?.body));
-  const minimax = applicationModelIdentity().selection === 'minimax';
-  assert.equal(body.model, minimax ? MINIMAX_APPLICATION_MODEL : 'celeris-1-magnus');
-  assert.equal(String(url).includes('openrouter.ai'), minimax, 'no provider fallback or extra matching provider');
+  assert.equal(body.model, 'celeris-1-magnus');
+  assert.equal(String(url).includes('openrouter.ai'), false, 'fit always uses Magnus independently of the applying selection');
   const prompt = body.messages.find((message: { role: string }) => message.role === 'user').content;
   assert.match(body.messages[0].content, /sole matching decision maker/);
   assert.match(prompt, /Current bounded intent governs over an older or broader/);

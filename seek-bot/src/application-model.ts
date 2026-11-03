@@ -16,7 +16,9 @@ export function withApplicationModel<T>(env: ApplicationEnvironment, work: () =>
 /** Stable provider identity also separates established caches from retired
  * experiments without deleting account history. */
 export function applicationModelIdentity(env: ApplicationEnvironment = applicationModelEnvironment()) {
-  const selection = env.APPLICATION_AI_MODEL;
+  // Explicit Celeris remains available to isolated form-lab comparisons.
+  // Customer worker environments are pinned to MiniMax by the server policy.
+  const selection = env.APPLICATION_AI_MODEL === 'celeris' ? 'celeris' : 'minimax';
   return selection === 'minimax'
     ? { selection, model: OPENROUTER_APPLICATION_MODELS[selection].model, protocol: 'openrouter-chat-v1', provider: 'OpenRouter' } as const
     : { selection: 'celeris', model: 'celeris', protocol: 'celeris-chat-v1', provider: 'Celeris' } as const;
@@ -41,5 +43,17 @@ export function applicationAgentIdentity(env: ApplicationEnvironment = applicati
 }
 
 export function assertApplicationBrowserConfigured(env: ApplicationEnvironment = applicationModelEnvironment()): void {
+  assertReviewModelConfigured(env);
   assertApplicationModelConfigured(env);
+}
+
+/** Suitability and fit scores have their own model and cache identity. */
+export function reviewModelIdentity() {
+  return { role: 'job-review', model: 'celeris-1-magnus', protocol: 'celeris-chat-v1', provider: 'Celeris' } as const;
+}
+export function reviewModelAvailable(env: ApplicationEnvironment = applicationModelEnvironment()): boolean {
+  return Boolean(env.CELERIS_API_KEY?.trim());
+}
+export function assertReviewModelConfigured(env: ApplicationEnvironment = applicationModelEnvironment()): void {
+  if (!reviewModelAvailable(env)) throw new Error('CELERIS_API_KEY is required for Magnus job review.');
 }
