@@ -49,11 +49,15 @@ try {
   assert.ok(wire.some(row=>row.stage==='supervisor')); report.passed=true;
 } finally {
   globalThis.fetch=original; closeCelerisQueues(); report.finishedAt=new Date().toISOString(); report.elapsedMs=Date.now()-started;
-  const ledger=readFileSync(join(dir,'cost-ledger.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
-  const model=ledger.filter(row=>['Celeris','OpenRouter'].includes(row.provider));
-  report.costUsd=model.reduce((sum,row)=>sum+(row.amountUsd??0),0);
-  report.unknownModelCharges=model.filter(row=>row.amountUsd===null).length;
-  report.infrastructureEntries=ledger.length-model.length;
-  writeFileSync(resolve(process.env.STAGE_MODEL_SMOKE_OUTPUT??join(dir,'report.json')),JSON.stringify(report,null,2),{mode:0o600});
-  console.log(JSON.stringify(report));
+  // Registered after the ordinary ledger exit hook, including infrastructure.
+  process.once('exit',()=>{
+    const ledger=readFileSync(join(dir,'cost-ledger.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
+    const usage=ledger.filter(row=>row.kind==='usage');
+    const model=usage.filter(row=>['Celeris','OpenRouter'].includes(row.provider));
+    report.costUsd=model.reduce((sum,row)=>sum+(row.amountUsd??0),0);
+    report.unknownModelCharges=model.filter(row=>row.amountUsd===null).length;
+    report.infrastructureEntries=usage.length-model.length;
+    writeFileSync(resolve(process.env.STAGE_MODEL_SMOKE_OUTPUT??join(dir,'report.json')),JSON.stringify(report,null,2),{mode:0o600});
+    console.log(JSON.stringify(report));
+  });
 }
