@@ -4,7 +4,6 @@ import { accountApplicationEnvironment, applicationRunEnvironment } from './runn
 import { getPool } from './db/index.js';
 import { loadUserSettings, runSettingsForUser, saveUserSettings } from './settings.js';
 import { userDir } from './userdata.js';
-import { applicationModelLabel } from '../../seek-bot/src/application-model-catalog.js';
 
 const pool = getPool();
 after(async () => { await pool.end(); });
@@ -52,7 +51,7 @@ test('new manual, scheduled and admin workers receive both stage credentials fro
     process.env.CELERIS_API_KEY='server-review-key';process.env.OPENROUTER_API_KEY='';
     await assert.rejects(accountApplicationEnvironment('customer',{}),/MiniMax M3.1 is not configured/);
     await assert.rejects(accountApplicationEnvironment('../customer',{}),/account is not available/);
-    pool.query=(async()=>({rows:[]})) as typeof originalQuery;
+    pool.query=(async()=>({rows:[]})) as unknown as typeof originalQuery;
     await assert.rejects(accountApplicationEnvironment('customer',{}),/account is not available/);
   } finally {
     pool.query=originalQuery;
