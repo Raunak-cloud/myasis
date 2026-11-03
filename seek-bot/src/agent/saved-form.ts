@@ -1,4 +1,4 @@
-import type { Page } from 'patchright';
+import type { Page, Locator } from 'patchright';
 import { browserDeadline, assertBrowserOperationActive } from '../browser-deadline.js';
 import { extractFields } from '../dom.js';
 import type { FormField } from '../types.js';
@@ -21,6 +21,20 @@ export interface SavedForm {
 
 export async function readSavedForm(page: Page): Promise<SavedForm> {
   return browserDeadline('Saved application inspection', 15_000, () => readSavedFormNow(page));
+}
+
+/** Compare only successful hidden controls owned by the chosen send control's
+ * native form. Other hidden data never leaves the browser. */
+export async function savedHiddenCoverLetterMatches(sendControl: Locator, expected: string): Promise<boolean> {
+  if (!expected.trim()) return false;
+  return browserDeadline('Saved letter inspection', 5000, () => sendControl.evaluate((node, body) => {
+    const form = (node as HTMLButtonElement).form ?? node.closest('form');
+    if (!form) return false;
+    const normal = (text: string) => text.replace(/\s+/g, ' ').trim();
+    return [...form.elements].some(control => control instanceof HTMLInputElement && control.type === 'hidden'
+      && control.name.trim() && !control.matches(':disabled') && !control.hasAttribute('data-owtomate-private-auth')
+      && normal(control.value) === normal(body));
+  }, expected, { timeout: 4000 }));
 }
 
 async function readSavedFormNow(page: Page): Promise<SavedForm> {

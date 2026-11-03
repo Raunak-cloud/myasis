@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createHash} from 'node:crypto';
@@ -21,7 +21,7 @@ test('approved letter renders and uploads byte-exact without model transcription
  const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
  try{
   const page=await browser.newPage();await page.route('**/*',route=>new URL(route.request().url()).hostname.endsWith('.invalid')?route.fulfill({contentType:'text/html',body:'<main><h1>Fictional Analyst</h1><label>Cover letter<input id=letter type=file onchange="const file=this.files[0];file.text().then(text=>{document.querySelector(\'#received\').textContent=text;document.querySelector(\'#uploaded\').textContent=file.name;this.value=\'\';})"></label><p id=uploaded></p><pre id=received hidden></pre><button id=send onclick="window.sent=true">Submit</button></main>'}):route.abort());await page.goto(job.url);
-  let turn=0;
+  let turn=0,renderedFileId='';
   globalThis.fetch=(async(_url,init)=>{
    const body=JSON.parse(String(init?.body));const specialist=specialistFixtureReply(body);if(specialist)return specialist;turn++;
    assert.ok(body.tools.some((t:any)=>t.function.name==='render_approved_cover_letter'));
@@ -33,6 +33,7 @@ test('approved letter renders and uploads byte-exact without model transcription
    }else if(turn===2){
     const rendered=JSON.parse(body.messages.filter((m:any)=>m.role==='tool').at(-1).content);
     assert.match(rendered.file_id,/^generated:/);
+    renderedFileId=rendered.file_id;
     call={name:'browser_action',arguments:JSON.stringify({action:'set_input_files',selector:'#letter',file_ids:[rendered.file_id]})};
    }else{
     assert.equal(turn,3);
@@ -47,49 +48,79 @@ test('approved letter renders and uploads byte-exact without model transcription
   const result=await runAgentOnlyApplication({simulation:'isolated-form',page,job,profile:{name:'Alex Fixture',skills:[]} as never,log:()=>{}});
   assert.equal(turn,3);assert.equal(result.coverLetter,text,'the uploaded canonical letter remains recorded for the approval comparison');assert.equal(result.submitPressed,false);assert.equal(await page.evaluate(()=>(window as any).sent??false),false);
   const {applicationApprovalGate}=await import('../application-review.js');
-  const ctx={page,job,profile:{},observation:{},captured:result.captured,actions:[],log:()=>{},coverLetter:result.coverLetter,resumeUsed:'cv',resumeName:'CV.txt'} as never;
-  assert.equal(await applicationApprovalGate(ctx),null,'an unchanged uploaded approved letter must not become a false changed draft');
+  const gate=async(context:Parameters<typeof applicationApprovalGate>[0])=>{
+   const before=readFileSync(join(dir,'approved-applications.json'),'utf8');
+   const decision=await applicationApprovalGate(context,page.locator('button').first());
+   assert.equal(readFileSync(join(dir,'approved-applications.json'),'utf8'),before,'delivery checks and repairs never rewrite the candidate approval');
+   return decision;
+  };
+  const expectRepair=(decision:Awaited<ReturnType<typeof gate>>)=>{
+   assert.ok(decision?.kind==='ok'&&decision.disposition==='failed','missing or changed delivery requests repair in place and cannot create a new Prepared draft');
+   assert.match(decision.message,/Restore.*approved/);
+   assert.match(decision.message,/job remains approved; do not prepare it again/);
+  };
+  const digest=createHash('sha256').update((await page.locator('#received').textContent())!).digest('hex');
+  const ctx={page,job,profile:{},observation:{},captured:result.captured,actions:[],log:()=>{},coverLetter:result.coverLetter,resumeUsed:'cv',resumeName:'CV.txt',
+   uploadedDocuments:[{fileId:renderedFileId,sha256:digest,coverLetterDigest:digest}]} as never;
+  assert.equal(await gate(ctx),null,'an unchanged uploaded approved letter must not become a false changed draft');
   await page.locator('#uploaded').evaluate(node=>{node.textContent='';});
   await page.locator('#received').evaluate(node=>{node.textContent='';});
-  const missing={...ctx as object,coverLetter:undefined} as never;
-  const missingResult=await applicationApprovalGate(missing);
-  assert.ok(missingResult?.kind==='terminal'&&missingResult.outcome.status==='prepared','missing recorded delivery cannot be supplied from authorization text alone');
-  assert.equal(missingResult.outcome.draft.coverLetter,undefined);
+  assert.equal(await gate({...ctx as object,coverLetter:undefined} as never),null,'completed native upload evidence survives a consumed FileList and absent body metadata');
+  const missing={...ctx as object,coverLetter:undefined,uploadedDocuments:[]} as never;
+  expectRepair(await gate(missing));
+  expectRepair(await gate({...missing as object,coverLetter:text} as never));
+  expectRepair(await gate({...missing as object,uploadedDocuments:[{fileId:renderedFileId,sha256:digest,coverLetterDigest:'wrong-source-digest'}]} as never));
 
   const inlineDraft={...draft,answers:[{question:'Write a cover letter',answer:text}]};
   writeFileSync(join(dir,'approved-applications.json'),JSON.stringify([inlineDraft]));
   await page.setContent('<label>Write a cover letter<textarea id=body></textarea></label><button>Submit</button>');
   await page.locator('#body').fill(text);
   const witness={ref:'letter',label:'Write a cover letter',kind:'textarea' as const,required:false,currentValue:text};
-  const inline={...ctx as any,captured:inlineDraft.answers,coverLetter:undefined,letterWitness:[witness]};
-  assert.equal(await applicationApprovalGate(inline),null,'a matching current typed field proves an explicitly approved letter is present');
+  const inline={...ctx as any,captured:inlineDraft.answers,coverLetter:undefined,uploadedDocuments:[],letterWitness:[witness]};
+  assert.equal(await gate(inline),null,'a matching current typed field proves an explicitly approved letter is present');
   await page.locator('#body').fill('Actually changed browser letter.');
-  const altered=await applicationApprovalGate({...inline,captured:inlineDraft.answers,coverLetter:text});
-  assert.ok(altered?.kind==='terminal'&&altered.outcome.status==='prepared','current changed prose cannot inherit the previous approval');
-  assert.equal(altered.outcome.draft.coverLetter,'Actually changed browser letter.','the new draft records the actual current prose rather than authorization text');
-  assert.equal(altered.outcome.draft.answers[0].answer,'Actually changed browser letter.');
+  const alteredContext={...inline,captured:inlineDraft.answers,coverLetter:text};
+  expectRepair(await gate(alteredContext));
+  assert.equal(alteredContext.coverLetter,'Actually changed browser letter.','fresh current prose overrides stale authorization text');
   await page.locator('#body').fill('');
-  const cleared=await applicationApprovalGate({...inline,captured:inlineDraft.answers,coverLetter:text});
-  assert.ok(cleared?.kind==='terminal'&&cleared.outcome.status==='prepared','an observed empty optional control overrides retained text and old typed evidence');
-  assert.equal(cleared.outcome.draft.coverLetter,undefined);
-  assert.deepEqual(cleared.outcome.draft.answers,[],'fresh empty fields remove the stale captured answer');
+  const clearedContext={...inline,captured:inlineDraft.answers,coverLetter:text};
+  expectRepair(await gate(clearedContext));
+  assert.equal(clearedContext.coverLetter,undefined,'a fresh empty field cannot inherit stale letter text');
 
   const legacy={...inlineDraft,coverLetter:undefined};
   writeFileSync(join(dir,'approved-applications.json'),JSON.stringify([legacy]));
   await page.locator('#body').fill(text);
-  assert.equal(await applicationApprovalGate({...inline,coverLetter:undefined}),null,'a matching current legacy textarea remains reusable');
+  assert.equal(await gate({...inline,coverLetter:undefined}),null,'a matching current legacy textarea remains reusable');
   await page.locator('#body').fill('');
-  const legacyClear=await applicationApprovalGate({...inline,coverLetter:text});
-  assert.ok(legacyClear?.kind==='terminal'&&legacyClear.outcome.status==='prepared','cleared legacy prose cannot be restored from a stale witness');
-  assert.equal(legacyClear.outcome.draft.coverLetter,undefined);
+  expectRepair(await gate({...inline,coverLetter:text}));
   await page.setContent('<p>The next wizard page contains no letter control.</p><button>Submit</button>');
-  assert.equal(await applicationApprovalGate({...inline,coverLetter:text}),null,'an absent wizard step retains an actual previous typed witness without treating absence as deletion');
+  assert.equal(await gate({...inline,coverLetter:text}),null,'an absent wizard step retains an actual previous typed witness without treating absence as deletion');
 
   const optionalDraft={...draft,coverLetter:undefined,answers:[{question:'Additional context',answer:'Previously approved optional note.'}]};
   writeFileSync(join(dir,'approved-applications.json'),JSON.stringify([optionalDraft]));
   await page.setContent('<label>Additional context<input value=""></label><button>Submit</button>');
-  const emptyOptional=await applicationApprovalGate({...ctx as any,captured:optionalDraft.answers,coverLetter:undefined,letterWitness:undefined});
-  assert.ok(emptyOptional?.kind==='terminal'&&emptyOptional.outcome.status==='prepared','fresh blank non-letter fields also invalidate captured prior answers');
-  assert.deepEqual(emptyOptional.outcome.draft.answers,[]);
+  expectRepair(await gate({...ctx as any,captured:optionalDraft.answers,coverLetter:undefined,uploadedDocuments:[],letterWitness:undefined}));
+  writeFileSync(join(dir,'approved-applications.json'),JSON.stringify([draft]));
+  const savedContext={...ctx as any,coverLetter:text,uploadedDocuments:[],letterWitness:undefined};
+  await page.setContent('<form><input type="hidden" name="payload_3"><button>Submit</button></form>');
+  await page.locator('input').evaluate((node,body)=>{(node as HTMLInputElement).value=body;},text);
+  assert.equal(await gate(savedContext),null,'fresh enabled hidden form data can carry the approved letter on a saved review');
+  await page.locator('input').evaluate(node=>{(node as HTMLInputElement).value='';});
+  expectRepair(await gate(savedContext));
+  await page.locator('input').evaluate((node,body)=>{(node as HTMLInputElement).value=body;(node as HTMLInputElement).disabled=true;},text);
+  expectRepair(await gate(savedContext));
+  await page.locator('input').evaluate(node=>{(node as HTMLInputElement).disabled=false;node.setAttribute('data-owtomate-private-auth','password');});
+  expectRepair(await gate(savedContext));
+  await page.locator('input').evaluate(node=>{node.removeAttribute('data-owtomate-private-auth');(node as HTMLInputElement).name='';});
+  expectRepair(await gate(savedContext));
+  await page.setContent('<form><fieldset disabled><input type="hidden" name="payload_3"></fieldset><button>Submit</button></form>');
+  await page.locator('input').evaluate((node,body)=>{(node as HTMLInputElement).value=body;},text);
+  expectRepair(await gate(savedContext));
+  await page.setContent('<form id="unrelated"><input type="hidden" name="payload_3"></form><form><button>Submit</button></form>');
+  await page.locator('input').evaluate((node,body)=>{(node as HTMLInputElement).value=body;},text);
+  expectRepair(await gate(savedContext));
+  await page.setContent('<input type="hidden" name="payload_3"><button>Submit</button>');
+  await page.locator('input').evaluate((node,body)=>{(node as HTMLInputElement).value=body;},text);
+  expectRepair(await gate(savedContext));
  }finally{globalThis.fetch=originalFetch;await browser.close();closeCelerisQueues();keys.forEach((k,i)=>prior[i]===undefined?delete process.env[k]:process.env[k]=prior[i]);rmSync(dir,{recursive:true,force:true});}
 });

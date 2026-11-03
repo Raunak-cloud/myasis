@@ -622,7 +622,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       ctx.coverLetter = attachedLetter ?? observedApprovedCoverLetter(approved, form.fields, ctx.letterWitness ?? []) ?? (typeof args.cover_letter === 'string' ? cleanCoverLetter(args.cover_letter) : ctx.coverLetter);
       ctx.documents = documents;
       ctx.resumeUsed = doc.id; ctx.resumeName = doc.fileName;
-      return (await applicationApprovalGate(ctx)) ?? ok('The filled application matches the version the candidate confirmed. Use its final submit control.');
+      return (await applicationApprovalGate(ctx, control)) ?? ok('The filled application matches the version the candidate confirmed. Use its final submit control.');
     }
     if (name === 'wait_for_submission_result') {
       const before = await ctx.page.locator('body').innerText({ timeout: 2500 });
@@ -794,7 +794,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     }
     if (sendsApplication && readiness.request()) return ok('Before this send, review actual saved answers, documents and vacancy with candidate sources using record_application_review. No send was attempted or queued. Inspect the next observation and choose your current action after review.', 'reobserve');
     if (sendsApplication && reviewingApplications()) {
-      const approval = await applicationApprovalGate(ctx);
+      const approval = await applicationApprovalGate(ctx, hasBrowserTarget(args) && !coordinateClick ? target(ctx, args) : undefined);
       if (approval) return approval;
     }
     if (sendsApplication) {
