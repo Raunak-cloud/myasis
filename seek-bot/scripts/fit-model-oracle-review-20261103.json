@@ -1,0 +1,24 @@
+{
+  "type": "Post-run review by the test author; not independent human adjudication",
+  "originalLabelsAndScoresUnchanged": true,
+  "extraModelRequests": 0,
+  "summary": "Four pre-set expectations are debatable. Treat exact expected-label match rates as descriptive rather than population accuracy. The two clear incorrect approvals and twelve unusable Celeris-1 first-pass assessments do not depend on these disputed cases.",
+  "cases": [
+    {
+      "caseId": "keywords-not-allowlist",
+      "note": "Both models treated stocktaking/pet-walking search terms as a current career direction and rejected software work. The prompt says keywords are not automatically a strict allowlist, but it also says not to broaden current career direction. The original apply expectation is debatable without clearer candidate intent."
+    },
+    {
+      "caseId": "empty-description",
+      "note": "Magnus explicitly detected the fictional employer name and reserved fixture.invalid URL as test-posting indicators. Its skip decision reflects fixture metadata as well as missing duties. This is a fixture artifact, not a clean measurement of uncertainty handling."
+    },
+    {
+      "caseId": "marketing-no-duties",
+      "note": "The description does not establish an identifiable current vacancy. Skipping a placeholder and requesting clarification are both defensible under different parts of the current policy. The original uncertain expectation is not uniquely correct."
+    },
+    {
+      "caseId": "ambiguous-mixed-role",
+      "note": "The instruction explicitly excludes software development, and the vacancy includes software development even though its proportion is unspecified. Both models' skip decision is defensible; the original uncertain expectation overstated the need for clarification."
+    }
+  ]
+}
