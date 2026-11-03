@@ -32,3 +32,13 @@ test('every call becomes calibration context, framed as never overriding instruc
   assert.match(block, /Recruitment Agency Role" at Acme.*agreed it was right to skip/);
   assert.match(block, /never overrides the candidate's instructions/);
 });
+
+test('a preference-scoped run excludes saved choices without deleting their history or changing ordinary selection', () => {
+  const verdicts: ReviewVerdict[] = [{ ...base, jobId: '94000001', url: 'https://www.seek.com.au/job/94000001', verdict: 'apply' }];
+  const original = JSON.stringify(verdicts);
+  assert.deepEqual(chosenListings(verdicts, { includeSavedChoices: false }), []);
+  assert.equal(JSON.stringify(verdicts), original);
+  assert.match(verdictContext(verdicts), /would have applied/);
+  assert.equal(chosenListings(verdicts).length, 1);
+  assert.equal(chosenListings(verdicts, { includeSavedChoices: true }).length, 1);
+});

@@ -417,7 +417,7 @@ async function main() {
      * Everything but the fit check still applies on the way in and at the
      * form: already applied, scope, age, a security check, the board's form.
      */
-    const chosen = chosenListings(loadReviewVerdicts());
+    const chosen = chosenListings(loadReviewVerdicts(), { includeSavedChoices: process.env.INCLUDE_SAVED_CHOICES !== 'false' });
     for (const adapter of active) {
       const mine = chosen.filter((job) => job.platform === adapter.id);
       if (!mine.length || targetedAdapters.has(adapter.id)) continue;

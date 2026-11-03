@@ -69,7 +69,8 @@ function boardOf(url: string): PlatformId | null {
  * run to open again. Their fit check is the candidate's own call; everything
  * else — already applied, scope, age, the board's own form — still applies.
  */
-export function chosenListings(verdicts: ReviewVerdict[]): JobListing[] {
+export function chosenListings(verdicts: ReviewVerdict[], options: { includeSavedChoices?: boolean } = {}): JobListing[] {
+  if (options.includeSavedChoices === false) return [];
   return verdicts.flatMap((verdict) => {
     const platform = verdict.verdict === 'apply' && !verdict.closed && verdict.url ? boardOf(verdict.url) : null;
     if (!platform || !verdict.url) return [];

@@ -74,6 +74,14 @@ export const gmailAccess=async()=>({connected:false}),scheduledStart=async()=>{t
     assert.equal(overrides.MAX_AGE_DAYS, '15'); assert.equal(overrides.MIN_SCORE, '70');
     assert.equal(overrides.APPLY_ONLY, 'external'); assert.equal(overrides.PLATFORMS, 'seek');
     assert.deepEqual(JSON.parse(overrides.PENDING_APPLICATION_KEYS_JSON), state.pending, 'existing pending/hold exclusions survive targeting');
+    assert.equal(overrides.INCLUDE_SAVED_CHOICES, 'true', 'ordinary runs keep explicit saved choices');
+    assert.deepEqual(await startRun({ ...request, oneTime: { includeSavedChoices: false } }), { ok: true, mode: 'live' });
+    assert.equal(state.starts.at(-1)[1].INCLUDE_SAVED_CHOICES, 'false', 'authenticated operator can scope only this run to preference-based discovery');
+    assert.equal(state.starts.at(-1)[1].APPLICATION_REVIEW_MODE, 'prepare', 'selection scope does not grant sending authority');
+    const starts = state.starts.length;
+    assert.equal((await startRun({ ...request, oneTime: { includeSavedChoices: 'false' as unknown as boolean } }) as { status: number }).status, 400);
+    assert.equal((await startRun({ ...request, trigger: 'manual', oneTime: { includeSavedChoices: false } }) as { status: number }).status, 403);
+    assert.equal(state.starts.length, starts, 'invalid or unauthorized selection overrides cannot start a worker');
     state.credits = 0;
     assert.equal((await startRun(request) as { status: number }).status, 402, 'retained metadata does not bypass billing allowance');
     state.credits = 5; state.sent = 100;
@@ -84,7 +92,7 @@ export const gmailAccess=async()=>({connected:false}),scheduledStart=async()=>{t
     assert.equal((await startRun({ ...request, approvals: [{ id: 'not-approved' }] }) as { status: number }).status, 400, 'Semi auto targeting cannot become an approved send');
     writeFileSync(alias, '{corrupt');
     assert.equal((await startRun(request) as { status: number }).status, 400);
-    assert.equal(state.starts.length, 1, 'refused starts never launch a process');
+    assert.equal(state.starts.length, starts, 'refused starts never launch a process');
   } finally {
     assert.ok(resolve(directory).startsWith(resolve(tmpdir())));
     rmSync(directory, { recursive: true, force: true });
