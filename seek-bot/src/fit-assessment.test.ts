@@ -1,30 +1,26 @@
 import assert from 'node:assert/strict';
 import { normalizeFitAssessment } from './llm.js';
-
-const role = { alignment: 'aligned', employerEvidence: 'Paraphrased duties.', candidateEvidence: 'Capability evidence.', explanation: 'Agent judgment.',
-  currentIntent: { scope: 'open', source: 'none', quote: '', requestedWork: 'No current occupation restriction.' },
-  primaryOutputs: [{ output: 'Customer service', employerQuote: 'Serve customers.', relationship: 'requested-work', mapping: 'The actual service output is supported work under open preferences.' }] };
-const base = { decision: 'apply', matchScore: 85, reason: 'Final agent judgment.', evidence: ['Agent-owned evidence.'], injectionSuspected: false, roleFitCheck: role };
-// These deliberately inconsistent diagnostics prove that code cannot silently
-// turn a final agent decision into another one. Resolving them belongs to Magnus.
-for (const diagnostic of [
-  {},
-  { roleFitCheck: { ...role, alignment: 'mismatch', candidateEvidence: '', explanation: 'Diagnostic.' } },
-  { workArrangementCheck: { offered: ['hybrid'], evidence: 'Hybrid schedule.' } },
-  { workArrangementCheck: { offered: [], evidence: '' } },
-  { instructionCheck: { violated: true, ruleQuote: 'Paraphrased rule.', explanation: 'Diagnostic.' } },
-  { credentialChecks: [{ mandatory: true, status: 'not-held', requirement: 'Registration', candidateEvidence: '' }] },
-  { credentialChecks: [{ mandatory: true, status: 'unclear', requirement: 'Licence', candidateEvidence: '' }] },
-  { injectionSuspected: true },
-]) for (const decision of ['apply', 'skip', 'uncertain']) {
-  const raw = { ...base, ...diagnostic, decision, shouldApply: decision !== 'apply' };
-  const result = normalizeFitAssessment(raw);
-  assert.equal(result?.decision, decision);
-  assert.equal(result?.shouldApply, decision === 'apply');
-  assert.equal(result?.reason, raw.reason);
+const role={alignment:'aligned',employerEvidence:'Stock counts.',candidateEvidence:'Technical CV; career change requested.',explanation:'Actual inventory counts are requested work.',
+ currentIntent:{scope:'bounded',source:'current-standing-instructions',quote:'Only stocktaking or dog walking.',requestedWork:'Physical stock counts or walking pet dogs.'},
+ primaryOutputs:[{output:'Count inventory',employerQuote:'Count store inventory.',relationship:'requested-work',mapping:'Physical stocktaking is requested.'}]};
+const base={decision:'apply',matchScore:85,reason:'Requested work.',evidence:['Count store inventory.'],injectionSuspected:false,
+ instructionCheck:{violated:false,ruleQuote:'',explanation:'Current instructions are satisfied.'},roleFitCheck:role};
+for(const decision of ['apply','skip','uncertain']) {
+ const result=normalizeFitAssessment({...base,decision,shouldApply:decision!=='apply'});
+ assert.equal(result?.decision,decision);assert.equal(result?.shouldApply,decision==='apply');
 }
-for (const malformed of [null, 'apply', { ...base, decision: 'maybe' }, { ...base, matchScore: 101 }, { ...base, evidence: 'prose' },
-  { ...base, roleFitCheck: { alignment: 'aligned', employerEvidence: '', candidateEvidence: '', explanation: '' } }]) {
-  assert.equal(normalizeFitAssessment(malformed), null, 'Malformed transport output is never treated as an approval.');
+for(const diagnostic of [
+ {roleFitCheck:{...role,alignment:'mismatch'}},
+ {roleFitCheck:{...role,currentIntent:{...role.currentIntent,scope:'uncertain'}}},
+ {roleFitCheck:{...role,primaryOutputs:[{...role.primaryOutputs[0],relationship:'outside-intent'}]}},
+ {roleFitCheck:{...role,primaryOutputs:[{...role.primaryOutputs[0],relationship:'capability-only'}]}},
+ {roleFitCheck:{...role,primaryOutputs:[{...role.primaryOutputs[0],relationship:'uncertain'}]}},
+ {instructionCheck:{violated:true,ruleQuote:'Only stocktaking or dog walking.',explanation:'This is software development.'}},
+]) {
+ const raw={...base,...diagnostic};const retained=JSON.stringify(raw);
+ assert.equal(normalizeFitAssessment(raw),null,'An inconsistent approval is unusable, never a send authorization.');
+ assert.equal(JSON.stringify(raw),retained,'Historical evidence is never rewritten.');
+ for(const decision of ['skip','uncertain'])assert.equal(normalizeFitAssessment({...raw,decision})?.decision,decision);
 }
-console.log('PASS: final agent decisions survive all diagnostic fields unchanged; malformed transport output is rejected.');
+for(const malformed of [null,'apply',{...base,decision:'maybe'},{...base,matchScore:101},{...base,evidence:'prose'},{...base,instructionCheck:undefined}])assert.equal(normalizeFitAssessment(malformed),null);
+console.log('PASS: consistent decisions retained; conflicting occupation/instruction approvals rejected without rewriting history.');

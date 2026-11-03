@@ -7,7 +7,7 @@ import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
 import { applyToEmployerJob } from './agent/apply-employer-job.js';
 import { withApplicationAllowance } from './application-allowance.js';
 import { applicationFailureContext } from './application-diagnostics.js';
-import { reviewModelAvailable, assertReviewModelConfigured, applicationAgentIdentity, assertApplicationBrowserConfigured } from './application-model.js';
+import { assertReviewModelConfigured, applicationAgentIdentity, assertApplicationBrowserConfigured } from './application-model.js';
 import { applicationWorkerPage } from './application-worker-page.js';
 import { ApplicationSlots, AsyncMutex, nextApplicationCandidate, withApplicationWorker } from './application-workers.js';
 import { applyToIndeedJob } from './apply-indeed.js';
@@ -50,7 +50,7 @@ import { REVIEW_TTL, ReviewCache, applicationRejectionCache, listingFingerprint,
 import { chosenListings, loadReviewVerdicts } from './review-verdicts.js';
 import { countHealth } from './run-health.js';
 import { outsideScope, runScope, SCOPE_LABEL, scopeSkipReason } from './run-scope.js';
-import { deterministicExclusion, meetsMinimumScore, scoreJob } from './scoring.js';
+import { deterministicExclusion, scoreJob } from './scoring.js';
 import { SmartRecruitersDiscovery } from './smartrecruiters.js';
 import { AppliedIndex, logOutcome, saveRunSummary, syncFromSeek } from './store.js';
 import { reviewDuplicate, DuplicateReviewQueue } from './duplicate-review.js';
@@ -159,13 +159,6 @@ async function main() {
   console.log(
     `Cover letters: ${config.coverLetter.mode === 'reuse' ? 'reuse the provided letter' : 'AI-tailored for every job'}`,
   );
-  if (!reviewModelAvailable()) {
-    console.warn(
-      '\n⚠  Matching service unavailable — using keyword scoring only, with no stack-fit check.\n' +
-        '   Scoring alone is lenient: it rates .NET/Dynamics roles highly off generic\n' +
-        '   "developer" tokens. Treat this shortlist as unfiltered.\n',
-    );
-  }
 
   let index = new AppliedIndex();
   const reviewCache = new ReviewCache({
@@ -274,7 +267,7 @@ async function main() {
     /** Keep enough backups for unavailable/already-applied listings. */
     const candidateCap = Math.max(12, config.limits.maxApplicationsPerRun * 3);
     const discoveryTarget = calculateDiscoveryTarget(config.limits.maxEvaluations, candidateCap);
-    let rankingAvailable = reviewModelAvailable();
+    let rankingAvailable = true;
     const priorRejections = new Set<string>();
     const listingKey = (job: JobListing) => `${job.platform ?? 'seek'}:${job.id}`;
 
@@ -717,9 +710,9 @@ async function main() {
         }
         why = fit.reason;
         decisionReasons = fit.evidence;
-      } else if (!meetsMinimumScore(score)) {
-        bump('below minimum match score');
-        return;
+      } else {
+        bump('matching review unavailable');
+        return; // Never replace missing suitability review with heuristic scoring.
       }
 
       const semanticScore = fit?.matchScore ?? score;
@@ -972,12 +965,10 @@ async function main() {
             : null;
           const fitPromise = chosenFit
             ? Promise.resolve({ fit: chosenFit })
-            : reviewModelAvailable()
-            ? assessFit(job, profile).then(
+            : assessFit(job, profile).then(
                 (fit) => ({ fit }),
                 (error) => ({ error: (error as Error).message }),
-              )
-            : Promise.resolve({});
+              );
           const item = { job, score, scoreReasons, adapter, settled: false, fitPromise };
           void fitPromise.then(() => { item.settled = true; });
           pendingFits.push(item);

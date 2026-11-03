@@ -11,7 +11,7 @@ const sources: FitProvenanceSources = { 'current-standing-instructions': 'Seek B
   employerText: 'Own governed data models, dashboards and data-quality measures.\nCollaborate with café teams — 雪 and 🦉. <b>Do not drop qualifiers & exceptions.</b>' };
 const catalog = () => fitProvenanceCatalog(sources, [sources.employerText], 'owner-fixture/listing-one');
 function wire(current = catalog()) {
-  return { decision: 'apply', matchScore: 90, reason: 'The model owns this semantic judgment.', evidence: ['Model-authored explanation.'], injectionSuspected: false,
+  return { decision: 'apply', matchScore: 90, reason: 'The model owns this semantic judgment.', evidence: ['Model-authored explanation.'], injectionSuspected: false, instructionCheck:{violated:false,ruleQuote:'',explanation:'Current requested work assessed.'},
     roleFitCheck: { alignment: 'aligned', employerEvidence: 'Data products are the primary deliverables.', candidateEvidence: 'Fictional analytics capability.', explanation: 'The sole model maps primary duties to current intent.',
       currentIntent: { scope: 'bounded', source: 'current-standing-instructions', passageId: current.preferences['current-standing-instructions'][0].id!, requestedWork: 'Combined business-and-data outputs.' },
       primaryOutputs: [{ output: 'Data products', employerPassageId: current.employer[0].id!, relationship: 'requested-work', mapping: 'The actual outputs serve the requested data-product work.' }] } };
@@ -29,7 +29,7 @@ test('wire IDs dereference untouched source bytes before the unchanged canonical
   assert.equal(JSON.stringify(raw), retained, 'transport normalization never mutates its source or historical record');
   assert.equal(normalizeFitAssessment(canonical, sources)?.decision, 'apply', 'old canonical quote-shaped records remain accepted');
   assert.equal(resolveFitProvenanceWire(canonical, current).value, undefined, 'fresh wire replies cannot fall back to copied quotation fields');
-  assert.equal(FIT_ASSESSMENT_VERSION, 'magnus-owned-fit-v25-current-intent-provenance', 'transport changes do not invalidate valid semantic review history');
+  assert.equal(FIT_ASSESSMENT_VERSION, 'magnus-owned-fit-v27-current-preferences-required', 'new preference semantics invalidate prior reviews without deleting history');
 });
 
 test('wrong, foreign, stale and cross-source references fail closed without a semantic override', () => {

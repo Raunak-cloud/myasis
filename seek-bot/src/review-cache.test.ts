@@ -108,13 +108,13 @@ test('detail enrichment retains the discovery identity without masking content c
   });
 });
 
-test('changing discovery keywords does not erase decisions, but preferences and instructions do', () => {
+test('changing current keywords, preferences or instructions invalidates suitability decisions', () => {
   const savedKeywords = config.keywords, savedInstructions = config.aiInstructions;
   const profile = { name: 'Fixture' } as CandidateProfile;
   try {
     const original = reviewContextFingerprint(profile);
     config.keywords = ['Different search'];
-    assert.equal(reviewContextFingerprint(profile), original);
+    assert.notEqual(reviewContextFingerprint(profile), original);
     config.aiInstructions = 'Only remote roles';
     assert.notEqual(reviewContextFingerprint(profile), original);
   } finally { config.keywords = savedKeywords; config.aiInstructions = savedInstructions; }

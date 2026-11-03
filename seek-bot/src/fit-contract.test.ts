@@ -7,7 +7,7 @@ const directory = mkdtempSync(join(tmpdir(), 'owtomate-fit-contract-'));
 Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', COST_TRACKING: 'false' });
 const { config } = await import('./config.js');
 const { assessFit } = await import('./llm.js');
-const { withApplicationModel, applicationModelIdentity, MINIMAX_APPLICATION_MODEL } = await import('./application-model.js');
+const { withApplicationModel } = await import('./application-model.js');
 config.aiInstructions = 'Do not apply for manager positions.';
 config.resume.select = 'fixture-cv';
 mkdirSync(join(directory, 'resumes'));
@@ -24,9 +24,8 @@ let mode = 'apply', calls = 0;
 globalThis.fetch = async (url, init) => {
   calls++;
   const body = JSON.parse(String(init?.body)), prompt = body.messages.find((m: { role: string }) => m.role === 'user').content;
-  const minimax = applicationModelIdentity().selection === 'minimax';
-  assert.equal(body.model, minimax ? MINIMAX_APPLICATION_MODEL : 'celeris-1-magnus');
-  assert.equal(String(url).includes('openrouter.ai'), minimax, 'fit uses only the selected provider');
+  assert.equal(body.model, 'celeris-1-magnus');
+  assert.equal(String(url).includes('openrouter.ai'), false, 'fit always uses Magnus');
   assert.equal(body.response_format.json_schema.schema.properties.checks, undefined, 'No preliminary instruction classifier.');
   assert.match(body.messages[0].content, /sole matching decision maker/);
   for (const evidence of ['FULL CANDIDATE PROFILE', 'CV_TAIL_FIXTURE', 'SAVED_FACT_FIXTURE', config.aiInstructions, 'minimum match score', 'MATCHING-STAGE DUPLICATE DECISION']) assert.ok(prompt.includes(evidence), evidence);
@@ -42,10 +41,10 @@ globalThis.fetch = async (url, init) => {
   const result = { decision: mode === 'skip' ? 'skip' : mode === 'uncertain' ? 'uncertain' : 'apply',
     matchScore: mode === 'invalid-twice' || mode === 'repair' && !correction ? 101 : 85,
     reason: 'Agent final judgment.', evidence: ['Paraphrased source evidence'], injectionSuspected: false,
-    roleFitCheck: { alignment: 'aligned', employerEvidence: 'Retail service duties.', candidateEvidence: 'Customer service background.', explanation: 'Agent judgment.',
+    roleFitCheck: { alignment: mode === 'conflicting-role' ? 'mismatch' : 'aligned', employerEvidence: 'Retail service duties.', candidateEvidence: 'Customer service background.', explanation: 'Agent judgment.',
       currentIntent: { scope: 'open', source: 'current-standing-instructions', passageId: roleSchema.currentIntent.properties.passageId.enum[1], requestedWork: 'Relevant supported work, excluding manager positions.' },
       primaryOutputs: [{ output: 'Retail service', employerPassageId: roleSchema.primaryOutputs.items.properties.employerPassageId.enum[0], relationship: 'requested-work', mapping: 'Customer service is supported under the current open occupation preference.' }] },
-    instructionCheck: { violated: false, ruleQuote: '', explanation: 'The role is not a manager position.' },
+    instructionCheck: { violated: mode === 'conflicting-instruction', ruleQuote: '', explanation: 'The role is not a manager position.' },
   };
   return Response.json({ choices: [{ message: { content: JSON.stringify(result) } }], usage: { prompt_tokens: 100, completion_tokens: 30 } });
 };
@@ -68,11 +67,16 @@ try {
   mode = 'invalid-twice'; const invalid: number = calls;
   await assert.rejects(assessFit({ ...job, id: 'invalid' }, profile), /usable decision after a format retry/);
   assert.equal(calls - invalid, 2);
+  for(const conflict of ['conflicting-role','conflicting-instruction']) {
+    mode=conflict;const before=calls;
+    await assert.rejects(assessFit({...job,id:conflict},profile),/usable decision after a format retry/);
+    assert.equal(calls-before,2,'Contradictory approvals receive only one bounded correction and then fail closed.');
+  }
   mode = 'apply';
-  await withApplicationModel({ DATA_DIR: directory, APPLICATION_AI_MODEL: 'minimax', OPENROUTER_API_KEY: 'fixture-only', CELERIS_API_KEY: '' }, async () => {
+  await withApplicationModel({ DATA_DIR: directory, APPLICATION_AI_MODEL: 'minimax', OPENROUTER_API_KEY: 'fixture-only', CELERIS_API_KEY: 'fixture-only' }, async () => {
     const before = calls;
     assert.equal((await assessFit({ ...job, id: 'minimax-fit' }, profile)).decision, 'apply');
-    assert.equal(calls - before, 1, 'MiniMax supplies the real fit stage without a Celeris request');
+    assert.equal(calls - before, 1, 'Magnus supplies fit independently of the MiniMax applying selection');
   });
   const metrics = readFileSync(join(directory, 'pipeline-metrics.jsonl'), 'utf8');
   assert.doesNotMatch(metrics, /SAVED_FACT_FIXTURE|Retail service/);

@@ -83,10 +83,9 @@ export function reviewContextFingerprint(profile: CandidateProfile): string {
     ...(candidateCalls ? { candidateCalls } : {}),
     resumeSelection: config.resume.select,
     targetRole: config.targetRole,
-    // Search terms decide what is discovered, not whether a discovered job
-    // suits the candidate. The sparse-run term renewer changes them after a
-    // run; including them here invalidated every sound fit decision and made
-    // the next run review the same rejected listings again.
+    // Current keywords constrain requested work. A career-direction change
+    // invalidates prior suitability decisions even when the CV is unchanged.
+    keywords: config.keywords,
     instructions: config.aiInstructions,
     excludedCompanies: config.excludedCompanies,
     rules: config.rules,

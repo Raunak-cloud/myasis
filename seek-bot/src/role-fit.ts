@@ -26,7 +26,7 @@ export interface RoleFitCheck {
 
 export const ROLE_FIT_SCHEMA = { type: 'object', additionalProperties: false, properties: {
   currentIntent: { type: 'object', additionalProperties: false, properties: {
-    scope: { type: 'string', enum: ['bounded', 'open', 'uncertain'], description: 'Interpret current occupation preferences; a search keyword is not automatically a closed allowlist.' },
+    scope: { type: 'string', enum: ['bounded', 'open', 'uncertain'], description: 'Interpret current occupation preferences; requested job functions constrain scope, while equivalent titles remain allowed.' },
     source: { type: 'string', enum: ['current-standing-instructions', 'current-target-role', 'current-search-preferences', 'none'], description: 'The current source defining intended work. Never attribute historical CV or cover-letter interest to a current source.' },
     quote: { type: 'string', maxLength: 2000, description: 'Copy an exact passage from that current source, preserving defining qualifiers and exceptions. Empty only for source=none.' },
     requestedWork: { type: 'string', minLength: 1, maxLength: 1500, description: 'The positively requested function and its defining qualifiers, or an explicit statement that current preferences do not bound occupation.' },

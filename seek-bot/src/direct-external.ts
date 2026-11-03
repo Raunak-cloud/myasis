@@ -4,6 +4,8 @@ import { runApplicationAgent } from './agent/loop.js';
 import { waitForApplicationSurface } from './agent/observe.js';
 import { outcomeFromRun } from './agent/outcome.js';
 import { applicationFailureContext } from './application-diagnostics.js';
+import { assessFit } from './llm.js';
+import { refreshMatchedApplication } from './matched-application.js';
 import { config } from './config.js';
 import { AppliedIndex, logOutcome, saveRunSummary } from './store.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
@@ -12,6 +14,7 @@ interface PageIdentity {
   title: string;
   company: string;
   location: string;
+  description: string;
 }
 
 async function identify(page: Page): Promise<PageIdentity> {
@@ -41,17 +44,24 @@ async function identify(page: Page): Promise<PageIdentity> {
       title: clean(posting?.title || heading || document.title || 'Direct employer application'),
       company: clean(posting?.hiringOrganization?.name || siteName || host),
       location: clean(address?.addressLocality || address?.addressRegion || ''),
+      description: (() => {
+        if (posting?.description) {
+          const text = document.createElement('div'); text.innerHTML = String(posting.description);
+          return text.textContent?.trim().slice(0, 60000) ?? '';
+        }
+        return (document.querySelector('main, [role="main"]') as HTMLElement | null)?.innerText?.trim().slice(0, 60000) ?? '';
+      })(),
     };
   });
 }
 
-/** Applies to exactly the operator-supplied page, with no board discovery or fit gate. */
+/** Applies to exactly the operator-supplied page, using the same current-preference review as discovered vacancies. */
 export async function runDirectExternalApplication(
   page: Page,
   url: string,
   profile: CandidateProfile,
   navigationBlocked: () => string | null,
-  test?: { runAgent: typeof runApplicationAgent },
+  test?: { runAgent: typeof runApplicationAgent; match?: typeof assessFit },
 ): Promise<void> {
   if (test && (!config.dryRun || !new URL(url).hostname.endsWith('.invalid'))) {
     throw new Error('Direct application dependency overrides require an isolated dry-run fixture.');
@@ -69,7 +79,7 @@ export async function runDirectExternalApplication(
   await page.waitForFunction(() => Boolean(document.body?.innerText.trim()), undefined, { timeout: 15_000 }).catch(() => {});
   await waitForApplicationSurface(page, 5_000).catch(() => false);
   const identity = await identify(page);
-  const job: JobListing = {
+  let job: JobListing = {
     id,
     title: identity.title || 'Direct employer application',
     company: identity.company || new URL(page.url()).hostname,
@@ -78,7 +88,8 @@ export async function runDirectExternalApplication(
     applicationUrl: page.url(),
     applicationMode: 'external',
     platform: 'external',
-    source: 'chosen',
+    source: 'search',
+    description: identity.description,
   };
   const index = new AppliedIndex();
   if ((!config.allowExternalApply || config.limits.maxApplicationsPerRun < 1
@@ -92,6 +103,17 @@ export async function runDirectExternalApplication(
     return;
   }
 
+  // A URL is discovery input, not candidate approval of any occupation.
+  // Review before an agent can fill a form or upload candidate data.
+  const reviewed = await refreshMatchedApplication(job, job, profile, test?.match ?? assessFit);
+  if ('outcome' in reviewed) {
+    saveRunSummary(0);
+    logOutcome({ ...reviewed.outcome, title: job.title, company: job.company, url: job.url });
+    console.log('Direct website job did not pass current-preference review.');
+    console.log('\n=== Run complete: 0 new application(s) ===');
+    return;
+  }
+  job = reviewed.job;
   saveRunSummary(1);
   console.log(`Direct website job: ${job.title} @ ${job.company}`);
   let outcome: ApplyOutcome | undefined;
@@ -116,12 +138,12 @@ export async function runDirectExternalApplication(
       url: job.url,
       appliedAt: outcome.at,
       ...(outcome.applicationUrl ? { applicationUrl: outcome.applicationUrl } : {}),
-      score: 100,
+      score: job.fitReview!.score,
       platform: 'external',
       coverLetter: outcome.coverLetter,
       answers: outcome.answers,
       ...(outcome.resume ? { resume: outcome.resume } : {}),
-      scoreReasons: ['Administrator supplied this exact employer job URL.'],
+      scoreReasons: job.fitReview!.evidence,
       external: true,
       ...(outcome.site ? { site: outcome.site } : {}),
       ...(outcome.actions?.length ? { actions: outcome.actions } : {}),

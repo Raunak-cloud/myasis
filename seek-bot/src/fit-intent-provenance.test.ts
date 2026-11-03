@@ -54,7 +54,7 @@ globalThis.fetch = async (url, init) => {
   assert.match(body.messages[0].content, /sole matching decision maker/);
   assert.match(prompt, /Current bounded intent governs over an older or broader/);
   assert.match(prompt, /discarding its defining qualifier/);
-  assert.match(prompt, /Search preferences inform intended direction; search keywords alone are not automatically a/);
+  assert.match(prompt, /Search keywords define requested job functions/);
   assert.ok(prompt.includes(oldLetter) && prompt.includes(active.duties));
   const schema = body.response_format.json_schema.schema.properties.roleFitCheck;
   assert.ok(schema.required.includes('currentIntent') && schema.required.includes('primaryOutputs'));
@@ -70,7 +70,7 @@ globalThis.fetch = async (url, init) => {
   if (mode === 'misattributed' && !correction) wire.currentIntent.passageId = employerIds[0];
   if (mode === 'invented-employer') wire.primaryOutputs[0].employerPassageId = 'p_invented_employer';
   return Response.json({ choices: [{ message: { content: JSON.stringify({ decision: active.expected, matchScore: active.expected === 'apply' ? 85 : 25,
-    reason: active.mapping, evidence: ['Agent-owned fit judgment.'], injectionSuspected: false, roleFitCheck: wire }) } }], usage: { prompt_tokens: 100, completion_tokens: 150 } });
+    reason: active.mapping, evidence: ['Agent-owned fit judgment.'], injectionSuspected: false, instructionCheck: {violated:false,ruleQuote:'',explanation:'Current requested work assessed.'}, roleFitCheck: wire }) } }], usage: { prompt_tokens: 100, completion_tokens: 150 } });
 };
 try {
   for (const model of ['celeris', 'minimax']) await withApplicationModel({ DATA_DIR: directory, APPLICATION_AI_MODEL: model, OPENROUTER_API_KEY: 'fixture-only', CELERIS_API_KEY: 'fixture-only' }, async () => {
@@ -116,11 +116,11 @@ try {
   assert.match(roleFitProvenanceError({ ...valid, currentIntent: { scope: 'open', source: 'none', quote: '', requestedWork: 'Assumed unrestricted work.' } }, sources) ?? '', /available current preference source/);
   const openSources = { ...sources, 'current-standing-instructions': 'Avoid night shifts.', 'current-target-role': '', 'current-search-preferences': '' };
   assert.equal(roleFitProvenanceError({ ...valid, currentIntent: { scope: 'open', source: 'current-standing-instructions', quote: 'Avoid night shifts.', requestedWork: 'No occupation boundary; preserve the shift preference.' } }, openSources), null, 'a nonempty current setting is not automatically an occupation allowlist');
-  const rawLegacy = { decision: 'apply', matchScore: 85, reason: 'Historical diagnostic.', evidence: [], injectionSuspected: false,
+  const rawLegacy = { decision: 'apply', matchScore: 85, reason: 'Historical diagnostic.', evidence: [], injectionSuspected: false, instructionCheck: {violated:false,ruleQuote:'',explanation:'Current requested work assessed.'},
     roleFitCheck: { alignment: 'aligned', employerEvidence: '', candidateEvidence: '', explanation: '' } };
   const retained = JSON.stringify(rawLegacy); assert.equal(normalizeFitAssessment(rawLegacy, sources), null); assert.equal(JSON.stringify(rawLegacy), retained, 'legacy evidence is rejected as a fresh fit without rewriting historical bytes');
   const inconsistent = { ...rawLegacy, roleFitCheck: valid };
-  assert.equal(normalizeFitAssessment(inconsistent, sources)?.decision, 'apply', 'code verifies source attribution, not a second semantic decision; the fitter still owns an erroneous aligned/apply judgment');
+  assert.equal(normalizeFitAssessment(inconsistent, sources), null, 'an aligned/apply decision cannot contradict bounded primary-output mappings');
   const metrics = readFileSync(join(directory, 'pipeline-metrics.jsonl'), 'utf8');
   assert.doesNotMatch(metrics, /I am interested in Business Analysis|Gather functional specifications/);
   console.log('PASS: synthetic systems/process adjacency and real combined-data/governance/career-change/open-intent contracts; grounded current/JD provenance, legacy nonmutation, selected-provider single-pass/cache behavior and bounded malformed provenance correction. Scripted providers do not prove future model judgment.');
