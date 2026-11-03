@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-fit-contract-'));
-Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', COST_TRACKING: 'false' });
+Object.assign(process.env, { DATA_DIR: directory, APPLICATION_AI_MODEL: 'celeris', CELERIS_API_KEY: 'fixture-only', COST_TRACKING: 'false' });
 const { config } = await import('./config.js');
 const { assessFit } = await import('./llm.js');
 const { withApplicationModel } = await import('./application-model.js');
@@ -20,12 +20,12 @@ writeFileSync(join(directory, 'review-history.jsonl'), [
   {jobId: 'different-role', title: 'Retail Manager', company: 'Fixture', status: 'skipped', reason: 'UNRELATED_ROLE_FIXTURE', ts: new Date().toISOString()},
 ].map(row => JSON.stringify(row)).join('\n'));
 const originalFetch = globalThis.fetch;
-let mode = 'apply', calls = 0;
+let mode = 'apply', calls = 0, selectedModel = 'celeris';
 globalThis.fetch = async (url, init) => {
   calls++;
   const body = JSON.parse(String(init?.body)), prompt = body.messages.find((m: { role: string }) => m.role === 'user').content;
-  assert.equal(body.model, 'celeris-1-magnus');
-  assert.equal(String(url).includes('openrouter.ai'), false, 'fit always uses Magnus');
+  assert.equal(body.model, selectedModel === 'minimax' ? 'minimax/minimax-m3.1-flash' : 'celeris-1-magnus');
+  assert.equal(String(url).includes('openrouter.ai'), selectedModel === 'minimax', 'fit uses the selected whole-run provider');
   assert.equal(body.response_format.json_schema.schema.properties.checks, undefined, 'No preliminary instruction classifier.');
   assert.match(body.messages[0].content, /sole matching decision maker/);
   for (const evidence of ['FULL CANDIDATE PROFILE', 'CV_TAIL_FIXTURE', 'SAVED_FACT_FIXTURE', config.aiInstructions, 'minimum match score', 'MATCHING-STAGE DUPLICATE DECISION']) assert.ok(prompt.includes(evidence), evidence);
@@ -74,13 +74,14 @@ try {
   }
   mode = 'apply';
   await withApplicationModel({ DATA_DIR: directory, APPLICATION_AI_MODEL: 'minimax', OPENROUTER_API_KEY: 'fixture-only', CELERIS_API_KEY: 'fixture-only' }, async () => {
+    selectedModel = 'minimax';
     const before = calls;
     assert.equal((await assessFit({ ...job, id: 'minimax-fit' }, profile)).decision, 'apply');
-    assert.equal(calls - before, 1, 'Magnus supplies fit independently of the MiniMax applying selection');
+    assert.equal(calls - before, 1, 'MiniMax supplies the whole run with one fit decision');
   });
   const metrics = readFileSync(join(directory, 'pipeline-metrics.jsonl'), 'utf8');
   assert.doesNotMatch(metrics, /SAVED_FACT_FIXTURE|Retail service/);
-  console.log('PASS: one Magnus decision, complete evidence/preferences, preserved diagnostic paraphrases, grounded intent provenance, cache reuse and bounded format repair. All provider calls mocked.');
+  console.log('PASS: one selected-provider decision, complete evidence/preferences, preserved diagnostic paraphrases, grounded intent provenance, cache reuse and bounded format repair. All provider calls mocked.');
 } finally {
   globalThis.fetch = originalFetch;
   assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + sep + 'owtomate-fit-contract-'));
