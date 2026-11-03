@@ -6,7 +6,7 @@ export function applicationModelCredentials(model: ApplicationModel, server: Rea
   const openRouter = model !== 'celeris';
   const key = openRouter ? 'OPENROUTER_API_KEY' : 'CELERIS_API_KEY';
   const credential = server[key]?.trim();
-  if (!credential) throw Error(`${applicationModelLabel(model)} is not configured. Add ${key} in Admin settings before starting a run.`);
+  if (!credential) throw Error(`${openRouter ? applicationModelLabel(model) : 'Magnus job review'} is not configured. Add ${key} in Admin settings before starting a run.`);
   return { CELERIS_API_KEY: openRouter ? '' : credential, OPENROUTER_API_KEY: openRouter ? credential : '' };
 }
 

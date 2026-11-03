@@ -32,13 +32,14 @@ test('owner authorization selects one whole-run provider and server-owned creden
     ? params[0]==='authorized'?[{email:'admin@fixture.invalid'}]:[]
     : [{id:params[0],email:params[0]==='admin'?'admin@fixture.invalid':'customer@fixture.invalid'}]})) as typeof originalQuery;
   try {
-    for (const owner of ['admin','customer']) for (const selected of ['celeris','minimax','retired']) {
+    for (const owner of ['admin','customer']) for (const selected of ['celeris','minimax','deepseek','retired']) {
       const settings={APPLICATION_AI_MODEL:selected,CELERIS_API_KEY:'forged-review',OPENROUTER_API_KEY:'forged-apply'};
       const env=await accountApplicationEnvironment(owner,settings);
       const minimax=owner==='admin' && selected==='minimax';
-      assert.equal(env.APPLICATION_AI_MODEL,minimax?'minimax':'celeris');
-      assert.equal(env.CELERIS_API_KEY,minimax?'':'server-review-key');
-      assert.equal(env.OPENROUTER_API_KEY,minimax?'server-apply-key':'');
+      const openRouter=owner==='admin' && (selected==='minimax'||selected==='deepseek');
+      assert.equal(env.APPLICATION_AI_MODEL,openRouter?selected:'celeris');
+      assert.equal(env.CELERIS_API_KEY,openRouter?'':'server-review-key');
+      assert.equal(env.OPENROUTER_API_KEY,openRouter?'server-apply-key':'');
       assert.equal(env.DATA_DIR,userDir(owner));
       assert.equal(env.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN,minimax?'false':'true');
       assert.equal(env.APPLICATION_AGENT_MODE,'agent-only');
@@ -50,8 +51,10 @@ test('owner authorization selects one whole-run provider and server-owned creden
     process.env.CELERIS_API_KEY='';
     await assert.rejects(accountApplicationEnvironment('customer',{}),/Magnus job review is not configured/);
     assert.equal((await accountApplicationEnvironment('admin',{APPLICATION_AI_MODEL:'minimax'})).APPLICATION_AI_MODEL,'minimax','MiniMax does not require a Celeris key');
+    assert.equal((await accountApplicationEnvironment('admin',{APPLICATION_AI_MODEL:'deepseek'})).APPLICATION_AI_MODEL,'deepseek','DeepSeek does not require a Celeris key');
     process.env.CELERIS_API_KEY='server-review-key';process.env.OPENROUTER_API_KEY='';
     await assert.rejects(accountApplicationEnvironment('admin',{APPLICATION_AI_MODEL:'minimax'}),/OPENROUTER_API_KEY/);
+    await assert.rejects(accountApplicationEnvironment('admin',{APPLICATION_AI_MODEL:'deepseek'}),/OPENROUTER_API_KEY/);
     assert.equal((await accountApplicationEnvironment('customer',{})).APPLICATION_AI_MODEL,'celeris','Magnus must not require an unused OpenRouter key');
     await assert.rejects(accountApplicationEnvironment('../customer',{}),/account is not available/);
     pool.query=(async()=>({rows:[]})) as unknown as typeof originalQuery;
