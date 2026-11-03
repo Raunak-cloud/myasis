@@ -14,7 +14,7 @@ import { browserBenchmarkInProgress } from './browser-benchmark-lock.js';
 import { applicationWorkerEnvironment } from './application-worker-policy.js';
 import { loadUserSettings } from './settings.js';
 import { applicationModelLabel } from '../../seek-bot/src/application-model-catalog.js';
-import { applicationModelForAccount } from './application-model-policy.js';
+import { applicationModelCredentials, applicationModelForAccount } from './application-model-policy.js';
 import { applicationAgentModeForAccount, applicationScreenshotsForAccount } from './application-agent-policy.js';
 import { accountUnavailable, AccountDeletionError } from './account-lifecycle.js';
 import { finishApplicationReviews } from './application-reviews.js';
@@ -51,16 +51,14 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
     if (!isAdmin(operators[0]?.email) || selectedSettings.ADMIN_APPLICATION_MODEL !== 'celeris') throw new Error('This run has no valid administrator model authorization.');
   }
   const agentMode = applicationAgentModeForAccount(selectedSettings.APPLICATION_AGENT_MODE, admin);
-  if (selected === 'celeris' && !serverEnv.CELERIS_API_KEY?.trim()) throw new Error('Magnus job review is not configured. Add CELERIS_API_KEY in Admin settings before starting a run.');
-  if (selected === 'minimax' && !serverEnv.OPENROUTER_API_KEY?.trim()) throw new Error(`${applicationModelLabel(selected)} is not configured. Add OPENROUTER_API_KEY in Admin settings before starting a run.`);
+  const credentials = applicationModelCredentials(selected, serverEnv);
   const queuePolicy = Object.fromEntries(['CELERIS_WORKSPACE_ID', 'CELERIS_QUEUE_FILE', 'CELERIS_MAX_CONCURRENT_REQUESTS', 'CELERIS_MIN_INTERVAL_MS']
     .flatMap(key => serverEnv[key]?.trim() ? [[key, serverEnv[key]!]] : []));
   return { ...queuePolicy, DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
     APPLICATION_AGENT_MODE: agentMode,
     APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: applicationScreenshotsForAccount(selectedSettings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, admin, selected),
     // Only the authorized provider credential enters the account's run context.
-    CELERIS_API_KEY: selected === 'celeris' ? serverEnv.CELERIS_API_KEY! : '',
-    OPENROUTER_API_KEY: selected === 'minimax' ? serverEnv.OPENROUTER_API_KEY! : '' };
+    ...credentials };
 }
 
 /** Retired experiment settings and credentials never reach a new worker. */

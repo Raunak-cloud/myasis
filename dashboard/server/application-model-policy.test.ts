@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applicationModelForAccount, applicationModelSettingsError } from './application-model-policy.js';
+import { applicationModelCredentials, applicationModelForAccount, applicationModelSettingsError } from './application-model-policy.js';
 import { applyJobSourceAccess } from './job-sources.js';
+
+test('authorized models receive only their own credential, including every OpenRouter model',()=>{
+ const server={CELERIS_API_KEY:'fictional-celeris',OPENROUTER_API_KEY:'fictional-openrouter'};
+ for(const model of ['minimax','deepseek'] as const){
+  assert.deepEqual(applicationModelCredentials(model,server),{CELERIS_API_KEY:'',OPENROUTER_API_KEY:server.OPENROUTER_API_KEY});
+  assert.throws(()=>applicationModelCredentials(model,{CELERIS_API_KEY:server.CELERIS_API_KEY}),/OPENROUTER_API_KEY/);
+ }
+ assert.deepEqual(applicationModelCredentials('celeris',server),{CELERIS_API_KEY:server.CELERIS_API_KEY,OPENROUTER_API_KEY:''});
+ assert.throws(()=>applicationModelCredentials('celeris',{OPENROUTER_API_KEY:server.OPENROUTER_API_KEY}),/CELERIS_API_KEY/);
+});
 test('customer execution pins Magnus despite old or forged selections', () => {
   for (const value of [undefined, 'celeris', 'minimax', 'deepseek', 'retired']) {
     const admin = false;
