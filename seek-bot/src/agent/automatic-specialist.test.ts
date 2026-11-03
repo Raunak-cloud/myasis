@@ -53,6 +53,7 @@ async function scenario(id: string, calls: Call[], options: { specialistFails?: 
     if (String(_url).includes('mailbox.fixture.invalid')) return Response.json({ error: 'Fixture mailbox unavailable' }, { status: 401 });
     const body = JSON.parse(String(init?.body));
     if (options.model === 'minimax') assert.equal(body.model, MINIMAX_APPLICATION_MODEL);
+    else assert.equal(body.model, 'celeris-1-magnus', 'applying and supervisory calls use Magnus');
     if (isSpecialistFixtureRequest(body)) {
       specialists++;
       assert.deepEqual(body.tools?.map((tool:any)=>tool.function.name),['test_application_helper','return_application_advice'],'specialist can test isolated helpers or return typed advice but has no live browser or submission tool');

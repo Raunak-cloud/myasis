@@ -703,7 +703,7 @@ export function RunPanel({
             </button>
           </div>}
           </div>
-          {isAdmin && <p className="job-meta">Job review: Magnus · Applications and supervision: MiniMax M3.1</p>}
+          {isAdmin && <p className="job-meta">Job review, applications and supervision: Magnus</p>}
           <p className="job-meta">{applicationMode === 'auto' ? 'Owtomate finds suitable jobs, fills their forms and submits applications.' : 'Owtomate curates jobs and fills their forms. You choose which prepared applications to confirm.'} {adminMode ? 'Start a single run now.' : 'Press Start to enable scheduled runs. Pause anytime to stop the current run and all future runs.'}</p>
           {applicationMode === 'semi-auto' && <p className="job-meta">Review and confirm jobs in <a href="/?tab=prepared">Prepared Applications</a>.</p>}
           {entitlements && !isAdmin && <p className="job-meta">{entitlements.autoRunsUsedToday} of {entitlements.autoRunsPerDay} runs started in the last 24 hours. You can confirm prepared applications while the schedule is paused.</p>}

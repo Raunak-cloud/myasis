@@ -68,7 +68,7 @@ test('admin feed-only runs need no SEEK or Indeed session and mixed runs retain 
    assert.equal(settings.PLATFORMS, feeds.join(','));
    assert.equal(settings.EMPLOYER_FEEDS_ADMIN_ENABLED, 'true');
    for (const source of EMPLOYER_SOURCES) assert.equal(settings[source.key], source.defaults);
-   assert.equal(settings.APPLICATION_AI_MODEL, 'minimax');
+   assert.equal(settings.APPLICATION_AI_MODEL, 'celeris');
    // Expiry rechecks actual access rather than trusting the old enabled flag.
    applyJobSourceAccess(settings, false, false);
    assert.equal(settings.PLATFORMS, 'seek');

@@ -90,9 +90,9 @@ test('Dashboard answers stay account-scoped, including concurrent requests, empt
       for (const answer of answers) assert.equal(prompt.includes(answer), owner === account);
     }
   }
-  assert.match(routedModels.get('Bob') ?? '', /^minimax\//);
-  assert.match(routedModels.get('Alice') ?? '', /^minimax\//);
-  assert.match(routedModels.get('Empty') ?? '', /^minimax\//);
+  assert.equal(routedModels.get('Bob'), 'celeris-1-magnus');
+  assert.equal(routedModels.get('Alice'), 'celeris-1-magnus');
+  assert.equal(routedModels.get('Empty'), 'celeris-1-magnus');
   assert.equal(process.env.DATA_DIR, directory, 'concurrent dashboard accounts never mutate the global data directory');
 
   banks.Alice = ['ALICE_UPDATED_ANSWER'];
@@ -103,5 +103,5 @@ test('Dashboard answers stay account-scoped, including concurrent requests, empt
   assert.match(failed.error ?? '', /Fixture answer-bank failure/);
   assert.equal(prompts.length, callsBeforeFailure, 'database failure must not fall back to another bank');
 
-  assert.ok([...routedModels.values()].every(value => value === 'minimax/minimax-m3.1-flash'), 'extension suggestions use the same MiniMax application route as the browser agent');
+  assert.ok([...routedModels.values()].every(value => value === 'celeris-1-magnus'), 'extension suggestions use the same Magnus application route as the browser agent');
 });

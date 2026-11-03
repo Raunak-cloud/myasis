@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { OPENROUTER_APPLICATION_MODELS } from './application-model-catalog.js';
+import { CUSTOMER_APPLICATION_MODEL, OPENROUTER_APPLICATION_MODELS } from './application-model-catalog.js';
 
 type ApplicationEnvironment = Readonly<Record<string, string | undefined>>;
 const contexts = new AsyncLocalStorage<ApplicationEnvironment>();
@@ -16,9 +16,9 @@ export function withApplicationModel<T>(env: ApplicationEnvironment, work: () =>
 /** Stable provider identity also separates established caches from retired
  * experiments without deleting account history. */
 export function applicationModelIdentity(env: ApplicationEnvironment = applicationModelEnvironment()) {
-  // Explicit Celeris remains available to isolated form-lab comparisons.
-  // Customer worker environments are pinned to MiniMax by the server policy.
-  const selection = env.APPLICATION_AI_MODEL === 'celeris' ? 'celeris' : 'minimax';
+  // Explicit MiniMax remains available to isolated form-lab comparisons.
+  // Customer worker environments are pinned to Magnus by the server policy.
+  const selection = env.APPLICATION_AI_MODEL === 'minimax' ? 'minimax' : CUSTOMER_APPLICATION_MODEL;
   return selection === 'minimax'
     ? { selection, model: OPENROUTER_APPLICATION_MODELS[selection].model, protocol: 'openrouter-chat-v1', provider: 'OpenRouter' } as const
     : { selection: 'celeris', model: 'celeris', protocol: 'celeris-chat-v1', provider: 'Celeris' } as const;

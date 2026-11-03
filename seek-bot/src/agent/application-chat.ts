@@ -5,7 +5,7 @@ import { openrouterChat } from './openrouter.js';
 /** Application writing, browser work and supervision share the applying provider.
  * Job review uses its separate route; neither route falls back to another model. */
 export function applicationChat(request: CelerisRequest): Promise<CelerisReply> {
-  return applicationAgentIdentity().provider === 'OpenRouter' ? openrouterChat(request) : celerisChat(request);
+  return applicationAgentIdentity().provider === 'OpenRouter' ? openrouterChat(request) : celerisChat({ ...request, model: 'celeris-1-magnus', thinking: true });
 }
 
 /** Only suitability evaluation enters this route. Never inherit the applying model. */

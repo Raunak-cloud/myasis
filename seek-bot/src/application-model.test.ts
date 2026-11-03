@@ -1,24 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
-import { applicationModelIdentity, applicationModelAvailable, applicationModelEnvironment,
+import { applicationModelAvailable, applicationModelEnvironment,
   assertApplicationModelConfigured, assertApplicationBrowserConfigured, applicationAgentIdentity, reviewModelIdentity, reviewModelAvailable, assertReviewModelConfigured, withApplicationModel } from './application-model.js';
 import { config } from './config.js';
 
-test('default application and review identities are independent and credential-free', () => {
-  for(const value of [undefined,'retired','minimax']) {
-    assert.equal(applicationModelIdentity({APPLICATION_AI_MODEL:value}).model,'minimax/minimax-m3.1-flash');
+test('Magnus is the default applying and supervising model; MiniMax is explicit comparison only', () => {
+  for (const value of [undefined, 'retired', 'celeris']) {
+    assert.equal(applicationAgentIdentity({APPLICATION_AI_MODEL:value}).model,'celeris-1-magnus');
   }
+  assert.equal(applicationAgentIdentity({APPLICATION_AI_MODEL:'minimax'}).model,'minimax/minimax-m3.1-flash');
   assert.equal(reviewModelIdentity().model,'celeris-1-magnus');
-  assert.equal(applicationAgentIdentity().provider,'OpenRouter');
-  assert.equal(applicationModelAvailable({CELERIS_API_KEY:'fixture'}),false);
+  assert.equal(applicationModelAvailable({CELERIS_API_KEY:'fixture'}),true);
+  assert.equal(applicationModelAvailable({OPENROUTER_API_KEY:'fixture'}),false);
   assert.equal(reviewModelAvailable({OPENROUTER_API_KEY:'fixture'}),false);
 });
-test('a full browser run needs both stage credentials, without fallback', () => {
-  for(const env of [{}, {CELERIS_API_KEY:'fixture'}, {OPENROUTER_API_KEY:'fixture'}, {CELERIS_API_KEY:' ',OPENROUTER_API_KEY:'fixture'}]) {
+
+test('Magnus needs only its own credential; isolated MiniMax needs both stages without fallback', () => {
+  for (const env of [{}, {OPENROUTER_API_KEY:'fixture'}, {CELERIS_API_KEY:' '}]) {
     assert.throws(()=>assertApplicationBrowserConfigured(env),/API_KEY/);
   }
-  assert.doesNotThrow(()=>assertApplicationBrowserConfigured({CELERIS_API_KEY:'review',OPENROUTER_API_KEY:'apply'}));
+  assert.doesNotThrow(()=>assertApplicationBrowserConfigured({CELERIS_API_KEY:'review-and-apply'}));
+  assert.throws(()=>assertApplicationBrowserConfigured({APPLICATION_AI_MODEL:'minimax',CELERIS_API_KEY:'review'}),/OPENROUTER_API_KEY/);
+  assert.doesNotThrow(()=>assertApplicationBrowserConfigured({APPLICATION_AI_MODEL:'minimax',CELERIS_API_KEY:'review',OPENROUTER_API_KEY:'apply'}));
   assert.throws(()=>assertReviewModelConfigured({}),/Magnus job review/);
 });
 
@@ -40,12 +44,12 @@ test('concurrent account scopes isolate credentials and data directories across 
 });
 
 test('missing scoped credentials never fall back to another process or account credential', async () => {
-  await withApplicationModel({ OPENROUTER_API_KEY: 'fictional-outer' }, async () => {
+  await withApplicationModel({ APPLICATION_AI_MODEL:'minimax', OPENROUTER_API_KEY: 'fictional-outer' }, async () => {
     assert.equal(applicationModelAvailable(), true);
     await withApplicationModel({}, async () => {
       await Promise.resolve();
       assert.equal(applicationModelAvailable(), false);
-      assert.throws(() => assertApplicationModelConfigured(), /OPENROUTER_API_KEY/);
+      assert.throws(() => assertApplicationModelConfigured(), /CELERIS_API_KEY/);
     });
     assert.equal(applicationModelAvailable(), true);
   });

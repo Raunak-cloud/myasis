@@ -9,11 +9,11 @@ import { startRun } from './start-run.js';
 
 after(async () => { await getPool().end(); });
 
-test('MiniMax uses DOM first even with a legacy every-turn screenshot setting', () => {
+test('isolated MiniMax uses DOM first but customer policy restores Magnus visual defaults', () => {
   assert.equal(applicationScreenshotsForAccount('true', true, 'minimax'), 'false');
   const settings = { APPLICATION_AI_MODEL: 'minimax', APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'true' };
   applyJobSourceAccess(settings, true);
-  assert.equal(settings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'false');
+  assert.equal(settings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'true');
   applyJobSourceAccess(settings, false);
   assert.equal(settings.APPLICATION_AI_MODEL, 'celeris');
   assert.equal(settings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, 'true');

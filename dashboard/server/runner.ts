@@ -48,17 +48,17 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
     const operators = await query<{ email: string }>(
       `SELECT actor.email FROM run_starts run JOIN users actor ON actor.id=run.started_by
        WHERE run.id=$1 AND run.user_id=$2 AND run.trigger='admin' AND actor.blocked_at IS NULL`, [runStartId,userId]);
-    if (!isAdmin(operators[0]?.email) || selectedSettings.ADMIN_APPLICATION_MODEL !== 'minimax') throw new Error('This run has no valid administrator model authorization.');
+    if (!isAdmin(operators[0]?.email) || selectedSettings.ADMIN_APPLICATION_MODEL !== 'celeris') throw new Error('This run has no valid administrator model authorization.');
   }
   const agentMode = applicationAgentModeForAccount(selectedSettings.APPLICATION_AGENT_MODE, admin);
   if (!serverEnv.CELERIS_API_KEY?.trim()) throw new Error('Magnus job review is not configured. Add CELERIS_API_KEY in Admin settings before starting a run.');
-  if (!serverEnv.OPENROUTER_API_KEY?.trim()) throw new Error(`${applicationModelLabel(selected)} is not configured. Add OPENROUTER_API_KEY in Admin settings before starting a run.`);
+  if (selected === 'minimax' && !serverEnv.OPENROUTER_API_KEY?.trim()) throw new Error(`${applicationModelLabel(selected)} is not configured. Add OPENROUTER_API_KEY in Admin settings before starting a run.`);
   const queuePolicy = Object.fromEntries(['CELERIS_WORKSPACE_ID', 'CELERIS_QUEUE_FILE', 'CELERIS_MAX_CONCURRENT_REQUESTS', 'CELERIS_MIN_INTERVAL_MS']
     .flatMap(key => serverEnv[key]?.trim() ? [[key, serverEnv[key]!]] : []));
   return { ...queuePolicy, DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
     APPLICATION_AGENT_MODE: agentMode,
     APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: applicationScreenshotsForAccount(selectedSettings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, admin, selected),
-    // Both stages need their server-owned key; never accept a client key.
+    // Credentials are server-owned; the optional comparison key is never required by Magnus.
     CELERIS_API_KEY: serverEnv.CELERIS_API_KEY!,
     OPENROUTER_API_KEY: serverEnv.OPENROUTER_API_KEY! };
 }

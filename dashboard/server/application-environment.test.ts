@@ -23,7 +23,7 @@ test('worker environment excludes retired controls and unknown credentials witho
   assert.deepEqual(input, before);
 });
 
-test('new manual, scheduled and admin workers receive both stage credentials from the server only', async () => {
+test('manual, scheduled and admin workers restore Magnus with server-owned credentials', async () => {
   const originalQuery = pool.query;
   const names = ['CELERIS_API_KEY','OPENROUTER_API_KEY','ADMIN_EMAILS'] as const;
   const prior = Object.fromEntries(names.map(name => [name,process.env[name]]));
@@ -35,21 +35,21 @@ test('new manual, scheduled and admin workers receive both stage credentials fro
     for (const owner of ['admin','customer']) for (const selected of ['celeris','minimax','retired']) {
       const settings={APPLICATION_AI_MODEL:selected,CELERIS_API_KEY:'forged-review',OPENROUTER_API_KEY:'forged-apply'};
       const env=await accountApplicationEnvironment(owner,settings);
-      assert.equal(env.APPLICATION_AI_MODEL,'minimax');
+      assert.equal(env.APPLICATION_AI_MODEL,'celeris');
       assert.equal(env.CELERIS_API_KEY,'server-review-key');
       assert.equal(env.OPENROUTER_API_KEY,'server-apply-key');
       assert.equal(env.DATA_DIR,userDir(owner));
-      assert.equal(env.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN,'false');
+      assert.equal(env.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN,'true');
       assert.equal(env.APPLICATION_AGENT_MODE,'agent-only');
       assert.equal(settings.APPLICATION_AI_MODEL,selected,'no saved preference mutation');
     }
-    await assert.rejects(accountApplicationEnvironment('customer',{ADMIN_APPLICATION_MODEL:'celeris'},'authorized'),/no valid administrator/);
+    await assert.rejects(accountApplicationEnvironment('customer',{ADMIN_APPLICATION_MODEL:'minimax'},'authorized'),/no valid administrator/);
     await assert.rejects(accountApplicationEnvironment('customer',{ADMIN_APPLICATION_MODEL:'minimax'},'unverified'),/no valid administrator/);
-    assert.equal((await accountApplicationEnvironment('customer',{ADMIN_APPLICATION_MODEL:'minimax'},'authorized')).APPLICATION_AI_MODEL,'minimax');
+    assert.equal((await accountApplicationEnvironment('customer',{ADMIN_APPLICATION_MODEL:'celeris'},'authorized')).APPLICATION_AI_MODEL,'celeris');
     process.env.CELERIS_API_KEY='';
     await assert.rejects(accountApplicationEnvironment('customer',{}),/Magnus job review is not configured/);
     process.env.CELERIS_API_KEY='server-review-key';process.env.OPENROUTER_API_KEY='';
-    await assert.rejects(accountApplicationEnvironment('customer',{}),/MiniMax M3.1 is not configured/);
+    assert.equal((await accountApplicationEnvironment('customer',{})).APPLICATION_AI_MODEL,'celeris','Magnus must not require an unused OpenRouter key');
     await assert.rejects(accountApplicationEnvironment('../customer',{}),/account is not available/);
     pool.query=(async()=>({rows:[]})) as unknown as typeof originalQuery;
     await assert.rejects(accountApplicationEnvironment('customer',{}),/account is not available/);
@@ -59,7 +59,7 @@ test('new manual, scheduled and admin workers receive both stage credentials fro
   }
 });
 
-test('model selection persists while retired form-review controls stay hidden', async () => {
+test('server model policy overrides stale saved selections while retired form-review controls stay hidden', async () => {
   const originalQuery = pool.query;
   const stored: Record<string, string> = { APPLICATION_AI_MODEL: 'retired', APPLICATION_AI_FORM_REVIEW_MODE: 'retired', APPLICATION_AGENT_MODE: 'retired', APPLICATION_AGENT_MODE_AUTHORIZED: 'true',
     KEYWORDS: 'retail assistant', PLATFORMS_CHOSEN: '1' };
@@ -73,17 +73,17 @@ test('model selection persists while retired form-review controls stay hidden', 
     return { rows: Object.entries(stored).map(([key, value]) => ({ key, value })) };
   }) as typeof originalQuery;
   try {
-    assert.deepEqual(await loadUserSettings('owner-account'), { APPLICATION_AI_MODEL: 'minimax', APPLICATION_AGENT_MODE: 'agent-only', KEYWORDS: 'retail assistant', PLATFORMS_CHOSEN: '1' });
-    const saved = await saveUserSettings('owner-account', { APPLICATION_AI_MODEL: 'minimax', APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true', KEYWORDS: 'sales assistant' });
-    assert.deepEqual(writes, [['owner-account', 'APPLICATION_AI_MODEL', 'minimax'], ['owner-account', 'APPLICATION_AGENT_MODE', 'agent-only'], ['owner-account', 'KEYWORDS', 'sales assistant']]);
-    assert.equal(saved.APPLICATION_AI_MODEL, 'minimax');
+    assert.deepEqual(await loadUserSettings('owner-account'), { APPLICATION_AI_MODEL: 'celeris', APPLICATION_AGENT_MODE: 'agent-only', KEYWORDS: 'retail assistant', PLATFORMS_CHOSEN: '1' });
+    const saved = await saveUserSettings('owner-account', { APPLICATION_AI_MODEL: 'celeris', APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true', KEYWORDS: 'sales assistant' });
+    assert.deepEqual(writes, [['owner-account', 'APPLICATION_AI_MODEL', 'celeris'], ['owner-account', 'APPLICATION_AGENT_MODE', 'agent-only'], ['owner-account', 'KEYWORDS', 'sales assistant']]);
+    assert.equal(saved.APPLICATION_AI_MODEL, 'celeris');
     assert.equal(saved.PLATFORMS_CHOSEN, '1');
-    assert.equal((await runSettingsForUser('owner-account')).APPLICATION_AI_MODEL, 'minimax');
+    assert.equal((await runSettingsForUser('owner-account')).APPLICATION_AI_MODEL, 'celeris');
     assert.equal((await runSettingsForUser('owner-account')).APPLICATION_AGENT_MODE, 'agent-only');
     assert.equal(saved.APPLICATION_AGENT_MODE_AUTHORIZED, undefined);
     assert.equal(saved.APPLICATION_AI_FORM_REVIEW_MODE, undefined);
-    const minimax = await saveUserSettings('owner-account', { APPLICATION_AI_MODEL: 'minimax' });
-    assert.equal(minimax.APPLICATION_AI_MODEL, 'minimax', 'a selected admin model must survive the settings read');
-    assert.equal((await runSettingsForUser('owner-account')).APPLICATION_AI_MODEL, 'minimax');
+    const resolved = await saveUserSettings('owner-account', { APPLICATION_AI_MODEL: 'minimax' });
+    assert.equal(resolved.APPLICATION_AI_MODEL, 'celeris', 'the server Magnus policy survives settings reads');
+    assert.equal((await runSettingsForUser('owner-account')).APPLICATION_AI_MODEL, 'celeris');
   } finally { pool.query = originalQuery; }
 });

@@ -130,7 +130,7 @@ function profileBlock(p: CandidateProfile): string {
     .join('\n');
 }
 
-/** Application writing uses the same MiniMax route as the applying agent. */
+/** Application writing uses the same model route as the applying agent. */
 async function letterJson<T>(prompt: string, schema: object, effort?: 'medium'): Promise<T> {
   return json<T>(prompt, schema, 'celeris-1-magnus', undefined, effort);
 }
