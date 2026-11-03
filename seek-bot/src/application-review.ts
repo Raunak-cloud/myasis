@@ -44,13 +44,15 @@ export function approvedSeekReviewUrl(job: JobListing): string | undefined {
 
 const normal = (text: string) => text.replace(/\s+/g, ' ').trim();
 
-/** Persist the exact candidate-visible answers, rather than a browser session
- * that may expire while its owner is deciding. Reopening may require filling
- * again; a changed application returns to review instead of inheriting consent. */
+/** Preparation records candidate-visible work. Confirmation authorizes this
+ * vacancy, not a particular DOM serialization. An approved submission can
+ * repair its saved work, but must never create another Prepared application. */
 export async function applicationApprovalGate(ctx: ToolContext): Promise<ToolResult | null> {
   if (!reviewingApplications()) return null;
   const form = await readSavedForm(ctx.page);
   const approved = approvedApplication(ctx.job);
+  if (!preparingApplications() && !approved)
+    return { kind: 'ok', disposition: 'failed', message: 'No server-supplied approval exists for this vacancy. Do not submit a different job or create another prepared draft.' };
   if (approved?.documents?.some(document => document.requiresUpload && !ctx.uploadedDocuments?.some(file => file.fileId === document.fileId && file.sha256 === document.sha256
     || document.provenance === 'text' && document.text !== undefined && file.coverLetterDigest === createHash('sha256').update(document.text).digest('hex'))))
     return { kind: 'ok', disposition: 'failed', message: 'Upload the exact candidate-revised attachment before sending. Its filename alone does not prove that the new approved bytes replaced the old employer file.' };
@@ -85,19 +87,33 @@ export async function applicationApprovalGate(ctx: ToolContext): Promise<ToolRes
     } else answers.set(normal(field.label), { question: field.label, answer: field.currentValue });
   }
   const resumePath = ctx.resumeUsed ? agentOnlyResumePath(ctx.resumeUsed) : null;
+  const resumeHash = resumePath ? createHash('sha256').update(readFileSync(resumePath)).digest('hex') : undefined;
+  if (!preparingApplications() && approved) {
+    if (approved.resumeId && approved.resumeId !== ctx.resumeUsed || approved.resumeHash && approved.resumeHash !== resumeHash)
+      return { kind: 'ok', disposition: 'failed', message: 'Restore the candidate-approved resume and inspect its actual selected bytes before sending. The job remains approved; do not prepare it again.' };
+    // Retained answers are joined by their original question. Additional DOM
+    // labels (including a selected radio option appended to its question) do
+    // not revoke approval. A genuinely different saved answer is work to
+    // repair in place, not an invitation to replace the candidate decision.
+    const actual = new Map([...answers.values()].map(item => [normal(item.question), normal(item.answer)]));
+    const conflict = approved.answers.find(item => !isCoverLetterField(item.question)
+      && actual.has(normal(item.question)) && actual.get(normal(item.question)) !== normal(item.answer));
+    if (conflict) return { kind: 'ok', disposition: 'failed', message: `Restore the approved answer to "${conflict.question}" in the actual form before sending. The job remains approved; do not prepare it again.` };
+    if (approved.coverLetter && ctx.coverLetter && normal(approved.coverLetter) !== normal(ctx.coverLetter))
+      return { kind: 'ok', disposition: 'failed', message: 'Restore the exact approved cover letter in the actual form or attachment before sending. The job remains approved; do not prepare it again.' };
+    // New questions use the normal grounded-answer/readiness controls. Unknown
+    // consequential facts still require Needs attention. Employer receipts,
+    // explicit send intent, document checks and duplicate controls are unchanged.
+    return null;
+  }
   const draft: PreparedApplication = {
     id: randomUUID(), revision: '', job: ctx.job, formUrl: form.url,
     preparedAt: new Date().toISOString(), answers: [...answers.values()],
     coverLetter: ctx.coverLetter, documents: ctx.documents, resume: ctx.resumeName, resumeId: ctx.resumeUsed,
-    resumeHash: resumePath ? createHash('sha256').update(readFileSync(resumePath)).digest('hex') : undefined,
+    resumeHash,
   };
   draft.revision = applicationRevision(draft);
-  // The server supplied the candidate-confirmed content. Recompute its identity
-  // using the current canonicalization, so a legacy hash containing a rotating
-  // handoff token cannot force another approval of unchanged answers/documents.
-  if (!preparingApplications() && approved && applicationRevision(witnessedLetter !== undefined
-    ? { ...approved, coverLetter: witnessedLetter } : approved) === draft.revision) return null;
-  ctx.log(`  Ready for your confirmation: ${ctx.job.title} @ ${ctx.job.company}${approved ? ' (the application changed)' : ''}`);
+  ctx.log(`  Ready for your confirmation: ${ctx.job.title} @ ${ctx.job.company}`);
   return { kind: 'terminal', outcome: { status: 'prepared', draft } };
 }
 

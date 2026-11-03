@@ -93,10 +93,10 @@ export class AgentFiles {
     if (this.approved?.documents && coverLetterFileId === undefined && supportingFileIds === undefined
       && !nonResume.some(file => file.coverLetter && !approved.some(document => document.fileId === file.id && document.sha256 === file.sha256))) {
       if (approved.some(document => removed.has(document.fileId) && !uploaded.some(file => file.id === document.fileId)))
-        throw Error('An approved attachment was explicitly removed. Restore the exact approved file or prepare changed content for fresh confirmation.');
+        throw Error('An approved attachment was explicitly removed. Restore the exact approved file before sending; the job remains approved.');
       for (const document of approved) verifiedDocumentPath(document);
       if (nonResume.some(file => !approved.some(document => document.fileId === file.id && document.sha256 === file.sha256)))
-        throw Error('An attachment differs from the approved documents. Prepare changed content for confirmation.');
+        throw Error('An attachment differs from the approved documents. Restore the exact approved documents before sending; do not prepare the job again.');
       return approved.map(document => ({ ...document }));
     }
     if (nonResume.some(file => !declarations.some(item => item.id === file.id))) throw Error('Declare every attached non-resume file using cover_letter_file_id or supporting_file_ids before preparing. Do not infer a role from a filename.');
@@ -142,10 +142,10 @@ export class AgentFiles {
     if (file.sha256 && documentHash(readFileSync(file.path)) !== file.sha256) throw Error('The generated document bytes have changed. Recreate the exact authorized document.');
     if (this.approved?.resumeId && this.approved.resumeId === file.sourceId && this.approved.resumeHash) {
       const original = agentOnlyUploadPath(this.approved.resumeId);
-      if (!original || documentHash(readFileSync(original)) !== this.approved.resumeHash) throw Error('The confirmed resume has changed. Prepare for confirmation again.');
+      if (!original || documentHash(readFileSync(original)) !== this.approved.resumeHash) throw Error('The confirmed resume has changed. Restore the exact approved document before sending; do not prepare the job again.');
     }
     if (this.approved && !file.approvedBundle && file.sourceId !== this.approved.resumeId && !(typeof file.text === 'string' && file.text === this.approvedLetter)) {
-      throw Error('This file is outside the candidate-approved resume and cover letter. Save changed content for candidate confirmation first.');
+      throw Error('This file is outside the candidate-approved resume and cover letter. Use the exact approved document; do not prepare the job again.');
     }
     return file;
   }
@@ -172,7 +172,7 @@ export class AgentFiles {
     if (!name || basename(name) !== name || /[\\/\x00-\x1f]/.test(name) || name.length > 160 || extname(name).toLowerCase() !== '.' + format) {
       throw Error('Choose a plain file name whose extension matches your explicit format.');
     }
-    if (this.approved && text !== this.approvedLetter) throw Error('Generated content must match the candidate-approved cover letter exactly. Save changes for confirmation first.');
+    if (this.approved && text !== this.approvedLetter) throw Error('Generated content must match the candidate-approved cover letter exactly. Restore the exact approved text; do not prepare the job again.');
     const key = createHash('sha256').update(JSON.stringify([name, format, text])).digest('hex');
     const source = resolve(this.directory(key), basename(name, extname(name)) + '.txt');
     writeFileSync(source, text, { mode: 0o600 });
@@ -186,7 +186,7 @@ export class AgentFiles {
   /** Render the selected immutable approval directly; the model chooses only
    * the filename/format, so transcription cannot alter confirmed content. */
   async createApprovedLetter(name: string, format: DocumentFormat) {
-    if (!this.approvedLetter?.trim()) throw Error('This application has no candidate-approved cover letter. Prepare changed content for candidate confirmation first.');
+    if (!this.approvedLetter?.trim()) throw Error('This application has no candidate-approved cover letter. Inspect the actual letter opportunity and candidate evidence; do not prepare the job again.');
     const bound = this.approved?.documents?.find(document => document.role === 'cover-letter');
     if (bound && extname(bound.name).toLowerCase() === '.' + format) {
       return this.describe(this.resolve(bound.fileId));
@@ -215,11 +215,11 @@ export class AgentFiles {
   async combineApprovedDocuments() {
     const approved = this.approved;
     const letterText = this.approvedLetter;
-    if (!letterText?.trim() || !approved?.resumeId || !approved.resumeHash) throw Error('The confirmed letter and a verified resume are required. Prepare for confirmation again.');
+    if (!letterText?.trim() || !approved?.resumeId || !approved.resumeHash) throw Error('The confirmed letter and a verified resume are required. Restore the exact approved document before sending; do not prepare the job again.');
     const original = this.resolve(approved.resumeId);
     const bytes = readFileSync(original.path);
     const hash = createHash('sha256').update(bytes).digest('hex');
-    if (hash !== approved.resumeHash) throw Error('The confirmed resume has changed. Prepare for confirmation again.');
+    if (hash !== approved.resumeHash) throw Error('The confirmed resume has changed. Restore the exact approved document before sending; do not prepare the job again.');
     const key = createHash('sha256').update(JSON.stringify([letterText, hash, 'approved-bundle-v1'])).digest('hex');
     const dir = this.directory(key);
     const letter = resolve(dir, 'cover-letter.txt');

@@ -61,10 +61,27 @@ try {
   writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify([seekDraft]));
   assert.equal(approvedSeekReviewUrl({ ...seekJob, applicationMode: 'external' }), undefined, 'a changed external listing cannot reuse a hosted draft');
   writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify([draft]));
-  assert.equal(await applicationApprovalGate(ctx), null, 'only the exact confirmed application can send');
+  assert.equal(await applicationApprovalGate(ctx), null, 'the approved application can proceed');
+  const approvedLetter = 'The exact candidate-approved letter.';
+  writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify([{ ...draft, coverLetter: approvedLetter }]));
+  await page.locator('form').evaluate((form, letter) => {
+    const label = document.createElement('label'); label.textContent = 'Write a cover letter';
+    const input = document.createElement('textarea'); input.value = letter; label.append(input); form.append(label);
+    const option = document.createElement('label'); option.textContent = 'A recorded question Yes';
+    const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.checked = true; option.append(checkbox); form.append(option);
+  }, approvedLetter);
+  assert.equal(await applicationApprovalGate({ ...ctx, coverLetter: approvedLetter }), null,
+    'duplicate letter and selected-option DOM representations do not require another preparation');
+  assert.equal(await applicationApprovalGate({ ...ctx, job: { ...job, description: 'Refreshed posting metadata' }, coverLetter: approvedLetter }), null,
+    'posting metadata changes do not revoke approval for the same vacancy');
+  const unapproved = await applicationApprovalGate({ ...ctx, job: { ...job, id: 'not-selected' } });
+  assert.ok(unapproved?.kind === 'ok' && unapproved.disposition === 'failed', 'an unapproved job cannot submit or become a new prepared draft');
+  await page.locator('textarea').evaluate(node => node.parentElement!.remove());
+  await page.locator('input[type=checkbox]').evaluate(node => node.parentElement!.remove());
+  writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify([draft]));
   await page.locator('input').fill('Changed applicant');
   const changed = await applicationApprovalGate(ctx);
-  assert.ok(changed?.kind === 'terminal' && changed.outcome.status === 'prepared', 'changed answers return to review');
+  assert.ok(changed?.kind === 'ok' && changed.disposition === 'failed', 'a changed approved answer requests in-place repair, never another Prepared draft');
   await page.locator('input').fill('Fixture Applicant');
   writeFileSync(join(directory, 'resumes', 'Fixture CV.txt'), 'A different CV');
   assert.notEqual(await applicationApprovalGate(ctx), null, 'changed document bytes invalidate confirmation');
@@ -271,17 +288,16 @@ try {
     { name: 'browser_action', args: { action: 'inspect', selector: 'input[type="hidden"][name="letter"]' } },
     { name: 'save_progress', args: { note: savedLetterProgressNote } },
     { name: 'prepare_application', args: { submit_selector: '#send', answers: [], resume_id: 'cv' } },
+    { name: 'finish', args: { status: 'skipped', reason: 'Fixture intentionally leaves the changed availability unrepaired.', evidence: 'The current Availability input contains Three weeks; the approved value is Two weeks.' } },
   ];
   const changedSaved = await runAgentOnlyApplication({ page, job: fixtures[4], profile, log: () => {} });
-  assert.equal(changedSaved.outcome.status, 'prepared', 'retaining earlier answers must never hide a changed actual saved value');
-  assert.ok(changedSaved.outcome.status === 'prepared');
-  assert.ok(changedSaved.outcome.draft.answers.some(answer => answer.question === 'Availability' && answer.answer === 'Three weeks'));
+  assert.equal(changedSaved.outcome.status, 'skipped', 'a fixture that refuses to repair a changed approved answer cannot submit or become Prepared again');
   assert.equal(submissions.length, 5, 'a changed saved review cannot send under the previous approval');
   const reportDir = resolve(import.meta.dirname, '../../output');
   mkdirSync(reportDir, { recursive: true });
   writeFileSync(join(reportDir, 'semi-auto-e2e.json'), JSON.stringify({ prepared: drafts, submissions }, null, 2));
   console.log('PASS: five applications opened via listing links (including popups), filled, uploaded and prepared with zero sends; all five exact approved versions then submitted to isolated fixture forms.');
-  console.log('PASS: Semi auto cannot send without confirmation; changed answers, target URLs and resume bytes invalidate approval.');
+  console.log('PASS: approved jobs never return to Prepared; changed answers request repair and changed resume bytes prevent an incorrect send.');
 } finally {
   globalThis.fetch = originalFetch;
   await browser.close();

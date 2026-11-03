@@ -156,11 +156,14 @@ export async function saveApplicationReview(userId: string, draft: PreparedAppli
   try {
     await connection.query('BEGIN');
     await connection.query('SELECT pg_advisory_xact_lock($1::bigint)', [userId]);
+    // A late/replayed worker draft cannot erase a consumed candidate decision,
+    // including an approved submission that failed or was stopped. Only an
+    // explicit owner edit/retry can alter that retained submission record.
     const saved = await connection.query<{ credit_consumed: boolean }>(`INSERT INTO application_reviews (user_id,job_key,id,payload,status)
     VALUES ($1,$2,$3,$4,'ready') ON CONFLICT (user_id,job_key) DO UPDATE
     SET id=EXCLUDED.id,payload=EXCLUDED.payload,status='ready',
-      detail=CASE WHEN application_reviews.status='approved' THEN 'This application changed after confirmation. Review the updated version before confirming again.' ELSE NULL END,updated_at=now()
-    WHERE application_reviews.status <> 'applied'
+      detail=NULL,updated_at=now()
+    WHERE application_reviews.status NOT IN ('approved','applied','failed')
       AND (application_reviews.payload->>'preparedAt') < (EXCLUDED.payload->>'preparedAt')
     RETURNING credit_consumed`,
     [userId, `${draft.job.platform ?? 'seek'}:${draft.job.id}`, draft.id, JSON.stringify(draft)]);
@@ -251,12 +254,10 @@ export async function claimApplicationReviews(userId: string, selections: Review
   finally { connection.release(); }
 }
 
-export async function releaseApplicationReviews(userId: string, ids: string[], selections: ReviewSelection[] = []): Promise<void> {
-  const retries = selections.filter(item => item.retry === true).map(item => item.id);
-  await query(`UPDATE application_reviews SET
-    status=CASE WHEN id=ANY($3::uuid[]) THEN 'failed' ELSE 'ready' END,
-    detail=CASE WHEN id=ANY($3::uuid[]) THEN 'The retry did not start. You can retry this application again.' ELSE detail END,
-    updated_at=now() WHERE user_id=$1 AND id=ANY($2::uuid[]) AND status='approved'`, [userId, ids, retries]);
+export async function releaseApplicationReviews(userId: string, ids: string[], _selections: ReviewSelection[] = []): Promise<void> {
+  await query(`UPDATE application_reviews SET status='failed',
+    detail='Submission did not start. Your approval is retained; you can retry this submission.',
+    updated_at=now() WHERE user_id=$1 AND id=ANY($2::uuid[]) AND status='approved'`, [userId, ids]);
 }
 
 export async function dismissApplicationReviews(userId: string, selections: ReviewSelection[]): Promise<void> {
