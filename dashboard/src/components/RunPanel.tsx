@@ -1,4 +1,5 @@
 import { EMPLOYER_SOURCES, EMPLOYER_SOURCE_DEFAULTS, isEmployerSource } from '../../../seek-bot/src/employer-source-config';
+import { CUSTOMER_APPLICATION_MODEL } from '../../../seek-bot/src/application-model-catalog';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEntitlements } from '../entitlements';
 import { useBillingStatus } from '../billing';
@@ -41,7 +42,7 @@ interface AutoScheduleStatus {
 }
 
 const RUN_DEFAULTS: Record<string, string> = {
-  APPLICATION_AI_MODEL: 'minimax',
+  APPLICATION_AI_MODEL: CUSTOMER_APPLICATION_MODEL,
   KEYWORDS: '',
   PLATFORMS: 'seek',
   ...EMPLOYER_SOURCE_DEFAULTS,
@@ -196,6 +197,8 @@ export function RunPanel({
   const [standingSaving, setStandingSaving] = useState(false);
   const [standingSaved, setStandingSaved] = useState(false);
   const [standingError, setStandingError] = useState<string | null>(null);
+  const [modelSaving, setModelSaving] = useState(false);
+  const [modelError, setModelError] = useState<string | null>(null);
   /**
    * Which field the message belongs to, so it can be shown where the mistake
    * is rather than only at the bottom of a modal the user may have scrolled
@@ -286,7 +289,7 @@ export function RunPanel({
 
   const running = status?.running ?? false;
   async function setAutoApply(enabled: boolean) {
-    if (autoToggling) return;
+    if (autoToggling || (enabled && modelSaving)) return;
     setAutoToggling(true);
     setError(null);
     try {
@@ -395,6 +398,21 @@ export function RunPanel({
   const standingDirty = standingKeys.some(
     (key) => edits[key] !== undefined && edits[key] !== (settings[key] ?? RUN_DEFAULTS[key] ?? ''),
   );
+  async function saveApplicationModel(value: string) {
+    if (!isAdmin || modelSaving || starting || autoToggling) return;
+    setModelSaving(true);
+    setModelError(null);
+    try {
+      const response = await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates: { APPLICATION_AI_MODEL: value } }) });
+      const saved = await response.json();
+      if (!response.ok) throw new Error(saved.error ?? 'Could not save the run model.');
+      if (saved.settings) setSettings(saved.settings);
+      setEdits(current => { const next = { ...current }; delete next.APPLICATION_AI_MODEL; return next; });
+    } catch (reason) { setModelError((reason as Error).message); }
+    finally { setModelSaving(false); }
+  }
+
   async function saveStanding() {
     const terms = val('KEYWORDS').split(',').map((term) => term.trim()).filter(Boolean);
     if (!terms.length) return setStandingError('Add at least one job title or search term.');
@@ -522,7 +540,7 @@ export function RunPanel({
   }, [attempt, errorField]);
 
   async function saveAndStart(mode: 'live' | 'search' = 'live') {
-    if (starting) return;
+    if (starting || modelSaving) return;
     if (mode === 'search' && !isAdmin) return;
     setError(null);
     setErrorField(null);
@@ -703,7 +721,16 @@ export function RunPanel({
             </button>
           </div>}
           </div>
-          {isAdmin && <p className="job-meta">Job review, applications and supervision: Magnus</p>}
+          {isAdmin && <div className="run-application-model">
+            <label htmlFor="run-application-model">Run model</label>
+            <select className="input" id="run-application-model" value={val('APPLICATION_AI_MODEL')}
+              disabled={starting || modelSaving || autoToggling} onChange={event => void saveApplicationModel(event.target.value)}>
+              <option value="celeris">Celeris Magnus</option>
+              <option value="minimax">MiniMax M3.1</option>
+            </select>
+            <p className="job-meta">{modelSaving ? 'Saving…' : 'Used for the whole next run.'}</p>
+            {modelError && <p className="field-error" role="alert">{modelError}</p>}
+          </div>}
           <p className="job-meta">{applicationMode === 'auto' ? 'Owtomate finds suitable jobs, fills their forms and submits applications.' : 'Owtomate curates jobs and fills their forms. You choose which prepared applications to confirm.'} {adminMode ? 'Start a single run now.' : 'Press Start to enable scheduled runs. Pause anytime to stop the current run and all future runs.'}</p>
           {applicationMode === 'semi-auto' && <p className="job-meta">Review and confirm jobs in <a href="/?tab=prepared">Prepared Applications</a>.</p>}
           {entitlements && !isAdmin && <p className="job-meta">{entitlements.autoRunsUsedToday} of {entitlements.autoRunsPerDay} runs started in the last 24 hours. You can confirm prepared applications while the schedule is paused.</p>}
@@ -1376,12 +1403,12 @@ export function RunPanel({
               <button className="btn" disabled={starting} onClick={() => setConfirming(false)}>
                 Cancel
               </button>
-              {isAdmin && <button className="btn" disabled={starting} onClick={() => void saveAndStart('search')}>
+              {isAdmin && <button className="btn" disabled={starting || modelSaving} onClick={() => void saveAndStart('search')}>
                 Test without applying
               </button>}
               <button
                 className="btn btn-danger-solid"
-                disabled={starting}
+                disabled={starting || modelSaving}
                 onClick={() => void saveAndStart('live')}
               >
                 {starting ? 'Saving and starting…' : applicationMode === 'semi-auto' ? 'Start Semi auto' : 'Start Auto apply'}

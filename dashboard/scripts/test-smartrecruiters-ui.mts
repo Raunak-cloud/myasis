@@ -16,6 +16,7 @@ const capturedQuestions=answerQuestions.map(([prompt,options])=>{const snapshot=
 // Serve only the built frontend and fixture APIs: no database, worker or employer is contacted.
 const dist = resolve(import.meta.dirname, '../dist');
 let admin = true;
+let runModel = 'celeris', failModelSave = false;
 let adminControlFixture = false, adminManualRunning = false;
 let adminManualMode: 'auto' | 'semi-auto' = 'auto';
 let scheduleFixture = false, scheduleEnabled = false;
@@ -43,6 +44,7 @@ const preparedRows = () => (e2eDrafts ? e2eDrafts.map((application: any) => ({ i
       application: letterEdits.get(row.id) ?? row.application }));
 const writes: Array<{ path: string; body: any }> = [];
 const settings = () => ({
+  APPLICATION_AI_MODEL: admin ? runModel : 'celeris',
   APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'true',
   PLATFORMS: admin ? adminBoards : customerBoards, SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
   KEYWORDS: 'software engineer', WORK_ARRANGEMENTS: 'remote,hybrid,onsite', ONSITE_CITY: 'Sydney',
@@ -55,6 +57,10 @@ const server = createServer(async (req, res) => {
     let body = '';
     for await (const chunk of req) body += chunk;
     if (req.method === 'POST') writes.push({ path, body: JSON.parse(body || '{}') });
+    if (path === '/api/settings' && req.method === 'POST' && JSON.parse(body || '{}').updates?.APPLICATION_AI_MODEL !== undefined) {
+      if (failModelSave) { res.writeHead(500, {'Content-Type':'application/json'}); res.end(JSON.stringify({error:'Fixture model save failed'})); return; }
+      runModel = JSON.parse(body).updates.APPLICATION_AI_MODEL;
+    }
     if (path === '/api/settings' && req.method === 'POST' && JSON.parse(body || '{}').updates?.COVER_LETTER_INSTRUCTIONS !== undefined) {
       letterInstructions = JSON.parse(body).updates.COVER_LETTER_INSTRUCTIONS.trim();
       const updates = JSON.parse(body).updates;
@@ -138,6 +144,25 @@ try {
     await page.goto(`${origin}/?tab=run`);
     await page.getByRole('button', { name: 'Start Auto apply', exact: true }).waitFor();
     assert.equal(await page.getByRole('switch', { name: 'Admin mode', exact: true }).count(), admin ? 1 : 0);
+    const modelChoice=page.getByRole('combobox',{name:'Run model',exact:true});
+    assert.equal(await modelChoice.count(),admin?1:0);
+    if(admin) {
+      assert.equal(await modelChoice.inputValue(),'celeris');
+      const before=writes.length;
+      await modelChoice.selectOption('minimax');
+      await page.waitForFunction(()=>document.querySelector<HTMLSelectElement>('#run-application-model')?.value==='minimax' && !document.querySelector<HTMLSelectElement>('#run-application-model')?.disabled);
+      assert.deepEqual(writes.slice(before),[{path:'/api/settings',body:{updates:{APPLICATION_AI_MODEL:'minimax'}}}],'choosing a provider only saves the preference; it cannot start work');
+      await page.reload();
+      await modelChoice.waitFor();
+      assert.equal(await modelChoice.inputValue(),'minimax','admin choice survives reload');
+      failModelSave=true;
+      await modelChoice.selectOption('celeris');
+      await page.getByRole('alert').filter({hasText:'Fixture model save failed'}).waitFor();
+      assert.equal(await modelChoice.inputValue(),'minimax','failed save retains the last persisted selection');
+      failModelSave=false;
+      await modelChoice.selectOption('celeris');
+      await page.waitForFunction(()=>document.querySelector<HTMLSelectElement>('#run-application-model')?.value==='celeris' && !document.querySelector<HTMLSelectElement>('#run-application-model')?.disabled);
+    }
     assert.equal(await page.getByRole('switch', { name: 'Screenshots each step', exact: true }).count(), 0);
     assert.equal(await page.getByRole('heading', { name: 'Admin screenshot test', exact: true }).count(), 0);
     const searchCard = page.locator('.saved-search-card');

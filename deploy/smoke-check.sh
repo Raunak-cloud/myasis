@@ -26,6 +26,7 @@ node --test server/form-lab/engine.test.mjs
 ../seek-bot/node_modules/.bin/tsx server/visits.test.ts
 ../seek-bot/node_modules/.bin/tsx server/visits-access.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/job-sources.test.ts
+../seek-bot/node_modules/.bin/tsx --test server/application-model-policy.test.ts server/application-environment.test.ts server/application-agent-policy.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/gmail-api-reader.test.ts
 ../seek-bot/node_modules/.bin/tsx server/site-accounts.test.ts
 ../seek-bot/node_modules/.bin/tsx server/answers.test.ts
@@ -42,6 +43,7 @@ check_bot() (
   set -euo pipefail
 if [ "$REPLAY_REQUIRED" = 1 ]; then
   cd "$APP/seek-bot"
+  node --test dist/application-model.test.js dist/application-model-cache.test.js dist/agent/stage-model-routing.test.js
   node --test dist/answer-eligibility.test.js dist/agent/personal-declaration-policy.test.js dist/agent/provider-tool-schema.test.js dist/fit-provenance.test.js
   node --test dist/question-snapshot.test.js dist/question-patterns.test.js dist/answer-gate.test.js dist/agent/agent-only-evidence.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/question-robustness-browser.test.js

@@ -1,4 +1,4 @@
-import { CUSTOMER_APPLICATION_MODEL } from '../../seek-bot/src/application-model-catalog.js';
+import { CUSTOMER_APPLICATION_MODEL, isApplicationModel } from '../../seek-bot/src/application-model-catalog.js';
 import { EMPLOYER_SOURCE_DEFAULTS } from '../../seek-bot/src/employer-source-config.js';
 import { query } from './db/index.js';
 import { upsertSettingRow } from './db/records.js';
@@ -158,7 +158,8 @@ export async function loadUserSettings(userId: string): Promise<Record<string, s
   // the only place they can be waived for an operator of this installation.
   for (const row of rows) {
     if (row.key === 'PAGES_PER_KEYWORD') continue; // Retired; old saved values have no effect.
-    if (row.key === 'APPLICATION_AI_MODEL') out[row.key] = CUSTOMER_APPLICATION_MODEL;
+    // This is storage normalization. Account access is enforced on API responses and execution.
+    if (row.key === 'APPLICATION_AI_MODEL') out[row.key] = isApplicationModel(row.value) ? row.value : CUSTOMER_APPLICATION_MODEL;
     else if (row.key === 'APPLICATION_AGENT_MODE') out[row.key] = 'agent-only';
     else if (row.key === 'APPLICATION_AGENT_MODE_AUTHORIZED') continue;
     else if (!row.key.startsWith('APPLICATION_AI_')) out[row.key] = row.value;

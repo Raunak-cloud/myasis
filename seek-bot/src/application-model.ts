@@ -16,8 +16,8 @@ export function withApplicationModel<T>(env: ApplicationEnvironment, work: () =>
 /** Stable provider identity also separates established caches from retired
  * experiments without deleting account history. */
 export function applicationModelIdentity(env: ApplicationEnvironment = applicationModelEnvironment()) {
-  // Explicit MiniMax remains available to isolated form-lab comparisons.
-  // Customer worker environments are pinned to Magnus by the server policy.
+  // The server authorizes this immutable run selection against the active owner.
+  // Normal customer environments remain pinned to Magnus.
   const selection = env.APPLICATION_AI_MODEL === 'minimax' ? 'minimax' : CUSTOMER_APPLICATION_MODEL;
   return selection === 'minimax'
     ? { selection, model: OPENROUTER_APPLICATION_MODELS[selection].model, protocol: 'openrouter-chat-v1', provider: 'OpenRouter' } as const
@@ -47,13 +47,14 @@ export function assertApplicationBrowserConfigured(env: ApplicationEnvironment =
   assertApplicationModelConfigured(env);
 }
 
-/** Suitability and fit scores have their own model and cache identity. */
-export function reviewModelIdentity() {
-  return { role: 'job-review', model: 'celeris-1-magnus', protocol: 'celeris-chat-v1', provider: 'Celeris' } as const;
+/** All stages of an admin MiniMax run share its provider, including cache identity. */
+export function reviewModelIdentity(env: ApplicationEnvironment = applicationModelEnvironment()) {
+  const identity = applicationAgentIdentity(env);
+  return { role: 'job-review', model: identity.model, protocol: identity.protocol, provider: identity.provider } as const;
 }
 export function reviewModelAvailable(env: ApplicationEnvironment = applicationModelEnvironment()): boolean {
-  return Boolean(env.CELERIS_API_KEY?.trim());
+  return applicationModelAvailable(env);
 }
 export function assertReviewModelConfigured(env: ApplicationEnvironment = applicationModelEnvironment()): void {
-  if (!reviewModelAvailable(env)) throw new Error('CELERIS_API_KEY is required for Magnus job review.');
+  if (!reviewModelAvailable(env)) throw new Error(`${reviewModelIdentity(env).provider === 'OpenRouter' ? 'OPENROUTER_API_KEY' : 'CELERIS_API_KEY'} is required for job review.`);
 }
