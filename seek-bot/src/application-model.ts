@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { CUSTOMER_APPLICATION_MODEL, OPENROUTER_APPLICATION_MODELS } from './application-model-catalog.js';
+import { CUSTOMER_APPLICATION_MODEL, OPENROUTER_APPLICATION_MODELS, isApplicationModel } from './application-model-catalog.js';
 
 type ApplicationEnvironment = Readonly<Record<string, string | undefined>>;
 const contexts = new AsyncLocalStorage<ApplicationEnvironment>();
@@ -18,8 +18,8 @@ export function withApplicationModel<T>(env: ApplicationEnvironment, work: () =>
 export function applicationModelIdentity(env: ApplicationEnvironment = applicationModelEnvironment()) {
   // The server authorizes this immutable run selection against the active owner.
   // Normal customer environments remain pinned to Magnus.
-  const selection = env.APPLICATION_AI_MODEL === 'minimax' ? 'minimax' : CUSTOMER_APPLICATION_MODEL;
-  return selection === 'minimax'
+  const selection = isApplicationModel(env.APPLICATION_AI_MODEL) ? env.APPLICATION_AI_MODEL : CUSTOMER_APPLICATION_MODEL;
+  return selection !== 'celeris'
     ? { selection, model: OPENROUTER_APPLICATION_MODELS[selection].model, protocol: 'openrouter-chat-v1', provider: 'OpenRouter' } as const
     : { selection: 'celeris', model: 'celeris', protocol: 'celeris-chat-v1', provider: 'Celeris' } as const;
 }
@@ -47,7 +47,7 @@ export function assertApplicationBrowserConfigured(env: ApplicationEnvironment =
   assertApplicationModelConfigured(env);
 }
 
-/** All stages of an admin MiniMax run share its provider, including cache identity. */
+/** Every stage of an authorized run shares its provider and cache identity. */
 export function reviewModelIdentity(env: ApplicationEnvironment = applicationModelEnvironment()) {
   const identity = applicationAgentIdentity(env);
   return { role: 'job-review', model: identity.model, protocol: identity.protocol, provider: identity.provider } as const;

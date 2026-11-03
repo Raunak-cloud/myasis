@@ -12,6 +12,8 @@ test('Magnus is the default; authorized MiniMax selection covers review and appl
   assert.equal(applicationAgentIdentity({APPLICATION_AI_MODEL:'minimax'}).model,'minimax/minimax-m3.1-flash');
   assert.equal(reviewModelIdentity().model,'celeris-1-magnus');
   assert.equal(reviewModelIdentity({APPLICATION_AI_MODEL:'minimax'}).model,'minimax/minimax-m3.1-flash');
+  assert.equal(applicationAgentIdentity({APPLICATION_AI_MODEL:'deepseek'}).model,'deepseek/deepseek-v4.1-flash-1017');
+  assert.equal(reviewModelIdentity({APPLICATION_AI_MODEL:'deepseek'}).model,'deepseek/deepseek-v4.1-flash-1017');
   assert.equal(applicationModelAvailable({CELERIS_API_KEY:'fixture'}),true);
   assert.equal(applicationModelAvailable({OPENROUTER_API_KEY:'fixture'}),false);
   assert.equal(reviewModelAvailable({OPENROUTER_API_KEY:'fixture'}),false);
@@ -27,6 +29,8 @@ test('each whole-run provider needs only its own credential without fallback', (
   assert.doesNotThrow(()=>assertApplicationBrowserConfigured({APPLICATION_AI_MODEL:'minimax',OPENROUTER_API_KEY:'apply'}));
   assert.throws(()=>assertReviewModelConfigured({}),/CELERIS_API_KEY.*job review/);
   assert.throws(()=>assertReviewModelConfigured({APPLICATION_AI_MODEL:'minimax',CELERIS_API_KEY:'unused'}),/OPENROUTER_API_KEY/);
+  assert.throws(()=>assertApplicationBrowserConfigured({APPLICATION_AI_MODEL:'deepseek',CELERIS_API_KEY:'unused'}),/OPENROUTER_API_KEY/);
+  assert.doesNotThrow(()=>assertApplicationBrowserConfigured({APPLICATION_AI_MODEL:'deepseek',OPENROUTER_API_KEY:'fixture'}));
 });
 
 test('concurrent account scopes isolate credentials and data directories across awaits', async () => {

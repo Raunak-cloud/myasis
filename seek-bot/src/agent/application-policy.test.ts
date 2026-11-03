@@ -21,4 +21,10 @@ test('MiniMax receives the completion goal while Semi auto and truthful answers 
  assert.doesNotMatch(instruction,/target_mode/,'the explicit-target trial instruction is opt-in');
  assert.match(applicationCompletionInstruction('minimax',true),/target_mode.*Main-document fields have no iframe scope/);
  assert.equal(applicationCompletionInstruction('celeris',true),'');
+ const deepseek = applicationCompletionInstruction('deepseek');
+ assert.match(deepseek,/fresh screenshots together with the DOM/);
+ assert.match(deepseek,/complete and submit this application/);
+ assert.match(deepseek,/Semi auto.*candidate's confirmation/);
+ assert.match(deepseek,/Never invent candidate facts/);
+ assert.doesNotMatch(deepseek,/Do not request a screenshot after every update|Return to DOM-first/);
 });

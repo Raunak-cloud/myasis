@@ -12,9 +12,7 @@ import { boundedReasoningEffort, GenerationRecovery, GenerationWindowError, gene
 import { minimaxToolSchema, minimaxToolArguments } from './provider-tool-schema.js';
 
 const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
-// Published non-discounted rates, USD/token, checked 2026-11-02. Actual usage.cost
-// takes precedence, including time-dependent prices and cache discounts.
-const MINIMAX_RATES = { prompt: 0.00000015, cached: 0.000000015, completion: 0.0000006 };
+type ModelRates = { readonly prompt: number; readonly cached: number; readonly completion: number };
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 type AssistantMessage = Extract<ChatMessage, { role: 'assistant' }>;
 interface Payload {
@@ -24,14 +22,13 @@ interface Payload {
   error?: { code?: number; message?: string };
 }
 
-function recordUsage(request: CelerisRequest, body: Record<string, unknown>, usage?: Payload['usage']): void {
+function recordUsage(request: CelerisRequest, body: Record<string, unknown>, rates: ModelRates, usage?: Payload['usage']): void {
   const measured = finite(usage?.prompt_tokens) && finite(usage?.completion_tokens);
   const prompt = measured ? usage!.prompt_tokens! : estimateTranscriptTokens(body.messages as ChatMessage[]);
   const completion = measured ? usage!.completion_tokens! : Number(body.max_tokens);
   const cached = measured && finite(usage?.prompt_tokens_details?.cached_tokens)
     ? Math.min(prompt, usage!.prompt_tokens_details!.cached_tokens!) : 0;
   const exact = finite(usage?.cost);
-  const rates = MINIMAX_RATES;
   const amountUsd = exact ? usage!.cost! : (prompt - cached) * rates.prompt + cached * rates.cached + completion * rates.completion;
   request.meter?.recordProvider({ prompt, cached, completion, amountUsd });
   recordCost({ provider: 'OpenRouter', model: String(body.model), amountUsd: exact || measured ? amountUsd : null,
@@ -48,17 +45,18 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
   const identity = applicationAgentIdentity();
   if (identity.provider !== 'OpenRouter') throw new Error('Select an OpenRouter application model first.');
   const model = OPENROUTER_APPLICATION_MODELS[identity.selection];
+  const effort = boundedReasoningEffort(request.reasoningEffort, model.initialEffort);
   const key = applicationModelEnvironment().OPENROUTER_API_KEY?.trim();
   if (!key) throw new Error('OPENROUTER_API_KEY is required for the selected application agent.');
   if (request.forceTool && !request.tools?.some(tool => tool.name === request.forceTool)) throw new Error('Forced tool is not in the offered tools.');
   const body: Record<string, unknown> = {
     model: model.model, messages: request.messages,
-    temperature: request.temperature ?? 0, max_tokens: request.maxTokens ?? 8192,
-    reasoning: { effort: boundedReasoningEffort(request.reasoningEffort, 'medium') },
+    ...(model.temperature ? { temperature: request.temperature ?? 0 } : {}), max_tokens: request.maxTokens ?? 8192,
+    reasoning: { effort: (model.efforts as readonly string[]).includes(effort) ? effort : model.initialEffort },
     provider: { require_parameters: true },
   };
   if (request.tools?.length) {
-    body.tools = request.tools.map(tool => ({ type: 'function', function: identity.selection === 'minimax'
+    body.tools = request.tools.map(tool => ({ type: 'function', function: model.serializedTools
       ? minimaxToolSchema(tool) : tool }));
     body.tool_choice = request.forceTool ? { type: 'function', function: { name: request.forceTool } }
       : request.requireTool ? 'required' : 'auto';
@@ -77,6 +75,10 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
     const endCost = beginCostRequest('OpenRouter', model.model);
     try {
       recovery.assertWindow(attempt);
+      // Recovery can lower high to medium; providers with low/high only must
+      // receive their supported reduced effort, including in diagnostics.
+      const reasoning = body.reasoning as { effort: string };
+      if (!(model.efforts as readonly string[]).includes(reasoning.effort)) body.reasoning = { effort: model.reducedEffort };
       recordDiagnostic({ severity: 'info', category: 'generation_attempt', stage: 'model_request', tool: model.model,
         retry: attempt + 1, message: JSON.stringify({ maxTokens: body.max_tokens, timeoutMs: recovery.timeoutMs,
           remainingMs: Math.max(0, recovery.deadline - Date.now()), reasoning: body.reasoning }) });
@@ -91,7 +93,7 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
       const payload = await response.json().catch(() => null) as Payload | null;
       const choice = payload?.choices?.[0], providerError = payload?.error ?? choice?.error;
       if (!response.ok || providerError) {
-        if (payload?.usage) recordUsage(request, body, payload.usage);
+        if (payload?.usage) recordUsage(request, body, model.rates, payload.usage);
         else recordCost({ provider: 'OpenRouter', model: String(body.model), amountUsd: null, basis: 'unknown',
           detail: `HTTP ${status}: rejected or failed request; provider charge not reported.` });
         recorded = true;
@@ -103,7 +105,7 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
         const detail = String(providerError?.message ?? response.statusText).replaceAll(key, '[credential withheld]');
         throw new Error(`OpenRouter ${status}: ${detail.slice(0, 300)}`);
       }
-      recordUsage(request, body, payload?.usage);
+      recordUsage(request, body, model.rates, payload?.usage);
       recorded = true;
       endCost();
       // HTTP 200 can still end in a failed generation. Never execute partial
@@ -123,7 +125,7 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
         try { args = JSON.parse(call.function.arguments || '{}'); }
         catch { args = { __parseError: call.function.arguments }; }
         const tool = request.tools?.find(tool => tool.name === call.function.name);
-        if (identity.selection === 'minimax' && tool) args = minimaxToolArguments(tool, args);
+        if (model.serializedTools && tool) args = minimaxToolArguments(tool, args);
         return { id: call.id, name: call.function.name, args };
       });
       metric('model', performance.now() - started, { model: String(body.model), attempts: attempt + 1,
@@ -135,7 +137,7 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
           : message.reasoning !== undefined ? { reasoning: message.reasoning } : {}),
       } };
     } catch (error) {
-      if (sent && !recorded) recordUsage(request, body);
+      if (sent && !recorded) recordUsage(request, body, model.rates);
       endCost();
       if (!(error instanceof ApplicationBudgetExhaustedError)) recordDiagnostic({ severity: 'warning', category: 'provider_error',
         stage: 'model_request', tool: model.model, retry: attempt + 1,

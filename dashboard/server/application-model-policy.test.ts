@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { applicationModelForAccount, applicationModelSettingsError } from './application-model-policy.js';
 import { applyJobSourceAccess } from './job-sources.js';
 test('customer execution pins Magnus despite old or forged selections', () => {
-  for (const value of [undefined, 'celeris', 'minimax', 'retired']) {
+  for (const value of [undefined, 'celeris', 'minimax', 'deepseek', 'retired']) {
     const admin = false;
     assert.equal(applicationModelForAccount(value, admin), 'celeris');
     const settings = {PLATFORMS:'seek', APPLICATION_AI_MODEL: String(value)};
@@ -15,6 +15,9 @@ test('only admins can choose a supported whole-run provider', () => {
   assert.equal(applicationModelSettingsError({},false),null);
   assert.equal(applicationModelSettingsError({APPLICATION_AI_MODEL:'celeris'},true),null);
   assert.equal(applicationModelSettingsError({APPLICATION_AI_MODEL:'minimax'},true),null);
+  assert.equal(applicationModelSettingsError({APPLICATION_AI_MODEL:'deepseek'},true),null);
+  assert.equal(applicationModelSettingsError({APPLICATION_AI_MODEL:'deepseek'},false)?.status,403);
+  assert.equal(applicationModelForAccount('deepseek',true),'deepseek');
   for (const invalid of ['retired', null, {}, ['minimax']]) {
     assert.equal(applicationModelSettingsError({APPLICATION_AI_MODEL:invalid},true)?.status,400);
     assert.equal(applicationModelForAccount(invalid,true),'celeris');

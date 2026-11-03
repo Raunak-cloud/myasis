@@ -19,18 +19,18 @@ test('stage routes preserve concurrent owner isolation, exact model IDs and no f
   return Response.json({choices:[{finish_reason:'stop',message:{role:'assistant',content:'{}'}}],usage:{prompt_tokens:10,completion_tokens:2,cost:0.00001}});
  };
  try {
-  await Promise.all(['one','two','three'].map(owner=>withApplicationModel({DATA_DIR:join(dir,owner),COST_TRACKING:'true',APPLICATION_AI_MODEL:owner==='three'?'minimax':'celeris',
+  await Promise.all(['one','two','three','four'].map(owner=>withApplicationModel({DATA_DIR:join(dir,owner),COST_TRACKING:'true',APPLICATION_AI_MODEL:owner==='four'?'deepseek':owner==='three'?'minimax':'celeris',
    CELERIS_API_KEY:owner+'-review',OPENROUTER_API_KEY:owner+'-apply',CELERIS_QUEUE_FILE:join(dir,'queue.sqlite'),CELERIS_MIN_INTERVAL_MS:'0'},async()=>{
     await Promise.all([reviewChat(request),rankingChat(request),applicationChat(request)]);
   })));
-  assert.equal(calls.length,9);
-  for(const owner of ['one','two','three']) {
+  assert.equal(calls.length,12);
+  for(const owner of ['one','two','three','four']) {
    const scoped=calls.filter(call=>call.key.startsWith('Bearer '+owner+'-'));
    assert.equal(scoped.length,3);
-   if(owner==='three') {
+   if(owner==='three'||owner==='four') {
     for(const call of scoped) {
      assert.equal(call.url,'https://openrouter.ai/api/v1/chat/completions');
-     assert.equal(call.body.model,'minimax/minimax-m3.1-flash');assert.equal(call.key,'Bearer '+owner+'-apply');
+     assert.equal(call.body.model,owner==='four'?'deepseek/deepseek-v4.1-flash-1017':'minimax/minimax-m3.1-flash');assert.equal(call.key,'Bearer '+owner+'-apply');
      assert.equal(call.body.models,undefined);assert.equal(call.body.route,undefined);
     }
    } else {
@@ -44,7 +44,7 @@ test('stage routes preserve concurrent owner isolation, exact model IDs and no f
    const ledger=readFileSync(join(dir,owner,'cost-ledger.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
    const usage=ledger.filter(entry=>entry.kind==='usage');
    assert.equal(usage.length,3);
-   assert.ok(usage.every(entry=>entry.provider===(owner==='three'?'OpenRouter':'Celeris')),'only the selected provider incurs usage');
+   assert.ok(usage.every(entry=>entry.provider===(owner==='three'||owner==='four'?'OpenRouter':'Celeris')),'only the selected provider incurs usage');
   }
   assert.equal(request.model,'celeris-1','routes never mutate caller input');
   const before=calls.length;

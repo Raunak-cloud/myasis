@@ -1,5 +1,5 @@
 import { EMPLOYER_SOURCES, EMPLOYER_SOURCE_DEFAULTS, isEmployerSource } from '../../../seek-bot/src/employer-source-config';
-import { CUSTOMER_APPLICATION_MODEL } from '../../../seek-bot/src/application-model-catalog';
+import { APPLICATION_MODELS, applicationModelLabel, CUSTOMER_APPLICATION_MODEL } from '../../../seek-bot/src/application-model-catalog';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEntitlements } from '../entitlements';
 import { useBillingStatus } from '../billing';
@@ -725,8 +725,7 @@ export function RunPanel({
             <label htmlFor="run-application-model">Run model</label>
             <select className="input" id="run-application-model" value={val('APPLICATION_AI_MODEL')}
               disabled={starting || modelSaving || autoToggling} onChange={event => void saveApplicationModel(event.target.value)}>
-              <option value="celeris">Celeris Magnus</option>
-              <option value="minimax">MiniMax M3.1</option>
+              {APPLICATION_MODELS.map(model => <option key={model} value={model}>{applicationModelLabel(model)}</option>)}
             </select>
             <p className="job-meta">{modelSaving ? 'Saving…' : 'Used for the whole next run.'}</p>
             {modelError && <p className="field-error" role="alert">{modelError}</p>}
