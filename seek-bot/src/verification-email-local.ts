@@ -11,6 +11,17 @@ export function verificationContextWords(ask: { hint?: string; site?: string }):
   return contextWords(`${ask.site || ''} ${ask.hint || ''}`);
 }
 
+const hintAliases = (hint: string) => hint.split(/[/|,;]+/).map(contextWords).filter(words => words.length);
+
+/** The first alias comes from the known employer. A supplementary label made
+ * solely from the current hosting domain is transport context, not evidence
+ * that a message belongs to that employer. Preserve meaningful sender aliases. */
+function employerAliases(ask: { hint?: string; site?: string }): string[][] {
+  const site = contextWords(ask.site || '');
+  return hintAliases(ask.hint || '').filter((words, index) => index === 0
+    || !(words.every(word => site.includes(word)) || site.includes(words.join(''))));
+}
+
 /** Sender hints supplement the known employer; a decorated identity-page
  * heading must not replace it with one impossible all-words phrase. Do not
  * promote a hosting platform or generic corporate label to an employer alias. */
@@ -20,9 +31,12 @@ export function verificationSenderHint(company: string, jobUrl: string, supplied
   if (!hint || hint.toLowerCase() === employer.toLowerCase()) return employer;
   const generic = new Set(['company', 'corporation', 'group', 'limited', 'ltd', 'inc', 'pty', 'plc']);
   const words = contextWords(employer).filter(word => !generic.has(word));
-  let host = '';
-  try { host = new URL(jobUrl).hostname.toLowerCase(); } catch { /* retain the supplied hint */ }
-  if (!host || !words.length || words.some(word => host.includes(word))) return hint;
+  // A raw hosting hostname or generic organisation label is not an employer.
+  // A real company remains primary even when its job URL is employer-owned;
+  // the observed sender hint may name a different, shared authentication host.
+  let hostingLabel = false;
+  try { hostingLabel = new URL(jobUrl).hostname.toLowerCase() === employer.toLowerCase().replace(/^https?:\/\//, '').replace(/\/$/, ''); } catch { /* retain the known employer */ }
+  if (!words.length || hostingLabel) return hint;
   return `${employer} | ${hint}`;
 }
 
@@ -32,12 +46,12 @@ function matchesContext(content: string, ask: { hint?: string; site?: string }):
   // An alias containing multiple words requires all of them, rather than
   // allowing a generic fragment to select another employer's reset email.
   const site = contextWords(ask.site || '');
-  const aliases = (ask.hint || '').split(/[/|,;]+/).map(contextWords).filter(words => words.length);
+  const aliases = employerAliases(ask);
   // A shared ATS hostname fragment must not override a specific employer
-  // hint. Host identity needs all of its meaningful words; a bare platform
-  // name is sufficient only when the caller also named it as a sender alias.
+  // hint. A hostname can contribute employer identity only when it includes
+  // an independently named employer token; hosting words alone are insufficient.
   const siteMatches = site.length > 0 && site.every(contains)
-    && (!aliases.length || site.length > 1 || aliases.some(words => words.includes(site[0])));
+    && (!aliases.length || aliases[0].some(word => site.includes(word)));
   return siteMatches || aliases.some(words => words.every(contains));
 }
 
@@ -65,6 +79,11 @@ type VerificationRequest = { hint?: string; site?: string; purpose?: Verificatio
  * current authentication host inside that sender's exact DNS realm. Display
  * names, body mentions and tracking URLs cannot establish this fallback. */
 function matchesSenderDomainAlias(email: LocalVerificationEmail, ask: VerificationRequest): boolean {
+  // A named provider can establish the selected sign-in realm. With a distinct
+  // employer context, it cannot by itself identify whose registration/reset
+  // message this is on a multi-tenant ATS. Those flows need employer evidence.
+  if ((ask.purpose === 'account_verification' || ask.purpose === 'reset_password')
+    && hintAliases(ask.hint || '').length > 1) return false;
   try {
     const site = new URL(ask.site?.includes('://') ? ask.site : `https://${ask.site || ''}`);
     if (site.username || site.password) return false;
@@ -79,21 +98,71 @@ function matchesSenderDomainAlias(email: LocalVerificationEmail, ask: Verificati
   } catch { return false; }
 }
 
-/** The same identity/purpose test drives extraction and missing-format diagnostics. */
-export function isRequestedVerificationEmail(email: LocalVerificationEmail, ask: VerificationRequest): boolean {
-  if (!verificationContextWords(ask).length) return false;
+function requestedLinkInstruction(text: string, purpose: VerificationPurpose | undefined): boolean {
+  const normalized = text.replace(/\s+/g, ' ');
+  const qualifier = '(?:(?:your|the)\\s+)?(?:[\\p{L}\\p{N}&\u2019\'.-]+\\s+){0,5}';
+  if (purpose === 'account_verification') return new RegExp(`\\b(?:activate|verify|confirm)\\s+${qualifier}(?:email|account|registration|identity)\\b|\\b(?:activation|verification|confirmation)\\s+link\\b`, 'iu').test(normalized);
+  if (purpose === 'reset_password') return resetPurpose(normalized)
+    && new RegExp(`\\b(?:reset|recover)\\s+${qualifier}(?:password|credentials?)\\b|\\bpassword[ -]reset\\s+link\\b`, 'iu').test(normalized);
+  return false;
+}
+
+function trustedOpaqueDestination(url: URL, email: LocalVerificationEmail, ask: VerificationRequest): boolean {
+  const hosts: string[] = [];
+  try {
+    if (ask.site) {
+      const active = new URL(ask.site.includes('://') ? ask.site : `https://${ask.site}`);
+      if (!active.username && !active.password) hosts.push(active.hostname.toLowerCase());
+    }
+  } catch { /* An invalid current host cannot authorize an opaque destination. */ }
+  const sender = (email.sender || '').trim().match(/(?:^|<)[^<>\s@]+@([a-z0-9](?:[a-z0-9.-]*[a-z0-9])?)>?$/i)?.[1].toLowerCase();
+  if (sender && sender.includes('.') && matchesContext(sender,
+    { hint: employerAliases(ask).map(words => words.join(' ')).join(' | ') })) hosts.push(sender);
+  return hosts.some(host => url.hostname === host || url.hostname.endsWith(`.${host}`));
+}
+
+export type VerificationEmailMatchReason = 'matched' | 'context-missing' | 'identity-unproven' | 'purpose-mismatch' | 'purpose-unproven' | 'auth-language-unproven';
+export interface VerificationEmailMatchDecision {
+  matched: boolean;
+  reason: VerificationEmailMatchReason;
+  /** Only abstract decisions leave this helper. Skipped gates are omitted,
+   * rather than reported as false or revealing unrelated message purposes. */
+  checks: { contextPresent: boolean; identityMatched?: boolean; providerRealmMatched?: boolean;
+    requestedPurposeCompatible?: boolean; authenticationLanguageRecognized?: boolean };
+}
+
+/** One decision drives both acceptance and private diagnostics; there is no
+ * second regex implementation that could disagree or relax mailbox safety. */
+export function verificationEmailMatchDecision(email: LocalVerificationEmail, ask: VerificationRequest): VerificationEmailMatchDecision {
+  const checks: VerificationEmailMatchDecision['checks'] = { contextPresent: verificationContextWords(ask).length > 0 };
+  const finish = (reason: VerificationEmailMatchReason): VerificationEmailMatchDecision => ({ matched: reason === 'matched', reason, checks });
+  if (!checks.contextPresent) return finish('context-missing');
   const content = `${email.subject}\n${email.text}`;
   // Tracking query strings can mention a company without identifying the
   // sender or destination. Use hosts, never arbitrary URL parameters.
   const hosts = email.links.flatMap(link => { try { return [new URL(link.url).hostname]; } catch { return []; } });
   const identity = `${email.sender || ''}\n${content}\n${hosts.join('\n')}`;
-  if (!matchesContext(identity, ask) && !matchesSenderDomainAlias(email, ask)) return false;
+  checks.identityMatched = matchesContext(identity, ask);
+  checks.providerRealmMatched = matchesSenderDomainAlias(email, ask);
+  if (!checks.identityMatched && !checks.providerRealmMatched) return finish('identity-unproven');
   const resetMail = resetPurpose(email.subject) || (!activationPurpose(email.subject) && !signInPurpose(email.subject) && resetPurpose(email.text));
   const activationMail = activationPurpose(email.subject);
-  if (ask.purpose && ask.purpose !== 'reset_password' && resetMail) return false;
-  if (ask.purpose === 'sign_in' && activationMail) return false;
-  if (ask.purpose === 'reset_password' && !resetMail) return false;
-  return /verif|pass[ -]?code|one.time|security code|sign[ .-]?in|log[ .-]?in|\bOTP\b|authentication|access code|activat|confirm|reset.*password/i.test(content);
+  checks.requestedPurposeCompatible = false;
+  if (ask.purpose && ask.purpose !== 'reset_password' && resetMail) return finish('purpose-mismatch');
+  if (ask.purpose === 'sign_in' && activationMail) return finish('purpose-mismatch');
+  if (ask.purpose === 'reset_password' && !resetMail) return finish(activationMail || signInPurpose(email.subject) ? 'purpose-mismatch' : 'purpose-unproven');
+  checks.requestedPurposeCompatible = true;
+  // Purpose recognition is authoritative for authentication language too.
+  // Requiring a second, differently worded reset regex here rejects genuine
+  // "Password Reset" messages despite recognizing their requested purpose.
+  checks.authenticationLanguageRecognized = resetMail || activationMail || signInPurpose(email.subject)
+    || /verif|pass[ -]?code|one.time|security code|sign[ .-]?in|log[ .-]?in|\bOTP\b|authentication|access code|activat|confirm/i.test(content);
+  return finish(checks.authenticationLanguageRecognized ? 'matched' : 'auth-language-unproven');
+}
+
+/** The same identity/purpose test drives extraction and missing-format diagnostics. */
+export function isRequestedVerificationEmail(email: LocalVerificationEmail, ask: VerificationRequest): boolean {
+  return verificationEmailMatchDecision(email, ask).matched;
 }
 
 /** Parse untrusted mailbox text as data. No prompts or mailbox bodies go to an AI service. */
@@ -101,7 +170,6 @@ export function readVerificationEmailsLocally(emails: LocalVerificationEmail[], 
   for (const email of emails) {
     if (!isRequestedVerificationEmail(email, ask)) continue;
     const content = `${email.subject}\n${email.text}`;
-    const resetMail = resetPurpose(email.subject) || (!activationPurpose(email.subject) && !signInPurpose(email.subject) && resetPurpose(email.text));
     if (ask.want !== 'link') {
       const token = '(\\d{4}[ -]\\d{4}|\\d{3}[ -]\\d{3}|[A-Z0-9]{4,12}(?:-[A-Z0-9]{3,6})?)';
       const label = '(?:verification|security|sign[ .-]?in|log[ .-]?in|one.time|confirmation|access|authentication)';
@@ -128,7 +196,10 @@ export function readVerificationEmailsLocally(emails: LocalVerificationEmail[], 
       // email. Require authentication purpose before considering its links.
       const authenticationSubject = /\b(?:verify|verification|confirm|confirmation|activat\w*|password|passcode|one.time|sign[ .-]?in|log[ .-]?in|magic link)\b/i.test(email.subject);
       const authenticationInstruction = /\b(?:verify|confirm|activate)\s+(?:your\s+)?(?:email|account|registration|identity)\b|\breset\s+(?:your\s+)?password\b|\b(?:one.time|magic|verification|activation|password.reset)\s+link\b/i.test(email.text);
-      const opaqueResetLink = ask.purpose === 'reset_password' && resetMail && /\breset\s+(?:(?:your|the)\s+)?password\b|\bpassword[ -]reset\s+link\b/i.test(email.text);
+      // An opaque URL cannot supply its own identity or purpose. Require both
+      // from visible mail, independent of provider-DNS and link-host fallbacks.
+      const opaqueInstruction = requestedLinkInstruction(email.text, ask.purpose)
+        && matchesContext(`${email.sender || ''}\n${content}`, { hint: employerAliases(ask).map(words => words.join(' ')).join(' | ') });
       if (!authenticationSubject && !authenticationInstruction) continue;
       const candidates = email.links.flatMap(link => {
         try {
@@ -141,10 +212,11 @@ export function readVerificationEmailsLocally(emails: LocalVerificationEmail[], 
           }
           if (url.protocol !== 'https:' || url.username || url.password
             || /unsubscribe|privacy|terms|help|support|tracking/i.test(`${link.text} ${url.pathname}`)) return [];
-          return purpose.explicit || opaqueResetLink ? [{ link, explicit: purpose.explicit }] : [];
+          return purpose.explicit || opaqueInstruction && trustedOpaqueDestination(url, email, ask)
+            ? [{ link, explicit: purpose.explicit }] : [];
         } catch { return []; }
       });
-      // Opaque reset destinations are a fallback, not peers of an explicit
+      // Opaque authentication destinations are a fallback, not peers of an explicit
       // action. A harmless employer/footer link must not make the real reset
       // action ambiguous. Two explicit actions still require disambiguation.
       const explicit = candidates.filter(candidate => candidate.explicit);

@@ -1,0 +1,92 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import ts from 'typescript';
+
+/** Real startRun + retry resolver with offline process/DB/browser boundaries.
+ * No run process, provider, database, candidate or employer is contacted. */
+test('normal startRun resolves retained metadata and still enforces mode, account and allowance guards', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'targeted-retry-start-')), owner = join(directory, '183');
+  const id = '95593975', attemptId = '11111111-1111-4111-8111-111111111111';
+  const metadata = { job_id: id, title: 'Data Analyst', company: 'Fixture Employer' };
+  const trace = { jobId: id, title: metadata.title, company: metadata.company,
+    job: { id, title: metadata.title, company: metadata.company, platform: 'seek', url: `https://www.seek.com.au/job/${id}`, fitReview: { decision: 'historical-do-not-reuse' } },
+    attemptId, runStartId: '1145', outcome: { status: 'skipped' }, sendAudit: { attempted: false, phase: 'before-tools' }, steps: [] };
+  mkdirSync(join(owner, 'traces'), { recursive: true });
+  const alias = join(owner, 'traces', `${id}.json`);
+  writeFileSync(alias, JSON.stringify(trace));
+  writeFileSync(join(owner, 'traces', `attempt-${attemptId}.json`), JSON.stringify(trace));
+  const url = (name: string) => pathToFileURL(join(directory, name)).href;
+  const sourceUrl = (specifier: string) => new URL(specifier.replace(/\.js$/, '.ts'), import.meta.url).href;
+  const compile = (file: string, destination: string, bindings: Record<string, string>, retain: string[] = []) => {
+    const source = readFileSync(new URL(file, import.meta.url), 'utf8');
+    const output = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2023 } }).outputText
+      .replace(/from ['"]([^'"]+)['"]/g, (original, specifier: string) => specifier.startsWith('node:') ? original
+        : `from ${JSON.stringify(bindings[specifier] ?? (retain.includes(specifier) ? sourceUrl(specifier) : url('boundary.mjs')))}`);
+    writeFileSync(join(directory, destination), output);
+  };
+  try {
+    writeFileSync(join(directory, 'boundary.mjs'), `
+export const state={credits:5,sent:0,busy:false,starts:[],queries:[],pending:['seek:held-fixture']};
+export const query=async(sql,params)=>{state.queries.push({sql,params});if(sql.includes('FROM run_events'))return [];
+  if(sql.includes('FROM run_starts'))return [{id:'1145',user_id:'183',finished_at:'2026-11-02T17:45:00Z'}];
+  if(sql.includes('FROM users'))return [{email:'operator@fixture.invalid'}];throw Error('Unexpected fixture query');};
+export const userDir=id=>{if(id!=='183')throw Error('Foreign fixture owner');return ${JSON.stringify(owner)};};
+export const runner={claimStart:()=>!state.busy,releaseStart:()=>{},inUse:()=>state.busy,start:async(...args)=>{state.starts.push(args);return {ok:true};}};
+export const runSettingsSnapshotForUser=async()=>({settings:{KEYWORDS:'data analyst',MAX_AGE_DAYS:'15',MIN_SCORE:'70'},saved:{}});
+export const USER_SETTABLE_SETTINGS_KEYS=[],DAILY_APPLICATION_CAP_CHOSEN='fixture-daily';
+export const billingStatus=async()=>({totalRemaining:state.credits,paid:{remaining:state.credits,hasActiveIntensivePass:true,employerSiteRemaining:5},free:{remaining:0}});
+export const consumeSuccessfulApplication=async()=>{throw Error('A fixture cannot charge an application');},isAdmin=email=>email==='operator@fixture.invalid';
+export const applyRunPolicy=settings=>({...settings,PLATFORMS:'seek',MAX_APPS_PER_RUN:'5',MAX_APPS_PER_DAY:'100'});
+export const PLATFORMS_CHOSEN_KEY='platforms-chosen',EMPLOYER_SOURCES_CHOSEN_KEY='sources-chosen',INTENSIVE_EMPLOYER_SITES_PER_DAY=5;
+export const discardRunStart=async()=>{},recordRunStart=async()=> 'fixture-new-run';
+export const entitlementsFor=async()=>({tier:'intensive',employerSources:true,fineTune:true,manualRuns:true,firstRunRequired:false,autoRunsPerDay:4});
+export const mayEditRunSetting=()=>false,listResumes=async()=>[{id:'fixture-resume'}];
+export const checkSignin=async()=>{throw Error('Fixture browser access is forbidden');},waitForSigninChecks=async()=>({ok:true});
+export const sessionFor=()=>null,stopSignin=async()=>{throw Error('Fixture cannot stop sign-in');};
+export const externalSubmittedToday=async()=>0,submittedToday=async()=>state.sent,readSiteState=()=>({signedIn:true});
+export const browserRoute=async()=>({}),describeRoute=()=>'',releaseFreeProxy=async()=>{};
+export const validateExternalJobUrl=async()=>{throw Error('No direct external fixture');};
+export const applyJobSourceAccess=()=>{},jobSourceSettingsError=()=>null;
+export const availableJobSources=boards=>({supported:boards,unavailable:[],usable:boards});
+export const loadProfile=async()=>({expectedSalary:'90000'});
+export class ApplicationReviewError extends Error{};
+export const applicationsForConfirmation=async()=>[],claimApplicationReviews=async()=>[],pendingReviewKeys=async()=>state.pending,releaseApplicationReviews=async()=>{},reviewSelection=value=>value;
+export const gmailAccess=async()=>({connected:false}),scheduledStart=async()=>{throw Error('No scheduled fixture');};
+`);
+    compile('./targeted-retry-jobs.ts', 'targeted.mjs', { './db/index.js': url('boundary.mjs'), './userdata.js': url('boundary.mjs') },
+      ['../../seek-bot/src/job-board-url.js', '../../seek-bot/src/repair-safety.js', './run-diagnostics.js']);
+    compile('./start-run.ts', 'start.mjs', { './targeted-retry-jobs.js': url('targeted.mjs') },
+      ['../../seek-bot/src/application-model-catalog.js', '../../seek-bot/src/employer-source-config.js', '../src/salary.js',
+        '../../seek-bot/src/job-board-url.js', '../../seek-bot/src/cover-letter-policy.js', '../../seek-bot/src/run-limits.js', './employer-site-access.js']);
+    const { startRun } = await import(url('start.mjs')) as typeof import('./start-run.js');
+    const { state } = await import(url('boundary.mjs'));
+    const request = { userId: '183', email: 'candidate@fixture.invalid', trigger: 'admin' as const, startedBy: '1', mode: 'live' as const,
+      applicationMode: 'semi-auto' as const, jobIds: [id], scope: 'external' };
+    assert.deepEqual(await startRun(request), { ok: true, mode: 'live' });
+    assert.equal(state.starts.length, 1);
+    const overrides = state.starts[0][1];
+    assert.deepEqual(JSON.parse(overrides.TARGET_SEEK_JOBS), [metadata]);
+    assert.equal(overrides.APPLICATION_REVIEW_MODE, 'prepare', 'historical evidence never grants submission approval');
+    assert.equal(overrides.MAX_AGE_DAYS, '15'); assert.equal(overrides.MIN_SCORE, '70');
+    assert.equal(overrides.APPLY_ONLY, 'external'); assert.equal(overrides.PLATFORMS, 'seek');
+    assert.deepEqual(JSON.parse(overrides.PENDING_APPLICATION_KEYS_JSON), state.pending, 'existing pending/hold exclusions survive targeting');
+    state.credits = 0;
+    assert.equal((await startRun(request) as { status: number }).status, 402, 'retained metadata does not bypass billing allowance');
+    state.credits = 5; state.sent = 100;
+    assert.equal((await startRun(request) as { status: number }).status, 429, 'retained metadata does not bypass the daily cap');
+    state.sent = 0; state.busy = true;
+    assert.equal((await startRun(request) as { status: number }).status, 409, 'an existing account run retains its claim');
+    state.busy = false;
+    assert.equal((await startRun({ ...request, approvals: [{ id: 'not-approved' }] }) as { status: number }).status, 400, 'Semi auto targeting cannot become an approved send');
+    writeFileSync(alias, '{corrupt');
+    assert.equal((await startRun(request) as { status: number }).status, 400);
+    assert.equal(state.starts.length, 1, 'refused starts never launch a process');
+  } finally {
+    assert.ok(resolve(directory).startsWith(resolve(tmpdir())));
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

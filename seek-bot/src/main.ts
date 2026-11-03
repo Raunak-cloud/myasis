@@ -57,6 +57,7 @@ import { reviewDuplicate, DuplicateReviewQueue } from './duplicate-review.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 import { approvedApplications, approvedApplication, pendingApplicationKeys, preparingApplications } from './application-review.js';
 import { applicationKeys } from './application-identity.js';
+import { waitingForCurrentAnswers } from './answer-eligibility.js';
 
 const searchOnly = process.argv.includes('--search-only');
 const doSync = process.argv.includes('--sync');
@@ -234,6 +235,13 @@ async function main() {
     };
     const targetedAdapters = new Set<PlatformId>();
     const bump = (reason: string) => skips.set(reason, (skips.get(reason) ?? 0) + 1);
+    const waitingOnCandidate = (job: JobListing): boolean => {
+      // These existing explicit flows may inspect/recapture an old question;
+      // none grants an answer, changes approval or permits an extra send.
+      if (approvedApplication(job) || job.source === 'chosen'
+        || repairTarget && repairTarget.id === job.id && repairTarget.platform === (job.platform ?? 'seek')) return false;
+      return waitingForCurrentAnswers(job);
+    };
     const skipExistingApplication = (job: JobListing): boolean => {
       const review = reviewDuplicate(job, index.all);
       if (review.decision !== 'duplicate') return false;
@@ -285,7 +293,10 @@ async function main() {
           continue;
         }
 
-        // Waiting on the candidate (Needs attention): retrying cannot help until they answer.
+        if (waitingOnCandidate(job)) {
+          bump('waiting for your answers');
+          continue;
+        }
 
         const prior = approvedApplication(job) || job.source === 'chosen' ? undefined : reviewCache.suppression(job, reviewContext);
         if (prior) {
@@ -440,10 +451,11 @@ async function main() {
         adapter, keyword, scope, total: 0, pages: 0, seen: new Set<string>(), exhausted: false,
       }))));
 
-    /** Order of review: in-scope listings first, then the pre-ranking's priority. */
+    /** Unknown cards can still resolve in scope. Do not let feed certainty
+     * outrank the matching agent's current discovery priority. */
     const scopeRank = (job: JobListing): number => {
       if (runScope() === 'all') return 0;
-      if (!job.applicationMode || job.applicationMode === 'unknown') return 1; // the board's panel will say
+      if (!job.applicationMode || job.applicationMode === 'unknown') return 0; // the board's panel will say
       return outsideScope(job.applicationMode) ? 2 : 0;
     };
     /**
@@ -462,7 +474,9 @@ async function main() {
       if (promising) return promising;
       const recommended = recommendedFirst(a) - recommendedFirst(b);
       if (recommended) return recommended;
-      return (reviewPriorities.get(reviewKey(b))?.priority ?? 0) - (reviewPriorities.get(reviewKey(a))?.priority ?? 0);
+      const priority = (reviewPriorities.get(reviewKey(b))?.priority ?? 0) - (reviewPriorities.get(reviewKey(a))?.priority ?? 0);
+      if (priority) return priority;
+      return runScope() === 'all' ? 0 : Number(!a.applicationMode || a.applicationMode === 'unknown') - Number(!b.applicationMode || b.applicationMode === 'unknown');
     };
 
     let nextPage = 1;
@@ -1180,6 +1194,11 @@ async function main() {
           }
           if (skipExistingApplication(job)) {
             restoreReviewSlot(job, true);
+            continue;
+          }
+          if (waitingOnCandidate(job)) {
+            restoreReviewSlot(job, true);
+            bump('waiting for your answers');
             continue;
           }
 

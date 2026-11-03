@@ -21,12 +21,16 @@ globalThis.fetch = async (_url, init) => {
   assert.equal(blocks.length, 1);
   assert.ok(prompt.indexOf(JOB_EVALUATION_POLICY) < prompt.indexOf(blocks[0][0]));
   assert.equal(blocks[0][1].includes(JOB_EVALUATION_POLICY), false);
-  const data = JSON.parse(blocks[0][1]); descriptionSeen = data.description; promptSeen = prompt; calls++;
+  const data = JSON.parse(blocks[0][1]); descriptionSeen = data.description.map((passage: { text: string }) => passage.text).join(''); promptSeen = prompt; calls++;
+  const roleSchema = body.response_format.json_schema.schema.properties.roleFitCheck.properties;
   const attack = /ignore previous instructions/i.test(descriptionSeen), missing = /registration is essential/.test(descriptionSeen);
   const decision = attack ? 'uncertain' : missing ? 'skip' : 'apply';
   return Response.json({ choices: [{ message: { content: JSON.stringify({ decision, matchScore: decision === 'apply' ? 85 : 0,
     reason: attack ? 'Untrusted redirection cannot establish eligibility.' : missing ? 'The essential registration is unsupported.' : 'Retail duties match.',
-    evidence: ['Agent source assessment'], injectionSuspected: attack }) } }], usage: { prompt_tokens: 80, completion_tokens: 20 } });
+    evidence: ['Agent source assessment'], injectionSuspected: attack,
+    roleFitCheck: { alignment: decision === 'apply' ? 'aligned' : 'uncertain', employerEvidence: 'Agent interpretation of duties.', candidateEvidence: 'Retail capability evidence.', explanation: 'The sole matching agent evaluates the actual source.',
+      currentIntent: { scope: 'open', source: 'current-standing-instructions', passageId: roleSchema.currentIntent.properties.passageId.enum[1], requestedWork: 'Supported work excluding manager positions.' },
+      primaryOutputs: [{ output: 'Advertised work', employerPassageId: data.description[0].id, relationship: decision === 'apply' ? 'requested-work' : 'uncertain', mapping: 'The agent evaluates the supplied work and its actual eligibility evidence.' }] } }) } }], usage: { prompt_tokens: 80, completion_tokens: 20 } });
 };
 
 test('Magnus receives full employer evidence with trusted policy outside source data', async () => {

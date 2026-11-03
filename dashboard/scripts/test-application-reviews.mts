@@ -40,6 +40,7 @@ try {
   await pool.query(`CREATE SCHEMA ${schema}`);
   await pool.query('CREATE TABLE users (id BIGINT PRIMARY KEY,email TEXT NOT NULL)');
   await pool.query("INSERT INTO users VALUES (1,'owner@example.test'),(2,'other@example.test'),(3,'admin-review-fixture@example.test'),(4,'last-credit@example.test')");
+  await pool.query('CREATE TABLE run_starts (id BIGINT PRIMARY KEY)');
   const schemaSql = readFileSync(new URL('../server/db/schema.sql', import.meta.url), 'utf8');
   // Apply the actual upgrade twice: old drafts stay covered and new rows default to unpaid.
   await pool.query('CREATE TABLE review_credit_legacy (id INTEGER)');
@@ -49,7 +50,7 @@ try {
   await pool.query('INSERT INTO review_credit_legacy (id) VALUES (2)');
   await pool.query(upgrade);
   assert.deepEqual((await pool.query('SELECT credit_consumed FROM review_credit_legacy ORDER BY id')).rows.map(row => row.credit_consumed), [true, false]);
-  for (const table of ['application_reviews','billing_purchases','application_credit_grants','employer_site_credit_grants','monthly_application_usage','settings']) {
+  for (const table of ['application_reviews','application_review_operator_holds','billing_purchases','application_credit_grants','employer_site_credit_grants','monthly_application_usage','settings']) {
     await pool.query(schemaSql.match(new RegExp(`CREATE TABLE IF NOT EXISTS ${table} \\([\\s\\S]*?\\n\\);`))![0]);
   }
   await grant('1', 50);

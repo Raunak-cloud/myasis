@@ -40,6 +40,7 @@ import { validateCoverLetterInstructions } from '../../seek-bot/src/cover-letter
 import { gmailAccess } from './gmail-access.js';
 import { scheduledStart } from './run-schedule.js';
 import { dailyApplicationLimit, USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
+import { targetedSeekRetryJobs } from './targeted-retry-jobs.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
@@ -312,10 +313,8 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
       return { ok: false, status: 400, error: `Provide between 1 and ${USER_RUN_LIMITS.MAX_APPS_PER_DAY} valid SEEK job IDs.` };
     }
     const ids = [...new Set(request.jobIds)] as string[];
-    const jobs = await query<{ job_id: string; title: string; company: string }>(
-      `SELECT DISTINCT ON (job_id) job_id, title, company FROM run_events
-       WHERE user_id=$1 AND job_id=ANY($2::text[]) AND title<>'' AND company<>'' ORDER BY job_id, ts DESC`, [userId, ids]);
-    if (jobs.length !== ids.length) return { ok: false, status: 400, error: 'Targeted retries require an existing job record for this account.' };
+    const jobs = await targetedSeekRetryJobs(userId, ids);
+    if (!jobs) return { ok: false, status: 400, error: 'Targeted retries require an existing job record or a verified no-send attempt for this account.' };
     overrides.TARGET_SEEK_JOBS = JSON.stringify(ids.map(id => jobs.find(job => job.job_id === id)!));
     overrides.PLATFORMS = 'seek';
   }

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { withApplicationModel } from '../application-model.js';
 import { CostMeter } from './celeris.js';
-import { consultApplicationSpecialist, consultationToolSchema, newConsultationState, type ConsultationOptions } from './consultation.js';
+import { consultApplicationSpecialist, consultationToolSchema, newConsultationState, returnApplicationAdviceTool, type ConsultationOptions } from './consultation.js';
 import type { ToolContext, ToolResult } from './context.js';
 import { RecoveryRecord } from './recovery-record.js';
 
@@ -50,6 +50,11 @@ function success(_model: string, content: unknown = advice) {
   const text = typeof content === 'string' ? content : JSON.stringify(content);
   return Response.json({ choices: [{ finish_reason: 'stop', message: { content: text } }], usage: { prompt_tokens: 100, completion_tokens: 60 } });
 }
+function typedAdvice(content: unknown = advice, name = returnApplicationAdviceTool.name) {
+  return Response.json({ choices: [{ finish_reason: 'tool_calls', message: { content: null,
+    tool_calls: [{ id: 'specialist-return', type: 'function', function: { name, arguments: JSON.stringify(content) } }] } }],
+    usage: { prompt_tokens: 100, completion_tokens: 60 } });
+}
 
 test('parallel account consultations isolate full candidate evidence, preferences and credentials', async () => {
   const accounts = ['ALPHA_PRIVATE', 'BETA_PRIVATE'].map(marker => account(marker));
@@ -83,7 +88,7 @@ test('parallel account consultations isolate full candidate evidence, preference
     assert.ok(bodyText.includes('[credential withheld]'));
     assert.ok(!bodyText.includes(owner.dir));
     const body = JSON.parse(bodyText);
-    assert.equal(body.tools, undefined, 'child cannot invoke actions or recursively spawn');
+    assert.deepEqual(body.tools.map((tool: any) => tool.function.name), ['return_application_advice'], 'the only capability is returning typed advice, never a live action or recursive consultation');
     assert.ok(body.messages[1].content.includes('\\u003c/untrusted>'), 'page cannot escape its evidence wrapper');
     assert.match(body.messages[0].content, /cannot launch or delegate/);
   }
@@ -123,27 +128,27 @@ test('specialist reads the shared actual readback, discards stale replies and re
   } finally { record.release(); }
 });
 
-test('the selected provider receives a read-only structured request without fallback or tools', async () => {
+test('the selected provider receives only the typed advice terminal without fallback or live capabilities', async () => {
   for (const model of ['celeris', 'minimax']) {
     const owner = account(`MODEL_${model}`, model), shared = options();
     let called = 0;
     globalThis.fetch = async (url, init) => {
       called++;
       const body = JSON.parse(String(init?.body));
-      assert.equal(body.tools, undefined);
-      assert.equal(body.tool_choice, undefined);
+      assert.deepEqual(body.tools.map((tool: any) => tool.function.name), ['return_application_advice']);
+      assert.deepEqual(body.tool_choice, { type: 'function', function: { name: 'return_application_advice' } });
+      assert.deepEqual(body.tools[0].function.parameters.required, ['advice', 'evidence', 'unknowns', 'nextSteps']);
+      assert.equal(body.response_format, undefined, 'the complete terminal argument contract is advertised as a tool');
       if (model === 'celeris') {
         assert.match(String(url), /\/celeris-1-magnus\/v1\/chat\/completions$/);
         assert.equal(body.model, 'celeris-1-magnus');
         assert.equal(body.chat_template_kwargs.reasoning_effort, 'medium');
-        assert.equal(body.response_format.type, 'json_schema');
       } else {
         assert.equal(String(url), 'https://openrouter.ai/api/v1/chat/completions');
         assert.equal(body.model, 'minimax/minimax-m3.1-flash');
         assert.equal(body.reasoning.effort, 'medium');
-        assert.equal(body.response_format.type, 'json_schema');
       }
-      return success(model);
+      return typedAdvice();
     };
     await withApplicationModel({ ...owner.env, OPENROUTER_API_KEY: 'private-synthetic-openrouter' }, async () => {
       const result = await consultApplicationSpecialist(context(), { question: 'Check the current evidence.' }, shared);
@@ -153,6 +158,79 @@ test('the selected provider receives a read-only structured request without fall
     assert.equal(shared.meter.totals.calls, 1);
     assert.ok(shared.meter.totals.costUsd > 0);
   }
+});
+
+test('malformed terminal advice is corrected inside one consultation for either selected provider', async () => {
+  for (const model of ['celeris', 'minimax']) {
+    const owner = account(`CORRECT_${model}`, model), state = newConsultationState();
+    let calls = 0, helperExecutions = 0;
+    const shared = { ...options(), state, helpers: {
+      catalog: () => [], schemas: () => [], test: async () => { helperExecutions++; throw Error('No helper should execute.'); },
+    } as unknown as NonNullable<ConsultationOptions['helpers']> };
+    globalThis.fetch = async (url, init) => {
+      calls++;
+      const body = JSON.parse(String(init?.body));
+      assert.deepEqual(body.tools.map((tool: any) => tool.function.name), ['test_application_helper', 'return_application_advice']);
+      assert.equal(body.tool_choice, 'required');
+      const terminal = body.tools.find((tool: any) => tool.function.name === 'return_application_advice').function;
+      assert.deepEqual(terminal.parameters, returnApplicationAdviceTool.parameters, 'canonical complete schema is visible even when helper tests are offered');
+      assert.equal(model === 'minimax' ? String(url).includes('openrouter.ai') : String(url).includes('celeris-1-magnus'), true);
+      if (calls === 1) return typedAdvice({ advice: 'Only a partial reply.' });
+      const rejected = JSON.parse(body.messages.filter((item: any) => item.role === 'tool').at(-1).content);
+      assert.equal(rejected.status, 'reply-rejected');
+      assert.match(rejected.error, /evidence is required/);
+      return typedAdvice();
+    };
+    await withApplicationModel({ ...owner.env, OPENROUTER_API_KEY: 'fixture-only' }, async () => {
+      const ctx = context(), result = await consultApplicationSpecialist(ctx, { question: 'Inspect the exact current failure.' }, shared);
+      assert.match(message(result), /READ-ONLY SPECIALIST ADVICE/);
+      assert.deepEqual(ctx.actions, []); assert.equal(ctx.submissionAttempted, undefined);
+    });
+    assert.equal(calls, 2); assert.equal(state.calls, 1); assert.equal(shared.meter.totals.calls, 2);
+    assert.equal(helperExecutions, 0, 'a rejected terminal reply cannot trigger a helper or live operation');
+  }
+});
+
+test('mixed terminal and helper calls are rejected as a group before any helper runs', async () => {
+  const owner = account('MIXED_ADVICE'), shared = { ...options(), helpers: {
+    catalog: () => [], schemas: () => [], test: async () => { throw Error('A rejected mixed plan must not execute a helper.'); },
+  } as unknown as NonNullable<ConsultationOptions['helpers']> };
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls > 1) return typedAdvice();
+    return Response.json({ choices: [{ message: { content: null, tool_calls: [
+      { id: 'advice', type: 'function', function: { name: 'return_application_advice', arguments: JSON.stringify(advice) } },
+      { id: 'test', type: 'function', function: { name: 'test_application_helper', arguments: '{}' } },
+    ] } }], usage: { prompt_tokens: 100, completion_tokens: 60 } });
+  };
+  await withApplicationModel(owner.env, async () => assert.match(message(await consultApplicationSpecialist(context(), { question: 'One specific failure.' }, shared)), /READ-ONLY SPECIALIST ADVICE/));
+  assert.equal(calls, 2);
+});
+
+test('two isolated helper tests are followed by a forced typed terminal with no further builder capability', async () => {
+  const owner = account('HELPER_TERMINAL'), state = newConsultationState();
+  let calls = 0, helperTests = 0;
+  const shared = { ...options(), state, helpers: {
+    catalog: () => [], schemas: () => [{ name: 'helper_fixture_only' }], test: async () => {
+      helperTests++;
+      if (helperTests === 1) throw Error('Synthetic helper assertion failed.');
+      return { status: 'fixture-tested', name: 'helper_fixture_only' };
+    },
+  } as unknown as NonNullable<ConsultationOptions['helpers']> };
+  globalThis.fetch = async (_url, init) => {
+    calls++;
+    const body = JSON.parse(String(init?.body));
+    if (calls < 3) {
+      assert.deepEqual(body.tools.map((tool: any) => tool.function.name), ['test_application_helper', 'return_application_advice']);
+      return typedAdvice({ definition_json: '{}' }, 'test_application_helper');
+    }
+    assert.deepEqual(body.tools.map((tool: any) => tool.function.name), ['return_application_advice']);
+    assert.deepEqual(body.tool_choice, { type: 'function', function: { name: 'return_application_advice' } });
+    return typedAdvice();
+  };
+  await withApplicationModel(owner.env, async () => assert.match(message(await consultApplicationSpecialist(context(), { question: 'A genuinely missing fixture operation.' }, shared)), /READ-ONLY SPECIALIST ADVICE/));
+  assert.equal(helperTests, 2); assert.equal(calls, 3); assert.equal(state.calls, 1); assert.equal(shared.meter.totals.calls, 3);
 });
 
 test('consultations are optional, bounded per application and cannot cross parent budget boundaries', async () => {

@@ -74,6 +74,7 @@ try {
   process.env.APPLICATION_REVIEW_MODE = 'prepare';
   let turn = 0;
   let calls: Array<{ name: string; args: Record<string, unknown> }> = [{ name: 'prepare_application', args: { submit_selector: '#send', answers: [{ question: 'Name', answer: 'Fixture Applicant' }], resume_id: 'cv' } }];
+  const savedLetterProgressNote = 'Retain the actual inspected saved-review letter without rewriting it.';
   globalThis.fetch = (async (_url, init) => {
     const body = JSON.parse(String(init?.body));
     const reviewReply = readinessFixtureReply(body); if (reviewReply) return reviewReply;
@@ -161,6 +162,19 @@ try {
     const reviewReply = readinessFixtureReply(body); if (reviewReply) return reviewReply;
     assert.ok(body.tools?.length, 'the applying agent owns send intent without an independent classifier');
     const call = calls.shift();
+    if (call?.name === 'save_progress' && call.args.note === savedLetterProgressNote) {
+      const inspectedCall = body.messages.flatMap((message: any) => message.role === 'assistant' ? message.tool_calls ?? [] : [])
+        .findLast((item: any) => { let args; try { args = JSON.parse(item.function.arguments); } catch { return false; }
+          return item.function.name === 'browser_action' && args.action === 'inspect' && args.selector === 'input[type="hidden"][name="letter"]'; });
+      assert.ok(inspectedCall, 'the saved review letter must first be inspected through the real browser tool');
+      const actualReadback = body.messages.findLast((message: any) => message.role === 'tool' && message.tool_call_id === inspectedCall.id);
+      assert.ok(actualReadback, 'progress uses the completed native inspection response');
+      const observed = JSON.parse(actualReadback.content);
+      assert.equal(observed.tag, 'input'); assert.equal(observed.type, 'hidden'); assert.equal(observed.name, 'letter');
+      assert.equal(observed.private, false);
+      assert.equal(typeof observed.value, 'string'); assert.ok(observed.value.length);
+      call.args.cover_letter = observed.value;
+    }
     assert.match(body.messages[0].content, /Use a direct greeting and concise paragraphs\./, 'saved preferences are always in the active agent system prompt');
     assert.match(body.messages[0].content, /Never use em dashes/);
     if (process.env.APPLICATION_REVIEW_MODE === 'prepare') assert.match(body.messages[1].content, /SEMI AUTO: fill this application completely/);
@@ -234,6 +248,8 @@ try {
     calls = [...writes, { name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } },
       { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received', receipt: { quote: 'Application received' }, cover_letter: rewritten } }];
     if (index === 4) calls = [
+      { name: 'browser_action', args: { action: 'inspect', selector: 'input[type="hidden"][name="letter"]' } },
+      { name: 'save_progress', args: { note: savedLetterProgressNote } },
       { name: 'prepare_application', args: { submit_selector: '#send', answers: [], resume_id: 'cv' } },
       { name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } },
       { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Application received', receipt: { quote: 'Application received' }, answers: [] } },
@@ -251,7 +267,11 @@ try {
   changedReview = true;
   expectedApproved = drafts[4];
   await page.goto(drafts[4].formUrl);
-  calls = [{ name: 'prepare_application', args: { submit_selector: '#send', answers: [], resume_id: 'cv' } }];
+  calls = [
+    { name: 'browser_action', args: { action: 'inspect', selector: 'input[type="hidden"][name="letter"]' } },
+    { name: 'save_progress', args: { note: savedLetterProgressNote } },
+    { name: 'prepare_application', args: { submit_selector: '#send', answers: [], resume_id: 'cv' } },
+  ];
   const changedSaved = await runAgentOnlyApplication({ page, job: fixtures[4], profile, log: () => {} });
   assert.equal(changedSaved.outcome.status, 'prepared', 'retaining earlier answers must never hide a changed actual saved value');
   assert.ok(changedSaved.outcome.status === 'prepared');

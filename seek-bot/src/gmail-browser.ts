@@ -16,7 +16,8 @@ export function registerGmailBrowser(userId: string, port: number, account: stri
   routes.set(userId, route);
   return () => { route.active = false; for (const page of route.pages) void page.close().catch(() => {}); if (routes.get(userId) === route) routes.delete(userId); };
 }
-export async function withGmailBrowser<T>(userId: string, action: (page: Page) => Promise<T>, fragment = '', readOnlyBudgetMs?: number): Promise<T> {
+export async function withGmailBrowser<T>(userId: string, action: (page: Page) => Promise<T>, fragment = '', readOnlyBudgetMs?: number, signal?: AbortSignal): Promise<T> {
+  signal?.throwIfAborted();
   const route = routes.get(userId);
   if (!route?.active) throw new GmailServiceError('reconnect', 'Start a run with your connected Gmail browser.');
   let phase = 'waiting for the mailbox reader';
@@ -25,8 +26,9 @@ export async function withGmailBrowser<T>(userId: string, action: (page: Page) =
   const preceding = route.tail;
   const cleanup = async () => {
     if (!ownedPage) return;
-    route.pages.delete(ownedPage);
-    await browserCleanup('Close private mailbox reader', () => ownedPage!.close());
+    const page = ownedPage; ownedPage = undefined;
+    route.pages.delete(page);
+    await browserCleanup('Close private mailbox reader', () => page.close());
   };
   const work = () => preceding.catch(() => {}).then(async () => {
     assertBrowserOperationActive();
@@ -76,16 +78,17 @@ export async function withGmailBrowser<T>(userId: string, action: (page: Page) =
       assertBrowserOperationActive();
       if (!displayed.some(email => email.toLowerCase() === route.account.toLowerCase())) throw new GmailServiceError('reconnect', 'Gmail opened a different account. Connect the address in your profile.');
       phase = 'reading the requested mailbox view';
-      return await action(page);
+      const result = await action(page); assertBrowserOperationActive(); return result;
     } finally { await cleanup(); }
   });
   // Read deadlines release abandoned work and close only its own reader tab.
   // Retain preceding work in the queue: a read timing out behind an approved
   // send must not let another operation overtake that still-running send.
-  const operation = (readOnlyBudgetMs === undefined ? work() : browserDeadline('Gmail browser read', readOnlyBudgetMs, work))
+  const operation = (readOnlyBudgetMs === undefined ? work() : browserDeadline('Gmail browser read', readOnlyBudgetMs, work, signal))
     .finally(() => readOnlyBudgetMs === undefined ? undefined : cleanup());
   route.tail = Promise.allSettled([preceding, operation]);
   return operation.catch(error => {
+    if (signal?.aborted) throw signal.reason;
     if (error instanceof GmailServiceError) throw error;
     const closed = Boolean(connection && !connection.isConnected()) || /Target closed|Target page, context or browser has been closed|Session closed|has been disconnected/i.test(String((error as Error)?.message));
     if (closed) {
@@ -127,7 +130,7 @@ async function waitForSearchResults(page: Page): Promise<string[]> {
     throw new GmailServiceError('unavailable', 'Gmail opened, but the requested message list did not finish loading. Retry reading the mailbox; do not resend the verification email to repair this.');
   }
 }
-async function searchGmailView(userId: string, query: string): Promise<GmailThread[]> {
+async function searchGmailView(userId: string, query: string, signal?: AbortSignal): Promise<GmailThread[]> {
   return withGmailBrowser(userId, async page => {
     let ids = await waitForSearchResults(page);
     // Gmail can rank search results by relevance. Verification parsing needs
@@ -147,24 +150,24 @@ async function searchGmailView(userId: string, query: string): Promise<GmailThre
       ids = await waitForSearchResults(page);
     }
     return ids.map(id => ({ id }));
-  }, `#search/${encodeURIComponent(query)}`, 55_000);
+  }, `#search/${encodeURIComponent(query)}`, 55_000, signal);
 }
-export async function searchBrowserGmail(userId: string, query: string): Promise<GmailThread[]> {
+export async function searchBrowserGmail(userId: string, query: string, signal?: AbortSignal): Promise<GmailThread[]> {
   return browserDeadline('Gmail folder search', GMAIL_IO_TIMEOUT_MS - 15_000, async () => {
     const plan = verificationBrowserSearchPlan(query);
-    const primary = await searchGmailView(userId, plan.primary);
+    const primary = await searchGmailView(userId, plan.primary, signal);
     if (primary.length) return primary;
-    const candidates = await searchGmailView(userId, plan.candidates);
+    const candidates = await searchGmailView(userId, plan.candidates, signal);
     if (!candidates.length) return [];
     const excluded = new Set<string>();
     for (const query of plan.excluded) {
       assertBrowserOperationActive();
-      for (const thread of await searchGmailView(userId, query)) excluded.add(thread.id);
+      for (const thread of await searchGmailView(userId, query, signal)) excluded.add(thread.id);
     }
     return candidates.filter(thread => !excluded.has(thread.id));
-  });
+  }, signal);
 }
-export async function readBrowserGmail(userId: string, threadId: string): Promise<GmailMessage[]> {
+export async function readBrowserGmail(userId: string, threadId: string, signal?: AbortSignal): Promise<GmailMessage[]> {
   if (!/^[\w-]{1,100}$/.test(threadId)) throw new GmailServiceError('unapproved', 'Invalid Gmail thread.');
   return withGmailBrowser(userId, async page => {
     await page.locator('[role="main"] h2').first().waitFor({ timeout: 10_000 });
@@ -176,7 +179,7 @@ export async function readBrowserGmail(userId: string, threadId: string): Promis
         plaintextBody: ((node.querySelector('.a3s') as HTMLElement | null)?.innerText || '').slice(0, 12000),
         htmlBody: node.querySelector('.a3s')?.innerHTML.slice(0, 80000) || '' })).slice(-1);
     }, threadId);
-  }, `#all/${threadId}`, 55_000);
+  }, `#all/${threadId}`, 55_000, signal);
 }
 export async function sendBrowserApplication(page: Page, draft: PreparedApplication, account: string, resume: Buffer, filename: string): Promise<{ id: string }> {
   const letter = draft.coverLetter;

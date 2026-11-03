@@ -4,17 +4,18 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 import type { EmailReceipt, GmailMcpConnection, GmailThread, GmailMessage } from './gmail-mcp-client.js';
+import { GmailReadCancelledError } from './gmail-mcp-client.js';
 
 export class GmailServiceError extends Error {
   code: 'reconnect' | 'unavailable' | 'unapproved' | 'uncertain';
   constructor(code: 'reconnect' | 'unavailable' | 'unapproved' | 'uncertain', message: string) { super(message); this.code = code; }
 }
 export interface GmailBackend {
-  search(userId: string, query: string): Promise<GmailThread[]>;
-  thread(userId: string, threadId: string): Promise<GmailMessage[]>;
+  search(userId: string, query: string, signal?: AbortSignal): Promise<GmailThread[]>;
+  thread(userId: string, threadId: string, signal?: AbortSignal): Promise<GmailMessage[]>;
   send(userId: string, reviewId: string, revision: string): Promise<EmailReceipt>;
 }
-interface Lease { userId: string; approvals: Set<string>; threads: Set<string>; expiresAt: number }
+interface Lease { userId: string; approvals: Set<string>; threads: Set<string>; expiresAt: number; reads: Map<string, AbortController> }
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 
 /** Private MCP gateway: per-run capabilities, never cookies or browser profiles. */
@@ -35,6 +36,11 @@ export class GmailMcpService {
         if (req.method !== 'POST') { res.writeHead(405).end(); return; }
         let mcp: McpServer | undefined;
         let transport: StreamableHTTPServerTransport | undefined;
+        let readKey: string | undefined;
+        const readController = new AbortController();
+        const removeReadListeners = () => { req.removeListener('aborted', disconnected); res.removeListener('close', disconnected); res.removeListener('finish', removeReadListeners); };
+        const disconnected = () => { if (!res.writableFinished) readController.abort(new GmailReadCancelledError()); removeReadListeners(); };
+        req.once('aborted', disconnected); res.once('close', disconnected); res.once('finish', removeReadListeners);
         try {
           const chunks: Buffer[] = []; let length = 0;
           for await (const chunk of req) {
@@ -43,6 +49,22 @@ export class GmailMcpService {
             chunks.push(Buffer.from(chunk));
           }
           const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          const clientId = req.headers['x-owtomate-gmail-client'];
+          const requestKey = (id: unknown) => typeof clientId === 'string' && /^[a-f0-9-]{36}$/i.test(clientId)
+            && (typeof id === 'string' && id.length <= 100 || typeof id === 'number' && Number.isSafeInteger(id)) ? `${clientId}:${JSON.stringify(id)}` : undefined;
+          if (body.method === 'notifications/cancelled') {
+            const cancelledKey = requestKey(body.params?.requestId);
+            const active = cancelledKey ? lease.reads.get(cancelledKey) : undefined;
+            if (active) { lease.reads.delete(cancelledKey!); active.abort(new GmailReadCancelledError()); }
+            res.writeHead(202).end(); return;
+          }
+          if (body.method === 'tools/call' && ['search_threads', 'get_thread'].includes(body.params?.name)) {
+            readKey = requestKey(body.id);
+            if (readKey) {
+              if (lease.reads.has(readKey)) { res.writeHead(409).end(); return; }
+              lease.reads.set(readKey, readController);
+            }
+          }
           mcp = new McpServer({ name: 'owtomate-gmail', version: '1.0.0' });
           const answer = async (work: () => Promise<unknown>) => {
             if (!key || this.leases.get(digest(key)) !== lease || lease.expiresAt < Date.now()) return {
@@ -58,14 +80,20 @@ export class GmailMcpService {
           mcp.registerTool('search_threads', { description: 'Search recent verification emails for this candidate.',
             inputSchema: { query: z.string().max(2000), pageSize: z.number().int().min(1).max(20).optional() } },
           ({ query }) => answer(async () => {
-            const threads = await this.backend.search(lease.userId, query);
+            readController.signal.throwIfAborted();
+            const threads = await this.backend.search(lease.userId, query, readController.signal);
+            readController.signal.throwIfAborted();
+            if (!key || this.leases.get(digest(key)) !== lease || lease.expiresAt < Date.now()) throw new GmailServiceError('reconnect', 'The Gmail run capability expired.');
             for (const thread of threads) lease.threads.add(thread.id);
             return { threads };
           }));
           mcp.registerTool('get_thread', { description: 'Read messages in a thread returned for this candidate.', inputSchema: { threadId: z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/) } },
             ({ threadId }) => answer(async () => {
               if (!lease.threads.has(threadId)) throw new GmailServiceError('unapproved', 'Search this mailbox before reading a thread.');
-              return { messages: await this.backend.thread(lease.userId, threadId) };
+              readController.signal.throwIfAborted();
+              const messages = await this.backend.thread(lease.userId, threadId, readController.signal);
+              readController.signal.throwIfAborted();
+              return { messages };
             }));
           mcp.registerTool('send_application_email', { description: 'Send only the exact email application explicitly approved by this candidate. Recipients, documents and content come from the approved server record.',
             inputSchema: { reviewId: z.string().uuid(), revision: z.string().regex(/^[a-f0-9]{64}$/) } },
@@ -77,7 +105,7 @@ export class GmailMcpService {
           await mcp.connect(transport);
           await transport.handleRequest(req, res, body);
         } catch { if (!res.headersSent) res.writeHead(400).end(); }
-        finally { await transport?.close().catch(() => {}); await mcp?.close().catch(() => {}); }
+        finally { if (readKey && lease.reads.get(readKey) === readController) lease.reads.delete(readKey); if (res.writableFinished || res.destroyed) removeReadListeners(); await transport?.close().catch(() => {}); await mcp?.close().catch(() => {}); }
       });
       this.server.requestTimeout = 30_000;
       this.server.headersTimeout = 10_000;
@@ -91,10 +119,12 @@ export class GmailMcpService {
   async grant(userId: string, account: string, approvals: string[] = []): Promise<{ connection: GmailMcpConnection; revoke: () => void }> {
     const port = await this.listen(), token = randomBytes(32).toString('base64url'), key = digest(token);
     for (const [id, lease] of this.leases) if (lease.expiresAt < Date.now()) this.leases.delete(id);
-    this.leases.set(key, { userId, approvals: new Set(approvals), threads: new Set(), expiresAt: Date.now() + 4 * 60 * 60_000 });
-    return { connection: { url: `http://127.0.0.1:${port}/gmail/mcp`, token, account }, revoke: () => { this.leases.delete(key); } };
+    const lease = { userId, approvals: new Set(approvals), threads: new Set<string>(), expiresAt: Date.now() + 4 * 60 * 60_000, reads: new Map<string, AbortController>() };
+    this.leases.set(key, lease);
+    return { connection: { url: `http://127.0.0.1:${port}/gmail/mcp`, token, account }, revoke: () => { this.leases.delete(key); for (const read of lease.reads.values()) read.abort(new GmailReadCancelledError()); lease.reads.clear(); } };
   }
   async close(): Promise<void> {
+    for (const lease of this.leases.values()) for (const read of lease.reads.values()) read.abort(new GmailReadCancelledError());
     this.leases.clear();
     if (this.server) { this.server.closeAllConnections(); await new Promise<void>(done => this.server!.close(() => done())); }
   }

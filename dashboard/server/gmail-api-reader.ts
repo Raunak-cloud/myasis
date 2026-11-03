@@ -26,14 +26,18 @@ function gmailApiMessage(raw: Record<string, any>): GmailMessage {
  * conversation labels can be exercised without a live Google account. */
 export function gmailApiReader(request: typeof gmailRequest) {
   return {
-    async search(userId: string, query: string) {
+    async search(userId: string, query: string, signal?: AbortSignal) {
+      signal?.throwIfAborted();
       const found = await request<{ threads?: Array<{ id: string }> }>(userId, 'threads', {
         params: { q: verificationMailboxQuery(query), includeSpamTrash: 'true', maxResults: 20 },
+        ...(signal ? { signal } : {}),
       });
-      return found.threads || [];
+      signal?.throwIfAborted(); return found.threads || [];
     },
-    async thread(userId: string, threadId: string) {
-      const thread = await request<{ messages?: Array<Record<string, any>> }>(userId, `threads/${encodeURIComponent(threadId)}`, { params: { format: 'full' } });
+    async thread(userId: string, threadId: string, signal?: AbortSignal) {
+      signal?.throwIfAborted();
+      const thread = await request<{ messages?: Array<Record<string, any>> }>(userId, `threads/${encodeURIComponent(threadId)}`, { params: { format: 'full' }, ...(signal ? { signal } : {}) });
+      signal?.throwIfAborted();
       return (thread.messages || []).map(gmailApiMessage).filter(message =>
         verificationMailboxMessageAllowed(message)
         && Date.parse(message.date || '') > Date.now() - 2 * 60 * 60_000).slice(-20);

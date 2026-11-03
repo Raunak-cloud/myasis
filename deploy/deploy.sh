@@ -17,6 +17,9 @@ fi
 APP=/home/myasis/myasis
 LOCK=$APP/.deploying
 WAIT_MINUTES=${WAIT_MINUTES:-45}
+OPERATOR_HOLD_REQUIRED=0
+OPERATOR_HOLD_RELEASE_READY=0
+if [ -n "${OPERATOR_HOLD_PLAN:-}" ]; then OPERATOR_HOLD_REQUIRED=1; fi
 
 as_app() { sudo -u myasis -H bash -lc "$1"; }
 # A run is `node dist/main.js` (or dist/queue.js) started by the dashboard with seek-bot as its working
@@ -49,12 +52,21 @@ active_runs() {
   echo "$n"
 }
 
+as_app "touch $LOCK"
+cleanup_deployment() {
+  local result=$?
+  if [ "$OPERATOR_HOLD_REQUIRED" = 1 ] && [ "$OPERATOR_HOLD_RELEASE_READY" != 1 ]; then
+    as_app "printf '%s\n' operator-safety-hold-required > $LOCK" || true
+    echo 'Operator safety release incomplete; deployment gate remains closed. Resolve the explicit hold plan and rerun the reviewed release.' >&2
+  else
+    as_app "rm -f $LOCK"
+  fi
+  return "$result"
+}
+trap cleanup_deployment EXIT
+as_app "printf '%s\n' draining > $LOCK"
 # Run only small checks, in one bounded phase after builds.
 as_app "cd $APP && git fetch -q origin main"
-
-as_app "touch $LOCK"
-trap 'as_app "rm -f $LOCK"' EXIT
-as_app "printf '%s\n' draining > $LOCK"
 
 for ((i = 0; i < WAIT_MINUTES * 6; i++)); do
   [ "$(active_runs)" = 0 ] && break
@@ -110,6 +122,11 @@ as_app "cd $APP && FORCE_DEPLOY=$FORCE_FLAG timeout --signal=TERM --kill-after=2
 # Apply idempotent schema upgrades before the new dashboard and its scheduler
 # start querying new columns. A migration failure leaves the old process up.
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/migrate-db.mts"
+if [ "$OPERATOR_HOLD_REQUIRED" = 1 ]; then
+  # JSON data only, passed as one quoted argument to a fixed reviewed CLI.
+  # Root can read a private root-owned plan without exposing it to the app user.
+  (cd "$APP/dashboard" && ../seek-bot/node_modules/.bin/tsx scripts/apply-operator-holds.mts "$OPERATOR_HOLD_PLAN")
+fi
 if [ -f /etc/owtomate-repair-pilot.json ]; then bash "$APP/deploy/install-repair-pilot.sh" --refresh; fi
 # Cron invokes Bash explicitly, so a Git checkout cannot disable backups by
 # resetting maintenance.sh's execute bit. Keep installed scheduling in sync.
@@ -133,3 +150,15 @@ for attempt in {1..30}; do
   if [ "$attempt" = 30 ]; then echo 'public website bridge failed health check' >&2; exit 1; fi
   sleep 1
 done
+if [ "$OPERATOR_HOLD_REQUIRED" = 1 ]; then
+  # Check the restarted dashboard middleware independently of the public bridge.
+  for attempt in {1..30}; do
+    if curl -fsS http://127.0.0.1:5180/api/auth/me | node -e 'let body="";process.stdin.on("data",x=>body+=x);process.stdin.on("end",()=>{try{const value=JSON.parse(body);if(!Object.hasOwn(value,"user"))process.exit(1)}catch{process.exit(1)}})'; then break; fi
+    if [ "$attempt" = 30 ]; then echo 'dashboard API failed operator safety health check' >&2; exit 1; fi
+    sleep 1
+  done
+  (cd "$APP/dashboard" && ../seek-bot/node_modules/.bin/tsx scripts/apply-operator-holds.mts --verify "$OPERATOR_HOLD_PLAN")
+  # The EXIT trap may open the gate only after holds, the restarted guard and
+  # both health checks have completed successfully.
+  OPERATOR_HOLD_RELEASE_READY=1
+fi

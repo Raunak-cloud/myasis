@@ -31,12 +31,20 @@ globalThis.fetch = async (url, init) => {
   assert.match(body.messages[0].content, /sole matching decision maker/);
   for (const evidence of ['FULL CANDIDATE PROFILE', 'CV_TAIL_FIXTURE', 'SAVED_FACT_FIXTURE', config.aiInstructions, 'minimum match score', 'MATCHING-STAGE DUPLICATE DECISION']) assert.ok(prompt.includes(evidence), evidence);
   assert.ok(prompt.includes('RELATED_DISCLOSED_PAY_FIXTURE'), 'a different board ID must not hide related disclosed pay from the matching agent');
+  assert.match(prompt, /CURRENT OCCUPATION INTENT PROVENANCE/);
+  assert.ok(body.response_format.json_schema.schema.properties.roleFitCheck.required.includes('currentIntent'));
+  assert.ok(body.response_format.json_schema.schema.properties.roleFitCheck.required.includes('primaryOutputs'));
+  const roleSchema = body.response_format.json_schema.schema.properties.roleFitCheck.properties;
+  assert.equal(roleSchema.currentIntent.properties.quote, undefined, 'the wire requests references, not transcribed current instructions');
+  assert.equal(roleSchema.primaryOutputs.items.properties.employerQuote, undefined, 'the wire requests references, not transcribed employer prose');
   assert.doesNotMatch(prompt, /UNRELATED_EMPLOYER_FIXTURE|UNRELATED_ROLE_FIXTURE/, 'unrelated employers and roles cannot supply matching evidence');
   const correction = prompt.includes('RESPONSE FORMAT CORRECTION');
   const result = { decision: mode === 'skip' ? 'skip' : mode === 'uncertain' ? 'uncertain' : 'apply',
     matchScore: mode === 'invalid-twice' || mode === 'repair' && !correction ? 101 : 85,
     reason: 'Agent final judgment.', evidence: ['Paraphrased source evidence'], injectionSuspected: false,
-    roleFitCheck: { alignment: 'aligned', employerEvidence: 'Retail service duties.', candidateEvidence: 'Customer service background.', explanation: 'Agent judgment.' },
+    roleFitCheck: { alignment: 'aligned', employerEvidence: 'Retail service duties.', candidateEvidence: 'Customer service background.', explanation: 'Agent judgment.',
+      currentIntent: { scope: 'open', source: 'current-standing-instructions', passageId: roleSchema.currentIntent.properties.passageId.enum[1], requestedWork: 'Relevant supported work, excluding manager positions.' },
+      primaryOutputs: [{ output: 'Retail service', employerPassageId: roleSchema.primaryOutputs.items.properties.employerPassageId.enum[0], relationship: 'requested-work', mapping: 'Customer service is supported under the current open occupation preference.' }] },
     instructionCheck: { violated: false, ruleQuote: '', explanation: 'The role is not a manager position.' },
   };
   return Response.json({ choices: [{ message: { content: JSON.stringify(result) } }], usage: { prompt_tokens: 100, completion_tokens: 30 } });
@@ -68,7 +76,7 @@ try {
   });
   const metrics = readFileSync(join(directory, 'pipeline-metrics.jsonl'), 'utf8');
   assert.doesNotMatch(metrics, /SAVED_FACT_FIXTURE|Retail service/);
-  console.log('PASS: one Magnus decision, complete evidence/preferences, no quote veto, cache reuse and bounded format repair. All provider calls mocked.');
+  console.log('PASS: one Magnus decision, complete evidence/preferences, preserved diagnostic paraphrases, grounded intent provenance, cache reuse and bounded format repair. All provider calls mocked.');
 } finally {
   globalThis.fetch = originalFetch;
   assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + sep + 'owtomate-fit-contract-'));

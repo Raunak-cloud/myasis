@@ -220,6 +220,8 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+
 DROP TRIGGER IF EXISTS run_events_z_review_memory ON run_events;
 CREATE TRIGGER run_events_z_review_memory BEFORE INSERT OR UPDATE ON run_events
   FOR EACH ROW EXECUTE FUNCTION remember_job_review();
@@ -1020,3 +1022,44 @@ BEGIN
   END IF;
 END;
 $$;
+
+-- An operator safety hold is independent of candidate choices and application
+-- credit/submission status. It may exist before the normal draft import. Keep
+-- original attribution and release evidence; never rewrite the held revision.
+CREATE TABLE IF NOT EXISTS application_review_operator_holds (
+  id UUID PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  job_key TEXT NOT NULL,
+  draft_id UUID NOT NULL,
+  revision TEXT NOT NULL CHECK (revision ~ '^[a-f0-9]{64}$'),
+  job JSONB NOT NULL,
+  source_run_id BIGINT REFERENCES run_starts(id),
+  actor_user_id BIGINT NOT NULL REFERENCES users(id),
+  reason TEXT NOT NULL CHECK (length(btrim(reason)) BETWEEN 1 AND 2000),
+  held_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  released_at TIMESTAMPTZ,
+  released_by_user_id BIGINT REFERENCES users(id),
+  resolution_evidence TEXT,
+  CHECK ((released_at IS NULL AND released_by_user_id IS NULL AND resolution_evidence IS NULL)
+    OR (released_at IS NOT NULL AND released_by_user_id IS NOT NULL AND resolution_evidence IS NOT NULL AND length(btrim(resolution_evidence)) BETWEEN 1 AND 2000))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS application_review_one_active_hold_idx ON application_review_operator_holds(user_id,job_key) WHERE released_at IS NULL;
+
+-- Attributed operator corrections are separate from candidate answers and
+-- immutable source traces. Application code only appends this audit ledger;
+-- correcting content never releases its safety hold or grants confirmation.
+CREATE TABLE IF NOT EXISTS application_review_operator_answer_revisions (
+  id UUID PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  hold_id UUID NOT NULL REFERENCES application_review_operator_holds(id),
+  draft_id UUID NOT NULL,
+  actor_user_id BIGINT NOT NULL REFERENCES users(id),
+  source_run_id BIGINT NOT NULL REFERENCES run_starts(id),
+  original_revision TEXT NOT NULL CHECK (original_revision ~ '^[a-f0-9]{64}$'),
+  previous_revision TEXT NOT NULL CHECK (previous_revision ~ '^[a-f0-9]{64}$'),
+  current_revision TEXT NOT NULL CHECK (current_revision ~ '^[a-f0-9]{64}$' AND current_revision <> previous_revision),
+  source_trace_sha256 TEXT NOT NULL CHECK (source_trace_sha256 ~ '^[a-f0-9]{64}$'),
+  plan JSONB NOT NULL CHECK (jsonb_typeof(plan) = 'object'),
+  corrected_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE(user_id,hold_id,previous_revision)
+);

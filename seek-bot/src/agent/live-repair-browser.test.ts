@@ -60,7 +60,7 @@ try {
    {name:'create_file',args:{name:'../invalid.txt',text:'Fixture',format:'txt'}},
    {name:'browser_action',args:{action:'fill',selector:'#city',value:'Sydney'}},
    {name:'browser_action',args:{action:'click',target_mode:'selector',selector:'#noop',ref:'f999',locator:{by:'css',value:'input',frame:'frame999'},x:0,y:0,sends_application:false}},
-   prepare?{name:'prepare_application',args:{answers:[],resume_id:'cv',submit_selector:'#send'}}:
+   prepare?{name:'prepare_application',args:{answers:[],resume_id:'cv',supporting_file_ids:[fileId],submit_selector:'#send'}}:
     {name:'browser_action',args:{action:'click',target_mode:'selector',selector:'#send',ref:'f999',locator:{by:'css',value:'input',frame:'frame999'},x:0,y:0,sends_application:true}},
    {name:'finish',args:{status:'applied',reason:'Observed fixture receipt',evidence:'Application received FIXTURE-REPAIR-1',questions:[],receipt:{quote:'FIXTURE-REPAIR-1'}}},
   ];
@@ -106,6 +106,10 @@ try {
     assert.equal(await page.evaluate('window.sends',undefined,undefined,false),prepare?0:1);
     assert.equal(await page.evaluate('window.noop',undefined,undefined,false),1,'explicit element mode ignores unused padded coordinates and stale iframe locators');
     assert.equal(result.outcome.status,prepare?'prepared':'rehearsed');
+    if(result.outcome.status==='prepared') {
+      assert.equal(result.outcome.draft.documents?.[0]?.role,'supporting');
+      assert.equal(result.outcome.draft.documents?.[0]?.fileId,fileId,'retained upload must be explicitly included in the candidate review');
+    }
     if(!prepare)assert.ok(allowanceChecks>0,'The original quota callback must survive the repaired graph');
     assert.equal(result.repair,undefined);
     const db=new DatabaseSync(join(directory,'application-recovery.sqlite'),{readOnly:true});

@@ -35,6 +35,9 @@ export interface ToolContext {
   observation: Observation;
   captured: Array<{ question: string; answer: string }>;
   coverLetter?: string;
+  documents?: import('../application-review-types.js').ApplicationDocument[];
+  letterWitness?: import('../types.js').FormField[];
+  uploadedDocuments?: Array<{ fileId: string; sha256: string; coverLetterDigest?: string }>;
   pendingCredentials?: Map<string, SiteCredential & { purpose?: 'create_account' | 'reset_password' }>;
   resumeUsed?: string;
   resumeName?: string;

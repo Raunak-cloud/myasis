@@ -69,3 +69,14 @@ test('Spam activation passes through the API adapter and real MCP without weaken
     for (const name of names) { if (before[name] === undefined) delete process.env[name]; else process.env[name] = before[name]; }
   }
 });
+
+test('read cancellation stays scoped through the OAuth adapter and refuses a late response',async()=>{
+  const controller=new AbortController(),cause=new Error('Fixture read cancelled');let calls=0,release!:()=>void;
+  const reader=gmailApiReader((async(_owner:string,_path:string,options:any)=>{
+    calls++;assert.equal(options.signal,controller.signal);await new Promise<void>(done=>{release=done;});return {threads:[{id:'late'}]};
+  }) as Parameters<typeof gmailApiReader>[0]);
+  const read=reader.search('fixture-owner','verification',controller.signal);controller.abort(cause);release();
+  await assert.rejects(read,error=>error===cause);
+  await assert.rejects(reader.search('fixture-owner','verification',controller.signal),error=>error===cause);
+  assert.equal(calls,1,'an already cancelled read issues no OAuth request');
+});

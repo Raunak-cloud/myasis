@@ -5,9 +5,10 @@ import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
-import type { AppliedRecord, JobListing } from './types.js';
+import type { AppliedRecord, BlockedQuestion, JobListing } from './types.js';
+import { sealQuestionSnapshot } from './question-snapshot-node.js';
 
-type FixtureJob = JobListing & { reviewPriority?: number; searchPage?: number; searchScope?: 'office' | 'remote' | 'unscoped'; detailDescription?: string; cardConflict?: boolean; wall?: boolean; searchOnlyJob?: boolean; detailApplied?: boolean; loadingFirst?: boolean; fitError?: boolean; fitReject?: boolean; matchScore?: number; lateApplied?: boolean; delayMs?: number; detailDelayMs?: number; fitDelayMs?: number; detailError?: boolean; formUrl?: string; uncertain?: boolean; preSendFailure?: boolean };
+type FixtureJob = JobListing & { reviewPriority?: number; searchPage?: number; searchScope?: 'office' | 'remote' | 'unscoped'; detailApplicationMode?: 'hosted' | 'external'; detailDescription?: string; cardConflict?: boolean; wall?: boolean; searchOnlyJob?: boolean; detailApplied?: boolean; loadingFirst?: boolean; fitError?: boolean; fitReject?: boolean; matchScore?: number; lateApplied?: boolean; delayMs?: number; detailDelayMs?: number; detailWaitFor?: { stage: string; id: string }; applyWaitFor?: { stage: string; id: string }; fitDelayMs?: number; detailError?: boolean; formUrl?: string; uncertain?: boolean; preSendFailure?: boolean };
 const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
   id, title: `Developer ${id}`, company: 'Fixture Employer', location: 'Sydney', ageDays: 1,
   url: `https://fixture.invalid/job/${id}`, platform: 'seek', applicationMode: 'hosted', ...extra,
@@ -15,7 +16,7 @@ const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
 
 /** Exercise the compiled main loop with offline boundary adapters, real history
  * and a one-review budget. No browser, model or employer is contacted. */
-function run(jobs: FixtureJob[], options: { repairTarget?: FixtureJob; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[]; workArrangements?: string[]; onsiteCity?: string } = {}) {
+function run(jobs: FixtureJob[], options: { scope?: 'all' | 'external' | 'hosted'; waiting?: Array<{ job: FixtureJob; questions: BlockedQuestion[] }>; savedAnswers?: unknown[]; attentionOnFit?: { job: FixtureJob; questions: BlockedQuestion[] }; repairTarget?: FixtureJob; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[]; workArrangements?: string[]; onsiteCity?: string } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-review-budget-'));
   const url = (file: string) => pathToFileURL(join(directory, file)).href;
   try {
@@ -23,12 +24,24 @@ function run(jobs: FixtureJob[], options: { repairTarget?: FixtureJob; priorRevi
     writeFileSync(join(directory, 'applied.json'), JSON.stringify(options.history ?? []));
     writeFileSync(join(directory, 'jobs.json'), JSON.stringify(jobs));
     writeFileSync(join(directory, 'events.jsonl'), '');
+    const attention = (items: NonNullable<typeof options.waiting>) => ({ asOf: new Date().toISOString(), items: items.map(({ job: item, questions }) => ({
+      jobId: item.id, title: item.title, company: item.company, url: item.url, at: new Date().toISOString(), reason: 'Exact required candidate question remains unanswered.', questions,
+    })) });
+    writeFileSync(join(directory, 'attention.json'), JSON.stringify(attention(options.waiting ?? [])));
+    writeFileSync(join(directory, 'answers.json'), JSON.stringify(options.savedAnswers ?? []));
     writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify(jobs.filter(item => options.approvedIds?.includes(item.id)).map(item => ({ job: item }))));
     writeFileSync(join(directory, 'pending-application-keys.json'), JSON.stringify(options.pendingKeys ?? []));
     writeFileSync(join(directory, 'boundary.mjs'), `
 import { readFileSync, appendFileSync } from 'node:fs';
 export const jobs = JSON.parse(readFileSync(new URL('./jobs.json', import.meta.url)));
 export const record = (stage, id, extra={}) => appendFileSync(new URL('./events.jsonl', import.meta.url), JSON.stringify({stage,id,at:Date.now(),...extra})+'\\n');
+export const waitForEvent = async ({stage,id}) => {
+  const deadline=Date.now()+3000;
+  while(!readFileSync(new URL('./events.jsonl', import.meta.url),'utf8').trim().split('\\n').filter(Boolean).map(line=>JSON.parse(line)).some(event=>event.stage===stage && event.id===id)) {
+    if(Date.now()>=deadline) throw Error('Fixture event was not observed: '+stage+'/'+id);
+    await new Promise(done=>setTimeout(done,5));
+  }
+};
 `);
     writeFileSync(join(directory, 'config.mjs'), `
 export * from ${JSON.stringify(new URL('./config.js', import.meta.url).href)};
@@ -42,7 +55,7 @@ Object.assign(config.limits, {maxEvaluations:${options.reviews ?? 1},fitConcurre
   minDelayMs:${options.cooldownMs ?? 0},maxDelayMs:${options.cooldownMs ?? 0},minNonSubmitDelayMs:0,maxNonSubmitDelayMs:0,searchDelayMs:0});
 `);
     writeFileSync(join(directory, 'discovery.mjs'), `
-import { jobs, record } from './boundary.mjs';
+import { jobs, record, waitForEvent } from './boundary.mjs';
 const reads = new Map();
 const platform = new URL(import.meta.url).searchParams.get('platform');
 export const search = async (_page,_keyword,pageNumber,scope) => {
@@ -57,13 +70,14 @@ export const fetchJobDetail = async (_page, job) => {
   record('detail',job.id,{page:_page.worker});
   _page.currentJob=job.id;
   await new Promise(done=>setTimeout(done,job.detailDelayMs||0));
+  if(job.detailWaitFor) await waitForEvent(job.detailWaitFor);
   if(_page.currentJob!==job.id) throw Error('Another reviewer navigated this page');
   if(job.wall) throw Error('VerificationBlocked: Fixture security verification');
   if(job.detailError) throw Error('Fixture unavailable listing');
   record('detail-finish',job.id,{page:_page.worker});
   const count = (reads.get(job.id) || 0) + 1; reads.set(job.id,count);
   if(job.loadingFirst && count === 1) return {...job,description:'',alreadyApplied:false};
-  return {...job,description:job.detailDescription??'Build software in Sydney.',alreadyApplied:job.detailApplied===true,appliedNote:'You applied on 1 October'};
+  return {...job,applicationMode:job.detailApplicationMode??job.applicationMode,description:job.detailDescription??'Build software in Sydney.',alreadyApplied:job.detailApplied===true,appliedNote:'You applied on 1 October'};
 };
 `);
     writeFileSync(join(directory, 'browser.mjs'), `
@@ -87,6 +101,10 @@ export const finishedCoverLetterForJob = async () => 'Fixture letter';
 import { config } from './config.mjs';
 export const assessFit = async job => {
   record('fit',job.id);
+  const updatedAttention=${JSON.stringify(options.attentionOnFit ? attention([options.attentionOnFit]) : null)};
+  if(updatedAttention && job.id===updatedAttention.items[0].jobId) {
+    const {writeFileSync}=await import('node:fs');writeFileSync(new URL('./attention.json',import.meta.url),JSON.stringify(updatedAttention));
+  }
   await new Promise(done => setTimeout(done,job.fitDelayMs||0));
   record('fit-finish',job.id);
   if(job.fitError) { await new Promise(done => setTimeout(done,20)); throw Error('The matching agent did not return a usable decision after a format retry.'); }
@@ -95,11 +113,12 @@ export const assessFit = async job => {
 };
 `);
     writeFileSync(join(directory, 'apply.mjs'), `
-import { record } from './boundary.mjs';
+import { record, waitForEvent } from './boundary.mjs';
 import { applicationAllowance } from ${JSON.stringify(new URL('./application-allowance.js', import.meta.url).href)};
 import { isExternalApplicationUrl } from ${JSON.stringify(new URL('./job-board-url.js', import.meta.url).href)};
 export const applyToJobWithAgent = async (_page,job) => {
   record('apply',job.id);
+  if(job.applyWaitFor) await waitForEvent(job.applyWaitFor);
   await new Promise(done=>setTimeout(done,job.delayMs||0));
   if(job.preSendFailure) return {status:'error',jobId:job.id,error:'Fixture failure before send'};
   if(job.formUrl && !(await applicationAllowance(isExternalApplicationUrl(job.formUrl)))) { record('denied',job.id); return {status:'needs-human',jobId:job.id,reason:'Application allowance unavailable'}; }
@@ -138,18 +157,112 @@ ${options.queue ? "process.argv[1]='queue.js';" : ''} await import('./main.mjs')
       encoding: 'utf8', timeout: 10_000,
       env: { ...process.env, DATA_DIR: directory, PROFILE_PATH: join(directory, 'profile.txt'),
         CELERIS_API_KEY: 'fixture-only', COVER_LETTER_MODE: 'tailored',
-        APPLICATION_REVIEW_MODE: options.prepare ? 'prepare' : options.approvedIds ? 'approved' : '',
+        APPLICATION_REVIEW_MODE: options.prepare ? 'prepare' : options.approvedIds ? 'approved' : '', APPLY_ONLY: options.scope ?? 'all',
         APPLICATION_WORKERS: String(options.workers ?? 1), DIRECT_EXTERNAL_JOB_URL: '', TARGETED_JOBS_JSON: '', TARGET_SEEK_JOBS: '[]', OWTOMATE_REPAIR_CASE_ID: options.repairTarget ? 'fixture-repair' : '', TARGET_REPAIR_JOB_JSON: options.repairTarget ? JSON.stringify(options.repairTarget) : '', EMPLOYER_FEEDS_ADMIN_ENABLED: 'false', SMARTRECRUITERS_ADMIN_ENABLED: 'false' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const events = readFileSync(join(directory, 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
     const history: AppliedRecord[] = JSON.parse(readFileSync(join(directory, 'applied.json'), 'utf8'));
-    return { output, events, history };
+    return { output, events, history, attention: JSON.parse(readFileSync(join(directory, 'attention.json'), 'utf8')) };
   } finally {
     assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + sep + 'owtomate-review-budget-'));
     rmSync(directory, { recursive: true, force: true });
   }
 }
+
+const requiredAnswerSnapshot = (options = ['Yes', 'No']) => sealQuestionSnapshot({ version: 2,
+  source: { origin: 'https://employer.fixture.invalid', path: '' }, prompt: 'Do you hold the required current licence?', context: [], help: [], completeness: 'complete',
+  controls: [{ id: 'part0', label: 'Do you hold the required current licence?', kind: 'checkbox-group', required: true, multiple: true,
+    choices: options.map((label, index) => ({ id: `choice${index}`, label, value: label, disabled: false })), constraints: {} }],
+});
+for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply'} external-only reviews semantic priority before scope certainty`, () => {
+  const knownLow = job('known-external-low', { applicationMode: 'external', reviewPriority: 10 });
+  const unknownHigh = job('unknown-high', { applicationMode: 'unknown', detailApplicationMode: 'external', reviewPriority: 78 });
+  const result = run([knownLow, unknownHigh], { apply: true, prepare, scope: 'external', reviews: 1, cap: 1 });
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), [unknownHigh.id]);
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), [unknownHigh.id]);
+  assert.equal(result.events.some(event => event.stage === 'detail' && event.id === knownLow.id), false, 'a low-priority known destination cannot take the only review first');
+});
+test('an unknown card that resolves hosted does not spend an external-only fit slot or bypass scope', () => {
+  const unknown = job('unknown-resolves-hosted', { applicationMode: 'unknown', detailApplicationMode: 'hosted', reviewPriority: 78 });
+  const knownHosted = job('known-hosted', { applicationMode: 'hosted', reviewPriority: 99 });
+  const external = job('external-backup', { applicationMode: 'external', reviewPriority: 10 });
+  const result = run([knownHosted, external, unknown], { apply: true, prepare: true, scope: 'external', reviews: 1, cap: 1 });
+  assert.deepEqual(result.events.filter(event => event.stage === 'detail').map(event => event.id), [unknown.id, external.id]);
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), [external.id]);
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), [external.id]);
+});
+test('known in-scope certainty breaks a semantic priority tie without overriding higher priorities', () => {
+  const unknown = job('unknown-tied', { applicationMode: 'unknown', detailApplicationMode: 'external', reviewPriority: 78 });
+  const known = job('known-tied', { applicationMode: 'external', reviewPriority: 78 });
+  const result = run([unknown, known], { apply: true, scope: 'external', reviews: 1, cap: 1 });
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), [known.id]);
+});
+for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply'} defers exact current unanswered questions before model review and application`, () => {
+  const blocked = job('waiting'), fresh = job('different-job', { company: blocked.company, applicationUrl: 'https://employer.fixture.invalid/shared/apply' });
+  const snapshot = requiredAnswerSnapshot();
+  const result = run([blocked, fresh], { apply: true, prepare, waiting: [{ job: blocked, questions: [{ question: snapshot.prompt, snapshot }] }] });
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), [fresh.id]);
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), [fresh.id]);
+  assert.match(result.output, /waiting for your answers/);
+});
+test('an exact structured response reopens a pending job without deleting old ambiguous fragments', () => {
+  const blocked = job('answered'), snapshot = requiredAnswerSnapshot();
+  const result = run([blocked], { apply: true, prepare: true,
+    waiting: [{ job: blocked, questions: [{ question: 'Yes' }, { question: snapshot.prompt, snapshot }] }],
+    savedAnswers: [{ question: snapshot.prompt, answer: 'No', snapshot, response: { part0: ['choice1'] }, createdAt: new Date().toISOString() }],
+  });
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), [blocked.id]);
+  assert.equal(result.attention.items[0].questions.length, 2, 'eligibility reads never erase question/audit history');
+});
+for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply'} respects a complete current pending task without native required markup`, () => {
+  const blocked = job('custom-validation'), fresh = job('fresh-after-custom-validation');
+  const snapshot = sealQuestionSnapshot({ version: 2, source: { origin: 'https://employer.fixture.invalid', path: '' },
+    prompt: 'Please describe your circumstances.', context: [], help: [], completeness: 'complete',
+    controls: [{ id: 'part0', label: 'Please describe your circumstances.', kind: 'textarea', required: false, multiple: false, choices: [], constraints: {} }],
+  });
+  const waiting = [{ job: blocked, questions: [{ question: snapshot.prompt, snapshot }] }];
+  const held = run([blocked, fresh], { apply: true, prepare, waiting });
+  assert.deepEqual(held.events.filter(event => event.stage === 'fit').map(event => event.id), [fresh.id]);
+  assert.deepEqual(held.events.filter(event => event.stage === 'apply').map(event => event.id), [fresh.id]);
+  const reopened = run([blocked], { apply: true, prepare, waiting,
+    savedAnswers: [{ question: snapshot.prompt, answer: 'Synthetic applicant response.', snapshot, response: { part0: 'Synthetic applicant response.' } }],
+  });
+  assert.deepEqual(reopened.events.filter(event => event.stage === 'apply').map(event => event.id), [blocked.id]);
+});
+test('changed question revisions cannot be released by an older structured answer', () => {
+  const blocked = job('changed-question'), previous = requiredAnswerSnapshot(), current = requiredAnswerSnapshot(['Yes', 'No', 'Other']);
+  const result = run([blocked, job('fresh-after-change')], { apply: true,
+    waiting: [{ job: blocked, questions: [{ question: current.prompt, snapshot: current }] }],
+    savedAnswers: [{ question: previous.prompt, answer: 'No', snapshot: previous, response: { part0: ['choice1'] } }],
+  });
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['fresh-after-change']);
+});
+test('legacy fragments and incomplete captures remain eligible for ordinary recapture', () => {
+  for (const questions of [[{ question: 'Yes' }], [{ question: 'Month' }], [{ question: 'Current licence?', snapshot: sealQuestionSnapshot({ ...requiredAnswerSnapshot(), completeness: 'recapture' }) }]]) {
+    const blocked = job('legacy');
+    const result = run([blocked], { apply: true, prepare: true, waiting: [{ job: blocked, questions }] });
+    assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), [blocked.id]);
+  }
+});
+test('equal board IDs on a different source and different forms are not pending-question duplicates', () => {
+  const original = job('same-id', { url: 'https://www.seek.com.au/job/12345678' });
+  const other = job('same-id', { platform: 'indeed', url: 'https://www.indeed.com/viewjob?jk=fixture' });
+  const snapshot = requiredAnswerSnapshot();
+  const result = run([other], { apply: true, platform: 'indeed', waiting: [{ job: original, questions: [{ question: snapshot.prompt, snapshot }] }] });
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), [other.id]);
+});
+test('pending state is re-read after matching and before the applying agent starts', () => {
+  const target = job('late-question'), snapshot = requiredAnswerSnapshot();
+  const result = run([target], { apply: true, prepare: true, attentionOnFit: { job: target, questions: [{ question: snapshot.prompt, snapshot }] } });
+  assert.ok(result.events.some(event => event.stage === 'fit'));
+  assert.equal(result.events.some(event => event.stage === 'apply'), false);
+});
+test('the existing exact operator repair target may recapture a pending question without a new bypass', () => {
+  const target = job('repair-waiting'), snapshot = requiredAnswerSnapshot();
+  const result = run([target], { apply: true, prepare: true, repairTarget: target, waiting: [{ job: target, questions: [{ question: snapshot.prompt, snapshot }] }] });
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), [target.id]);
+});
 
 for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply'} searches the office city and nationwide remote before using the review allowance`, () => {
   const wrongCity = Array.from({ length: 15 }, (_, i) => job(`wrong-city-${i}`, { searchScope: 'unscoped', location: 'Brisbane QLD', cardConflict: true }));
@@ -599,8 +712,10 @@ test('an isolated-session sign-in failure falls back before any form is opened a
 
 for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply'} stops the other platform's reviews when the shared run cap is reached`, () => {
   const result = run([
-    job('seek-one', { delayMs: 10 }), job('seek-two', { delayMs: 10 }), job('seek-unused'),
-    ...Array.from({ length: 8 }, (_, i) => job(`indeed-rejected-${i}`, { platform: 'indeed', detailDelayMs: 100, fitReject: true })),
+    job('seek-one', { applyWaitFor: { stage: 'detail', id: 'indeed-rejected-0' } }), job('seek-two'), job('seek-unused'),
+    ...Array.from({ length: 8 }, (_, i) => job(`indeed-rejected-${i}`, {
+      platform: 'indeed', detailWaitFor: { stage: 'activity-finished', id: 'seek' }, fitReject: true,
+    })),
   ], { apply: true, prepare, workers: 2, cap: 2, reviews: 20 });
   assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['seek-one', 'seek-two']);
   assert.equal(result.events.filter(event => event.stage === 'detail' && event.id.startsWith('indeed')).length, 1,

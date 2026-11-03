@@ -282,7 +282,16 @@ export async function fillEmailedCode(page: Page, fields: Observation['fields'],
   } finally { await Promise.all(handles.map(handle => handle.dispose().catch(() => {}))); }
 }
 
-const cannotReadMailbox = (error: string) => /reconnect|authorization|MCP could not|connect Gmail|Gmail.*(?:unavailable|could not|did not)|mailbox request/i.test(error);
+export function verificationLookupFailureMessage(found: Extract<Awaited<ReturnType<typeof findVerificationInGmail>>, { error: string }>): string {
+  const reason = 'reason' in found ? found.reason : undefined;
+  const poll = 'poll' in found ? found.poll : undefined;
+  const recovery = reason === 'unreadable-message' ? 'The matching message needs format investigation; resending alone will not repair it.'
+    : poll?.termination === 'poll-window-expired'
+      ? 'The bounded polling window ended. Preserve the completed-check evidence; do not call this a disconnected mailbox or proof the email never arrived. Inspect the actual authentication page and supported alternatives before repeating an unchanged wait.'
+      : reason === 'cancelled' ? 'This lookup was cancelled. No mailbox or delivery conclusion is established.'
+        : 'This Gmail check failed or is incomplete. Follow the reported connection or request recovery; it does not establish that the expected email is absent.';
+  return JSON.stringify({ error: found.error, ...(reason ? { reason } : {}), ...(poll ? { poll } : {}), recovery });
+}
 
 export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   assertLive();
@@ -306,14 +315,7 @@ export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, 
   if (!('error' in found) && found.kind !== 'code') return ok(`The site's email ("${found.subject.slice(0, 60)}") carries a link, not a code. Call open_emailed_link instead.`);
   if ('error' in found) {
     ctx.log(`  ✉ ${found.error}`);
-    if ('reason' in found && found.reason === 'unreadable-message') return ok(found.error, 'failed');
-    /**
-     * A signed-out mailbox is not a slow email, and calling this again will
-     * not fix it. Saying so ends the attempt in one step instead of spending
-     * another ninety seconds finding out the same thing.
-     */
-    if (cannotReadMailbox(found.error)) return ok(`${found.error} This is a mailbox access failure, not a delayed email. Follow the mailbox recovery message before requesting another code.`, 'failed');
-    return ok(`${found.error} Inspect supported resend or alternative sign-in controls. Repeated waits without progress require a different approach or specialist advice.`, 'failed');
+    return ok(verificationLookupFailureMessage(found), 'failed');
   }
 
   if (fields.length > 1 && fields.length !== found.value.length) {
@@ -353,9 +355,7 @@ export async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, u
   assertLive();
   if ('error' in found) {
     ctx.log(`  ✉ ${found.error}`);
-    if ('reason' in found && found.reason === 'unreadable-message') return ok(found.error, 'failed');
-    if (cannotReadMailbox(found.error)) return ok(`${found.error} This is a mailbox access failure, not a delayed email. Follow the mailbox recovery message before requesting another link.`, 'failed');
-    return ok(`${found.error} Inspect supported resend or alternative sign-in controls. Repeated waits without progress require a different approach or specialist advice.`, 'failed');
+    return ok(verificationLookupFailureMessage(found), 'failed');
   }
   if (found.kind !== 'link') return ok(`The site's email ("${found.subject.slice(0, 60)}") carries a code, not a link. Call enter_emailed_code with the code field(s) instead.`);
   if (isForbiddenDestination(found.value)) return ok('The emailed link points somewhere this agent never navigates. Try another authentication option.');

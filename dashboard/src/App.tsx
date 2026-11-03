@@ -188,7 +188,7 @@ export default function App() {
       fetch('/api/application-reviews').then((response) => response.ok ? response.json() : null).catch(() => null),
     ]);
     if (Array.isArray(prepared?.applications)) {
-      setPreparedCount(prepared.applications.filter((item: { status: string }) => item.status === 'ready').length);
+      setPreparedCount(prepared.applications.filter((item: { status: string; operator_hold?: unknown }) => item.status === 'ready' && !item.operator_hold).length);
     }
     setLastRunAt(typeof lastRun?.startedAt === 'string' ? lastRun.startedAt : null);
     const validToday = todayStats && typeof todayStats.runs === 'number' && typeof todayStats.submitted === 'number' && typeof todayStats.reviewed === 'number';
