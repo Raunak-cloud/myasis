@@ -782,19 +782,11 @@ inventing a default occupation. Explicit current career changes remain valid per
 List up to three dominant employer outputs in primaryOutputs, each with an employerPassageId
 from the supplied description/summary. Interpret the complete employer evidence and preserve
 qualifiers across passages; selecting an ID is not proof that the output supports your judgment.
-Map the output ITSELF to the currently requested work. Include the dominant nonmatching
-deliverables as well as matching ones; do not cherry-pick a relevant secondary duty.
-requested-work means performing the requested function, not simply serving, enabling,
-documenting, selling or administering work that other people perform. Use supporting-work
-for that separate support function. For example, maintaining a clinic's payroll is not
-clinical treatment; selling teaching supplies is not teaching. A support role can be a valid
-job, but needs its own current occupation permission. Distinguish administrative steps
-integral to actually performing requested work from a predominantly administrative job
-supporting it. Do not broaden a specific activity into its whole industry or department.
+Map the output ITSELF to the currently requested work.
 If supplied evidence establishes no actual employer duties, leave primaryOutputs empty and
 report the missing evidence with uncertain alignment instead of inventing a duty or quote.
 An aligned assessment requires at least one genuinely evidenced primary output.
-Distinguish requested-work from supporting-work, capability-only overlap, outside-intent work and uncertainty.
+Distinguish requested-work from capability-only overlap, outside-intent work and uncertainty.
 Workshops, requirements, analysis, delivery or a familiar tool can be transferable capabilities
 without the employer's primary deliverables being the work the candidate currently seeks.
 Conversely, generic process tasks do not make genuinely requested work unsuitable when its

@@ -25,8 +25,6 @@ const cases = [
     expected: 'skip', relationship: 'capability-only', mapping: 'System implementation and UAT are the primary outputs. Shared requirements and workshop capability does not authorize leaving the current data-product function.' },
   { id: 'process-adjacency', title: 'Business Analyst', duties: 'Redesign operational business processes, run change workshops and lead adoption of new workflows.',
     expected: 'skip', relationship: 'outside-intent', mapping: 'The central output is changed operational workflows, not the data products currently requested. A general older letter cannot broaden that current boundary.' },
-  { id: 'supporting-administration', title: 'Analytics Team Administrator', duties: 'Maintain the analytics team payroll, order software subscriptions and schedule its staff. Analysts produce the data products.',
-    expected: 'skip', relationship: 'supporting-work', mapping: 'Administration supports the requested analytics team but does not itself perform the requested data-product function.' },
   { id: 'combined-data-function', title: 'Business & Data Analyst', duties: 'Translate business reporting needs into governed data models, dashboards and data-quality measures.',
     expected: 'apply', relationship: 'requested-work', mapping: 'The primary outputs are data models, dashboards and quality measures serving the explicitly requested combined business-and-data function.' },
   { id: 'governance-function', title: 'Business Data Steward', duties: 'Define business glossary and data ownership, implement data-quality controls and coordinate stewardship.',
@@ -123,8 +121,6 @@ try {
   const retained = JSON.stringify(rawLegacy); assert.equal(normalizeFitAssessment(rawLegacy, sources), null); assert.equal(JSON.stringify(rawLegacy), retained, 'legacy evidence is rejected as a fresh fit without rewriting historical bytes');
   const inconsistent = { ...rawLegacy, roleFitCheck: valid };
   assert.equal(normalizeFitAssessment(inconsistent, sources), null, 'an aligned/apply decision cannot contradict bounded primary-output mappings');
-  const supporting = { ...valid, alignment: 'aligned', primaryOutputs: [{ ...valid.primaryOutputs[0], relationship: 'supporting-work', mapping: 'This separate occupation supports the requested team.' }] };
-  assert.equal(normalizeFitAssessment({ ...rawLegacy, roleFitCheck: supporting }, sources), null, 'a supporting function cannot be promoted into bounded occupation permission by an apply/aligned claim');
   const metrics = readFileSync(join(directory, 'pipeline-metrics.jsonl'), 'utf8');
   assert.doesNotMatch(metrics, /I am interested in Business Analysis|Gather functional specifications/);
   console.log('PASS: synthetic systems/process adjacency and real combined-data/governance/career-change/open-intent contracts; grounded current/JD provenance, legacy nonmutation, selected-provider single-pass/cache behavior and bounded malformed provenance correction. Scripted providers do not prove future model judgment.');

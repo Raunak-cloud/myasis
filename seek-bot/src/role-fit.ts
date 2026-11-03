@@ -9,7 +9,7 @@ export interface CurrentOccupationIntent {
 export interface PrimaryWorkOutput {
   output: string;
   employerQuote: string;
-  relationship: 'requested-work' | 'supporting-work' | 'capability-only' | 'outside-intent' | 'uncertain';
+  relationship: 'requested-work' | 'capability-only' | 'outside-intent' | 'uncertain';
   mapping: string;
 }
 /** Agent-authored matching evidence, retained for audit and application context.
@@ -34,8 +34,8 @@ export const ROLE_FIT_SCHEMA = { type: 'object', additionalProperties: false, pr
   primaryOutputs: { type: 'array', minItems: 0, maxItems: 3, description: 'Leave empty when supplied employer evidence does not establish any actual primary duties; do not invent a quote. An aligned assessment needs at least one evidenced output.', items: { type: 'object', additionalProperties: false, properties: {
     output: { type: 'string', minLength: 1, maxLength: 1000, description: 'A dominant employer deliverable or responsibility, not an incidental shared tool or transferable skill.' },
     employerQuote: { type: 'string', minLength: 1, maxLength: 2000, description: 'Exact passage from the supplied job description/summary establishing this primary output.' },
-    relationship: { type: 'string', enum: ['requested-work', 'supporting-work', 'capability-only', 'outside-intent', 'uncertain'], description: 'requested-work means performing the requested function itself. supporting-work means a different function providing its records, products, scheduling or systems; support alone does not authorize that occupation.' },
-    mapping: { type: 'string', minLength: 1, maxLength: 1500, description: 'Compare the output itself to the requested function. Explain functional equivalence, or identify support, shared capability or different work. A supporting dependency is not functional equivalence. Include nonmatching dominant duties instead of selecting only a matching task.' },
+    relationship: { type: 'string', enum: ['requested-work', 'capability-only', 'outside-intent', 'uncertain'] },
+    mapping: { type: 'string', minLength: 1, maxLength: 1500, description: 'Explain how the primary output itself serves currently requested work, or why it is only transferable capability/different work. Capability alone cannot broaden bounded current intent.' },
   }, required: ['output', 'employerQuote', 'relationship', 'mapping'] } },
   alignment: { type: 'string', enum: ['aligned', 'mismatch', 'uncertain'] },
   employerEvidence: { type: 'string' }, candidateEvidence: { type: 'string', description: 'Separate evidence of capability from CV, documents and saved candidate facts; this does not grant occupation permission.' }, explanation: { type: 'string' },
