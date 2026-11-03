@@ -151,6 +151,7 @@ try {
   const drafts: PreparedApplication[] = [];
   const submissions: string[] = [];
   const sentLetters: string[] = [];
+  const sentAvailability: Array<string | null> = [];
   let expectedApproved: PreparedApplication | undefined;
   let changedReview = false;
   await page.context().unroute('**/*');
@@ -161,13 +162,14 @@ try {
     if (route.request().method() === 'POST') {
       submissions.push(id);
       sentLetters.push((new URLSearchParams(route.request().postData() ?? '').get('letter') ?? '').replace(/\r\n?/g, '\n'));
+      sentAvailability.push(new URLSearchParams(route.request().postData() ?? '').get('availability'));
       return route.fulfill({ contentType: 'text/html', body: '<main><h1>Application received</h1></main>' });
     }
     const listing = url.pathname.startsWith('/jobs/');
     if (!listing && id === '5' && process.env.APPLICATION_REVIEW_MODE === 'approved') {
       const saved = drafts.find(draft => draft.job.id === id)!;
       const escaped = saved.coverLetter!.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-      return route.fulfill({ contentType: 'text/html', body: `<main><h1>Review Prepared Role 5</h1><p>Name: Fixture Applicant. Availability: Two weeks. Resume: Fixture CV.txt</p><form method="post"><input type="hidden" name="letter" value="${escaped}">${changedReview ? '<label>Availability<input value="Three weeks"></label>' : ''}<button id="send">Send application</button></form></main>` });
+      return route.fulfill({ contentType: 'text/html', body: `<main><h1>Review Prepared Role 5</h1><p>Name: Fixture Applicant. Availability: Two weeks. Resume: Fixture CV.txt</p><form method="post"><input type="hidden" name="letter" value="${escaped}">${changedReview ? '<label>Availability<input name="availability" value="Three weeks"></label>' : ''}<button id="send">Send application</button></form></main>` });
     }
     const label = ['Apply on company site', 'Apply now', 'Apply', 'Continue application', 'Apply on company site'][Number(id) - 1];
     return route.fulfill({ contentType: 'text/html', body: listing
@@ -288,11 +290,15 @@ try {
     { name: 'browser_action', args: { action: 'inspect', selector: 'input[type="hidden"][name="letter"]' } },
     { name: 'save_progress', args: { note: savedLetterProgressNote } },
     { name: 'prepare_application', args: { submit_selector: '#send', answers: [], resume_id: 'cv' } },
-    { name: 'finish', args: { status: 'skipped', reason: 'Fixture intentionally leaves the changed availability unrepaired.', evidence: 'The current Availability input contains Three weeks; the approved value is Two weeks.' } },
+    { name: 'browser_action', args: { action: 'fill', selector: 'input[name="availability"]', value: 'Two weeks' } },
+    { name: 'prepare_application', args: { submit_selector: '#send', answers: [], resume_id: 'cv' } },
+    { name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } },
+    { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted the repaired approved application.', evidence: 'The fixture shows Application received.', receipt: { quote: 'Application received' } } },
   ];
   const changedSaved = await runAgentOnlyApplication({ page, job: fixtures[4], profile, log: () => {} });
-  assert.equal(changedSaved.outcome.status, 'skipped', 'a fixture that refuses to repair a changed approved answer cannot submit or become Prepared again');
-  assert.equal(submissions.length, 5, 'a changed saved review cannot send under the previous approval');
+  assert.equal(changedSaved.outcome.status, 'applied', 'a changed approved answer is repaired in place and submits without another Prepared draft');
+  assert.equal(submissions.length, 6, 'the repaired fictional application sends once after its approved value is restored');
+  assert.equal(sentAvailability.at(-1), 'Two weeks', 'actual POST contains the approved answer, not the conflicting saved value');
   const reportDir = resolve(import.meta.dirname, '../../output');
   mkdirSync(reportDir, { recursive: true });
   writeFileSync(join(reportDir, 'semi-auto-e2e.json'), JSON.stringify({ prepared: drafts, submissions }, null, 2));
