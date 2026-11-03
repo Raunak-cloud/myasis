@@ -90,6 +90,30 @@ try {
   await page.getByRole('button',{name:'Save answers',exact:true}).click();
   await page.waitForFunction(()=>document.documentElement.dataset.saved==='3');
   assert.deepEqual(writes.at(-1)!.answers[0].response,{part0:'2026-11-03',part1:['choice0','choice1'],part2:['choice0','choice1']});
+  const birth=sealQuestionSnapshot({...snapshot,prompt:'date of birth optional',context:['register-form'],help:[],controls:[{...base,label:'date of birth optional',kind:'text',choices:[],constraints:{}}]});
+  await update([{question:birth.prompt,snapshot:birth}]);
+  const birthInput=page.getByLabel('date of birth optional',{exact:true});
+  assert.equal(await birthInput.getAttribute('type'),'date','employer plain-text birth dates offer a native calendar');
+  assert.equal(await birthInput.inputValue(),'','no personal date is guessed or preselected');
+  assert.equal(await page.getByRole('button',{name:'Save answers',exact:true}).isDisabled(),true);
+  await birthInput.fill('2000-02-29');
+  for(const width of [1440,390]) {
+    await page.setViewportSize({width,height:1000});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+    await page.screenshot({path:resolve(import.meta.dirname,`../../output/attention-review/birth-date-${width}.png`),fullPage:true});
+  }
+  await page.getByRole('button',{name:'Save answers',exact:true}).click();
+  await page.waitForFunction(()=>document.documentElement.dataset.saved==='4');
+  assert.deepEqual(writes.at(-1)!.answers[0],{questionId:birth.id,revision:birth.revision,response:{part0:'2000-02-29'}},'the selected leap date reaches the save API exactly, with the original text snapshot identity');
+  const textBirth=sealQuestionSnapshot({...birth,controls:[{...birth.controls[0],constraints:{pattern:'[0-9]{2}/[0-9]{2}/[0-9]{4}'}}]});
+  await update([{question:textBirth.prompt,snapshot:textBirth}]);
+  assert.equal(await page.getByLabel(textBirth.prompt,{exact:true}).getAttribute('type'),'text','explicit employer date formats retain their original input');
+  const place=sealQuestionSnapshot({...birth,prompt:'Place of birth',controls:[{...birth.controls[0],label:'Place of birth'}]});
+  await update([{question:place.prompt,snapshot:place}]);
+  assert.equal(await page.getByLabel(place.prompt,{exact:true}).getAttribute('type'),'text','birthplace is not a calendar date');
+  const parts=sealQuestionSnapshot({...birth,prompt:'Date of birth',controls:['Day','Month','Year'].map((label,index)=>({...birth.controls[0],id:`part${index}`,label}))});
+  await update([{question:parts.prompt,snapshot:parts}]);
+  assert.equal(await page.locator('input[type=date]').count(),0,'composite date components are not replaced with three full-date pickers');
   await update([{question:'Month',kind:'text'}]);
   await page.getByText('The original question and controls need to be captured again before you can answer.').waitFor();
   assert.equal(await page.getByRole('textbox').count(),0,'legacy fragments are not represented as complete questions');
