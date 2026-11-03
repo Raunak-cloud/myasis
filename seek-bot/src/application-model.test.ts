@@ -12,8 +12,8 @@ test('Magnus is the default; authorized MiniMax selection covers review and appl
   assert.equal(applicationAgentIdentity({APPLICATION_AI_MODEL:'minimax'}).model,'minimax/minimax-m3.1-flash');
   assert.equal(reviewModelIdentity().model,'celeris-1-magnus');
   assert.equal(reviewModelIdentity({APPLICATION_AI_MODEL:'minimax'}).model,'minimax/minimax-m3.1-flash');
-  assert.equal(applicationAgentIdentity({APPLICATION_AI_MODEL:'deepseek'}).model,'deepseek/deepseek-v4.1-flash-1017');
-  assert.equal(reviewModelIdentity({APPLICATION_AI_MODEL:'deepseek'}).model,'deepseek/deepseek-v4.1-flash-1017');
+  assert.equal(applicationAgentIdentity({APPLICATION_AI_MODEL:'deepseek'}).model,'deepseek/deepseek-v4.1-flash');
+  assert.equal(reviewModelIdentity({APPLICATION_AI_MODEL:'deepseek'}).model,'deepseek/deepseek-v4.1-flash');
   assert.equal(applicationModelAvailable({CELERIS_API_KEY:'fixture'}),true);
   assert.equal(applicationModelAvailable({OPENROUTER_API_KEY:'fixture'}),false);
   assert.equal(reviewModelAvailable({OPENROUTER_API_KEY:'fixture'}),false);

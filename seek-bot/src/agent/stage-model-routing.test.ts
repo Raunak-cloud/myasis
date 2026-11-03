@@ -30,7 +30,7 @@ test('stage routes preserve concurrent owner isolation, exact model IDs and no f
    if(owner==='three'||owner==='four') {
     for(const call of scoped) {
      assert.equal(call.url,'https://openrouter.ai/api/v1/chat/completions');
-     assert.equal(call.body.model,owner==='four'?'deepseek/deepseek-v4.1-flash-1017':'minimax/minimax-m3.1-flash');assert.equal(call.key,'Bearer '+owner+'-apply');
+     assert.equal(call.body.model,owner==='four'?'deepseek/deepseek-v4.1-flash':'minimax/minimax-m3.1-flash');assert.equal(call.key,'Bearer '+owner+'-apply');
      assert.equal(call.body.models,undefined);assert.equal(call.body.route,undefined);
     }
    } else {

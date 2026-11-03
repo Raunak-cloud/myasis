@@ -23,7 +23,7 @@ test('DeepSeek retains screenshots, canonical tool arguments, reasoning continua
   assert.equal(url,'https://openrouter.ai/api/v1/chat/completions');
   assert.equal(new Headers(init?.headers).get('authorization'),'Bearer fictional-private-key');
   const body=JSON.parse(String(init?.body));requests.push(body);
-  assert.equal(body.model,'deepseek/deepseek-v4.1-flash-1017');
+  assert.equal(body.model,'deepseek/deepseek-v4.1-flash');
   assert.equal(body.temperature,undefined);assert.deepEqual(body.reasoning,{effort:'high'});
   assert.deepEqual(body.tools[0].function.parameters.required,['arguments_json']);
   const response=reply(.007);response.choices[0].message.tool_calls[0].function.arguments=JSON.stringify({arguments_json:JSON.stringify({action:'click',sends_application:false})});
@@ -53,7 +53,7 @@ test('DeepSeek generation recovery uses supported low effort, bounded output gro
  try{
   globalThis.fetch=async(_url,init)=>{
    const body=JSON.parse(String(init?.body));requests.push(body);
-   assert.equal(body.model,'deepseek/deepseek-v4.1-flash-1017');
+   assert.equal(body.model,'deepseek/deepseek-v4.1-flash');
    if(requests.length===1){assert.equal(body.reasoning.effort,'high');elapsed+=31_000;return Response.json(reply(.001,'length'));}
    assert.equal(windows.at(-1),90_000);assert.equal(body.max_tokens,16_384);assert.equal(body.reasoning.effort,'low');
    assert.match(JSON.stringify(body.messages),/Exact candidate approval/);
