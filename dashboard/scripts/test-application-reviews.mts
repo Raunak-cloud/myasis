@@ -90,6 +90,7 @@ try {
   await saveApplicationReview('1', changed);
   assert.equal((await listApplicationReviews('1')).find(item => item.id === revised.id)?.status, 'failed', 'a later import cannot return a failed approved submission to Prepared');
   assert.equal((await listApplicationReviews('1')).find(item => item.id === changed.id), undefined);
+  assert.ok((await pendingReviewKeys('1')).includes('listing:seek:second'), 'normal discovery excludes failed approved submissions until an explicit submission retry');
   assert.throws(() => reviewSelection([select(first), select(first)]), /Reload/);
   assert.throws(() => reviewSelection([]), /Select/);
   const hundred = Array.from({ length: 100 }, (_, index) => select(draft(`batch-${index}`)));

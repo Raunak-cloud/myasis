@@ -48,7 +48,7 @@ export async function listApplicationReviews(userId: string) {
 
 export async function pendingReviewKeys(userId: string): Promise<string[]> {
   const rows = await query<{ payload: PreparedApplication }>(
-    `SELECT payload FROM application_reviews WHERE user_id=$1 AND status IN ('ready','approved')
+    `SELECT payload FROM application_reviews WHERE user_id=$1 AND status IN ('ready','approved','failed')
      UNION ALL SELECT jsonb_build_object('job',job) AS payload FROM application_review_operator_holds WHERE user_id=$1 AND released_at IS NULL`, [userId]);
   return [...new Set(rows.flatMap(row => applicationKeys(row.payload.job)))];
 }
