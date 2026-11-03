@@ -37,7 +37,7 @@ const cases = [
   { id: 'missing-description', title: 'Data Analyst', duties: '', expected: 'uncertain', relationship: 'uncertain', mapping: 'No employer duties were supplied; there is no primary output to quote.' },
   { id: 'no-duties-in-description', title: 'Data Analyst', duties: 'Apply online.', expected: 'uncertain', relationship: 'uncertain', mapping: 'The supplied text has no actual duties. Preserve uncertainty instead of inventing a data deliverable.' },
 ] as const;
-let active: typeof cases[number], calls = 0, mode = 'valid';
+let active: typeof cases[number], calls = 0, mode = 'valid', selectedModel = 'celeris';
 function roleForCurrentCase(): RoleFitCheck & { currentIntent: CurrentOccupationIntent; primaryOutputs: PrimaryWorkOutput[] } {
   return { alignment: active.expected === 'apply' ? 'aligned' : active.expected === 'uncertain' ? 'uncertain' : 'mismatch', employerEvidence: 'The agent identifies the primary employer function from its deliverables.',
     candidateEvidence: capability, explanation: active.mapping,
@@ -48,8 +48,8 @@ function roleForCurrentCase(): RoleFitCheck & { currentIntent: CurrentOccupation
 globalThis.fetch = async (url, init) => {
   calls++;
   const body = JSON.parse(String(init?.body));
-  assert.equal(body.model, 'celeris-1-magnus');
-  assert.equal(String(url).includes('openrouter.ai'), false, 'fit always uses Magnus independently of the applying selection');
+  assert.equal(body.model, selectedModel === 'minimax' ? 'minimax/minimax-m3.1-flash' : 'celeris-1-magnus');
+  assert.equal(String(url).includes('openrouter.ai'), selectedModel === 'minimax', 'fit uses the authorized whole-run provider without a second provider');
   const prompt = body.messages.find((message: { role: string }) => message.role === 'user').content;
   assert.match(body.messages[0].content, /sole matching decision maker/);
   assert.match(prompt, /Current bounded intent governs over an older or broader/);
@@ -74,6 +74,7 @@ globalThis.fetch = async (url, init) => {
 };
 try {
   for (const model of ['celeris', 'minimax']) await withApplicationModel({ DATA_DIR: directory, APPLICATION_AI_MODEL: model, OPENROUTER_API_KEY: 'fixture-only', CELERIS_API_KEY: 'fixture-only' }, async () => {
+    selectedModel = model;
     for (const fixture of cases) {
       active = fixture; mode = 'valid';
       config.aiInstructions = 'instruction' in fixture ? fixture.instruction : bounded;
