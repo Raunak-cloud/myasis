@@ -89,7 +89,8 @@ try {
       writeFileSync(resolve(caseDirectory, 'resumes.json'), JSON.stringify([{ id: 'eval-cv', label: 'Fictional CV', fileName: 'Fictional CV.txt', isDefault: true }]));
       writeFileSync(resolve(caseDirectory, 'answers.json'), JSON.stringify(input.savedAnswers));
       writeFileSync(resolve(caseDirectory, 'knowledge.json'), JSON.stringify(input.notes ? [{ id: 'historical-note', label: 'Older candidate document', kind: 'note', text: input.notes, enabled: true }] : []));
-      config.dataDir = caseDirectory; config.aiInstructions = input.instruction; config.keywords = input.keywords;
+      process.env.DATA_DIR = caseDirectory; assert.equal(config.dataDir, caseDirectory);
+      config.aiInstructions = input.instruction; config.keywords = input.keywords;
       config.targetRole = input.targetRole; config.resume.select = 'eval-cv'; Object.assign(config.rules, input.rules);
       const order = (index + repetition) % 2 ? models : [...models].reverse();
       for (const model of order) {

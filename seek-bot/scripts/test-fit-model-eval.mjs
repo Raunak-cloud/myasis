@@ -38,6 +38,9 @@ try {
   }
   assert.deepEqual(wire.map(item => item.model), ['celeris-1', 'celeris-1-magnus']);
   assert.equal(wire[0].hash, wire[1].hash, 'Both models see identical candidate, listing, instructions and schema.');
+  const nextDirectory = resolve(directory, 'next-case'); mkdirSync(nextDirectory);
+  process.env.DATA_DIR = nextDirectory;
+  assert.equal(config.dataDir, nextDirectory, 'Each fictional case uses the existing dynamic DATA_DIR getter without changing production config.');
   console.log(JSON.stringify({ passed: true, distinctModelRequests: 2, identicalPrompts: true, modelCacheIsolation: true, networkRequests: 0, liveApplications: 0 }));
 } finally {
   globalThis.fetch = originalFetch;
