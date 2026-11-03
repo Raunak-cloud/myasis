@@ -23,6 +23,11 @@ writeFileSync(join(directory, 'resumes.json'), JSON.stringify([{ id: 'cv', label
 const { runAgentOnlyApplication } = await import('./agent-only.js');
 const { config } = await import('../config.js');
 const { submitApprovedEmail } = await import('../gmail-mailbox.js');
+const { prepareEmailApplication } = await import('./prepare-email.js');
+process.env.APPLICATION_REVIEW_MODE = 'approved';
+const repeatedPreparation = await prepareEmailApplication({} as never, {});
+assert.ok(repeatedPreparation.kind === 'ok' && repeatedPreparation.disposition === 'failed', 'an approved application cannot become a new prepared email draft');
+process.env.APPLICATION_REVIEW_MODE = 'prepare';
 const { withApplicationAllowance } = await import('../application-allowance.js');
 config.allowExternalApply = true; config.dryRun = false;
 const drafts: PreparedApplication[] = [], sends = new Map<string, string>();
