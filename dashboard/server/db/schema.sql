@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS application_reviews (
   status TEXT NOT NULL DEFAULT 'ready' CHECK (status IN ('ready','approved','applied','failed','dismissed')),
   detail TEXT,
   credit_consumed BOOLEAN NOT NULL DEFAULT false,
+  security_retry_after TIMESTAMPTZ,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY(user_id,job_key)
 );
@@ -88,6 +89,7 @@ CREATE TABLE IF NOT EXISTS application_reviews (
 -- upgrade. New drafts spend a credit in the same transaction as their save.
 ALTER TABLE application_reviews ADD COLUMN IF NOT EXISTS credit_consumed BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE application_reviews ALTER COLUMN credit_consumed SET DEFAULT false;
+ALTER TABLE application_reviews ADD COLUMN IF NOT EXISTS security_retry_after TIMESTAMPTZ;
 
 -- Migrate retired providers without overwriting a supported saved selection.
 -- Account authorization for MiniMax is enforced by application-model-policy.

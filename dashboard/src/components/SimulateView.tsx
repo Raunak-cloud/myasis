@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { startSimulation, type Simulation } from '../simulation';
+import { SecurityRetrySimulation } from './SecurityRetrySimulation';
 
 /**
  * Pick a customer state and see the dashboard as that customer does.
@@ -40,6 +41,7 @@ export function SimulateView() {
   const groups = [...new Set(simulations.map((simulation) => simulation.group))];
   return (
     <div className="admin-stack">
+      <SecurityRetrySimulation />
       <div className="banner">
         Preview the dashboard as a customer in each state. Nothing is saved and no account is touched: while a preview
         is on, nothing you press is sent, and a reload or “Exit preview” brings your own dashboard back. Your own

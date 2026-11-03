@@ -2,9 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { COVER_LETTER_INSTRUCTION_WORD_LIMIT, instructionWordCount } from '../../../seek-bot/src/cover-letter-policy.js';
 import { plainReason, preparedStatusLabel, userFacingError } from '../run-messages';
 import { decodeSettingText, encodeSettingText } from '../runSettings';
+import { securityRetryRemaining, type SecurityRetry } from '../securityRetry';
+import { SecurityRetryControl } from './SecurityRetryControl';
 interface Review {
   id: string; status: string; detail: string | null;
   operator_hold?: { reason: string } | null;
+  security_retry?: SecurityRetry | null;
   application: {
     revision: string; job: { title: string; company: string; location: string; url: string };
     resume?: string; coverLetter?: string; answers: Array<{ question: string; answer: string }>;
@@ -14,6 +17,17 @@ interface Review {
 
 export function PreparedApplications({ running, onStarted, onCountChange, canChangeCoverLetterMode }: { running: boolean; onStarted: () => void; onCountChange: (count: number) => void; canChangeCoverLetterMode: boolean | undefined }) {
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [clock, setClock] = useState(Date.now);
+  const [serverOffset, setServerOffset] = useState(0);
+  const now = clock + serverOffset;
+  const hasCooldown = reviews.some(item => securityRetryRemaining(item.security_retry, now) > 0);
+  useEffect(() => {
+    if (!hasCooldown) return;
+    const tick = () => setClock(Date.now());
+    const timer = window.setInterval(tick, 1000);
+    window.addEventListener('focus', tick);
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', tick); };
+  }, [hasCooldown]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -55,6 +69,8 @@ export function PreparedApplications({ running, onStarted, onCountChange, canCha
     if (!Array.isArray(data.applications)) throw new Error('Could not load prepared applications.');
     const applications: Review[] = data.applications;
     if (signal?.aborted) return;
+    const serverTime = Date.parse(data.serverNow ?? '');
+    if (Number.isFinite(serverTime)) { setServerOffset(serverTime - Date.now()); setClock(Date.now()); }
     setReviews(applications);
     setLoading(false); setLoadError('');
     onCountChange(applications.filter(item => item.status === 'ready' && !item.operator_hold).length);
@@ -109,7 +125,7 @@ export function PreparedApplications({ running, onStarted, onCountChange, canCha
   async function decide(action: 'submit' | 'dismiss', retry?: Review) {
     const applications = retry ? [{ id: retry.id, revision: retry.application.revision, retry: true }]
       : chosen.map(item => ({ id: item.id, revision: item.application.revision }));
-    if (busy || running || editing || !applications.length || retry && (action !== 'submit' || retry.status !== 'failed' || retry.operator_hold)) return;
+    if (busy || running || editing || !applications.length || retry && (action !== 'submit' || retry.status !== 'failed' || retry.operator_hold || securityRetryRemaining(retry.security_retry, now) > 0)) return;
     setBusy(true); setError(''); setNotice('');
     try {
       const response = await fetch(`/api/application-reviews/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -164,8 +180,8 @@ export function PreparedApplications({ running, onStarted, onCountChange, canCha
       </label>
       <span className={`prepared-status ${item.operator_hold ? 'held' : item.status}`}>{item.operator_hold ? 'Needs review' : preparedStatusLabel(item.status, running)}</span>
       {(item.operator_hold?.reason || item.detail) && <p className="job-meta prepared-detail">{plainReason(item.operator_hold?.reason || item.detail || '')}</p>}
-      {item.status === 'failed' && !item.operator_hold && <button type="button" className="btn prepared-retry" disabled={running || busy || Boolean(editing)}
-        onClick={() => void decide('submit', item)}>Retry application</button>}
+      {item.status === 'failed' && !item.operator_hold && <SecurityRetryControl retry={item.security_retry} now={now}
+        disabled={running || busy || Boolean(editing)} onRetry={() => void decide('submit', item)} />}
       <details><summary>Review application</summary>
         <div className="prepared-content">
         {item.application.email && <p className="job-meta">Email application<br/>To: {item.application.email.to}<br/>Subject: {item.application.email.subject}<br/>Attachments: resume{item.application.email.attachCoverLetter ? ' and cover letter' : ''}</p>}

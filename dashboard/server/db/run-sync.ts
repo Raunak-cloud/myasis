@@ -327,7 +327,7 @@ export async function syncRunResultsToDb(
         else {
           const matches = approvals.filter(item => item.job.id === e.jobId);
           const reviewId = e.reviewId ?? (matches.length === 1 ? matches[0].id : undefined);
-          if (reviewId) await recordReviewedOutcome(userId, reviewId, e.status, e.reason ?? e.error ?? e.redirectedTo);
+          if (reviewId) await recordReviewedOutcome(userId, reviewId, e.status, e.reason ?? e.error ?? e.redirectedTo, e.ts);
         }
         await insertRunEventRow(userId, {
           jobId: e.jobId ?? null,

@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { userDir } from './userdata.js';
 import type { PoolClient } from 'pg';
+import { isSiteSecurityFailure, securityRetryAt, securityRetryRemaining, type SecurityRetry } from '../src/securityRetry.js';
 
 export interface ReviewSelection { id: string; revision: string; retry?: boolean }
 export interface ApplicationReviewOperatorHold {
@@ -40,10 +41,13 @@ export function reviewSelection(value: unknown): ReviewSelection[] {
 }
 
 export async function listApplicationReviews(userId: string) {
-  return query<{ id: string; status: string; detail: string | null; application: PreparedApplication; operator_hold: ApplicationReviewOperatorHold | null }>(
-    `SELECT r.id::text,r.status,r.detail,r.payload AS application,${holdMetadata} AS operator_hold FROM application_reviews r
+  const rows = await query<{ id: string; status: string; detail: string | null; application: PreparedApplication; operator_hold: ApplicationReviewOperatorHold | null; security_retry_after: Date | null }>(
+    `SELECT r.id::text,r.status,r.detail,r.payload AS application,r.security_retry_after,${holdMetadata} AS operator_hold FROM application_reviews r
      LEFT JOIN application_review_operator_holds h ON h.user_id=r.user_id AND h.job_key=r.job_key AND h.released_at IS NULL
      WHERE r.user_id=$1 ORDER BY r.updated_at DESC LIMIT 100`, [userId]);
+  const owner = rows.some(row => row.security_retry_after) ? await query<{ email: string }>('SELECT email FROM users WHERE id=$1', [userId]) : [];
+  return rows.map(({ security_retry_after, ...row }) => ({ ...row, security_retry: row.status === 'failed' && security_retry_after && !isAdmin(owner[0]?.email)
+    ? { reason: 'site-security', retryAt: new Date(security_retry_after).toISOString() } as SecurityRetry : null }));
 }
 
 export async function pendingReviewKeys(userId: string): Promise<string[]> {
@@ -184,8 +188,8 @@ export async function saveApplicationReview(userId: string, draft: PreparedAppli
   } finally { connection.release(); }
 }
 
-interface ConfirmationRow { id: string; status: string; payload: PreparedApplication; credit_consumed: boolean; operator_hold?: ApplicationReviewOperatorHold | null }
-function confirmedVersions(rows: ConfirmationRow[], selections: ReviewSelection[]): PreparedApplication[] {
+interface ConfirmationRow { id: string; status: string; payload: PreparedApplication; credit_consumed: boolean; operator_hold?: ApplicationReviewOperatorHold | null; security_retry_after?: Date | null }
+function confirmedVersions(rows: ConfirmationRow[], selections: ReviewSelection[], admin = false): PreparedApplication[] {
   const selected = new Map(selections.map(item => [item.id, item]));
   if (rows.length !== selections.length || rows.some(row => {
     const selection = selected.get(row.id);
@@ -194,17 +198,20 @@ function confirmedVersions(rows: ConfirmationRow[], selections: ReviewSelection[
   })) {
     throw new ApplicationReviewError('An application changed or is no longer ready. Reload and review it again.');
   }
+  const blocked = rows.find(row => row.security_retry_after && securityRetryRemaining({ reason:'site-security',retryAt:new Date(row.security_retry_after).toISOString() }) > 0);
+  if (blocked && !admin) throw new ApplicationReviewError(`To help protect your application, retry is available after ${new Intl.DateTimeFormat('en-AU', { dateStyle:'medium',timeStyle:'short',timeZone:'Australia/Sydney' }).format(new Date(blocked.security_retry_after!))} (Sydney time).`);
   return selections.map(item => rows.find(row => row.id === item.id)!.payload);
 }
 
 /** Paid preparations can be confirmed even when no unused application credits remain. */
 export async function applicationsForConfirmation(userId: string, selections: ReviewSelection[]): Promise<PreparedApplication[]> {
   const rows = await query<ConfirmationRow>(
-    `SELECT r.id::text,r.status,r.payload,r.credit_consumed,${holdMetadata} AS operator_hold FROM application_reviews r
+    `SELECT r.id::text,r.status,r.payload,r.credit_consumed,r.security_retry_after,${holdMetadata} AS operator_hold FROM application_reviews r
      LEFT JOIN application_review_operator_holds h ON h.user_id=r.user_id AND h.job_key=r.job_key AND h.released_at IS NULL
      WHERE r.user_id=$1 AND r.id=ANY($2::uuid[])`,
     [userId, selections.map(item => item.id)]);
-  return confirmedVersions(rows, selections);
+  const owner = await query<{ email: string }>('SELECT email FROM users WHERE id=$1', [userId]);
+  return confirmedVersions(rows, selections, isAdmin(owner[0]?.email));
 }
 
 /** An edit replaces the reviewed version and its matching form answer without spending another credit. */
@@ -242,11 +249,12 @@ export async function claimApplicationReviews(userId: string, selections: Review
     await connection.query('BEGIN');
     await connection.query('SELECT pg_advisory_xact_lock($1::bigint)', [userId]);
     const result = await connection.query<ConfirmationRow>(
-      `SELECT r.id::text,r.status,r.payload,r.credit_consumed,${holdMetadata} AS operator_hold FROM application_reviews r
+      `SELECT r.id::text,r.status,r.payload,r.credit_consumed,r.security_retry_after,${holdMetadata} AS operator_hold FROM application_reviews r
        LEFT JOIN application_review_operator_holds h ON h.user_id=r.user_id AND h.job_key=r.job_key AND h.released_at IS NULL
        WHERE r.user_id=$1 AND r.id=ANY($2::uuid[]) FOR UPDATE OF r`,
       [userId, selections.map(item => item.id)]);
-    const applications = confirmedVersions(result.rows, selections);
+    const owner = await connection.query<{ email: string }>('SELECT email FROM users WHERE id=$1 FOR SHARE', [userId]);
+    const applications = confirmedVersions(result.rows, selections, isAdmin(owner.rows[0]?.email));
     await connection.query("UPDATE application_reviews SET status='approved',detail=NULL,updated_at=now() WHERE user_id=$1 AND id=ANY($2::uuid[])", [userId, selections.map(item => item.id)]);
     await connection.query('COMMIT');
     return applications;
@@ -266,11 +274,15 @@ export async function dismissApplicationReviews(userId: string, selections: Revi
     [userId, item.id, item.revision]);
 }
 
-export async function recordReviewedOutcome(userId: string, reviewId: string, status: string, detail?: string): Promise<void> {
-  await query(`UPDATE application_reviews SET status=$3,detail=$4,updated_at=now()
+export async function recordReviewedOutcome(userId: string, reviewId: string, status: string, detail?: string, occurredAt?: string): Promise<void> {
+  const failed = status !== 'applied' && status !== 'already-applied';
+  const eventTime = occurredAt && Number.isFinite(Date.parse(occurredAt)) ? new Date(Math.min(Date.now(), Date.parse(occurredAt))) : new Date();
+  const retryAt = failed && isSiteSecurityFailure(detail ?? '') ? securityRetryAt(eventTime) : null;
+  await query(`UPDATE application_reviews SET status=$3,detail=$4,updated_at=now(),
+      security_retry_after=CASE WHEN $3='applied' THEN NULL ELSE GREATEST(security_retry_after,$5::timestamptz) END
     WHERE user_id=$1 AND id=$2 AND status='approved'`,
   [userId, reviewId, status === 'applied' || status === 'already-applied' ? 'applied' : 'failed',
-    detail ?? (status === 'already-applied' ? 'This application was already submitted.' : status === 'applied' ? 'Application submitted.' : 'The application could not be completed.')]);
+    detail ?? (status === 'already-applied' ? 'This application was already submitted.' : status === 'applied' ? 'Application submitted.' : 'The application could not be completed.'),retryAt]);
 }
 
 export async function finishApplicationReviews(userId: string): Promise<void> {

@@ -27,6 +27,8 @@ node --test server/form-lab/engine.test.mjs
 ../seek-bot/node_modules/.bin/tsx server/visits-access.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/job-sources.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/application-model-policy.test.ts server/application-environment.test.ts server/application-agent-policy.test.ts
+../seek-bot/node_modules/.bin/tsx --test server/security-retry.test.ts
+../seek-bot/node_modules/.bin/tsx server/security-retry-db.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/gmail-api-reader.test.ts
 ../seek-bot/node_modules/.bin/tsx server/site-accounts.test.ts
 ../seek-bot/node_modules/.bin/tsx server/answers.test.ts

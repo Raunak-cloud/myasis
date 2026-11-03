@@ -36,11 +36,13 @@ const letterEdits = new Map<string, any>();
 let letterInstructions = '';
 let letterMode = 'tailored', reusableLetter = '';
 let failedLetterFixture = false;
+let securityRetryFixture = false, securityRetryUntil = '', serverTimeAdvance = 0;
 const e2eDrafts = process.env.SEMI_AUTO_E2E_REPORT ? JSON.parse(readFileSync(process.env.SEMI_AUTO_E2E_REPORT, 'utf8')).prepared : null;
 const preparedRows = () => (e2eDrafts ? e2eDrafts.map((application: any) => ({ id: application.id, application, status: approvedIds.has(application.id) ? 'approved' : 'ready', detail: null })) : [1, 2].map(index => ({ id: `00000000-0000-4000-8000-00000000000${index}`, status: approvedFixture && index === 1 ? 'approved' : 'ready', detail: null,
   application: { revision: String(index).repeat(64), job: { title: `Prepared Role ${index}`, company: 'Fixture Employer', location: 'Sydney', url: `https://fixture.invalid/job/${index}` },
     resume: 'Fixture CV.pdf', coverLetter: 'Dear employer,\n\nFixture application letter.', answers: [{ question: 'Availability', answer: 'Two weeks' }] } }))).map((row: any, index: number) => ({ ...row,
       ...(failedLetterFixture && index === 0 && !approvedIds.has(row.id) ? { status: 'failed', detail: 'Fixture submission was not confirmed.' } : {}),
+      ...(securityRetryFixture && index === 0 ? {status:'failed',detail:"The site's security check could not be completed.",security_retry:{reason:'site-security',retryAt:securityRetryUntil}} : {}),
       application: letterEdits.get(row.id) ?? row.application }));
 const writes: Array<{ path: string; body: any }> = [];
 const settings = () => ({
@@ -109,7 +111,8 @@ const server = createServer(async (req, res) => {
       '/api/settings': req.method === 'POST' ? { ok: true, settings: settings() } : settings(),
       '/api/run': { ok: true, mode: 'live' },
       '/api/auto-schedule': scheduleFixture ? { enabled: scheduleEnabled, applicationMode: scheduleMode, runsUsedToday: adminControlFixture ? 4 : 0, runsPerDay: 4, nextRunAt: scheduleEnabled ? new Date(Date.now() + (adminControlFixture ? 6 * 60 * 60_000 : 0)).toISOString() : null, dueNow: scheduleEnabled && !adminControlFixture, timeZone: 'Australia/Sydney', lastError: null } : null,
-      '/api/application-reviews': { applications: preparedFixture ? preparedRows() : [] },
+      '/api/application-reviews': { applications: preparedFixture ? preparedRows() : [], serverNow:new Date(Date.now()+serverTimeAdvance).toISOString() },
+      '/api/admin/simulations': { simulations:[] },
       '/api/application-reviews/cover-letter': { ok: true, application: editedLetter },
     };
     payloads['/api/auto-apply'] = { ok: true, entitlements: payloads['/api/entitlements'] };
@@ -725,7 +728,43 @@ try {
     assert.deepEqual(errors, []);
     await context.close();
   }
-  console.log('PASS: schedule start/pause persistence, selected mode, unlimited pricing on desktop/mobile, application controls, prepared retries, employer feeds, search-only tests, candidate answers and skipped retention notice; fixture APIs only');
+  admin=false; scheduleFixture=false; failedLetterFixture=false; preparedFixture=true; approvedFixture=false; approvedIds.clear();securityRetryFixture=true;
+  for(const width of [1280,390]) {
+    serverTimeAdvance=0;securityRetryUntil=new Date(Date.now()+8*60*60_000).toISOString();
+    const context=await browser.newContext({viewport:{width,height:900},timezoneId:'Australia/Sydney'}),page=await context.newPage();
+    await page.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
+    await page.goto(`${origin}/?tab=prepared`);
+    const card=page.locator('.prepared-application').first(),button=card.getByRole('button',{name:'Retry in 8h 00m',exact:true});
+    await button.waitFor();assert.equal(await button.isDisabled(),true);
+    await card.getByText('To help protect your application and reduce repeated security blocks, retries are paused for 8 hours.',{exact:true}).waitFor();
+    assert.equal(await card.locator('time').getAttribute('datetime'),securityRetryUntil);
+    const before=writes.length;
+    await page.reload();await button.waitFor();assert.equal(await button.isDisabled(),true);
+    assert.equal(await card.locator('time').getAttribute('datetime'),securityRetryUntil,'reload never resets the deadline');
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);
+    await page.screenshot({path:resolve(import.meta.dirname,`../../output/security-retry-customer-${width}.png`),fullPage:true});
+    serverTimeAdvance=8*60*60_000+1000;await page.reload();
+    const retry=card.getByRole('button',{name:'Retry application',exact:true});await retry.waitFor();assert.equal(await retry.isEnabled(),true,'server clock wins over the unchanged browser clock at expiry');
+    await retry.click();await page.waitForFunction(()=>!document.querySelector('.prepared-retry-control button:disabled'));
+    assert.equal(writes.slice(before).filter(write=>write.path==='/api/application-reviews/submit').length,1,'expiry never auto-retries; only an explicit click submits the choice');
+    await context.close();
+  }
+  admin=true;securityRetryFixture=false;serverTimeAdvance=0;
+  const previewContext=await browser.newContext({viewport:{width:1120,height:900},timezoneId:'Australia/Sydney'}),preview=await previewContext.newPage();
+  await preview.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
+  await preview.goto(`${origin}/?tab=admin&adminView=simulate`);
+  const simulation=preview.getByRole('region',{name:'Security retry simulation',exact:true});
+  await simulation.getByRole('button',{name:'Retry in 8h 00m',exact:true}).waitFor();
+  await simulation.screenshot({path:resolve(import.meta.dirname,'../../output/security-retry-admin-preview.png')});
+  const beforePreview=writes.length;
+  await simulation.getByRole('button',{name:'4 hours later',exact:true}).click();
+  assert.equal(await simulation.getByRole('button',{name:'Retry in 4h 00m',exact:true}).isDisabled(),true);
+  await simulation.getByRole('button',{name:'8 hours later',exact:true}).click();
+  await simulation.getByRole('button',{name:'Retry application',exact:true}).click();
+  await simulation.getByText('Preview only. No application was started or submitted.',{exact:true}).waitFor();
+  assert.equal(writes.length,beforePreview,'admin preview changes local state only; it cannot write settings, approval or a real run');
+  await previewContext.close();
+  console.log('PASS: security retry on desktop/mobile, fixed deadline after reload, server clock expiry, explicit retry only, and isolated admin simulation; schedule, pricing, employer feeds and prepared workflows remain verified. Fixture APIs only.');
 } finally {
   await browser.close();
   await new Promise<void>(done => liveSockets.close(() => done()));

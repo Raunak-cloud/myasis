@@ -1064,7 +1064,8 @@ function RunsView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
 }
 
 export function AdminPanel() {
-  const [view, setView] = useState<'overview' | 'users' | 'runs' | 'visitors' | 'blog' | 'proxies' | 'server' | 'config' | 'simulate'>('overview');
+  const [view, setView] = useState<'overview' | 'users' | 'runs' | 'visitors' | 'blog' | 'proxies' | 'server' | 'config' | 'simulate'>(() =>
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('adminView') === 'simulate' ? 'simulate' : 'overview');
   const [openRun, setOpenRun] = useState<AdminRun | null>(null);
   const labels = { overview: 'Overview', users: 'Users', runs: 'Runs', visitors: 'Visitors', blog: 'Blog', proxies: 'Proxies', server: 'Server', config: 'Config', simulate: 'Simulate' } as const;
   return (

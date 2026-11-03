@@ -1232,7 +1232,7 @@ function dataApi(): Plugin {
             // uncertain sends never become a fresh automatic retry.
             await recoverApplicationReviews(userId);
           }
-          return send({ applications: await listApplicationReviews(userId) });
+          return send({ applications: await listApplicationReviews(userId), serverNow: new Date().toISOString() });
         });
       }
 
