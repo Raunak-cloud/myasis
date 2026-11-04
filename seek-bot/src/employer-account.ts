@@ -1,10 +1,13 @@
 /** Public identity of an employer login, never a password or a job-board identity. */
 import { jobBoardForHost } from './job-board-url.js';
 export const employerName = (name: string) => name.trim().toLowerCase().replace(/\s+/g, ' ');
+// Workday includes the employer tenant in these hosts. The shared suffix alone
+// is not an authentication realm; labels shown on vacancies may change.
+const dedicatedWorkdayHost = (host: string) => /^[a-z0-9][a-z0-9-]*\.wd\d+\.myworkdayjobs\.com$/i.test(host);
 export function employerAccountSite(url: string, employer = ''): string {
   const parsed = new URL(url.includes('://') ? url : `https://${url}`);
   const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
-  if(jobBoardForHost(host))return host;
+  if(jobBoardForHost(host)||dedicatedWorkdayHost(host))return host;
   // SuccessFactors explicitly identifies its independent employer tenants by company.
   const company = /(?:^|\.)successfactors\.(?:com|eu)$/.test(host) ? parsed.searchParams.get('company') : null;
   if (company?.trim()) return `${host}/?company=${encodeURIComponent(company.trim())}`;
@@ -12,7 +15,8 @@ export function employerAccountSite(url: string, employer = ''): string {
   return name ? `${host}/?owtomate_employer=${encodeURIComponent(name)}` : host;
 }
 export function sharedEmployerHost(url: string): boolean {
-  const host = new URL(url.includes('://') ? url : `https://${url}`).hostname;
+  const host = new URL(url.includes('://') ? url : `https://${url}`).hostname.toLowerCase();
+  if(dedicatedWorkdayHost(host))return false;
   return /(?:^|\.)(?:successfactors\.(?:com|eu)|taleo\.net|smartrecruiters\.com|myworkdayjobs\.com)$/.test(host);
 }
 export interface AccountAccess {

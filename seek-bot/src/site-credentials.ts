@@ -117,9 +117,10 @@ function credentialRecord(url:string,email:string,employer=''): {id:string;recor
   if(direct && (!sharedEmployerHost(url)||employerAccountSite(url,employer)!==hostOf(url)))return {id,record:direct};
   // A company-less redirect can recover one exact employer record, never another tenant.
   const explicitTenant=new URL(url.includes('://')?url:`https://${url}`).searchParams.has('company');
+  const hostIsRealm=employerAccountSite(url,employer)===hostOf(url)&&!sharedEmployerHost(url);
   const matches=Object.entries(all).filter(([k,v])=>k.endsWith(`|${email.trim().toLowerCase()}`)
     &&hostOf(`https://${k.slice(0,k.lastIndexOf('|'))}`)===hostOf(url)
-    &&(!employer||v.employer===employerName(employer))&&!explicitTenant
+    &&(!employer||hostIsRealm||v.employer===employerName(employer))&&!explicitTenant
     &&(!sharedEmployerHost(url)||Boolean(employer&&v.employer===employerName(employer))));
   if(matches.length===1)return {id:matches[0][0],record:matches[0][1]};
   // Old dedicated-domain records retain their exact original password recipe.

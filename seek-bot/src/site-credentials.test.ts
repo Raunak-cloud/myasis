@@ -8,10 +8,51 @@ import { join } from 'node:path';
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-credential-fixture-'));
 const before = process.env.DATA_DIR;
 process.env.DATA_DIR = directory;
-const { storedCredential, stagePendingCredential, pendingCredential, markPendingVerification, discardPendingCredential, acceptPendingCredential } = await import('./site-credentials.js');
+const { storedCredential, stagePendingCredential, pendingCredential, markPendingVerification, discardPendingCredential, acceptPendingCredential, employerCredentialState, rejectCredential } = await import('./site-credentials.js');
+const { employerAccountSite, sharedEmployerHost } = await import('./employer-account.js');
+const { sitePassword } = await import('./site-auth.js');
 const email = 'candidate@fixture.invalid';
 const credential = { format: 'readable-v1' as const, rules: { max_length: 16 } };
 try {
+  // Production-format legacy recipes: no employer assignment or derivation scope.
+  // Dedicated Workday tenant hosts must survive vacancy company-name changes,
+  // without promoting pending proposals or reviving rejected/shared credentials.
+  const legacyFile=join(directory,'site-credentials.json');
+  const first='https://first.wd3.myworkdayjobs.com/en-US/Careers/login',second='https://second.wd1.myworkdayjobs.com/Careers/login';
+  writeFileSync(legacyFile,JSON.stringify({
+    [`first.wd3.myworkdayjobs.com|${email}`]:{...credential},
+    [`second.wd1.myworkdayjobs.com|${email}`]:{...credential,status:'accepted'},
+    [`rejected.wd5.myworkdayjobs.com|${email}`]:{...credential,status:'rejected'},
+    [`wd3.myworkdayjobs.com|${email}`]:{...credential},
+    [`career10.successfactors.com|${email}`]:{...credential,status:'rejected'},
+    [`scoped.wd3.myworkdayjobs.com/?owtomate_employer=old%20label|${email}`]:{...credential,status:'accepted',employer:'old label',derivationScope:'scoped.wd3.myworkdayjobs.com/?owtomate_employer=old%20label'},
+  }));
+  stagePendingCredential(first,email,'First Employer','create_account',{format:'readable-v1',rules:{max_length:24}});
+  assert.deepEqual(storedCredential(first,email,'First Employer'),credential);
+  assert.deepEqual(storedCredential(second,email,'Different vacancy label'),credential);
+  assert.equal(employerAccountSite(first,'First Employer'),employerAccountSite(first,'New company label'));
+  assert.equal(sharedEmployerHost(first),false);
+  assert.equal(employerCredentialState(first,email,'First Employer').state,'accepted','accepted legacy credential wins over a newer unaccepted proposal');
+  const recovered=storedCredential(first,email,'First Employer')!;
+  assert.equal(sitePassword(first,email,'fixture-secret',recovered),sitePassword(first,email,'fixture-secret',credential),'legacy password derivation is unchanged');
+  assert.equal(recovered.derivationScope,undefined);
+  assert.notEqual(sitePassword(first,email,'fixture-secret',recovered),sitePassword(second,email,'fixture-secret',storedCredential(second,email,'Second Employer')!),'tenants never share password derivation');
+  assert.equal(storedCredential(first,'another@fixture.invalid','First Employer'),null);
+  assert.equal(storedCredential('https://third.wd3.myworkdayjobs.com',email,'First Employer'),null);
+  assert.equal(storedCredential('https://rejected.wd5.myworkdayjobs.com',email,'Employer'),null);
+  assert.equal(employerCredentialState('https://rejected.wd5.myworkdayjobs.com',email,'Employer').state,'rejected');
+  assert.equal(storedCredential('https://wd3.myworkdayjobs.com',email,'Employer'),null,'generic Workday hosts remain quarantined');
+  assert.equal(sharedEmployerHost('https://wd3.myworkdayjobs.com'),true);
+  assert.equal(storedCredential('https://career10.successfactors.com/career?company=Employer',email,'Employer'),null);
+  assert.equal(storedCredential('https://first.wd3.myworkdayjobs.com.attacker.invalid',email,'First Employer'),null);
+  const scoped='https://scoped.wd3.myworkdayjobs.com/Careers/login';
+  const originalScope='scoped.wd3.myworkdayjobs.com/?owtomate_employer=old%20label';
+  assert.equal(storedCredential(scoped,email,'New label')?.derivationScope,originalScope,'unique previously scoped Workday recipes retain their original derivation despite label changes');
+  rejectCredential(scoped,email,'New label');
+  assert.equal(storedCredential(scoped,email,'Another label'),null);
+  rejectCredential(first,email,'First Employer');
+  assert.equal(storedCredential(first,email,'Renamed Employer'),null,'rejection survives company label changes');
+  assert.ok(storedCredential(second,email,'Second Employer'),'rejecting one tenant leaves another untouched');
   stagePendingCredential('https://employer.fixture.invalid', email, 'Fixture Employer', 'reset_password', credential);
   assert.equal(storedCredential('https://employer.fixture.invalid', email), null, 'field preparation does not persist credentials');
   assert.equal(acceptPendingCredential('https://employer.fixture.invalid', 'other@fixture.invalid', 'Fixture Employer', 'reset_password'), false);
