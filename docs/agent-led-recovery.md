@@ -1,0 +1,13 @@
+# Agent-led application recovery
+
+The applying agent chooses whether to continue, change approach, request an actual missing candidate answer, prepare, or stop. A specialist supplies read-only advice. Recovery reporting is optional and cannot choose an application outcome.
+
+`SpecialistRecovery` now records native failures even before consultation. It allows up to three executed recovery approaches for a blocker. The original failed operation, malformed arguments, reporting corrections, snapshots and loading waits do not consume recovery approaches. Several successful steps can belong to one approach. A failed approach or an agent-authored change of approach closes it. Repeating the same interaction in the same semantic browser state is refused. A consultation or writer restart does not reset the counter.
+
+Current `observation_id` and `result_id` refer to code-owned evidence; legacy exact quotations remain accepted for compatibility. An invalid/stale report returns feedback, preserves the current operation and counter, and never forces `finish` or narrows its status to `skipped`. Delayed goal evidence can be inspected without replaying an action. A canonical ready review releases the resolved recovery obligation; preparation and submission still require their independent validation.
+
+After exhausted recovery, the applying agent may inspect delayed results, prepare a genuinely complete form, capture a real missing personal fact, or use `finish(status=error)`. Technical errors retain the owner/job/run-scoped recovery record and generated work as a paused checkpoint. They are recorded through the existing error outcome, rather than as an unsuitable job. `retryable=false` after any possible send; the existing duplicate/uncertain-send guard forbids automatic replay. Resume requires the matching scope, a fresh browser inspection and the single writer lease. No checkpoint grants candidate approval or makes a stale selector valid.
+
+Regression coverage reproduces the Sony Music sequence with an isolated native browser and scripted provider: visually changed verification, two malformed reports, delayed final review, canonical accuracy review, concrete prepared draft in the actual run journal, zero sends. Additional checks cover three executed approaches, refusal before a fourth write, checkpoint restoration, stale evidence IDs and no manufactured candidate questions. No real employer request is made by these tests.
+
+The design uses bounded recovery/error handling and persisted work, consistent with [durable workflow fault tolerance](https://docs.langchain.com/oss/javascript/langgraph/fault-tolerance) and [condition-based browser checks](https://playwright.dev/docs/test-assertions); no new workflow framework was added.

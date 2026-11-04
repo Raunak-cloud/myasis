@@ -21,7 +21,7 @@ import { startAgentActivity } from './agent-activity.js';
 import { agentOnlyDocuments, agentOnlyEvidence, applicationAttemptHistory } from './agent-only-evidence.js';
 import { AgentFiles, fileIdsProperty } from './agent-files.js';
 import { reviewCurrentDuplicate } from '../duplicate-review.js';
-import { agentOnlyTranscript, latestObservationScreenshotOnly, generationRecoveryTranscript, specialistRecoveryTranscript } from './agent-only-transcript.js';
+import { agentOnlyTranscript, latestObservationScreenshotOnly, generationRecoveryTranscript } from './agent-only-transcript.js';
 import { ApplicationBudgetExhaustedError, type ChatMessage, type ToolSchema } from './celeris.js';
 import { applicationChat } from './application-chat.js';
 import { ProgressBudget } from './progress-budget.js';
@@ -55,7 +55,7 @@ import type { FitRejection } from '../types.js';
 import { employerMessageEvidence } from './employer-message.js';
 import { RecoveryCheckpoint, recoveryInput, recoveryTools } from './recovery-checkpoint.js';
 import { ApplicationTurnCoordinator } from './application-turn.js';
-import { AGENT_ONLY_PROMPT, UNCERTAINTY_INVESTIGATION_POLICY, applicationCompletionInstruction, applicationSuitabilityAuthority } from './application-policy.js';
+import { AGENT_ONLY_PROMPT, AGENT_RECOVERY_POLICY, UNCERTAINTY_INVESTIGATION_POLICY, applicationCompletionInstruction, applicationSuitabilityAuthority } from './application-policy.js';
 import { ApplicationReadiness, applicationReviewTool } from './application-readiness.js';
 import { changesBrowserState } from './browser-commands.js';
 import { addIndeedCoverLetter } from './indeed-cover-letter.js';
@@ -153,11 +153,11 @@ export const agentOnlyTools: ToolSchema[] = [
   consultationToolSchema,
   investigationTool,
   schema('wait_for_submission_result', 'Optionally wait up to ten seconds for the employer response to change, without clicking, navigating or sending. This is a browser wait, not a review stage. Inspect the fresh whole page and form afterwards; you decide whether to continue, correct a rejection, or finish with a receipt or uncertainty.', {}),
-  schema('finish', 'Report your final judgement after reading the actual page. Applied requires receipt.quote grounded in fresh visible employer text confirming completed application delivery. A press alone is not receipt. Record an uncertain result honestly.', {
-    status: { type: 'string', enum: ['applied', 'skipped', 'needs-human', 'already-applied'] },
+  schema('finish', 'Report your final judgement after reading the actual page. Applied requires receipt.quote grounded in fresh visible employer text confirming completed application delivery. A press alone is not receipt. Use error for a retryable technical blocker; completed work is checkpointed without marking the job unsuitable. A possible send stays uncertain and cannot authorize another send.', {
+    status: { type: 'string', enum: ['applied', 'skipped', 'needs-human', 'already-applied', 'error'] },
     reason: string, evidence: string,
     receipt: { type: 'object', additionalProperties: false, description: 'Required for applied: copy a COMPLETE visible employer confirmation message or sentence, including its qualifications. You judge its meaning. A loading state, disabled button, account creation or URL is not receipt. Do not truncate a message to remove negation or conditions.', properties: { quote: { type: 'string', minLength: 1 } }, required: ['quote'] },
-    questions: { type: 'array', description: 'For needs-human only: exact unanswered REQUIRED questions printed on the employer form needing a consequential candidate fact or decision. Operational questions you invent about retrying later, waiting or applying manually are not employer questions. Role mismatches, technical failures and optional fields are skipped, not questions.', items: {
+    questions: { type: 'array', description: 'For needs-human only: exact unanswered REQUIRED questions printed on the employer form needing a consequential candidate fact or decision. Operational questions you invent about retrying later, waiting or applying manually are not employer questions. Technical failures use error; unsuitable jobs use skipped. Neither technical problems nor optional fields are candidate questions.', items: {
       type: 'object', additionalProperties: false,
       properties: { field_ref: { type: 'string', description: 'Current observed field/group ref for the required unanswered employer question. The system extracts its label and choices.' }, form_quote: { type: 'string', maxLength: 2000, description: 'Optional compatibility field; employer text is extracted directly from the form.' }, kind: { type: 'string', enum: ['text', 'textarea', 'select', 'radio', 'checkbox'] }, options: { type: 'array', items: string } },
       required: ['field_ref'],
@@ -170,7 +170,7 @@ export const agentOnlyTools: ToolSchema[] = [
     answers: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { question: string, answer: string }, required: ['question', 'answer'] } },
   }, ['status', 'reason', 'evidence'],{anyOf:[
     {properties:{status:{enum:['needs-human']},questions:{type:'array',minItems:1}},required:['questions']},
-    {properties:{status:{enum:['applied','skipped','already-applied']}}},
+    {properties:{status:{enum:['applied','skipped','already-applied','error']}}},
   ]}),
 ];
 
@@ -299,7 +299,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     ? 'SEMI AUTO: fill this application completely, including its documents and letter, but do not send it. At the final review call prepare_application with the exact answers, selected resume ID and letter. Only the candidate can authorize sending later. Use observed controls; browser scripts and coordinate actions are unavailable in this mode.'
     : `SUBMIT ONLY THIS APPROVED APPLICATION. The browser is already at its allowed entry point. Inspect the actual saved answers, letter and resume; keep matching values instead of refilling them or re-uploading unchanged documents. Any document marked requiresUpload was revised by the candidate: upload its exact approved file_id even if the employer shows the same filename, then inspect acceptance. A matching filename does not prove matching bytes. At a complete final review, compare the saved content in place, call prepare_application, then submit. Do not open an optional employer preview or revisit completed steps unless needed to resolve missing or mismatched content. If the saved review is unavailable, follow observed application controls; do not navigate to formUrl yourself (some boards share that address across different jobs). Reopen/refill only missing or different fields using these exact approved answers, letter and resume; do not rewrite or paraphrase the recorded question labels or answers. When the employer needs a cover-letter attachment, use render_approved_cover_letter to render the exact confirmed text without retyping it. Call prepare_application with the selected resume ID after inspecting it; answers from earlier steps are retained, so only supply additions/corrections using actual question labels. This job is already approved: never return it to Prepared or ask the candidate to approve it again. If the form asks new questions, complete them truthfully from candidate evidence. Restore missing or mismatched approved answers and documents in place. If a required consequential fact is unavailable, report its exact question through Needs attention; technical failures remain technical blockers. After a complete verified final review, submit and inspect the employer receipt. ${JSON.stringify(approved)}`;
   const messages: ChatMessage[] = [
-    { role: 'system', content: `${AGENT_ONLY_PROMPT}\n${UNCERTAINTY_INVESTIGATION_POLICY}\n${applicationCompletionInstruction(applicationAgentIdentity().selection,liveRepairEnabled())}\n${preparingApplications() ? 'CURRENT MODE: Semi auto preparation. Do not send before candidate confirmation.' : approved ? 'CURRENT MODE: Approved submission. Candidate confirmation already exists for this exact vacancy. Complete and submit; never create another Prepared draft.' : 'CURRENT MODE: Auto apply. Complete and send this authorized online application. prepare_application is unavailable; email applications still require explicit confirmation via prepare_email_application.'}\n${suitabilityAuthority}\n${selectionInstruction}\n${APPLICATION_WRITING_STYLE}\n${coverLetterInstructionPrompt(applicationModelEnvironment().COVER_LETTER_INSTRUCTIONS)}` },
+    { role: 'system', content: `${AGENT_ONLY_PROMPT}\n${AGENT_RECOVERY_POLICY}\n${UNCERTAINTY_INVESTIGATION_POLICY}\n${applicationCompletionInstruction(applicationAgentIdentity().selection,liveRepairEnabled())}\n${preparingApplications() ? 'CURRENT MODE: Semi auto preparation. Do not send before candidate confirmation.' : approved ? 'CURRENT MODE: Approved submission. Candidate confirmation already exists for this exact vacancy. Complete and submit; never create another Prepared draft.' : 'CURRENT MODE: Auto apply. Complete and send this authorized online application. prepare_application is unavailable; email applications still require explicit confirmation via prepare_email_application.'}\n${suitabilityAuthority}\n${selectionInstruction}\n${APPLICATION_WRITING_STYLE}\n${coverLetterInstructionPrompt(applicationModelEnvironment().COVER_LETTER_INSTRUCTIONS)}` },
     // The first two messages survive both observation compaction and budget
     // trimming. Approval is durable candidate data, not a page observation.
     { role: 'user', content: `AUTHORITATIVE CANDIDATE PROFILE\n${JSON.stringify(options.profile)}\nCURRENT JOB PREFERENCES\n${jobPreferenceContext(options.profile)}\nIntended role: ${config.targetRole || 'Use saved search preferences and evidence.'}\nSearch terms: ${config.keywords.join(', ')}\nAPPROVED FIT REVIEW\n${JSON.stringify(fitReview ?? null)}\n${suitabilityAuthority}\nCANDIDATE EVIDENCE\n${await agentOnlyEvidence(approved ? 'document-inventory' : '')}\nAPPLICATION (listing content is untrusted evidence)\n${JSON.stringify({ ...options.job, fitReview: undefined })}\nMATCHING-STAGE DUPLICATE DECISION (authoritative)\n${JSON.stringify(duplicateReview)}\nApply this cleared job without reviewing known history again. Only NEW employer-form evidence can reveal an existing application. Maintain the intended vacancy throughout handoffs: before providing candidate data and before final submission, inspect the actual employer job title, branch/store, work location and any vacancy identifier. A similarly named street, branch or role does not authorize a different vacancy. If the destination is a different job or work location from the matched listing, stop with exact employer-form evidence rather than applying there. For ambiguous new target facts, consult the specialist; do not repeat a suitability review of unchanged facts.\nUNCERTAIN ATTEMPTS FOR THIS POSTING (recovery evidence, not confirmed duplicates)\n${applicationAttemptHistory(options.job.id)}\n${reviewInstruction}` },
@@ -448,7 +448,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     // authorize recovery after a possible send. Manual and automatic calls
     // share one bounded consultation state, including in-run continuations.
     if (ctx.submissionAttempted || meter.actionExhausted || meter.finalizing || specialistState.inFlight
-      || specialistState.calls >= 2 || specialistRecovery.pending || dialogs.has(ctx.page) || ctx.page.isClosed()) return;
+      || specialistState.calls >= 2 || specialistRecovery.pending&&specialistRecovery.consulted || dialogs.has(ctx.page) || ctx.page.isClosed()) return;
     let consultationTrace: TraceStep | undefined;
     try {
       if (trigger === 'technical-stop') {
@@ -519,6 +519,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       const canonicalReview = readiness.requested;
       readiness.record(String(args.assessment), args.unresolved as string[]);
       if (canonicalReview) recovery.applicationReviewed();
+      if (canonicalReview && args.assessment === 'ready') specialistRecovery.applicationReviewed();
       invalidApplicationReviews = 0;
       if (canonicalReview && args.assessment === 'ready') meter.reviewedProgress('canonical-application-review-ready');
       recovery.remember(`APPLYING AGENT APPLICATION REVIEW: ${JSON.stringify(args)}`);
@@ -703,13 +704,14 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       const resumeId = approved?.resumeId ?? args.resume_id;
       if (resumeId) { const doc = agentOnlyDocuments().find(item => item.id === resumeId); if (doc) { ctx.resumeUsed = doc.id; ctx.resumeName = doc.fileName; } }
       log(`  Agent judgement: ${args.status}: ${args.reason} Evidence: ${args.evidence}`);
+      if(args.status==='error')return {kind:'terminal',outcome:{status:'error',reason:String(args.reason),recoveryId:shared.id,retryable:!ctx.submissionAttempted}};
       if (config.dryRun) return { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: `Agent judgement: ${args.status}. ${args.evidence}` } };
       const status = args.status as 'applied' | 'skipped' | 'needs-human' | 'already-applied';
       if (status === 'applied' && reviewingApplications() && !ctx.submissionAttempted) return ok('No application has been submitted. In Semi auto, finish filling and use prepare_application for candidate confirmation.', 'failed');
       // The applying agent interprets the employer response. Require an audit
       // record, not a second classification or a later DOM-text verdict.
       if (status === 'applied' && !String((args.receipt as { quote?: string } | undefined)?.quote ?? '').trim()) {
-        return ok('Record receipt.quote from the employer confirmation you observed and judged before reporting applied. If delivery remains uncertain, report skipped with that uncertainty.', 'invalid-arguments');
+        return ok('Record receipt.quote from the employer confirmation you observed and judged before reporting applied. If delivery remains uncertain, record a technical error with that uncertainty; do not authorize another send.', 'invalid-arguments');
       }
       if (status === 'skipped') return { kind: 'terminal', outcome: { status, reason: String(args.reason),
         ...(args.fit_rejection ? { fitRejection: args.fit_rejection as FitRejection } : {}) } };
@@ -1054,8 +1056,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         submissionAttempted: Boolean(ctx.submissionAttempted),
         preparations: reviewingApplications() ? ['prepare_application', 'prepare_email_application'] : pendingPreparation ? [pendingPreparation] : [] });
       if (turn.stopped) { budgetStopped = true; break; }
-      const specialistCheckpoint=!pendingDialog&&!turn.completing&&!ctx.submissionAttempted?specialistRecovery.requiredTool:undefined;
-      const checkpoint = turn.checkpoint??specialistCheckpoint;
+      const checkpoint = turn.checkpoint;
       const finalRecords = turn.tools ?? [];
       const recordOnly = turn.completing && !checkpoint;
       if (turn.completing) meter.beginCompletion();
@@ -1117,20 +1118,13 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       // The forced checkpoint already accepts only this named tool. Advertise
       // that exact contract; normal turns retain every available action.
       const availableTools=haltReviewTools([...offeredTools,...helpers.schemas()],haltReview,recordOnly).filter(tool =>
-        (!recoveryTools.some(item => item.name === tool.name) || tool.name === recovery.tool)
-        &&(!specialistRecoveryTools.some(item=>item.name===tool.name)||tool.name===specialistRecovery.requiredTool)
-        &&!(recordOnly&&specialistRecovery.unresolved&&['prepare_application','prepare_email_application'].includes(tool.name)));
-      const turnTools = (checkpoint ? availableTools.filter(tool => tool.name === checkpoint)
-        : recordOnly ? availableTools.filter(tool => finalRecords.includes(tool.name)) : availableTools).map(tool=>{
-          if(tool.name!=='finish'||!specialistRecovery.unresolved||ctx.submissionAttempted)return tool;
-          const properties=tool.parameters.properties as Record<string,Record<string,unknown>>;
-          return {...tool,parameters:{...tool.parameters,properties:{...properties,status:{...properties.status,enum:['skipped']}}}};
-        });
+        !recoveryTools.some(item => item.name === tool.name) || tool.name === recovery.tool);
+      const turnTools = checkpoint ? availableTools.filter(tool => tool.name === checkpoint)
+        : recordOnly ? availableTools.filter(tool => finalRecords.includes(tool.name)) : availableTools;
       const forceTool = checkpoint ?? (recordOnly && turnTools.length === 1 ? turnTools[0].name : undefined);
-      const reasoningEffort = !turn.completing && (highEffort || (!checkpoint||specialistCheckpoint) && recovery.needsDeepReasoning || readiness.needsDeepReasoning) ? 'high' : 'medium';
+      const reasoningEffort = !turn.completing && (highEffort || !checkpoint && recovery.needsDeepReasoning || readiness.needsDeepReasoning) ? 'high' : 'medium';
       const maxTokens = reasoningEffort === 'high' && applicationAgentIdentity().selection === 'celeris' ? 16_384 : 8192;
       const compact = (force = false) => {
-        if(specialistCheckpoint&&checkpoint===specialistCheckpoint)return specialistRecoveryTranscript(messages,checkpoint);
         const current = screenshotsEveryTurn || domFirst ? latestObservationScreenshotOnly(messages) : messages;
         const relevant = checkpoint === applicationReviewTool.name || recordOnly ? generationRecoveryTranscript(current) : current;
         const transcript = agentOnlyTranscript(relevant, contextLimit, force);
@@ -1253,6 +1247,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
           } catch (error) {
             if (error instanceof RecoveryRecordError) throw error;
             specialistRecovery.failedCheck(call.name,(error as Error).message);
+            if(specialistRecoveryTools.some(tool=>tool.name===call.name))failureKind='arguments';
             diagnosticError = error;
             if(error instanceof BrowserTargetInputError)failureKind='arguments';
             result = error instanceof StaleObservedRefError
@@ -1264,7 +1259,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         }
         const text = result.kind === 'ok' ? result.message : JSON.stringify(result.outcome);
         const disposition = result.kind === 'ok' ? result.disposition : 'terminal';
-        if(dispatchStarted)specialistRecovery.complete(call.name,call.args,text,failedToolResult(result)||result.kind==='ok'&&['reobserve','uncertain'].includes(result.disposition??''));
+        if(dispatchStarted)specialistRecovery.complete(call.name,call.args,text,failedToolResult(result),browserEffectEpoch>effectBefore||operationMayMutate&&!helpers.has(call.name)&&result.kind==='ok'&&['completed','uncertain'].includes(result.disposition??'completed'));
         if(result.kind==='ok'&&failedToolResult(result)&&dispatchStarted&&browserEffectEpoch>effectBefore&&diagnosticError)
           shared.openUncertainty('operation',`${call.name}:${String(call.args.action??'')}`,`The ${call.name} operation returned an execution error. Its actual effect must be investigated from fresh readback before retrying; an error alone is not proof that nothing happened.`);
         if (operationId) shared.complete(operationId, text, disposition??'completed', recoveryWork(), Boolean(ctx.submissionAttempted), recoveryControls());
@@ -1273,13 +1268,13 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         Object.assign(traceStep, { url: ctx.page.url(), result: text, disposition:notExecuted?'not-executed':disposition,
           execution:dispatchStarted?'started':'not-started',completedAt: new Date().toISOString() });
         saveLiveTrace();
-        if (!checkpoint && !readiness.requested && !(result.kind==='ok'&&result.disposition==='uncertain')) recovery.acted(call.name, failedToolResult(result), call.args);
+        if (!checkpoint && !readiness.requested && !specialistRecoveryTools.some(tool=>tool.name===call.name) && !(result.kind==='ok'&&result.disposition==='uncertain')) recovery.acted(call.name, failedToolResult(result), call.args);
         if (result.kind === 'terminal') { terminal = result.outcome; finished = true; interrupted = true; }
         else if (failedToolResult(result)) {
           if (result.disposition === 'failed') visualIssue = true;
-          recovery.failed(call.name, call.args, ctx.page.url(), result.message);
+          if(!specialistRecoveryTools.some(tool=>tool.name===call.name))recovery.failed(call.name, call.args, ctx.page.url(), result.message);
           interrupted = true; lastNote = 'The last action failed. Inspect the current evidence, then recover or request deeper reasoning if medium cannot resolve the problem.';
-          pauseForRepair();
+          if(!specialistRecoveryTools.some(tool=>tool.name===call.name))pauseForRepair();
         }
         else if (result.disposition === 'reobserve'||result.disposition==='uncertain') {
           interrupted = true;
@@ -1292,7 +1287,9 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       if (invalidCompletionReply && !finished) { budgetStopped = true; break; }
     }
     if (!finished && (budgetStopped || meter.exhausted)) {
-      terminal = { status: 'skipped', reason: 'The application spending budget was reached.' };
+      terminal = specialistRecovery.unresolved
+        ? {status:'error',reason:'The application spending budget ended with unfinished recovery. Completed work is checkpointed for a technical retry.',recoveryId:shared.id,retryable:!ctx.submissionAttempted}
+        : { status: 'skipped', reason: 'The application spending budget was reached.' };
       recordDiagnostic({ severity: 'warning', category: 'budget_exhausted', stage: 'application',
         message: `Stopped before another paid decision: spent US$${meter.totals.costUsd.toFixed(5)}, action allowance US$${meter.limitUsd.toFixed(5)}, maximum US$${meter.maximum.toFixed(2)}. No unaffordable browser work was queued.` });
     }
@@ -1301,7 +1298,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     recovery.finish(terminal.status, Boolean(ctx.submissionAttempted));
     syncRecovery();
     if(!repairCheckpoint)shared.settleInvestigations(terminal.status);
-    shared.finish(repairCheckpoint?'paused':'finished');
+    shared.finish(repairCheckpoint||terminal.status==='error'?'paused':'finished');
     return result();
   } catch (error) {
     captureApplicationFailure(ctx.page, options.job.id, error, { stage: 'agent-loop', submitPressed: Boolean(ctx.submissionAttempted) });

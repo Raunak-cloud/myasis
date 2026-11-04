@@ -25,6 +25,8 @@ export function outcomeFromRun(
     ...(run.applicationUrl ? { applicationUrl: run.applicationUrl } : {}),
   };
   switch (run.outcome.status) {
+    case 'error':
+      return {status:'error',jobId,error:run.outcome.reason,recoveryId:run.outcome.recoveryId,retryable:run.outcome.retryable,...extras};
     case 'prepared':
       return { status: 'prepared', jobId, draft: run.outcome.draft, ...extras };
     case 'applied':

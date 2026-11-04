@@ -61,7 +61,7 @@ export async function withApplicationAttempt<T extends { outcome: { status: stri
     recordDiagnostic({ severity: 'info', category: 'attempt_started', stage: 'application', message: 'Application attempt started.' });
     try {
       const result = await operation();
-      if (result.outcome.status === 'skipped' && /budget|allowance|infrastructure|browser.*closed|time.*limit|technical|error|fail(?:ed|ure)|disconnect/i.test(result.outcome.reason ?? '')) {
+      if (result.outcome.status === 'error' || result.outcome.status === 'skipped' && /budget|allowance|infrastructure|browser.*closed|time.*limit|technical|error|fail(?:ed|ure)|disconnect/i.test(result.outcome.reason ?? '')) {
         recordDiagnostic({ severity: 'warning', category: 'application_stopped', stage: 'application', message: result.outcome.reason! });
       }
       recordDiagnostic({ severity: 'info', category: 'attempt_finished', stage: 'application',

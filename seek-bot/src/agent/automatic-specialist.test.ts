@@ -163,7 +163,7 @@ try {
     const run = await scenario('manual-advice', [{ name: 'consult_application_specialist', args: { question: 'Assess the code blocker and current sign-in alternatives.', focus: 'form' } }, stop]);
     assert.equal(run.specialists, 1); assert.equal(run.parents, 2); assert.equal(run.sends, 0);
     assert.equal(run.result.outcome.status, 'rehearsed');
-    assert.ok(run.trace.steps.some((step:any)=>step.label==='Recovery checkpoint response rejected'&&step.result.includes('status')),'a malformed technical Needs attention request is rejected before question capture');
+    assert.ok(!run.trace.steps.some((step:any)=>step.label==='Recovery checkpoint response rejected'),'advice cannot force a completion schema or reporting loop');
   });
 } finally {
   globalThis.fetch = originalFetch; await browser.close(); closeCelerisQueues(); rmSync(directory, { recursive: true, force: true });

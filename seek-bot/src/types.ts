@@ -179,7 +179,7 @@ export type ApplyOutcome = (
       questions?: BlockedQuestion[];
       accountAccess?: import('./employer-account.js').AccountAccess;
     }
-  | { status: 'error'; jobId: string; error: string }
+  | { status: 'error'; jobId: string; error: string; recoveryId?: string; retryable?: boolean }
 ) & {
   /** What this attempt changed or used on the candidate's behalf, whatever its result. */
   actions?: ApplicationAction[];
