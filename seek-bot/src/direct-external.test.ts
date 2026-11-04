@@ -24,6 +24,28 @@ test('Google vacancy identity uses its main role heading instead of the generic 
  }finally{await browser.close();}
 });
 
+test('Workday additional locations are read without credentials and bound to the exact requisition',async()=>{
+ const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
+ try{
+  const context=await browser.newContext();
+  await context.addCookies([{name:'candidate-session',value:'fixture-only',domain:'pwc.wd3.myworkdayjobs.com',path:'/'}]);
+  const page=await context.newPage();let reads=0,wrongRequisition=false;
+  await page.route('**/*',route=>{
+   if(route.request().url().includes('/wday/cxs/')){
+    reads++;assert.equal(route.request().url(),'https://pwc.wd3.myworkdayjobs.com/wday/cxs/pwc/crm_experienced_careers_site/job/Melbourne/Senior-Penetration-Tester_770119WD');
+    assert.equal(route.request().headers().cookie,undefined,'Public vacancy enrichment must not send candidate cookies.');
+    return route.fulfill({contentType:'application/json',body:JSON.stringify({jobPostingInfo:{title:'Senior Penetration Tester',jobReqId:wrongRequisition?'OTHER123':'770119WD',location:'Melbourne',additionalLocations:['Sydney']}})});
+   }
+   return route.fulfill({contentType:'text/html',body:'<script type="application/ld+json">{"@type":"JobPosting","title":"Senior Penetration Tester","hiringOrganization":{"name":"PwC"},"jobLocation":{"address":{"addressLocality":"Melbourne"}},"description":"Perform application penetration tests."}</script><main><h1>Senior Penetration Tester</h1><p>Melbourne</p></main>'});
+  });
+  await page.goto('https://pwc.wd3.myworkdayjobs.com/en-US/crm_experienced_careers_site/job/Melbourne/Senior-Penetration-Tester_770119WD');
+  const job=await identifyDirectJob(page);
+  assert.equal(reads,1);assert.equal(job.location,'Melbourne; Sydney');
+  wrongRequisition=true;
+  assert.equal((await identifyDirectJob(page)).location,'Melbourne','A different requisition must not add locations.');
+ }finally{await browser.close();}
+});
+
 test('direct URL must pass current-preference review before any application action',async()=>{
  const dir=mkdtempSync(join(tmpdir(),'direct-preferences-')),previous={dry:config.dryRun,external:config.allowExternalApply};
  config.dryRun=true;config.allowExternalApply=true;

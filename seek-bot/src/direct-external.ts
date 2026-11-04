@@ -18,7 +18,7 @@ interface PageIdentity {
 }
 
 export async function identifyDirectJob(page: Page): Promise<PageIdentity> {
-  return page.evaluate(() => {
+  return page.evaluate(async () => {
     const values: unknown[] = [];
     for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
       try { values.push(JSON.parse(script.textContent ?? 'null')); } catch { /* malformed metadata is only a fallback */ }
@@ -35,7 +35,8 @@ export async function identifyDirectJob(page: Page): Promise<PageIdentity> {
       if (Array.isArray(record['@graph'])) queue.push(...record['@graph']);
     }
     const clean = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
-    const address = Array.isArray(posting?.jobLocation) ? posting?.jobLocation[0]?.address : posting?.jobLocation?.address;
+    const places = Array.isArray(posting?.jobLocation) ? posting.jobLocation : [posting?.jobLocation];
+    const locations = places.map(place => clean(place?.address?.addressLocality || place?.address?.addressRegion || '')).filter(Boolean);
     const heading = [...document.querySelectorAll('main h1, [role="main"] h1, h1')]
       .find(element => element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }))?.textContent;
     const siteName = document.querySelector('meta[property="og:site_name"]')?.getAttribute('content');
@@ -47,10 +48,32 @@ export async function identifyDirectJob(page: Page): Promise<PageIdentity> {
     const googleHeading = googleTitle ? [...document.querySelectorAll('main h2, [role="main"] h2')]
       .find(element => clean(element.textContent) === clean(googleTitle)
         && element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) : undefined;
+    const title = clean(posting?.title || googleHeading?.textContent || heading || document.title || 'Direct employer application');
+    // Workday's JSON-LD can omit additional advertised locations. Its public
+    // posting endpoint supplies them; bind the response to this exact vacancy.
+    const tenant = host.match(/^([a-z0-9-]+)\.wd\d+\.myworkdayjobs\.com$/i)?.[1];
+    const parts = location.pathname.split('/').filter(Boolean);
+    const offset = /^[a-z]{2}-[a-z]{2}$/i.test(parts[0] ?? '') ? 1 : 0;
+    const board = parts[offset];
+    const jobPath = parts.slice(offset + 1);
+    const requisition = jobPath.at(-1)?.match(/_([a-z0-9-]+)$/i)?.[1];
+    if (tenant && board && /^[a-z0-9_-]+$/i.test(board) && jobPath[0] === 'job' && requisition) {
+      try {
+        const endpoint = new URL(`/wday/cxs/${tenant}/${board}/${jobPath.join('/')}`, location.origin);
+        const response = await fetch(endpoint.href, { credentials: 'omit', signal: AbortSignal.timeout(5_000) });
+        if (response.ok) {
+          const info = (await response.json())?.jobPostingInfo;
+          if (info?.jobReqId === requisition && clean(info.title) === title) {
+            const extra: unknown[] = [info.location, ...(Array.isArray(info.additionalLocations) ? info.additionalLocations : [])];
+            locations.push(...extra.filter((value): value is string => typeof value === 'string').map(clean).filter(Boolean));
+          }
+        }
+      } catch { /* Keep the observed page facts when the public endpoint is unavailable. */ }
+    }
     return {
-      title: clean(posting?.title || googleHeading?.textContent || heading || document.title || 'Direct employer application'),
+      title,
       company: clean(posting?.hiringOrganization?.name || (googleHeading ? 'Google' : siteName || host)),
-      location: clean(address?.addressLocality || address?.addressRegion || ''),
+      location: [...new Set(locations)].join('; ').slice(0, 2_000),
       description: (() => {
         if (posting?.description) {
           const text = document.createElement('div'); text.innerHTML = String(posting.description);
