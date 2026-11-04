@@ -46,6 +46,7 @@ check_bot() (
   set -euo pipefail
 if [ "$REPLAY_REQUIRED" = 1 ]; then
   cd "$APP/seek-bot"
+  node dist/company-match.test.js
   node --test dist/application-model.test.js dist/application-model-cache.test.js dist/agent/stage-model-routing.test.js
   node --test dist/answer-eligibility.test.js dist/agent/personal-declaration-policy.test.js dist/agent/provider-tool-schema.test.js dist/fit-provenance.test.js
   node --test dist/question-snapshot.test.js dist/question-patterns.test.js dist/answer-gate.test.js dist/agent/agent-only-evidence.test.js

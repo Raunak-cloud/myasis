@@ -72,6 +72,9 @@ function tokenSimilar(left: string, right: string): boolean {
   if (left === right) return true;
   // Short names and acronyms are too collision-prone for fuzzy matching.
   if (Math.min(left.length, right.length) < 5) return false;
+  // A shared prefix must not erase a short brand's distinctive ending:
+  // "CyberCX" and the generic word "Cyber" score highly in Jaro-Winkler.
+  if (Math.min(left.length, right.length) < 8 && Math.abs(left.length - right.length) > 1) return false;
   return jaroWinkler(left, right) >= 0.93;
 }
 

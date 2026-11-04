@@ -22,6 +22,9 @@ check('does not use a partial compact name', matchingExcludedCompany('TPG Teleco
 check('does not fuzz a compact name into another employer', matchingExcludedCompany('Insight Timers', ['InsightTimer']), null);
 check('does not fuzz short names', matchingExcludedCompany('NIB', ['NAB']), null);
 check('does not confuse similar ordinary names', matchingExcludedCompany('Apply Digital', ['Apple']), null);
+check('does not treat a generic sector word as an excluded brand', matchingExcludedCompany('Vanguard Cyber', ['CyberCX']), null);
+check('still excludes the exact distinctive brand', matchingExcludedCompany('CyberCX Pty Ltd', ['CyberCX']), 'CyberCX');
+check('accepts a one-letter typo in the distinctive brand', matchingExcludedCompany('CyberCX', ['CybrCX']), 'CybrCX');
 check('does not interpret regex characters', matchingExcludedCompany('Acme', ['A.*']), null);
 
 console.log(`\n${failures} failure(s)`);
