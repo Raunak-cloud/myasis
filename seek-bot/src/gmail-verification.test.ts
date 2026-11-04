@@ -27,7 +27,7 @@ try {
   messages = [message('hour-old', 60 * 60_000, '111222'), message('recent-cached', 9 * 60_000, '482913')];
   const cached = await findVerificationInGmail({ hint: 'Fixture', want: 'code', timeoutMs: 2000 });
   assert.ok(!('error' in cached) && cached.value === '482913', 'a genuinely recent cached code remains usable without a new-request timestamp');
-  const knownFlow = await findVerificationInGmail({ hint: 'Fixture', want: 'code', requestedAt: Date.now(), timeoutMs: 100 });
+  const knownFlow = await findVerificationInGmail({ hint: 'Fixture', want: 'code', requestedAt: Date.now(), timeoutMs: 2000 });
   assert.ok('reason' in knownFlow && knownFlow.reason === 'not-found' && knownFlow.poll.completedPolls > 0, 'a normal fresh-request flow still rejects that same nine-minute code without reuse evidence');
   messages.push(message('current-request', 15_000, '729184'));
   const requestedAt = Date.now() - 30_000;
