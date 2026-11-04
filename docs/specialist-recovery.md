@@ -8,6 +8,8 @@ Stale decisions, invalid quotations, private fields, failed operations and unsup
 
 Mandatory recovery turns use the immutable policy/candidate prefix and the fresh observation containing the durable obligation, actual result and recorded draft. Superseded browser plans stay in the audit transcript but cannot compete with the one required tool for this generation. Malformed checkpoint diagnostics retain returned tool names and text length without logging candidate content.
 
+The parent refreshes and compares actual DOM evidence before and after consultation, including same-URL form transitions and wizard hash changes. Advice for a page that advanced asynchronously is discarded without creating an obligation. Ref-based goals bind to the observed field/action label, so reusing a short ref on a later wizard page cannot verify a different control.
+
 Evidence quotations accept the same rendered field rows, options and refs shown to the parent, as well as the safe semantic view; semantic fingerprints remain independent of changing refs. Native JSON results are decoded before matching quoted values. Goals identify exact observed labels or refs and literal saved values. The specialist receives the parent's current mode restrictions, so advice and isolated helpers cannot introduce scripts or interactions unavailable to approved applications.
 
 The existing spending meter, application approval, candidate evidence, authentication and uncertain-send rules remain authoritative. Recovery decisions do not receive completion-reserve funding for browser work. Helpers use the same live executor and cannot send or run scripts while the recovery remains unresolved. Budget completion and recording an already-attempted application's actual receipt are never trapped by the obligation.
@@ -20,4 +22,4 @@ The verified native readback returned after a fill can establish the same proof;
 
 Focused checks use scripted providers, isolated invalid-domain forms and fictional candidate data. They cover advice acceptance/alternatives, actual execution and verification, stale/repeated states, continuation, budget/uncertain-send boundaries and an approved letter inspected on an earlier wizard step followed by one fictional receipt-confirmed submission. No real model calls or employer applications are made by these checks.
 
-A broken recovery protocol can end only as a technical skip, never as Needs attention. Genuine missing candidate facts remain available through the ordinary securely captured-question path after recovery has been verified.
+An unresolved recovery protocol can end only as a technical skip, including in the exhausted-budget completion lane, never as Needs attention. Genuine missing candidate facts remain available through the ordinary securely captured-question path after recovery has been verified. Recording an already-attempted application's actual receipt remains available.

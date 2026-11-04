@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {SpecialistRecovery} from './specialist-recovery.js';
+import {SpecialistRecovery,sameSpecialistObservation} from './specialist-recovery.js';
 import {renderObservation,type Observation} from './observe.js';
 import type {ToolSchema} from './celeris.js';
 import {specialistRecoveryTranscript,latestObservationScreenshotOnly} from './agent-only-transcript.js';
@@ -66,6 +66,17 @@ test('quotes use actual rendered field rows and decoded native results, while ex
  complete(r,'browser_action',{action:'inspect',ref:'f0'},JSON.stringify({ref:'f0',label:'Cover letter',value:goal.value,description:'Native "verified" readback'}),false);r.observe(o);
  r.check({...verify(r),result_quote:'Native "verified" readback',observation_quote:row});assert.equal(r.pending,false);
 });
+
+test('a reused wizard ref cannot resolve the original goal against a different control',()=>{
+ assert.equal(sameSpecialistObservation(observation(),observation('Step 5','','renumbered')),true,'ref churn alone is not changed evidence');
+ assert.equal(sameSpecialistObservation(observation(),{...observation(),url:observation().url+'#2'}),false,'wizard navigation is checked even before its DOM catches up');
+ assert.equal(sameSpecialistObservation(observation(),observation('Step 2')),false,'same-URL DOM changes retire obsolete advice');
+ const r=new SpecialistRecovery();r.observe(observation());r.accept('READ-ONLY SPECIALIST ADVICE.\n'+JSON.stringify({advice:'Inspect the actual letter',recovery_goal:{...goal,target:'f0'}}));
+ assert.equal(r.checkpoint().task!.verification!.target,'Cover letter');r.respond(plan(r),tools);
+ complete(r,'browser_action',{action:'inspect',ref:'f0'},'Cover letter inspected',false);
+ r.observe({...observation('Step 3',goal.value),fields:[{...observation().fields[0],label:'Different wizard field',currentValue:goal.value}]});
+ assert.throws(()=>r.check(verify(r)),/not verified/);
+});
 test('Treasury-style Back/Next cycle does not count as progress or satisfy the letter goal',()=>{
  const r=start(),back={name:'browser_action',args:{action:'click',ref:'a0'}},next={name:'browser_action',args:{action:'click',ref:'a1'}};
  r.respond(plan(r,back),tools);complete(r,back.name,back.args,'Cover letter repair: Back executed',false);r.observe(observation('Step 4'));r.check(verify(r,'progress'));
@@ -107,9 +118,12 @@ test('an older retained exact-operation checkpoint keeps its original argument r
 });
 test('unsafe specialist operations are refused and budget/receipt bookkeeping remains possible',()=>{
  const r=start();
+ const optional=start(),intent=plan(optional);delete (intent as Record<string,unknown>).operation_action;optional.respond(intent,tools);
+ assert.match(optional.permit('browser_action',{action:'script'})!,/cannot send|scripts/);assert.match(optional.permit('browser_action',{action:'click',sends_application:true})!,/cannot send/);assert.equal(optional.permit('browser_action',{action:'inspect',ref:'f0'}),undefined,'normal typed execution owns optional action metadata without expanding permissions');
  for(const op of [{name:'browser_action',args:{action:'script',code:'unsafe'}},{name:'finish',args:{status:'applied'}}])assert.throws(()=>r.respond(plan(r,op),tools),/supported native|offered normal/);
  r.respond(plan(r,{name:'browser_action',args:{action:'click'}}),tools);assert.match(r.permit('browser_action',{action:'click',sends_application:true})!,/cannot send/);
  assert.equal(r.permit('finish',{status:'skipped'},true),undefined,'budget completion cannot be trapped');
+ assert.match(r.permit('finish',{status:'needs-human'},true)!,/Not executed/,'exhausting the budget with unfinished recovery cannot manufacture a candidate question');
  assert.equal(r.permit('finish',{status:'applied'},false,true),undefined,'already-observed receipt recording cannot be trapped');
  r.observe({...observation(),inspectionError:'Browser observation failed'});assert.equal(r.requiredTool,undefined);assert.equal(r.permit('browser_action',{action:'inspect'}),undefined);assert.equal(r.permit('browser_action',{action:'take_snapshot'}),undefined);assert.match(r.permit('browser_action',{action:'click'})!,/Not executed/);
 });

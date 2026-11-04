@@ -26,7 +26,7 @@ import { ApplicationBudgetExhaustedError, type ChatMessage, type ToolSchema } fr
 import { applicationChat } from './application-chat.js';
 import { ProgressBudget } from './progress-budget.js';
 import { consultApplicationSpecialist, consultationToolSchema, newConsultationState } from './consultation.js';
-import {SpecialistRecovery,specialistRecoveryTools} from './specialist-recovery.js';
+import {SpecialistRecovery,specialistRecoveryTools,sameSpecialistObservation} from './specialist-recovery.js';
 import { privateAuthenticationValues, rememberedPrivateAuthenticationValues, redactPrivateAuthenticationData } from '../private-auth-fields.js';
 import { newHaltReviewState,reviewHalt,haltReviewTools } from './halt-review.js';
 import { isExternal } from './browser-boundaries.js';
@@ -436,6 +436,12 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     submitPressed:Boolean(ctx.submissionAttempted),steps,usage:meter.summary(),...(repairCheckpoint?{repair:repairCheckpoint}:{})});
 
   const specialistHistory = () => `MATCHING-STAGE DUPLICATE DECISION\n${JSON.stringify(duplicateReview)}\nUNCERTAIN ATTEMPTS ONLY\n${applicationAttemptHistory(options.job.id)}`;
+  const refreshSpecialistObservation=async()=>{
+    const prior=ctx.observation,current=await observe(ctx.page);ctx.observation=current;
+    if(!current.inspectionError)recovery.observe(current);
+    specialistRecovery.observe(current);syncRecovery();
+    return sameSpecialistObservation(prior,current);
+  };
   const automaticSpecialist = async (trigger: 'stalled' | 'technical-stop', proposedReason?: unknown): Promise<string | undefined> => {
     // Advice cannot revive exhausted work, interfere with a native dialog, or
     // authorize recovery after a possible send. Manual and automatic calls
@@ -449,6 +455,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         recovery.observe(ctx.observation);
       }
       if (ctx.observation.inspectionError) return;
+      if(!await refreshSpecialistObservation())return 'The live browser evidence changed or could not be verified. Refresh the observation before choosing recovery; no specialist call or operation started.';
       syncRecovery();
       const key = recovery.evidenceKey;
       recovery.specialistRequested();
@@ -466,6 +473,10 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         enabled: true, meter, state: specialistState, trigger: 'automatic', helpers,
         applicationHistory: redactPrivateAuthenticationData(`${specialistHistory()}\n${recovery.render()}`, secrets),
       });
+      if(!await refreshSpecialistObservation()){
+        const message='STALE SPECIALIST ADVICE DISCARDED: the live browser evidence changed or became unavailable during consultation. Refresh the current page; the old advice created no recovery obligation and authorized no operation.';
+        Object.assign(consultationTrace,{result:message,disposition:'reobserve',completedAt:new Date().toISOString()});saveLiveTrace();return message;
+      }
       if(advice.kind==='ok'){specialistRecovery.observe(ctx.observation);specialistRecovery.accept(advice.message);syncRecovery();}
       Object.assign(consultationTrace, { result: advice.kind === 'ok' ? advice.message : 'No specialist advice was returned.',
         disposition: 'reobserve', completedAt: new Date().toISOString() });
@@ -715,10 +726,12 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     if (name === 'read_browser_experience') return ok(browserExperience(ctx.page.url()));
     if (name === 'read_application_attempts') return ok(applicationAttemptHistory(options.job.id, Number(args.offset ?? 0)));
     if (name === consultationToolSchema.name) {
+      if(!await refreshSpecialistObservation())return ok('The live browser evidence changed or could not be verified. Inspect the fresh page before consulting; no specialist call started.','reobserve');
       recovery.specialistRequested();
       if (recovery.evidenceKey) specialistEvidence.add(recovery.evidenceKey);
       const result=await consultApplicationSpecialist(ctx, args as { question: string }, { enabled: true, meter, state: specialistState, helpers,
         applicationHistory: specialistHistory() });
+      if(!await refreshSpecialistObservation())return ok('STALE SPECIALIST ADVICE DISCARDED: live browser evidence changed or became unavailable during consultation. Inspect its fresh page; no recovery obligation or browser action was created.','reobserve');
       if(result.kind==='ok'){specialistRecovery.observe(ctx.observation);specialistRecovery.accept(result.message);}
       return result;
     }
@@ -1102,7 +1115,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         &&!(recordOnly&&specialistRecovery.unresolved&&['prepare_application','prepare_email_application'].includes(tool.name)));
       const turnTools = (checkpoint ? availableTools.filter(tool => tool.name === checkpoint)
         : recordOnly ? availableTools.filter(tool => finalRecords.includes(tool.name)) : availableTools).map(tool=>{
-          if(tool.name!=='finish'||!specialistRecovery.blocked)return tool;
+          if(tool.name!=='finish'||!specialistRecovery.unresolved||ctx.submissionAttempted)return tool;
           const properties=tool.parameters.properties as Record<string,Record<string,unknown>>;
           return {...tool,parameters:{...tool.parameters,properties:{...properties,status:{...properties.status,enum:['skipped']}}}};
         });

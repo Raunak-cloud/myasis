@@ -35,7 +35,7 @@ const html = `<main><h1>Fixture application sign in</h1><label>One-time code<inp
   <div id=login>Sign-in verification required.</div><form id=form hidden onsubmit="event.preventDefault();document.getElementById('status').textContent='Processing application'">
   <label>City<input id=city required></label><button id=send onclick="localStorage.setItem('send-count',String(Number(localStorage.getItem('send-count')||0)+1))">Submit application</button><div id=status></div></form></main>`;
 
-async function scenario(id: string, calls: Call[], options: { specialistFails?: boolean; postSend?: boolean; exhausted?: boolean; model?: 'minimax' } = {}) {
+async function scenario(id: string, calls: Call[], options: { specialistFails?: boolean; postSend?: boolean; exhausted?: boolean; model?: 'minimax';navigationDuringAdvice?:boolean } = {}) {
   config.dryRun = true;
   process.env.APPLICATION_REVIEW_MODE = options.postSend ? '' : 'prepare';
   const context = await browser.newContext(), page = await context.newPage();
@@ -66,6 +66,10 @@ async function scenario(id: string, calls: Call[], options: { specialistFails?: 
       assert.match(body.messages[1].content, /parent-history/);
       assert.equal(await page.locator('#city').inputValue(), '', 'specialist cannot change browser state');
       if (options.specialistFails) return new Response('Fixture provider unavailable', { status: 401 });
+      if(options.navigationDuringAdvice){
+        await page.evaluate(()=>{document.querySelector('h1')!.textContent='Fixture application sign in — next state';});
+        while(calls[parents]?.args.selector==='#noop')parents++;
+      }
       return Response.json({ usage: { prompt_tokens: 100, completion_tokens: 30 }, choices: [{ message: { content: null,
         tool_calls: [{ id: `specialist-${specialists}`, type: 'function', function: { name: 'return_application_advice', arguments: fixtureToolArguments(body, 'return_application_advice', { advice: 'Repeated code waits do not establish progress. The current page offers another sign-in method.',
           evidence: [{ source: 'page', detail: 'Login with Google is visible.' }], unknowns: [],
@@ -123,8 +127,10 @@ try {
     assert.match(consultations[0].result, /READ-ONLY SPECIALIST ADVICE/);
   });
   await test('successful calls with no progress also escalate', async () => {
-    const run = await scenario('unchanged-controls', [...Array.from({ length: 5 }, () => click('#noop')), ...complete]);
+    const run = await scenario('unchanged-controls', [...Array.from({ length: 5 }, () => click('#noop')), ...complete],{navigationDuringAdvice:true});
     assert.equal(run.specialists, 1); assert.equal(run.result.outcome.status, 'prepared'); assert.equal(run.sends, 0);
+    assert.ok(run.trace.steps.some((step:any)=>String(step.result).startsWith('STALE SPECIALIST ADVICE DISCARDED')),'automatic wizard navigation retires advice for the earlier page');
+    assert.ok(!run.trace.steps.some((step:any)=>step.tool==='respond_to_specialist'),'stale advice creates no parent obligation');
   });
   await test('MiniMax repeated evidence reads get one automatic consultation and then complete the form', async () => {
     const read: Call = { name: 'read_candidate_evidence', args: { query: 'document-inventory' } };

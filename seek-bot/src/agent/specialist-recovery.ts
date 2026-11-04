@@ -67,6 +67,8 @@ const surface=(o:Observation)=>normal(JSON.stringify({url:new URL(o.url).origin+
 // Quote the same safe observation the parent actually sees, including refs,
 // options and rendered field context. The semantic fingerprint stays ref-free.
 const evidence=(o:Observation)=>normal(renderObservation({...o,fields:safeFields(o)}))+' '+surface(o);
+export const sameSpecialistObservation=(before:Observation,after:Observation)=>!before.inspectionError&&!after.inspectionError
+ &&before.url===after.url&&hash(surface(before))===hash(surface(after));
 function satisfies(v:Verification,o:Observation):boolean {
  if(o.inspectionError)return false;
  if(v.kind==='field-value') {
@@ -79,6 +81,18 @@ function satisfies(v:Verification,o:Observation):boolean {
  }
  if(v.kind==='url-path')return new URL(o.url).origin===v.target&&new URL(o.url).pathname===v.value;
  return normal(o.surfaceText??o.text).includes(normal(v.target))&&normal(o.surfaceText??o.text).includes(normal(v.value));
+}
+function bindGoal(v:Verification,o?:Observation):Verification {
+ if(!v||!o)return v;
+ if(v.kind==='field-value'){
+  const field=safeFields(o).find(field=>field.ref===v.target);
+  if(field)return {...v,target:field.label};
+ }
+ if(v.kind==='control-enabled'){
+  const action=o.actions.find(action=>action.ref===v.target);
+  if(action)return {...v,target:action.text};
+ }
+ return v;
 }
 function readOnly(op:Operation):boolean {
  return isSnapshotOperation(op.name,op.args)||op.name==='browser_action'&&op.args.action==='inspect';
@@ -108,9 +122,10 @@ export class SpecialistRecovery {
   const adviceKey=hash([advice,this.observation?surface(this.observation):'']);
   if(this.task?.adviceKey===adviceKey)return;
   if(this.pending)throw Error('Resolve or record the current specialist recovery before replacing its advice');
-  const goal=JSON.parse(advice.slice(advice.indexOf('\n')+1)).recovery_goal as Verification;
+  const header=advice.slice(0,advice.indexOf('\n')),contents=JSON.parse(advice.slice(advice.indexOf('\n')+1));
+  const goal=bindGoal(contents.recovery_goal as Verification,this.observation);
   const issue=toolInputIssue(goal,specialistVerificationSchema);if(issue)throw Error('Specialist advice lacks a verifiable recovery goal: '+issue);
-  this.task={id:randomUUID(),advice,adviceKey,phase:'decision',verification:goal,history:[],verifiedEvidence:[],visited:this.observation?[hash(surface(this.observation))]:[],checks:0};
+  this.task={id:randomUUID(),advice:header+'\n'+JSON.stringify({...contents,recovery_goal:goal}),adviceKey,phase:'decision',verification:goal,history:[],verifiedEvidence:[],visited:this.observation?[hash(surface(this.observation))]:[],checks:0};
  }
  get pending(){return !!this.task&&this.task.phase!=='resolved';}
  get unresolved(){return !!this.task&&this.task.phase!=='resolved';}
@@ -130,12 +145,12 @@ export class SpecialistRecovery {
   if(!evidence(o).includes(normal(args.evidence_quote)))throw Error('Quote current observed evidence exactly, such as one current field row or page text; historical error summaries and rationales are not current page evidence');
   const name=String(args.operation_tool),tool=tools.find(s=>s.name===name);
   if(!(workTools.has(name)||name.startsWith('helper_'))||!tool)throw Error('Choose one offered normal recovery tool, not a send, preparation or completion');
-  const action=typeof args.operation_action==='string'?args.operation_action:undefined;
+  const action=name==='browser_action'&&typeof args.operation_action==='string'?args.operation_action:undefined;
   if(name==='browser_action'){
    const allowed=(tool.parameters.properties as Record<string,{enum?:unknown[]}>)?.action?.enum;
-   if(!action||allowed&&!allowed.includes(action)||['script','dialog'].includes(action))throw Error('Choose a supported native browser action for recovery; no scripts or dialog acceptance');
-  }else if(action)throw Error('operation_action is only for browser_action; the next normal tool schema owns the other arguments');
-  const verification=args.verification as unknown as Verification;
+   if(action&&(allowed&&!allowed.includes(action)||['script','dialog'].includes(action)))throw Error('Choose a supported native browser action for recovery; no scripts or dialog acceptance');
+  }
+  const verification=bindGoal(args.verification as unknown as Verification,o);
   if(t.verification&&hash(t.verification)!==hash(verification)&&args.decision==='adopt')throw Error('Keep the original recovery goal through intermediate steps, or explain an evidence-based alternative');
   t.decision=String(args.decision);t.reason=String(args.reason);t.plan={tool:name,...(action?{action}:{}),purpose:String(args.operation_purpose)};delete t.operation;t.verification=verification;
   t.before=hash(surface(o));t.beforeSatisfied=satisfies(verification,o);delete t.readOnly;
@@ -145,7 +160,7 @@ export class SpecialistRecovery {
  permit(name:string,args:Record<string,unknown>,completionOnly=false,receiptRecorded=false):string|undefined {
   if(!this.task)return;
   // Never prevent an already-observed employer receipt from being recorded.
-  if(name==='finish'&&(receiptRecorded||args.status!=='applied'&&(completionOnly||this.task.phase==='blocked')&&(!this.blocked||args.status==='skipped')))return;
+  if(name==='finish'&&(receiptRecorded||args.status==='skipped'&&(completionOnly||this.blocked)))return;
   if(!this.pending)return;
   if(this.observation?.inspectionError)return readOnly({name,args})?undefined:'Not executed: the current browser observation failed. Only read-only reinspection is available until fresh evidence returns.';
   if(name==='respond_to_specialist'&&this.task.phase==='decision'||name==='check_specialist_recovery'&&this.task.phase==='verification')return;
