@@ -10,7 +10,7 @@ import { withApplicationModel } from '../application-model.js';
 import { RecoveryRecord } from './recovery-record.js';
 import { investigateApplicationState } from './investigation.js';
 import { doCompleteAuthentication,doRecordAuthenticationResult } from './authentication.js';
-import { pendingCredential,storedCredential } from '../site-credentials.js';
+import { pendingCredential,storedCredential,stagePendingCredential,acceptPendingCredential,rejectCredential } from '../site-credentials.js';
 import { observe } from './observe.js';
 import { createReadinessFixtureReply } from './readiness-fixture.js';
 import type { ToolContext } from './context.js';
@@ -35,6 +35,11 @@ try {
     const ctx={page,recoveryRecord:record,profile:{name:'Fixture Candidate',email:'candidate@fixture.invalid',phone:'0400000000'},job:{id:'reset-fixture',title:'Developer',company:'Fixture Employer'},captured:[],actions:[],log:()=>{}} as unknown as ToolContext;
     const login='<main><h1>Sign in to your candidate account</h1><label>Email<input id=email type=email></label><label>Password<input id=password type=password></label></main>';
     try {
+      // Recovery is authorized for an account Owtomate previously managed,
+      // rather than an unknown pre-existing account belonging to the candidate.
+      stagePendingCredential(page.url(),ctx.profile.email,ctx.job.company,'create_account',{format:'readable-v1'});
+      assert.equal(acceptPendingCredential(page.url(),ctx.profile.email,ctx.job.company,'create_account'),true);
+      rejectCredential(page.url(),ctx.profile.email,ctx.job.company);
       await page.setContent('<main><h1>Choose a new password</h1><label>New password<input id=password type=password></label></main>');ctx.observation=await observe(page);
       await doCompleteAuthentication(ctx,{purpose:'reset_password',targets:[{selector:'#password'}],password_rules:{max_length:18}});
       const chosen=await page.locator('#password').inputValue();assert.ok(chosen);
