@@ -1,5 +1,5 @@
 import {createHash,randomUUID} from 'node:crypto';
-import type {Observation} from './observe.js';
+import {renderObservation,type Observation} from './observe.js';
 import type {ToolSchema} from './celeris.js';
 import {toolInputIssue} from './tool-input.js';
 
@@ -12,7 +12,7 @@ interface Task {
   actionObservation?:number;history:string[];verifiedEvidence:string[];visited:string[];checks:number;invalidChecks?:number;stopReason?:string;
 }
 const text={type:'string',minLength:1,maxLength:2000};
-export const specialistVerificationSchema={type:'object',additionalProperties:false,properties:{kind:{type:'string',enum:['field-value','visible-text','control-enabled','url-path']},target:text,value:{type:'string',maxLength:4000}},required:['kind','target','value']};
+export const specialistVerificationSchema={type:'object',additionalProperties:false,properties:{kind:{type:'string',enum:['field-value','visible-text','control-enabled','url-path']},target:{...text,description:'Exact field/action label or current ref (without annotations), exact visible text, or URL origin. Use the final blocker goal, not an intermediate navigation step.'},value:{type:'string',maxLength:4000,description:'Exact expected currentValue for a field (no explanatory prose), true/false for enabled controls, exact visible text, or exact URL pathname. Empty string is valid when clearing an unsupported field.'}},required:['kind','target','value']};
 export const specialistRecoveryTools:ToolSchema[]=[
  {name:'respond_to_specialist',description:'Required after specialist advice. Adopt it, or give an evidence-based alternative/rejection. Commit ONE concrete next operation and an observable recovery goal. This records a decision only; it never runs the operation. Keep the same goal while navigating to its actual field. No sends, preparation or arbitrary scripts can be recovery operations. Tested helpers still use normal executors and cannot send during recovery.',parameters:{type:'object',additionalProperties:false,properties:{
   advice_id:text,decision:{type:'string',enum:['adopt','alternative','reject']},reason:text,
@@ -43,14 +43,17 @@ const safeFields=(o:Observation)=>o.fields.filter(f=>!f.sensitive&&!f.privateKin
 const surface=(o:Observation)=>normal(JSON.stringify({url:new URL(o.url).origin+new URL(o.url).pathname,title:o.title,text:o.surfaceText??o.text,
  fields:safeFields(o).map(f=>({label:f.label,section:f.section,value:f.currentValue,validation:f.validationError,disabled:f.disabled})),
  actions:o.actions.map(a=>({text:a.text,context:a.context,disabled:a.disabled,selected:a.selected}))}));
+// Quote the same safe observation the parent actually sees, including refs,
+// options and rendered field context. The semantic fingerprint stays ref-free.
+const evidence=(o:Observation)=>normal(renderObservation({...o,fields:safeFields(o)}))+' '+surface(o);
 function satisfies(v:Verification,o:Observation):boolean {
  if(o.inspectionError)return false;
  if(v.kind==='field-value') {
-  const fields=safeFields(o).filter(f=>normal(f.label)===normal(v.target));
+  const fields=safeFields(o).filter(f=>f.ref===v.target||normal(f.label)===normal(v.target));
   return fields.length===1&&fields[0].currentValue!==undefined&&!fields[0].validationError&&normal(fields[0].currentValue)===normal(v.value);
  }
  if(v.kind==='control-enabled') {
-  const controls=o.actions.filter(a=>normal(a.text)===normal(v.target));
+  const controls=o.actions.filter(a=>a.ref===v.target||normal(a.text)===normal(v.target));
   return ['true','false'].includes(v.value)&&controls.length===1&&String(!controls[0].disabled)===v.value;
  }
  if(v.kind==='url-path')return new URL(o.url).origin===v.target&&new URL(o.url).pathname===v.value;
@@ -102,7 +105,7 @@ export class SpecialistRecovery {
  respond(args:Record<string,unknown>,tools:ToolSchema[]):string {
   const t=this.task,o=this.observation;
   if(!t||t.phase!=='decision'||args.advice_id!==t.id||!o||o.inspectionError)throw Error('This specialist decision is stale or lacks a valid current observation');
-  if(!surface(o).includes(normal(args.evidence_quote)))throw Error('Quote current observed evidence exactly; a rationale alone cannot dismiss specialist advice');
+  if(!evidence(o).includes(normal(args.evidence_quote)))throw Error('Quote current observed evidence exactly, such as one current field row or page text; historical error summaries and rationales are not current page evidence');
   const op=JSON.parse(String(args.operation_json)) as Operation;
   const tool=tools.find(s=>s.name===op.name);
   if(!(workTools.has(op.name)||op.name?.startsWith('helper_'))||!tool||!op.args||typeof op.args!=='object'||Array.isArray(op.args)||Object.keys(op).some(k=>!['name','args'].includes(k)))throw Error('Choose one supported normal recovery operation, not a send, completion or arbitrary script');
@@ -145,7 +148,7 @@ export class SpecialistRecovery {
  check(args:Record<string,unknown>):string {
   const t=this.task,o=this.observation;
   if(!t||t.phase!=='verification'||args.advice_id!==t.id||!o||o.inspectionError||this.observationVersion<=(t.actionObservation??Infinity))throw Error('Verification requires this recovery operation and a fresh successful browser observation');
-  if(!normal(t.result).includes(normal(args.result_quote))||!surface(o).includes(normal(args.observation_quote)))throw Error('Cite the actual recovery tool result and fresh observation exactly; invented evidence cannot clear recovery');
+  if(!resultMaterial(t.result??'').includes(normal(args.result_quote))||!evidence(o).includes(normal(args.observation_quote)))throw Error('Cite the actual recovery tool result and fresh observation exactly; invented evidence cannot clear recovery');
   const fingerprint=hash([t.result,surface(o)]),changed=t.before!==hash(surface(o));
   const novel=!t.verifiedEvidence.includes(fingerprint);t.checks++;
   const targetedRead=t.readOnly&&resultMaterial(t.result??'').includes(normal(t.verification!.target))

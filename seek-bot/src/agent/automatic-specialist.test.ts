@@ -58,6 +58,7 @@ async function scenario(id: string, calls: Call[], options: { specialistFails?: 
     else assert.equal(body.model, 'celeris-1-magnus', 'applying and supervisory calls use Magnus');
     if (isSpecialistFixtureRequest(body)) {
       specialists++;
+      if(!options.postSend)assert.match(body.messages[0].content,/Semi auto or approved reconstruction.*Browser scripts.*unavailable/,'specialist sees the actual approved-mode restrictions');
       assert.deepEqual(body.tools?.map((tool:any)=>tool.function.name),['test_application_helper','return_application_advice'],'specialist can test isolated helpers or return typed advice but has no live browser or submission tool');
       assert.equal(body.tool_choice, 'required', 'the specialist may choose its typed advice terminal without executing a helper or any live action');
       assert.match(body.messages[1].content, /Login with Google/);

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {SpecialistRecovery} from './specialist-recovery.js';
-import type {Observation} from './observe.js';
+import {renderObservation,type Observation} from './observe.js';
 import type {ToolSchema} from './celeris.js';
 import {specialistRecoveryTranscript,latestObservationScreenshotOnly} from './agent-only-transcript.js';
 import type {ChatMessage} from './celeris.js';
@@ -43,6 +43,14 @@ test('a plan or fabricated result cannot establish completion; real letter inspe
  r.complete('browser_action',{action:'fill',ref:'f0',value:goal.value},'Cover letter updated',false);r.observe(observation('Step 2',goal.value));
  r.check(verify(r));assert.equal(r.pending,false);
  r.accept(advice);assert.equal(r.pending,true,'the same advice on the new observed state creates a fresh obligation');
+});
+
+test('quotes use actual rendered field rows and decoded native results, while exact refs can identify a goal',()=>{
+ const r=new SpecialistRecovery(),o=observation('Step 2',goal.value);r.observe(o);r.accept(advice);
+ const row=renderObservation(o).split('\n').find(line=>line.includes('[textarea]'))!.trim();
+ assert.ok(row.includes('f0'));r.respond(plan(r,undefined,{evidence_quote:row,decision:'alternative',verification:{...goal,target:'f0'}}),tools);
+ r.complete('browser_action',{action:'inspect',ref:'f0'},JSON.stringify({ref:'f0',label:'Cover letter',value:goal.value,description:'Native "verified" readback'}),false);r.observe(o);
+ r.check({...verify(r),result_quote:'Native "verified" readback',observation_quote:row});assert.equal(r.pending,false);
 });
 test('Treasury-style Back/Next cycle does not count as progress or satisfy the letter goal',()=>{
  const r=start(),back={name:'browser_action',args:{action:'click',ref:'a0'}},next={name:'browser_action',args:{action:'click',ref:'a1'}};
