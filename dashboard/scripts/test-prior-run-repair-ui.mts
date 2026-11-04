@@ -11,7 +11,7 @@ const vite=await createServer({configFile:false,root:resolve(import.meta.dirname
  if(req.url!=='/repair-preview.html')return next();res.setHeader('Content-Type','text/html');res.end(await server.transformIndexHtml(req.url,html));
 });}}],server:{host:'127.0.0.1',port:0},logLevel:'error'});
 await vite.listen();const origin=`http://127.0.0.1:${(vite.httpServer!.address() as {port:number}).port}`;
-const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
+const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{executablePath:'/usr/bin/google-chrome-stable'})});
 try{
  const page=await browser.newPage({viewport:{width:1050,height:950}});let writes=0;
  await page.route('**/api/**',route=>{if(route.request().method()!=='GET')writes++;return route.fulfill({contentType:'application/json',body:JSON.stringify({simulations:[]})});});
