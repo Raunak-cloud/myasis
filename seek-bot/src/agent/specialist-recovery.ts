@@ -199,7 +199,16 @@ export class SpecialistRecovery {
  check(args:Record<string,unknown>):string {
   const t=this.task,o=this.observation;
   if(!t||t.phase!=='verification'||args.advice_id!==t.id||!o||o.inspectionError||this.observationVersion<=(t.actionObservation??Infinity))throw Error('Verification requires this recovery operation and a fresh successful browser observation');
-  if(!resultMaterial(t.result??'').includes(normal(args.result_quote))||!evidence(o).includes(normal(args.observation_quote)))throw Error('Cite the actual recovery tool result and fresh observation exactly; invented evidence cannot clear recovery');
+  const observed=evidence(o),resultQuoted=resultMaterial(t.result??'').includes(normal(args.result_quote));
+  if(!resultQuoted||!observed.includes(normal(args.observation_quote))){
+   // Give a correction only when this exact goal label/text occurs in the
+   // current safe observation. It is an excerpt, never proof of the goal or
+   // permission to send; all operation and fresh-state checks still apply.
+   const target=normal(t.verification?.target);
+   const excerpt=resultQuoted&&target.length>=8&&observed.includes(target)
+    ? ` Current observed excerpt: ${JSON.stringify(target)}. Quote it exactly if it supports your assessment; the recovery goal still has to be verified.`:'';
+   throw Error('Cite the actual recovery tool result and fresh observation exactly; invented evidence cannot clear recovery'+excerpt);
+  }
   const fingerprint=hash([t.result,surface(o)]),changed=t.before!==hash(surface(o));
   const novel=!t.verifiedEvidence.includes(fingerprint);t.checks++;
   const targetedRead=t.readOnly&&resultMaterial(t.result??'').includes(normal(t.verification!.target))

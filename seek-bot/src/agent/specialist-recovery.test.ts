@@ -88,6 +88,31 @@ test('quotes use actual rendered field rows and decoded native results, while ex
  r.check({...verify(r),result_quote:'Native "verified" readback',observation_quote:row});assert.equal(r.pending,false);
 });
 
+test('a wrong observation quote receives an exact current excerpt and can be corrected within the existing allowance',()=>{
+ const question='Please advise your motivations in applying for this position?';
+ const verification={kind:'visible-text',target:question,value:question};
+ const r=new SpecialistRecovery();r.observe(observation('Application details'));
+ r.accept('READ-ONLY SPECIALIST ADVICE.\n'+JSON.stringify({advice:'Advance with the observed Next button.',recovery_goal:verification}));
+ const op={action:'click',ref:'a1'},result='Action executed: click on "Next". Read the new observation to judge what saved or changed.';
+ r.respond(plan(r,{name:'browser_action',args:op},{verification}),tools);
+ complete(r,'browser_action',op,result,false);r.observe(observation(question));
+ const check={...verify(r),result_quote:result,observation_quote:'The application is now showing the motivations question.'};
+ assert.throws(()=>r.check(check),error=>error instanceof Error&&error.message.includes('Current observed excerpt: '+JSON.stringify(question)));
+ assert.equal(r.pending,true);assert.match(r.permit('finish',{status:'applied'})!,/Not executed/);
+ r.failedCheck('check_specialist_recovery','Wrong observation excerpt');
+ assert.equal(r.requiredTool,'check_specialist_recovery');
+ r.check({...check,observation_quote:question});assert.equal(r.pending,false);
+});
+
+test('a quoted current label cannot establish an unmet value or rescue a fabricated tool result',()=>{
+ const r=start();r.respond(plan(r),tools);complete(r,'browser_action',{action:'inspect',ref:'f0'},'Cover letter is empty',false);r.observe(observation('Step 2'));
+ const check={...verify(r),result_quote:'Cover letter is empty',observation_quote:'A paraphrased empty letter control'};
+ assert.throws(()=>r.check(check),error=>error instanceof Error&&error.message.includes('Current observed excerpt: "Cover letter"'));
+ assert.throws(()=>r.check({...check,observation_quote:'Cover letter'}),/not verified/);
+ assert.throws(()=>r.check({...check,result_quote:'Invented successful result'}),error=>error instanceof Error&&!error.message.includes('Current observed excerpt:'));
+ assert.equal(r.pending,true);assert.match(r.permit('browser_action',{action:'click',sends_application:true})!,/Not executed/);
+});
+
 test('a reused wizard ref cannot resolve the original goal against a different control',()=>{
  assert.equal(sameSpecialistObservation(observation(),observation('Step 5','','renumbered')),true,'ref churn alone is not changed evidence');
  assert.equal(sameSpecialistObservation(observation(),{...observation(),url:observation().url+'#2'}),false,'wizard navigation is checked even before its DOM catches up');
