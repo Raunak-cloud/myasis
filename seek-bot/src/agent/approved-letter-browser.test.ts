@@ -7,6 +7,7 @@ import {createHash} from 'node:crypto';
 import {chromium} from 'patchright';
 import {closeCelerisQueues} from '../../../shared/celeris-queue.mjs';
 import {specialistFixtureReply} from './specialist-fixture.js';
+import {validToolInput} from './tool-input.js';
 
 test('approved letter renders and uploads byte-exact without model transcription or an application send',async()=>{
  const dir=mkdtempSync(join(tmpdir(),'owtomate-approved-letter-'));
@@ -27,12 +28,26 @@ test('approved letter renders and uploads byte-exact without model transcription
    assert.ok(body.tools.some((t:any)=>t.function.name==='render_approved_cover_letter'));
    let call;
    if(turn===1){
+    const action=body.tools.find((t:any)=>t.function.name==='browser_action').function.parameters;
+    const batch=body.tools.find((t:any)=>t.function.name==='browser_batch').function.parameters;
+    for(const command of [action,batch.properties.actions.items]){
+     assert.ok(!command.properties.action.enum.includes('script'),'approved browser tools must not advertise rejected scripts');
+     assert.equal(validToolInput({action:'script',script:'return document.title'},command),false);
+     assert.equal(validToolInput({action:'click',selector:'#send',sends_application:false},command),true);
+    }
+    assert.equal(validToolInput({action:'dialog',value:'dismiss'},action),true,'dismissing a dialog remains available');
+    assert.equal(validToolInput({action:'dialog',value:'accept'},action),false,'the contract excludes accepting dialogs');
+    assert.match(action.properties.file_ids.description,/render_approved_cover_letter/);
     const schema=body.tools.find((t:any)=>t.function.name==='render_approved_cover_letter').function.parameters;
     assert.equal(schema.properties.text,undefined,'the model never has to transcribe the approved text');
     call={name:'render_approved_cover_letter',arguments:JSON.stringify({name:'Approved letter',format:'txt'})};
    }else if(turn===2){
     const rendered=JSON.parse(body.messages.filter((m:any)=>m.role==='tool').at(-1).content);
     assert.match(rendered.file_id,/^generated:/);
+    assert.equal(rendered.role,'cover-letter');assert.equal(rendered.uploadable,true);
+    assert.equal(rendered.native_upload_recorded,false,'rendering alone cannot claim an upload');
+    assert.match(rendered.next_step,/Creating this file did not attach it/);
+    assert.ok(rendered.next_step.includes(JSON.stringify([rendered.file_id])),'the handoff names the exact letter upload ID');
     renderedFileId=rendered.file_id;
     call={name:'browser_action',arguments:JSON.stringify({action:'set_input_files',selector:'#letter',file_ids:[rendered.file_id]})};
    }else{

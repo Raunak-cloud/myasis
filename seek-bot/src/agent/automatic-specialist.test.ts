@@ -77,6 +77,8 @@ async function scenario(id: string, calls: Call[], options: { specialistFails?: 
       } }] });
     }
     const review = readiness(body); if (review) return review;
+    const actionSchema=body.tools.find((tool:any)=>tool.function.name==='browser_action')?.function.parameters;
+    if(actionSchema?.properties.action?.enum)assert.equal(actionSchema.properties.action.enum.includes('script'),!!options.postSend,'preparation hides scripts; ordinary Auto apply retains its existing actions');
     const taskText=body.messages.map((message:any)=>typeof message.content==='string'?message.content:Array.isArray(message.content)?message.content.map((part:any)=>part.text??'').join('\n'):'').reverse().find((text:string)=>text.includes('SPECIALIST RECOVERY OBLIGATION\n'));
     const task=taskText?JSON.parse(taskText.match(/SPECIALIST RECOVERY OBLIGATION\n([^\n]+)/)![1]):undefined;
     const forced=body.tool_choice?.function?.name;

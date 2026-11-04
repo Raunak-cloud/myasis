@@ -5,9 +5,10 @@ import {snapshotActionContract} from './browser-snapshot-command.js';
  * providers and local validation read the same action-specific contract. */
 export function browserCommandContract(actions: readonly string[],requireSendIntent=false): Record<string, unknown> {
   const target = ['ref', 'selector', 'locator'].map(key => ({ required: [key],properties:{target_mode:{enum:[key]},[key]:key==='locator'?{}:{type:'string',minLength:1}} }));
-  const special = ['script', 'set_input_files', 'wait','take_snapshot',...requireSendIntent?['click','press']:[]];
+  const special = ['script', 'set_input_files', 'wait','take_snapshot',...requireSendIntent?['click','press','dialog']:[]];
   const ordinary = [
     ...requireSendIntent?[{properties:{action:{enum:actions.filter(action=>['click','press'].includes(action))}},required:['sends_application']}]:[],
+    ...requireSendIntent&&actions.includes('dialog')?[{properties:{action:{enum:['dialog']},value:{enum:['dismiss']}},required:['value']}]:[],
     ...actions.includes('script') ? [{ properties: { action: { enum: ['script'] },script:{type:'string',minLength:1} }, required: ['script'] }] : [],
     ...actions.includes('set_input_files') ? [{ properties: { action: { enum: ['set_input_files'] } },
       required: ['file_ids'], anyOf: target }] : [],

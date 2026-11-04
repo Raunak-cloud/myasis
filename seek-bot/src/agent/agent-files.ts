@@ -17,7 +17,7 @@ interface UploadEvent { at: string; selected: UploadedFiles['files']; retiredFil
 export interface UploadedFiles { target: string; files: Array<AgentFile & { sha256: string; bytes: number; name: string }>; removedFileIds?: string[]; events?: UploadEvent[] }
 const formats = ['pdf', 'docx', 'doc', 'rtf', 'txt'];
 export const fileIdsProperty = { type: 'array', maxItems: 10, items: { type: 'string', minLength: 1 },
-  description: 'Exact file_id values marked uploadable in the candidate inventory, or returned by create_file/convert_file. Supporting files use supporting:<id>; their bare retrieval IDs are not upload IDs. Notes are readable only; use create_file if you choose to attach their text. Empty array clears the selected input. Host paths and URLs are unavailable.' };
+  description: 'Exact file_id values marked uploadable in the candidate inventory, or returned by create_file, convert_file, render_approved_cover_letter or combine_approved_documents. Rendering a cover letter creates a file but does not attach it: select its returned file_id here, not the resume ID. Supporting files use supporting:<id>; their bare retrieval IDs are not upload IDs. Notes are readable only; use create_file if you choose to attach their text. Empty array clears the selected input. Host paths and URLs are unavailable.' };
 
 /** Private file transport only. The agent chooses the content, format and target.
  * Rendering and conversion never inspect a form or decide whether to upload. */
@@ -160,7 +160,7 @@ export class AgentFiles {
     if (bound) return { id, path: verifiedDocumentPath(bound), sourceId: id, text: bound.text, provenance: bound.provenance ?? 'file', coverLetter: bound.role === 'cover-letter' };
     const generated = this.generated.get(id);
     const path = generated?.path ?? agentOnlyUploadPath(id);
-    if (!path) throw Error(`Choose a file ID from the uploadable inventory file_id values (${JSON.stringify(agentOnlyUploadInventory().map(file => file.file_id))}) or a file_id returned by create_file/convert_file. Bare supporting-document retrieval IDs are not upload IDs; use their explicit supporting:<id> file_id. Notes require create_file when you choose to attach their text. Host paths and other accounts are unavailable.`);
+    if (!path) throw Error(`Choose a file ID from the uploadable inventory file_id values (${JSON.stringify(agentOnlyUploadInventory().map(file => file.file_id))}) or a file_id returned by create_file, convert_file, render_approved_cover_letter or combine_approved_documents. Bare supporting-document retrieval IDs are not upload IDs; use their explicit supporting:<id> file_id. Notes require create_file when you choose to attach their text. Host paths and other accounts are unavailable.`);
     const file = generated ?? { id, path, sourceId: id, provenance: 'file' as const };
     if (file.sha256 && documentHash(readFileSync(file.path)) !== file.sha256) throw Error('The generated document bytes have changed. Recreate the exact authorized document.');
     if (this.approved?.resumeId && this.approved.resumeId === file.sourceId && this.approved.resumeHash) {

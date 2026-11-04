@@ -246,14 +246,16 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
 async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryRecord): Promise<AgentRunResult> {
   // Do not offer a preparation-only tool to an Auto apply run. Email drafts
   // retain their explicit-confirmation path in both modes.
+  const approvedBrowserActions=browserActions.filter(action=>action!=='script');
+  const approvedBatchActions=batchActions.filter(action=>action!=='script');
   const offeredTools = reviewingApplications() ? agentOnlyTools.map(tool=>{
     const properties=tool.parameters.properties as Record<string,Record<string,unknown>>;
     const targetMode={...browserTargetProperties.target_mode,enum:browserTargetProperties.target_mode.enum.filter(mode=>mode!=='coordinates')};
-    if(tool.name==='browser_action')return {...tool,parameters:{...tool.parameters,properties:{...properties,target_mode:targetMode},...browserCommandContract(browserActions,true)}};
+    if(tool.name==='browser_action')return {...tool,description:tool.description+' CURRENT MODE: preparation or approved submission. Use the advertised native actions; scripts, coordinate clicks and accepting dialogs are unavailable.',parameters:{...tool.parameters,properties:{...properties,action:{...properties.action,enum:approvedBrowserActions},target_mode:targetMode},...browserCommandContract(approvedBrowserActions,true)}};
     if(tool.name!=='browser_batch')return tool;
     const command=properties.actions.items as Record<string,unknown>;
     return {...tool,parameters:{...tool.parameters,properties:{...properties,actions:{...properties.actions,
-      items:{...command,properties:{...(command.properties as Record<string,unknown>),target_mode:targetMode},...browserCommandContract(batchActions,true)}}}}};
+      items:{...command,properties:{...(command.properties as Record<string,unknown>),action:{...((command.properties as Record<string,unknown>).action as Record<string,unknown>),enum:approvedBatchActions},target_mode:targetMode},...browserCommandContract(approvedBatchActions,true)}}}}};
   }) : agentOnlyTools.filter(tool => tool.name !== 'prepare_application');
   const helpers=options.continuation?.helpers??new ApplicationHelpers(offeredTools);
   if (retiredJobSource(options.job)) return { outcome: { status: 'skipped', reason: RETIRED_SOURCE_MESSAGE }, captured: [], actions: [], submitPressed: false, steps: 0, usage: 'No model calls: job source removed.' };
@@ -766,7 +768,10 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     if (name === 'render_approved_cover_letter') {
       files.witnessApprovedLetter((await readSavedForm(ctx.page)).fields);
       ctx.letterWitness = files.checkpointLetterWitness();
-      return ok(JSON.stringify(await files.createApprovedLetter(String(args.name), args.format as DocumentFormat)));
+      const file=await files.createApprovedLetter(String(args.name), args.format as DocumentFormat);
+      const selected=files.checkpointUploads().some(upload=>upload.files.some(item=>item.id===file.file_id));
+      return ok(JSON.stringify({...file,role:'cover-letter',uploadable:true,native_upload_recorded:selected,
+        next_step:selected?'Inspect employer acceptance of the selected file; rendering is not an employer receipt.':`Creating this file did not attach it. Choose the actual cover-letter upload control from the current page, then use browser_action action=set_input_files with file_ids=${JSON.stringify([file.file_id])}. Inspect employer acceptance before preparing. The resume has a different file_id.`}));
     }
     if (name === 'convert_file') return ok(JSON.stringify(await files.convert(String(args.file_id), args.format as DocumentFormat)));
     if (name === 'combine_approved_documents') {
@@ -831,7 +836,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     if (!sendsApplication && ['fill', 'type', 'select', 'check', 'click', 'press', 'navigate', 'script', 'set_input_files'].includes(String(args.action))) readiness.invalidate();
     switch (args.action) {
       case 'set_input_files': {
-        if (!Array.isArray(args.file_ids)) throw Error('Provide file_ids from the candidate inventory or create_file/convert_file results.');
+        if (!Array.isArray(args.file_ids)) throw Error('Provide file_ids from the candidate inventory or create_file, convert_file, render_approved_cover_letter or combine_approved_documents results.');
         const replacements = files.validateReplacements(args.replaces_file_ids);
         const selected = files.uploadSelection(args.file_ids.map(String));
         const input = target(ctx, args);
