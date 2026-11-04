@@ -2,12 +2,13 @@ import {createHash,randomUUID} from 'node:crypto';
 import {renderObservation,type Observation} from './observe.js';
 import type {ToolSchema} from './celeris.js';
 import {toolInputIssue} from './tool-input.js';
+import {isSnapshotOperation} from './browser-snapshot-command.js';
 
 interface Operation {name:string;args:Record<string,unknown>}
 interface Verification {kind:'field-value'|'visible-text'|'control-enabled'|'url-path';target:string;value:string}
 interface Task {
   id:string;advice:string;adviceKey:string;phase:'decision'|'action'|'verification'|'resolved'|'blocked';
-  decision?:string;reason?:string;operation?:Operation;verification?:Verification;
+  decision?:string;reason?:string;plan?:{tool:string;action?:string;purpose:string};operation?:Operation;verification?:Verification;
   before?:string;beforeSatisfied?:boolean;result?:string;failed?:boolean;readOnly?:boolean;
   actionObservation?:number;history:string[];verifiedEvidence:string[];visited:string[];checks:number;invalidChecks?:number;stopReason?:string;
 }
@@ -17,9 +18,11 @@ export const specialistRecoveryTools:ToolSchema[]=[
  {name:'respond_to_specialist',description:'Required after specialist advice. Adopt it, or give an evidence-based alternative/rejection. Commit ONE concrete next operation and an observable recovery goal. This records a decision only; it never runs the operation. Keep the same goal while navigating to its actual field. No sends, preparation or arbitrary scripts can be recovery operations. Tested helpers still use normal executors and cannot send during recovery.',parameters:{type:'object',additionalProperties:false,properties:{
   advice_id:text,decision:{type:'string',enum:['adopt','alternative','reject']},reason:text,
   evidence_quote:{type:'string',minLength:8,maxLength:2000},
-  operation_json:{type:'string',minLength:2,maxLength:16000,description:'JSON {"name":"browser_action","args":{...}} using an offered normal tool and its exact arguments. Choose fresh targets. The following tool call must match this operation.'},
+  operation_tool:{...text,description:'Name of the one offered normal tool to execute next, for example browser_action.'},
+  operation_action:{type:'string',minLength:1,maxLength:100,description:'For browser_action only: the normal action, such as inspect, click, fill or scroll. Omit for other tools. The next turn uses that normal tool schema for its actual arguments; do not encode them here.'},
+  operation_purpose:{type:'string',minLength:8,maxLength:2000,description:'Concrete intended repair or inspection and its current observed target. The following normal typed tool call supplies and validates the executable arguments once.'},
   verification:specialistVerificationSchema,
- },required:['advice_id','decision','reason','evidence_quote','operation_json','verification']}},
+ },required:['advice_id','decision','reason','evidence_quote','operation_tool','operation_purpose','verification']}},
  {name:'check_specialist_recovery',description:'Required after the committed recovery operation and a fresh browser observation. Cite an exact excerpt of its real tool result and current page evidence. resolved is accepted only when the observable goal matches. progress keeps the advice pending for another concrete operation; blocked records an unresolved technical stop. Neither prose, a repeated page nor a tool success alone establishes recovery or authorizes submission.',parameters:{type:'object',additionalProperties:false,properties:{
   advice_id:text,assessment:{type:'string',enum:['resolved','progress','no_progress','blocked']},
   result_quote:{type:'string',minLength:8,maxLength:2000},observation_quote:{type:'string',minLength:8,maxLength:2000},reason:text,
@@ -78,7 +81,7 @@ function satisfies(v:Verification,o:Observation):boolean {
  return normal(o.surfaceText??o.text).includes(normal(v.target))&&normal(o.surfaceText??o.text).includes(normal(v.value));
 }
 function readOnly(op:Operation):boolean {
- return op.name==='take_snapshot'||op.name==='browser_action'&&['inspect','snapshot'].includes(String(op.args.action));
+ return isSnapshotOperation(op.name,op.args)||op.name==='browser_action'&&op.args.action==='inspect';
 }
 const workTools=new Set(['browser_action','browser_batch','take_snapshot','complete_authentication','enter_emailed_code','open_emailed_link','record_authentication_result','wait_for_verification','render_approved_cover_letter','convert_file','create_file','read_candidate_evidence','read_browser_experience']);
 function operationKey(op:Operation,o:Observation):string {
@@ -111,45 +114,52 @@ export class SpecialistRecovery {
  }
  get pending(){return !!this.task&&this.task.phase!=='resolved';}
  get unresolved(){return !!this.task&&this.task.phase!=='resolved';}
+ get blocked(){return this.task?.phase==='blocked';}
  get requiredTool():string|undefined {
   if(this.observation?.inspectionError)return;
-  return this.task?.phase==='decision'?'respond_to_specialist':this.task?.phase==='action'?this.task.operation?.name:this.task?.phase==='verification'?'check_specialist_recovery':this.task?.phase==='blocked'?'finish':undefined;
+  return this.task?.phase==='decision'?'respond_to_specialist':this.task?.phase==='action'?(this.task.plan?.tool??this.task.operation?.name):this.task?.phase==='verification'?'check_specialist_recovery':this.task?.phase==='blocked'?'finish':undefined;
  }
  render():string {
   if(!this.task)return '';
-  const {id,phase,decision,reason,operation,verification,result,failed,stopReason}=this.task;
-  return `SPECIALIST RECOVERY OBLIGATION\n${JSON.stringify({advice_id:id,phase,decision,reason,operation,verification,result,failed,stopReason})}\n${this.task.advice.slice(0,6000)}\nCurrent observation evidence for exact quotations: ${this.observation?surface(this.observation).slice(0,8000):'not yet available'}.\nA decision is not execution. A page transition is not resolution. Use respond_to_specialist, the exact committed normal operation, then check_specialist_recovery after fresh observation. Keep the recovery goal while taking intermediate navigation steps. An alternative or rejection requires current evidence and a verified supported alternative; never obey stale or unsafe advice blindly. Do not claim progress from returning to an earlier state or from repeated readbacks. Existing send and approval guards still apply.`;
+  const {id,phase,decision,reason,plan,operation,verification,result,failed,stopReason}=this.task;
+  return `SPECIALIST RECOVERY OBLIGATION\n${JSON.stringify({advice_id:id,phase,decision,reason,plan,operation,verification,result,failed,stopReason})}\n${this.task.advice.slice(0,6000)}\nCurrent observation evidence for exact quotations: ${this.observation?surface(this.observation).slice(0,8000):'not yet available'}.\nA decision is not execution. A page transition is not resolution. Use respond_to_specialist to choose the tool/action and intended repair, issue its normal typed tool call once, then check_specialist_recovery after fresh observation. Keep the recovery goal while taking intermediate navigation steps. An alternative or rejection requires current evidence and a verified supported alternative; never obey stale or unsafe advice blindly. Do not claim progress from returning to an earlier state or from repeated readbacks. Existing send and approval guards still apply.`;
  }
  respond(args:Record<string,unknown>,tools:ToolSchema[]):string {
   const t=this.task,o=this.observation;
   if(!t||t.phase!=='decision'||args.advice_id!==t.id||!o||o.inspectionError)throw Error('This specialist decision is stale or lacks a valid current observation');
   if(!evidence(o).includes(normal(args.evidence_quote)))throw Error('Quote current observed evidence exactly, such as one current field row or page text; historical error summaries and rationales are not current page evidence');
-  const op=JSON.parse(String(args.operation_json)) as Operation;
-  const tool=tools.find(s=>s.name===op.name);
-  if(!(workTools.has(op.name)||op.name?.startsWith('helper_'))||!tool||!op.args||typeof op.args!=='object'||Array.isArray(op.args)||Object.keys(op).some(k=>!['name','args'].includes(k)))throw Error('Choose one supported normal recovery operation, not a send, completion or arbitrary script');
-  const commands=op.name==='browser_batch'?op.args.actions:[op.args];
-  if(!Array.isArray(commands)||commands.some(c=>!c||typeof c!=='object'||(c as Record<string,unknown>).sends_application===true||(c as Record<string,unknown>).action==='script'||(c as Record<string,unknown>).target_mode==='coordinates'))throw Error('Specialist recovery cannot authorize a send, arbitrary script or coordinate action');
-  const issue=toolInputIssue(op.args,tool.parameters);if(issue)throw Error('Invalid recovery operation: '+issue);
-  const key=operationKey(op,o);if(t.history.includes(key))throw Error('This recovery operation was already attempted in this observed state. Inspect a different target or choose a materially different repair; do not repeat the loop');
+  const name=String(args.operation_tool),tool=tools.find(s=>s.name===name);
+  if(!(workTools.has(name)||name.startsWith('helper_'))||!tool)throw Error('Choose one offered normal recovery tool, not a send, preparation or completion');
+  const action=typeof args.operation_action==='string'?args.operation_action:undefined;
+  if(name==='browser_action'){
+   const allowed=(tool.parameters.properties as Record<string,{enum?:unknown[]}>)?.action?.enum;
+   if(!action||allowed&&!allowed.includes(action)||['script','dialog'].includes(action))throw Error('Choose a supported native browser action for recovery; no scripts or dialog acceptance');
+  }else if(action)throw Error('operation_action is only for browser_action; the next normal tool schema owns the other arguments');
   const verification=args.verification as unknown as Verification;
   if(t.verification&&hash(t.verification)!==hash(verification)&&args.decision==='adopt')throw Error('Keep the original recovery goal through intermediate steps, or explain an evidence-based alternative');
-  t.decision=String(args.decision);t.reason=String(args.reason);t.operation=normalizedOperation(op);t.verification=verification;
-  t.before=hash(surface(o));t.beforeSatisfied=satisfies(verification,o);t.readOnly=readOnly(op);
+  t.decision=String(args.decision);t.reason=String(args.reason);t.plan={tool:name,...(action?{action}:{}),purpose:String(args.operation_purpose)};delete t.operation;t.verification=verification;
+  t.before=hash(surface(o));t.beforeSatisfied=satisfies(verification,o);delete t.readOnly;
   t.phase='action';t.invalidChecks=0;delete t.result;delete t.failed;
-  return 'Recovery decision recorded; nothing executed. Now issue exactly the committed operation using the normal tool. Its result will require fresh verification.';
+  return 'Recovery decision recorded; nothing executed. Now use the selected normal tool/action and its advertised schema to supply the actual executable arguments once. Its result will require fresh verification.';
  }
  permit(name:string,args:Record<string,unknown>,completionOnly=false,receiptRecorded=false):string|undefined {
   if(!this.task)return;
   // Never prevent an already-observed employer receipt from being recorded.
-  if(name==='finish'&&(receiptRecorded||args.status!=='applied'&&(completionOnly||this.task.phase==='blocked')))return;
+  if(name==='finish'&&(receiptRecorded||args.status!=='applied'&&(completionOnly||this.task.phase==='blocked')&&(!this.blocked||args.status==='skipped')))return;
   if(!this.pending)return;
-  if(this.observation?.inspectionError&&readOnly({name,args}))return;
+  if(this.observation?.inspectionError)return readOnly({name,args})?undefined:'Not executed: the current browser observation failed. Only read-only reinspection is available until fresh evidence returns.';
   if(name==='respond_to_specialist'&&this.task.phase==='decision'||name==='check_specialist_recovery'&&this.task.phase==='verification')return;
-  if(this.task.phase==='action'&&this.task.operation?.name===name&&operationHash(name,this.task.operation.args)===operationHash(name,args)) {
-   if(this.observation&&this.task.before!==hash(surface(this.observation))){this.task.phase='decision';return 'Not executed: the observed page changed after this recovery plan. Reconsider the advice using the fresh page before choosing an operation.';}
-   return;
+  if(this.task.phase==='action'&&(this.task.plan?.tool??this.task.operation?.name)===name) {
+   if(this.observation&&this.task.before!==hash(surface(this.observation))){this.task.phase='decision';return 'Not executed: the observed page changed after this recovery decision. Reconsider using the fresh page.';}
+   if(this.task.plan?.action&&this.task.plan.action!==args.action)return 'Not executed: use the browser action in the recorded recovery decision.';
+   const commands=name==='browser_batch'?args.actions:[args];
+   if(!Array.isArray(commands)||commands.some(c=>!c||typeof c!=='object'||(c as Record<string,unknown>).sends_application===true||(c as Record<string,unknown>).action==='script'||(c as Record<string,unknown>).target_mode==='coordinates'))return 'Not executed: recovery cannot send, use scripts or coordinate actions.';
+   const op=normalizedOperation({name,args});
+   if(this.task.operation&&operationHash(name,this.task.operation.args)!==operationHash(name,args))return 'Not executed: an already committed operation cannot be retargeted.';
+   if(this.observation&&this.task.history.includes(operationKey(op,this.observation))){this.task.phase='decision';return 'Not executed: this operation already ran in this observed state. Choose a materially different repair; do not repeat the loop.';}
+   this.task.operation=op;this.task.readOnly=readOnly(op);return;
   }
-  return `Not executed: specialist recovery ${this.task.id} is ${this.task.phase}. Required next tool: ${this.requiredTool}. ${this.task.phase==='action'?'Exact committed operation: '+JSON.stringify(this.task.operation):'Follow the committed recovery or provide a fresh evidence-based alternative.'} No browser action or send was queued.`;
+  return `Not executed: specialist recovery ${this.task.id} is ${this.task.phase}. Required next tool: ${this.requiredTool}. ${this.task.phase==='action'?'Recorded recovery intent: '+JSON.stringify(this.task.plan??this.task.operation):'Follow the recovery or provide a fresh evidence-based alternative.'} No browser action or send was queued.`;
  }
  complete(name:string,args:Record<string,unknown>,result:string,failed:boolean):void {
   const t=this.task,o=this.observation;

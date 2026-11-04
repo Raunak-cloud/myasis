@@ -1100,8 +1100,12 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         (!recoveryTools.some(item => item.name === tool.name) || tool.name === recovery.tool)
         &&(!specialistRecoveryTools.some(item=>item.name===tool.name)||tool.name===specialistRecovery.requiredTool)
         &&!(recordOnly&&specialistRecovery.unresolved&&['prepare_application','prepare_email_application'].includes(tool.name)));
-      const turnTools = checkpoint ? availableTools.filter(tool => tool.name === checkpoint)
-        : recordOnly ? availableTools.filter(tool => finalRecords.includes(tool.name)) : availableTools;
+      const turnTools = (checkpoint ? availableTools.filter(tool => tool.name === checkpoint)
+        : recordOnly ? availableTools.filter(tool => finalRecords.includes(tool.name)) : availableTools).map(tool=>{
+          if(tool.name!=='finish'||!specialistRecovery.blocked)return tool;
+          const properties=tool.parameters.properties as Record<string,Record<string,unknown>>;
+          return {...tool,parameters:{...tool.parameters,properties:{...properties,status:{...properties.status,enum:['skipped']}}}};
+        });
       const forceTool = checkpoint ?? (recordOnly && turnTools.length === 1 ? turnTools[0].name : undefined);
       const reasoningEffort = !turn.completing && (highEffort || (!checkpoint||specialistCheckpoint) && recovery.needsDeepReasoning || readiness.needsDeepReasoning) ? 'high' : 'medium';
       const maxTokens = reasoningEffort === 'high' && applicationAgentIdentity().selection === 'celeris' ? 16_384 : 8192;

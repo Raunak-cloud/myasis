@@ -49,6 +49,7 @@ async function scenario(id: string, calls: Call[], options: { specialistFails?: 
   });
   let parents = 0, specialists = 0,providerRequests=0;
   let recoveryOperation:Call|undefined,blockedRecovery=false;
+  let invalidAttentionStop=false;
   const readiness = createReadinessFixtureReply();
   globalThis.fetch = async (_url, init) => {
     assert.ok(++providerRequests<80,'Fixture exceeded its bounded scripted decision count');
@@ -83,9 +84,13 @@ async function scenario(id: string, calls: Call[], options: { specialistFails?: 
       blockedRecovery=calls[parents]?.name==='finish';
       recoveryOperation=blockedRecovery?{name:'browser_action',args:{action:'inspect',selector:'#otp'}}:calls[parents++];
       assert.ok(recoveryOperation,'Fixture requires a concrete recovery operation');
-      return scripted(forced,{advice_id:task.advice_id,decision:'adopt',reason:'Use the current supported login method and complete the fictional City field.',evidence_quote:'Fixture application sign in',operation_json:JSON.stringify(recoveryOperation),verification:task.verification});
+      return scripted(forced,{advice_id:task.advice_id,decision:'adopt',reason:'Use the current supported login method and complete the fictional City field.',evidence_quote:'Fixture application sign in',operation_tool:recoveryOperation.name,...(recoveryOperation.name==='browser_action'?{operation_action:recoveryOperation.args.action}:{}),operation_purpose:'Complete the current supported fictional repair.',verification:task.verification});
     }
     if(forced==='check_specialist_recovery')return scripted(forced,{advice_id:task.advice_id,assessment:blockedRecovery?'blocked':await page.locator('#city').inputValue()==='Sydney'?'resolved':'no_progress',result_quote:task.result.slice(0,Math.min(task.result.length,200)),observation_quote:'Fixture application sign in',reason:'Verified the actual tool result; until City is filled the specialist goal remains unresolved.'});
+    if(forced==='finish'&&task?.phase==='blocked'){
+      assert.deepEqual(body.tools.find((tool:any)=>tool.function.name==='finish').function.parameters.properties.status.enum,['skipped'],'a broken recovery protocol cannot ask the candidate a technical question');
+      if(!invalidAttentionStop){invalidAttentionStop=true;return scripted('finish',{status:'needs-human',reason:'No candidate fact is missing; the recovery protocol could not finish.',evidence:'The controlled recovery protocol is blocked, rather than a candidate fact being unavailable.',questions:[{field_ref:'f0',kind:'text'}]});}
+    }
     // Only the invalid-domain, route-isolated fixture can simulate an actual
     // send. The entry guard has already verified its dry-run isolation.
     if (options.postSend) config.dryRun = false;
@@ -152,6 +157,7 @@ try {
     const run = await scenario('manual-advice', [{ name: 'consult_application_specialist', args: { question: 'Assess the code blocker and current sign-in alternatives.', focus: 'form' } }, stop]);
     assert.equal(run.specialists, 1); assert.equal(run.parents, 2); assert.equal(run.sends, 0);
     assert.equal(run.result.outcome.status, 'rehearsed');
+    assert.ok(run.trace.steps.some((step:any)=>step.label==='Recovery checkpoint response rejected'&&step.result.includes('status')),'a malformed technical Needs attention request is rejected before question capture');
   });
 } finally {
   globalThis.fetch = originalFetch; await browser.close(); closeCelerisQueues(); rmSync(directory, { recursive: true, force: true });

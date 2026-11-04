@@ -9,8 +9,9 @@ const goal={kind:'field-value',target:'Cover letter',value:'Approved fictional l
 const advice='READ-ONLY SPECIALIST ADVICE.\n'+JSON.stringify({advice:'Inspect and restore the approved letter, then verify it.',recovery_goal:goal});
 const observation=(step='Step 5',value='',ref='f0'):Observation=>({url:'https://fixture.invalid/apply',title:'Fictional application',text:step,fields:[{ref,label:'Cover letter',kind:'textarea',currentValue:value,disabled:false}as never],actions:[{ref:'a0',text:'Back',role:'button',disabled:false},{ref:'a1',text:'Next',role:'button',disabled:false}]});
 const tools:ToolSchema[]=[{name:'browser_action',description:'fixture',parameters:{type:'object',additionalProperties:true}}];
-const plan=(r:SpecialistRecovery,op:{name:string;args:Record<string,unknown>}={name:'browser_action',args:{action:'inspect',ref:'f0'}},extra={})=>({advice_id:r.checkpoint().task!.id,decision:'adopt',reason:'The letter is the observed blocker.',evidence_quote:'Fictional application',operation_json:JSON.stringify(op),verification:goal,...extra});
+const plan=(r:SpecialistRecovery,op:{name:string;args:Record<string,unknown>}={name:'browser_action',args:{action:'inspect',ref:'f0'}},extra={})=>({advice_id:r.checkpoint().task!.id,decision:'adopt',reason:'The letter is the observed blocker.',evidence_quote:'Fictional application',operation_tool:op.name,...(op.name==='browser_action'?{operation_action:op.args.action}:{}),operation_purpose:'Inspect or repair the current observed control.',verification:goal,...extra});
 const verify=(r:SpecialistRecovery,assessment='resolved')=>({advice_id:r.checkpoint().task!.id,assessment,result_quote:'Cover letter',observation_quote:'Fictional application',reason:'Compared actual operation and current page evidence.'});
+function complete(r:SpecialistRecovery,name:string,args:Record<string,unknown>,result:string,failed:boolean){assert.equal(r.permit(name,args),undefined);r.complete(name,args,result,failed);}
 function start(){const r=new SpecialistRecovery();r.observe(observation());r.accept(advice);return r;}
 
 test('required recovery generation keeps policy, candidate facts and fresh evidence without replaying obsolete plans',()=>{
@@ -41,19 +42,19 @@ test('documented target defaults match the committed native action without accep
  assert.match(r.permit('browser_action',{...actual,sends_application:true})!,/Not executed/);
  assert.match(r.permit('browser_action',{...actual,locator:{...actual.locator,value:'Different target'}})!,/Not executed/);
  assert.match(r.permit('browser_action',{...actual,target_mode:'selector',selector:'#other'})!,/Not executed/);
- r.complete('browser_action',actual,'Cover letter recovery: native label clicked',false);assert.equal(r.requiredTool,'check_specialist_recovery');
+ complete(r,'browser_action',actual,'Cover letter recovery: native label clicked',false);assert.equal(r.requiredTool,'check_specialist_recovery');
  r.observe(observation());r.check(verify(r,'no_progress'));
- assert.throws(()=>r.respond(plan(r,{name:'browser_action',args}),tools),/already attempted/,'adding default metadata cannot evade repeated-operation history');
+ r.respond(plan(r,{name:'browser_action',args}),tools);assert.match(r.permit('browser_action',actual)!,/already ran/,'adding default metadata cannot evade repeated-operation history');
 });
 test('a plan or fabricated result cannot establish completion; real letter inspection can',()=>{
  const r=start();r.respond(plan(r),tools);
  assert.throws(()=>r.check(verify(r)),/fresh/);
- r.complete('browser_action',{action:'inspect',ref:'f0'},'Cover letter is empty',false);r.observe(observation());
+ complete(r,'browser_action',{action:'inspect',ref:'f0'},'Cover letter is empty',false);r.observe(observation());
  assert.throws(()=>r.check(verify(r)),/not verified/);
  assert.throws(()=>r.check({...verify(r),result_quote:'Invented receipt'}),/actual recovery/);
  r.check(verify(r,'no_progress'));
  r.respond(plan(r,{name:'browser_action',args:{action:'fill',ref:'f0',value:goal.value}}),tools);
- r.complete('browser_action',{action:'fill',ref:'f0',value:goal.value},'Cover letter updated',false);r.observe(observation('Step 2',goal.value));
+ complete(r,'browser_action',{action:'fill',ref:'f0',value:goal.value},'Cover letter updated',false);r.observe(observation('Step 2',goal.value));
  r.check(verify(r));assert.equal(r.pending,false);
  r.accept(advice);assert.equal(r.pending,true,'the same advice on the new observed state creates a fresh obligation');
 });
@@ -62,15 +63,15 @@ test('quotes use actual rendered field rows and decoded native results, while ex
  const r=new SpecialistRecovery(),o=observation('Step 2',goal.value);r.observe(o);r.accept(advice);
  const row=renderObservation(o).split('\n').find(line=>line.includes('[textarea]'))!.trim();
  assert.ok(row.includes('f0'));r.respond(plan(r,undefined,{evidence_quote:row,decision:'alternative',verification:{...goal,target:'f0'}}),tools);
- r.complete('browser_action',{action:'inspect',ref:'f0'},JSON.stringify({ref:'f0',label:'Cover letter',value:goal.value,description:'Native "verified" readback'}),false);r.observe(o);
+ complete(r,'browser_action',{action:'inspect',ref:'f0'},JSON.stringify({ref:'f0',label:'Cover letter',value:goal.value,description:'Native "verified" readback'}),false);r.observe(o);
  r.check({...verify(r),result_quote:'Native "verified" readback',observation_quote:row});assert.equal(r.pending,false);
 });
 test('Treasury-style Back/Next cycle does not count as progress or satisfy the letter goal',()=>{
  const r=start(),back={name:'browser_action',args:{action:'click',ref:'a0'}},next={name:'browser_action',args:{action:'click',ref:'a1'}};
- r.respond(plan(r,back),tools);r.complete(back.name,back.args,'Cover letter repair: Back executed',false);r.observe(observation('Step 4'));r.check(verify(r,'progress'));
- r.respond(plan(r,next),tools);r.complete(next.name,next.args,'Cover letter repair: Next executed',false);r.observe(observation());
+ r.respond(plan(r,back),tools);complete(r,back.name,back.args,'Cover letter repair: Back executed',false);r.observe(observation('Step 4'));r.check(verify(r,'progress'));
+ r.respond(plan(r,next),tools);complete(r,next.name,next.args,'Cover letter repair: Next executed',false);r.observe(observation());
  assert.throws(()=>r.check(verify(r)),/not verified/);assert.throws(()=>r.check(verify(r,'progress')),/No new verified progress/);
- r.check(verify(r,'no_progress'));assert.throws(()=>r.respond(plan(r,back),tools),/already attempted/);
+ r.check(verify(r,'no_progress'));r.respond(plan(r,back),tools);assert.match(r.permit(back.name,back.args)!,/already ran/);
  // A genuinely different targeted inspection is still available.
  r.respond(plan(r),tools);assert.equal(r.requiredTool,'browser_action');
 });
@@ -79,34 +80,43 @@ test('incorrect advice can be rejected only with current evidence and a checked 
  assert.throws(()=>r.respond(plan(r,undefined,{decision:'reject',evidence_quote:'Imaginary error message'}),tools),/current observed evidence/);
  const alternative={kind:'visible-text',target:'Step 5',value:'Step 5'};
  r.respond(plan(r,undefined,{decision:'reject',reason:'Current page contradicts the specialist assumption; inspect it directly.',verification:alternative}),tools);
- r.complete('browser_action',{action:'inspect',ref:'f0'},'Cover letter page is Step 5',false);r.observe(observation());r.check(verify(r));assert.equal(r.pending,false);
+ complete(r,'browser_action',{action:'inspect',ref:'f0'},'Cover letter page is Step 5',false);r.observe(observation());r.check(verify(r));assert.equal(r.pending,false);
 });
 test('failed operations, current state drift, stale decisions and old verification cannot clear recovery',()=>{
  const r=start();r.respond(plan(r),tools);r.observe(observation('Different page'));
  assert.match(r.permit('browser_action',{action:'inspect',ref:'f0'})!,/page changed/);assert.equal(r.requiredTool,'respond_to_specialist');
  assert.throws(()=>r.respond({...plan(r),advice_id:'wrong'},tools),/stale/);
- r.respond(plan(r),tools);r.complete('browser_action',{action:'inspect',ref:'f0'},'Cover letter inspection failed',true);
+ r.respond(plan(r),tools);complete(r,'browser_action',{action:'inspect',ref:'f0'},'Cover letter inspection failed',true);
  assert.throws(()=>r.check(verify(r)),/fresh/);r.observe(observation('Different page',goal.value));
  assert.throws(()=>r.check(verify(r)),/not verified/);r.check(verify(r,'blocked'));
  assert.match(r.permit('browser_action',{action:'click',sends_application:true})!,/Not executed/);assert.equal(r.requiredTool,'finish');assert.equal(r.permit('finish',{status:'skipped'}),undefined);
 });
 test('resumption retains the exact operation and verification obligation; private inputs never prove recovery',()=>{
  const r=start();r.respond(plan(r),tools);const resumed=new SpecialistRecovery(structuredClone(r.checkpoint()));resumed.observe(observation());
- assert.equal(resumed.requiredTool,'browser_action');resumed.complete('browser_action',{action:'inspect',ref:'f0'},'Cover letter readback',false);
+ assert.equal(resumed.requiredTool,'browser_action');complete(resumed,'browser_action',{action:'inspect',ref:'f0'},'Cover letter readback',false);
  resumed.observe({...observation('Step 2',goal.value),fields:[{...observation().fields[0],sensitive:true,currentValue:goal.value}]});
  assert.throws(()=>resumed.check(verify(resumed)),/not verified/);
 });
+
+test('an older retained exact-operation checkpoint keeps its original argument restriction',()=>{
+ const r=start();r.respond(plan(r),tools);assert.equal(r.permit('browser_action',{action:'inspect',ref:'f0'}),undefined);
+ const saved=structuredClone(r.checkpoint());delete saved.task!.plan;
+ const resumed=new SpecialistRecovery(saved);resumed.observe(observation());
+ assert.match(resumed.permit('browser_action',{action:'inspect',ref:'different'})!,/cannot be retargeted/);
+ assert.equal(resumed.permit('browser_action',{action:'inspect',ref:'f0',target_mode:'ref'}),undefined);
+});
 test('unsafe specialist operations are refused and budget/receipt bookkeeping remains possible',()=>{
  const r=start();
- for(const op of [{name:'browser_action',args:{action:'click',sends_application:true}},{name:'browser_action',args:{action:'script',code:'unsafe'}},{name:'finish',args:{status:'applied'}}])assert.throws(()=>r.respond(plan(r,op),tools),/cannot authorize|supported normal/);
+ for(const op of [{name:'browser_action',args:{action:'script',code:'unsafe'}},{name:'finish',args:{status:'applied'}}])assert.throws(()=>r.respond(plan(r,op),tools),/supported native|offered normal/);
+ r.respond(plan(r,{name:'browser_action',args:{action:'click'}}),tools);assert.match(r.permit('browser_action',{action:'click',sends_application:true})!,/cannot send/);
  assert.equal(r.permit('finish',{status:'skipped'},true),undefined,'budget completion cannot be trapped');
  assert.equal(r.permit('finish',{status:'applied'},false,true),undefined,'already-observed receipt recording cannot be trapped');
- r.observe({...observation(),inspectionError:'Browser observation failed'});assert.equal(r.requiredTool,undefined);assert.equal(r.permit('browser_action',{action:'inspect'}),undefined);assert.match(r.permit('browser_action',{action:'click'})!,/Not executed/);
+ r.observe({...observation(),inspectionError:'Browser observation failed'});assert.equal(r.requiredTool,undefined);assert.equal(r.permit('browser_action',{action:'inspect'}),undefined);assert.equal(r.permit('browser_action',{action:'take_snapshot'}),undefined);assert.match(r.permit('browser_action',{action:'click'})!,/Not executed/);
 });
 test('invalid accountability responses stop after one correction instead of making another reporting loop',()=>{
  const r=start();r.failedCheck('respond_to_specialist','Unquoted evidence');assert.equal(r.requiredTool,'respond_to_specialist');
  const resumed=new SpecialistRecovery(structuredClone(r.checkpoint()));resumed.observe(observation());resumed.failedCheck('respond_to_specialist','Unquoted evidence');
- assert.equal(resumed.requiredTool,'finish');assert.match(resumed.render(),/verification could not be completed/);
+ assert.equal(resumed.requiredTool,'finish');assert.match(resumed.permit('finish',{status:'needs-human'})!,/Not executed/,'a broken recovery protocol cannot manufacture a candidate question');assert.match(resumed.render(),/verification could not be completed/);
  assert.match(resumed.permit('finish',{status:'applied'})!,/Not executed/);
  resumed.reconsider();assert.equal(resumed.requiredTool,'respond_to_specialist','a normal contradictory halt assessment can request a different actual repair');
 });

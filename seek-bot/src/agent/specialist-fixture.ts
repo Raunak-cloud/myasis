@@ -24,7 +24,7 @@ export function specialistFixtureReply(body: any): Response | undefined {
     const pageEvidence=text.split('Current observation evidence for exact quotations: ')[1];
     const quote=JSON.parse('"'+pageEvidence.match(/"url":"([^"]+)"/)[1]+'"');
     const args=forced==='respond_to_specialist'?{advice_id:task.advice_id,decision:'adopt',reason:'Read the actual controlled fixture once before preserving its intentional technical stop.',evidence_quote:quote,
-      operation_json:JSON.stringify({name:'browser_action',args:{action:'inspect',target_mode:'selector',selector:'body'}}),verification:task.verification}
+      operation_tool:'browser_action',operation_action:'inspect',operation_purpose:'Inspect the actual controlled fixture body before its technical stop.',verification:task.verification}
       :{advice_id:task.advice_id,assessment:'blocked',result_quote:task.result.slice(0,200),observation_quote:quote,reason:'The isolated fixture supplies no supported recovery path; preserve its controlled unresolved outcome.'};
     return Response.json({usage:{prompt_tokens:0,completion_tokens:0},choices:[{message:{role:'assistant',content:null,tool_calls:[{id:'fixture-specialist-'+forced,type:'function',function:{name:forced,arguments:fixtureToolArguments(body,forced,args)}}]}}]});
   }
