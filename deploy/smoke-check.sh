@@ -33,6 +33,7 @@ node --test server/form-lab/engine.test.mjs
 ../seek-bot/node_modules/.bin/tsx server/site-accounts.test.ts
 ../seek-bot/node_modules/.bin/tsx server/answers.test.ts
 ../seek-bot/node_modules/.bin/tsx server/attention-lifecycle.test.ts
+../seek-bot/node_modules/.bin/tsx server/employer-account-attention.test.ts
 ../seek-bot/node_modules/.bin/tsx scripts/test-admin-user-preferences.mts
 ../seek-bot/node_modules/.bin/tsx server/application-review-holds.test.ts
 ../seek-bot/node_modules/.bin/tsx server/application-review-document-restore.test.ts
@@ -68,6 +69,7 @@ if [ "$REPLAY_REQUIRED" = 1 ]; then
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/gmail-spam-browser.test.js
   node dist/site-credentials.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/authentication-state.test.js dist/agent/authentication-contract.test.js dist/site-auth.test.js
+  CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/employer-account-first.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/budget-workflows.test.js
   node dist/fit-assessment.test.js
   node dist/fit-intent-provenance.test.js

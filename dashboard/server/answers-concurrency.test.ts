@@ -21,7 +21,7 @@ try {
   await admin.query(`CREATE SCHEMA ${schema}`);created=true;
   pool.options.options=`-c search_path=${schema}`;pool.options.max=6;
   await query(`CREATE TABLE saved_answers(user_id BIGINT,question TEXT,answer TEXT,question_schema JSONB,answer_value JSONB,created_at TIMESTAMPTZ DEFAULT now(),UNIQUE(user_id,question));
-    CREATE TABLE run_events(id BIGSERIAL,user_id BIGINT,job_id TEXT,status TEXT,title TEXT,company TEXT,reason TEXT,url TEXT,ts TIMESTAMPTZ DEFAULT clock_timestamp(),questions JSONB,dismissed_at TIMESTAMPTZ,
+    CREATE TABLE run_events(id BIGSERIAL,user_id BIGINT,job_id TEXT,status TEXT,title TEXT,company TEXT,reason TEXT,url TEXT,ts TIMESTAMPTZ DEFAULT clock_timestamp(),questions JSONB, account_access JSONB,dismissed_at TIMESTAMPTZ,
       review_disposition TEXT,review_listing_fingerprint TEXT,review_context_fingerprint TEXT,review_expires_at TIMESTAMPTZ,review_content_fingerprint TEXT,UNIQUE(user_id,job_id,status,ts));
     CREATE TABLE applications(user_id BIGINT,job_id TEXT);`);
   const snapshot=(job:string)=>sealQuestionSnapshot({version:2,source:{origin:'https://employer.test',path:`/jobs/${job}`},prompt:'Required choice',context:[],help:[],completeness:'complete',controls:[{id:'part0',label:'Required choice',kind:'radio',required:true,multiple:false,constraints:{},choices:[{id:'choice0',label:'First',value:'first',disabled:false},{id:'choice1',label:'Second',value:'second',disabled:false}]}]});

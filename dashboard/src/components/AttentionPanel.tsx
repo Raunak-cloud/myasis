@@ -4,7 +4,7 @@ import { userFacingError } from '../run-messages';
 import { attentionCopy } from '../attention-copy';
 import { blockedQuestionKey } from '../../../seek-bot/src/blocked-question-key';
 
-export type AttentionKind = 'captcha' | 'verification' | 'question' | 'off-platform' | 'error';
+export type AttentionKind = 'captcha' | 'verification' | 'question' | 'off-platform' | 'error' | 'account-access';
 
 import type { CapturedQuestion as BlockedQuestion } from '../../../seek-bot/src/question-snapshot';
 import type { QuestionResponse } from '../../../seek-bot/src/question-snapshot';
@@ -22,6 +22,7 @@ export interface AttentionItem {
   /** Questions the candidate can answer right here to unblock the job. */
   questions?: BlockedQuestion[];
   needsQuestionCapture?: boolean;
+  accountAccess?: import('../../../seek-bot/src/employer-account').AccountAccess;
 }
 
 /** The question as the candidate should read it: the written-out one when there is one, else the form's own label. */
@@ -176,8 +177,10 @@ function AttentionRow({ item, onCleared }: { item: AttentionItem; onCleared?: ()
         </td>
         <td className="job-meta attention-reason">
           {/* With a question to answer, the question is the whole story; the reason only repeated it. */}
-          {captured.length>0&&<AnswerForm item={{...item,questions:captured}} onSaved={onCleared} />}
-          {needsCapture&&<p>{attentionCopy.recapture}</p>}
+          {item.kind==='account-access'?<p>{item.reason}</p>:<>
+            {captured.length>0&&<AnswerForm item={{...item,questions:captured}} onSaved={onCleared} />}
+            {needsCapture&&<p>{attentionCopy.recapture}</p>}
+          </>}
         </td>
         <td className="attention-when nowrap job-meta">{relative(item.at)}</td>
         <td className="attention-open nowrap">
@@ -191,6 +194,7 @@ function AttentionRow({ item, onCleared }: { item: AttentionItem; onCleared?: ()
 }
 
 const KIND: Record<AttentionKind, { label: string; tone: string; what: string }> = {
+  'account-access': {label:'Sign-in needed',tone:'warn',what:'Sign in to your existing employer account in your Owtomate browser.'},
   verification: {
     label: 'Work rights',
     tone: 'warn',

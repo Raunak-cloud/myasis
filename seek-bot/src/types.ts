@@ -177,6 +177,7 @@ export type ApplyOutcome = (
       url: string;
       /** Employer questions the profile could not answer — the dashboard asks the candidate. */
       questions?: BlockedQuestion[];
+      accountAccess?: import('./employer-account.js').AccountAccess;
     }
   | { status: 'error'; jobId: string; error: string }
 ) & {

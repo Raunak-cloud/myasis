@@ -12,6 +12,7 @@ export interface RecoveryWork {
   letterWitness?: ReturnType<AgentFiles['checkpointLetterWitness']>;
   resumeUsed?: string; resumeName?: string; files: ReturnType<AgentFiles['checkpoint']>;
   pendingCredentials?: Array<[string, NonNullable<ToolContext['pendingCredentials']> extends Map<string, infer T> ? T : never]>;
+  authenticationRealm?: string;
 }
 interface Operation { id: string; tool: string; action?: string; mutating: boolean; startedAt: string }
 interface Evidence { tool: string; action?: string; result: string; disposition: string; at: string }

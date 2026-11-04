@@ -1,4 +1,5 @@
 import { query } from './index.js';
+import { accountAccess } from '../../../seek-bot/src/employer-account.js';
 import type { CandidateProfile } from '../candidate-profile.js';
 
 /**
@@ -203,6 +204,7 @@ interface RunEventRow {
   ts?: string | Date;
   /** Employer questions the run could not answer, for the answer bank — see attention.ts for the shape. */
   questions?: unknown[] | null;
+  accountAccess?: unknown;
   reviewCache?: {
     disposition: string;
     listingFingerprint?: string | null;
@@ -219,10 +221,11 @@ export async function insertRunEventRow(uid: string, e: RunEventRow): Promise<vo
        SELECT pg_advisory_xact_lock(hashtextextended($15,0))
      ) INSERT INTO run_events (
        user_id, job_id, status, title, company, reason, url, ts, questions,
-       review_disposition, review_listing_fingerprint, review_context_fingerprint, review_expires_at, review_content_fingerprint
-     ) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14 FROM owner_job_lock
+       review_disposition, review_listing_fingerprint, review_context_fingerprint, review_expires_at, review_content_fingerprint, account_access
+     ) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$16 FROM owner_job_lock
      ON CONFLICT (user_id, job_id, status, ts) DO UPDATE SET
        questions = COALESCE(EXCLUDED.questions, run_events.questions),
+       account_access = COALESCE(EXCLUDED.account_access, run_events.account_access),
        review_disposition = COALESCE(EXCLUDED.review_disposition, run_events.review_disposition),
        review_listing_fingerprint = COALESCE(EXCLUDED.review_listing_fingerprint, run_events.review_listing_fingerprint),
        review_context_fingerprint = COALESCE(EXCLUDED.review_context_fingerprint, run_events.review_context_fingerprint),
@@ -237,6 +240,7 @@ export async function insertRunEventRow(uid: string, e: RunEventRow): Promise<vo
       e.reviewCache?.expiresAt ?? null,
       e.reviewCache?.contentFingerprint ?? null,
       `candidate-answers:${uid}:${e.jobId??''}`,
+      e.status==='needs-human'&&accountAccess(e.accountAccess)?JSON.stringify(accountAccess(e.accountAccess)):null,
     ],
   );
 }

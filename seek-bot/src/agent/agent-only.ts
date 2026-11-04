@@ -41,7 +41,8 @@ import { addObservationScreenshot, looksUnrendered, observe, waitForApplicationS
 import { locate } from './browser-target.js';
 import { browserTarget, browserTargetProperties, hasBrowserTarget, coordinateTarget, BrowserTargetInputError } from './browser-target.js';
 import { toolInputIssue } from './tool-input.js';
-import { doCompleteAuthentication, doRecordAuthenticationResult, doEnterEmailedCode, doOpenEmailedLink } from './authentication.js';
+import { doCompleteAuthentication, doRecordAuthenticationResult, doEnterEmailedCode, doOpenEmailedLink, doCheckEmployerAccount, authenticationAccountSummary } from './authentication.js';
+import { isAuthenticationPasswordField } from '../site-auth.js';
 import { ok, failedToolResult, type AgentTermination, type ToolContext, type ToolResult } from './context.js';
 import { authenticationTools } from './auth-tools.js';
 import { MAX_BROWSER_BATCH, browserWaitProperties, nativeReadback, nativeInspect, nativeSnapshot, nativeScroll, browserFailureEvidence, waitAfterAction, hasWaitCondition, evaluateBrowser } from './native-browser.js';
@@ -287,7 +288,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     captured: retained?.captured ?? approved?.answers.map(answer => ({ ...answer })) ?? [], actions: retained?.actions ?? [], log,
     uploadedDocuments: files.checkpointUploads().flatMap(upload => upload.files.map(file => ({ fileId: file.id, sha256: file.sha256, coverLetterDigest: file.coverLetterDigest }))),
     ...(retained ? { coverLetter:retained.coverLetter,documents:retained.documents,letterWitness:retained.letterWitness,resumeUsed:retained.resumeUsed,resumeName:retained.resumeName,
-      pendingCredentials:retained.pendingCredentials?new Map(retained.pendingCredentials):undefined } : {}) };
+      pendingCredentials:retained.pendingCredentials?new Map(retained.pendingCredentials):undefined,authenticationRealm:retained.authenticationRealm } : {}) };
   const coverLetterForRun = (text: string) => approved?.coverLetter ?? cleanCoverLetter(text);
   const selectionInstruction = options.job.source === 'chosen'
     ? 'USER-SELECTED APPLICATION: The user explicitly selected this exact job for application. Their current selection overrides ordinary search keywords and usual role preferences for this job only. Do not reject it by repeating a job-fit review or treating a different career title as a prohibition on applying. Complete the application truthfully using the actual CV and transferable experience; never claim experience, qualifications or legal permissions the candidate does not have. Answer eligibility questions honestly, including No when appropriate. If a required eligibility condition actually prevents applying or a consequential personal fact is unknown, report the exact observed condition/question. This selection does not authorize duplicate or uncertain sends, bypass candidate confirmation, or change saved preferences.'
@@ -347,7 +348,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
   if (restored.controls?.answerSources) for (const [label, source] of restored.controls.answerSources as Array<[string,{identity:string;label:string}]>) answerSources.set(label,source);
   const recoveryWork = (): RecoveryWork => ({ captured:ctx.captured,
     actions:ctx.actions,coverLetter:ctx.coverLetter,documents:ctx.documents,resumeUsed:ctx.resumeUsed,resumeName:ctx.resumeName,files:files.checkpoint(),uploads:files.checkpointUploads(),letterWitness:files.checkpointLetterWitness(),
-    pendingCredentials:ctx.pendingCredentials?[...ctx.pendingCredentials]:undefined });
+    pendingCredentials:ctx.pendingCredentials?[...ctx.pendingCredentials]:undefined,authenticationRealm:ctx.authenticationRealm });
   const recoveryControls = () => ({ recovery:recovery.checkpoint(),specialistRecovery:specialistRecovery.checkpoint(),turn:turnCoordinator.checkpoint(),haltReview,specialistEvidence:[...specialistEvidence],answerSources:[...answerSources],
     budget:{spentUsd:meter.totals.costUsd,actionAllowanceUsd:meter.limitUsd,maximumUsd:meter.maximum,finalizing:meter.finalizing} });
   const syncRecovery = () => shared.checkpoint(recoveryWork(), recoveryControls(),
@@ -765,6 +766,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       log(`  Cover-letter shortcut: ${result.status} (${result.stage}); ${result.completed.join('; ')}`);
       return ok(JSON.stringify(result), 'reobserve');
     }
+    if (name === 'check_employer_account') return doCheckEmployerAccount(ctx,args);
     if (name === 'complete_authentication') return doCompleteAuthentication(ctx, args);
     if (name === 'enter_emailed_code') return doEnterEmailedCode(ctx, args);
     if (name === 'open_emailed_link') return doOpenEmailedLink(ctx, args);
@@ -1024,6 +1026,11 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       }
       if (!pendingDialog && !ctx.observation.inspectionError && isExternal(ctx.page.url())) await recordFormPage(ctx.page, ctx.observation);
       ctx.observation.fields = ctx.observation.fields.map(field => field.sensitive || field.inputType === 'password' ? { ...field, currentValue: '[private credential]' } : field);
+      if(!pendingDialog&&!ctx.observation.inspectionError&&ctx.observation.fields.some(isAuthenticationPasswordField)){
+        const checked=await doCheckEmployerAccount(ctx,{});
+        if(checked.kind==='terminal'){terminal=checked.outcome;finished=true;break;}
+        lastNote+='\n'+authenticationAccountSummary(ctx);
+      }
       // Inspect the results of already-executed actions before enforcing the
       // next-call budget. This does not run another model or replay a write.
       if (!pendingDialog && !ctx.observation.inspectionError) {

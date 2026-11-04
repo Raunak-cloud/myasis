@@ -3,6 +3,7 @@ import { readEnv } from './runner.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { userDir } from './userdata.js';
+import { employerAccountSite, sharedEmployerHost } from '../../seek-bot/src/employer-account.js';
 
 /**
  * Employer-site accounts Myasis created or used for a candidate.
@@ -54,7 +55,9 @@ type SiteAuthModule = { sitePassword: (url: string, email: string, secret?: stri
 function credentialFor(userId: string, site: string, email: string): unknown {
   const file = resolve(userDir(userId), 'site-credentials.json');
   try {
-    const credential = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8'))[`${site.toLowerCase().replace(/^www\./, '')}|${email.trim().toLowerCase()}`] : null;
+    const scoped=employerAccountSite(`https://${site}`);
+    if(sharedEmployerHost(site)&&!scoped.includes('/?'))return null;
+    const credential = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8'))[`${scoped}|${email.trim().toLowerCase()}`] : null;
     return credential?.format === 'readable-v1' && (credential.status === undefined || credential.status === 'accepted') ? credential : null;
   } catch {
     return null;

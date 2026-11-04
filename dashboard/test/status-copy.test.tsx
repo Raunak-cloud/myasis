@@ -8,6 +8,7 @@ import { PreparedApplications } from '../src/components/PreparedApplications';
 import { plainReason, preparedStatusLabel, userFacingError } from '../src/run-messages';
 import { attentionCopy } from '../src/attention-copy';
 import { sealQuestionSnapshot } from '../../seek-bot/src/question-snapshot-node';
+import { accountAccessMessage } from '../../seek-bot/src/employer-account';
 
 test('attention loading and errors never claim the list is empty', () => {
   for (const props of [{ loading: true }, { loadError: 'Could not check your jobs. Please try again.' }]) {
@@ -55,4 +56,10 @@ test('legacy rows without an original question request recapture instead of expo
   assert.doesNotMatch(html, /<input|<select|<textarea|Save answers/);
   assert.doesNotMatch(html, /MCP|unreachable|programmatically/);
   assert.equal(plainReason('Read the verification link through Gmail MCP.'), 'Read the verification link through Gmail.');
+});
+
+test('an existing employer account is a clear sign-in task without a password answer form',()=>{
+  const html=renderToStaticMarkup(<AttentionPanel items={[{jobId:'account',title:'Synthetic analyst',company:'Fixture Employer',kind:'account-access',reason:accountAccessMessage,url:'https://employer.fixture.invalid/login',at:new Date().toISOString(),accountAccess:{version:1,kind:'existing-account',site:'employer.fixture.invalid'}}]}/>);
+  assert.match(html,/Sign-in needed/);assert.match(html,/no saved login/);assert.match(html,/Owtomate browser/);
+  assert.doesNotMatch(html,/<input|<textarea|Save answers|original question/);
 });

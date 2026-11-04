@@ -16,6 +16,7 @@ export type AgentTermination =
       /** The technical version, for the log and the trace only. */
       detail?: string;
       questions?: BlockedQuestion[];
+      accountAccess?: import('../employer-account.js').AccountAccess;
     }
   | { status: 'off-platform'; redirectedTo: string }
   | { status: 'already-applied'; reason: string }
@@ -39,6 +40,7 @@ export interface ToolContext {
   letterWitness?: import('../types.js').FormField[];
   uploadedDocuments?: Array<{ fileId: string; sha256: string; coverLetterDigest?: string }>;
   pendingCredentials?: Map<string, SiteCredential & { purpose?: 'create_account' | 'reset_password' }>;
+  authenticationRealm?: string;
   resumeUsed?: string;
   resumeName?: string;
   log: (line: string) => void;

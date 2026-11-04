@@ -97,7 +97,7 @@ function bindGoal(v:Verification,o?:Observation):Verification {
 function readOnly(op:Operation):boolean {
  return isSnapshotOperation(op.name,op.args)||op.name==='browser_action'&&op.args.action==='inspect';
 }
-const workTools=new Set(['browser_action','browser_batch','take_snapshot','complete_authentication','enter_emailed_code','open_emailed_link','record_authentication_result','wait_for_verification','render_approved_cover_letter','convert_file','create_file','read_candidate_evidence','read_browser_experience']);
+const workTools=new Set(['browser_action','browser_batch','take_snapshot','check_employer_account','complete_authentication','enter_emailed_code','open_emailed_link','record_authentication_result','wait_for_verification','render_approved_cover_letter','convert_file','create_file','read_candidate_evidence','read_browser_experience']);
 function operationKey(op:Operation,o:Observation):string {
  const args={...normalizedOperation(op).args};
  const control=[...o.fields,...o.actions].find(c=>c.ref===args.ref);

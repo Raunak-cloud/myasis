@@ -19,7 +19,7 @@ export function hostOf(url: string): string {
  */
 export function sitePassword(url: string, email: string, secret = process.env.SITE_AUTH_SECRET, credential?: SiteCredential | null): string | null {
   if (!secret?.trim() || !email.trim()) return null;
-  if (credential?.format === 'readable-v1') return readablePassword(url, email, secret.trim(), credential.rules ?? {});
+  if (credential?.format === 'readable-v1') return readablePassword(url, email, secret.trim(), credential.rules ?? {}, credential.derivationScope);
   const digest = createHmac('sha256', secret.trim())
     .update(`${email.trim().toLowerCase()}\n${hostOf(url)}`)
     .digest('base64url')
@@ -49,6 +49,8 @@ export interface PasswordRules {
 export interface SiteCredential {
   format: 'readable-v1';
   rules?: PasswordRules;
+  /** New accounts bind password derivation to the employer realm. Omission preserves old passwords. */
+  derivationScope?: string;
 }
 
 const SYMBOLS = '!@#$%&*?+=.';
@@ -80,8 +82,8 @@ export function normalizeRules(input: unknown): PasswordRules {
  * Still unique per site and person and derived from the deployment secret:
  * the model reads the rules, but never chooses or sees the password.
  */
-function readablePassword(url: string, email: string, secret: string, rules: PasswordRules): string {
-  const bytes = createHmac('sha512', secret).update(`${email.trim().toLowerCase()}\n${hostOf(url)}\nreadable-v1`).digest();
+function readablePassword(url: string, email: string, secret: string, rules: PasswordRules, scope?: string): string {
+  const bytes = createHmac('sha512', secret).update(`${email.trim().toLowerCase()}\n${scope ?? hostOf(url)}\nreadable-v1`).digest();
   let at = 0;
   const next = () => {
     const value = (bytes[at % bytes.length] << 8) | bytes[(at + 1) % bytes.length];

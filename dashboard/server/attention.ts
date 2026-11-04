@@ -5,6 +5,7 @@ import { blockedQuestionKey, mergePendingQuestions } from '../../seek-bot/src/bl
 export { normaliseQuestions };
 import { plainReason } from '../src/run-messages.js';
 import { attentionCopy } from '../src/attention-copy.js';
+import { accountAccess, accountAccessMessage, type AccountAccess } from '../../seek-bot/src/employer-account.js';
 export { plainReason } from '../src/run-messages.js';
 
 /**
@@ -14,7 +15,7 @@ export { plainReason } from '../src/run-messages.js';
  * `db/run-sync.ts`) and `applications`, both filtered by `user_id`.
  */
 
-type AttentionKind = 'question';
+type AttentionKind = 'question' | 'account-access';
 
 interface AttentionItem {
   jobId: string;
@@ -26,6 +27,7 @@ interface AttentionItem {
   at: string;
   /** Questions the candidate can answer right here to unblock the job. */
   questions?: BlockedQuestion[];
+  accountAccess?: AccountAccess;
 }
 
 /** Public response boundary. Historical diagnostics and unverified legacy
@@ -33,6 +35,8 @@ interface AttentionItem {
  * presented as questions to the candidate. Do not spread internal properties. */
 export function candidateAttention(items: AttentionItem[]) {
   return items.map(item=>{
+    const access=accountAccess(item.accountAccess);
+    if(access)return {jobId:item.jobId,title:item.title,company:item.company,kind:'account-access' as const,reason:accountAccessMessage,url:item.url,at:item.at,accountAccess:access,questions:[],needsQuestionCapture:false};
     const questions=normaliseQuestions(item.questions).filter(question=>question.snapshot);
     const needsQuestionCapture=!questions.length||questions.length!==(item.questions?.length??0);
     return {jobId:item.jobId,title:item.title,company:item.company,kind:item.kind,
@@ -53,6 +57,7 @@ export interface RunEventRow {
   url: string | null;
   ts: Date | string;
   questions: unknown;
+  account_access?: unknown;
   dismissed_at?: Date | string | null;
 }
 
@@ -81,6 +86,7 @@ export function resolveAttention(events: RunEventRow[], applied: ReadonlySet<str
     || (BigInt(a.id ?? 0) < BigInt(b.id ?? 0) ? -1 : BigInt(a.id ?? 0) > BigInt(b.id ?? 0) ? 1 : 0))) {
     const at = new Date(e.ts).getTime();
     if (!e.job_id || applied.has(e.job_id) || !Number.isFinite(at) || e.dismissed_at || at <= (dismissedThrough.get(e.job_id) ?? -Infinity)) continue;
+    if(e.status==='answered'&&latest.get(e.job_id)?.kind==='account-access')continue;
     if (e.status === 'answered' && Array.isArray(e.questions) && e.questions.length) {
       const answered = new Set(normaliseQuestions(e.questions).map(blockedQuestionKey));
       const pending = latest.get(e.job_id);
@@ -98,6 +104,12 @@ export function resolveAttention(events: RunEventRow[], applied: ReadonlySet<str
       continue;
     }
     if (!ATTENTION_STATUSES.has(e.status)) continue;
+
+    const access=accountAccess(e.account_access);
+    if(access){
+      latest.set(e.job_id,{jobId:e.job_id,title:e.title??`Job ${e.job_id}`,company:e.company??'-',kind:'account-access',reason:accountAccessMessage,url:e.url??`https://${access.site}`,at:new Date(at).toISOString(),accountAccess:access});
+      continue;
+    }
 
     const reason = e.reason ?? 'stopped';
     const questions = normaliseQuestions(e.questions);
@@ -138,12 +150,12 @@ export async function loadAttention(userId: string, read: typeof query = query):
             AND (status = ANY($2::text[]) OR (status = 'needs-human' AND dismissed_at IS NOT NULL))
           GROUP BY job_id
        )
-       SELECT e.id, e.job_id, e.status, e.title, e.company, e.reason, e.url, e.ts, e.questions,
+       SELECT e.id, e.job_id, e.status, e.title, e.company, e.reason, e.url, e.ts, e.questions, e.account_access,
               (extract(epoch FROM e.ts) * 1000000)::bigint::text AS order_at
          FROM run_events e LEFT JOIN boundaries b ON b.job_id = e.job_id
         WHERE e.user_id = $1 AND e.job_id IS NOT NULL AND e.dismissed_at IS NULL
           AND (e.status = ANY($2::text[]) OR e.status = 'needs-human')
-          AND (b.resolved_at IS NULL OR e.ts >= b.resolved_at)
+          AND (b.resolved_at IS NULL OR e.ts >= b.resolved_at OR e.account_access IS NOT NULL)
           AND (b.dismissed_through IS NULL OR e.ts > b.dismissed_through)
         ORDER BY e.ts, e.id`,
       [userId, RESOLVED_STATUSES],

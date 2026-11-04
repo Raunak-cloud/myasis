@@ -13,7 +13,7 @@ const pool = getPool(); pool.options.max = 1;
 try {
   await query(`CREATE TEMP TABLE saved_answers(user_id BIGINT, question TEXT, answer TEXT, question_schema JSONB, answer_value JSONB, created_at TIMESTAMPTZ DEFAULT now(), UNIQUE(user_id,question))`);
   await query(`CREATE TEMP TABLE run_events(id BIGSERIAL, user_id BIGINT, job_id TEXT, status TEXT, title TEXT, company TEXT,
-    reason TEXT, url TEXT, ts TIMESTAMPTZ DEFAULT now(), questions JSONB, dismissed_at TIMESTAMPTZ,
+    reason TEXT, url TEXT, ts TIMESTAMPTZ DEFAULT now(), questions JSONB, account_access JSONB, dismissed_at TIMESTAMPTZ,
     review_disposition TEXT, review_listing_fingerprint TEXT, review_context_fingerprint TEXT,
     review_expires_at TIMESTAMPTZ, review_content_fingerprint TEXT, UNIQUE(user_id,job_id,status,ts))`);
   await query(`CREATE TEMP TABLE applications(user_id BIGINT, job_id TEXT)`);

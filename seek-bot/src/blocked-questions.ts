@@ -1,6 +1,7 @@
 import type { ApplyOutcome, BlockedQuestion } from './types.js';
 import { blockedQuestionKey } from './blocked-question-key.js';
 import { verifiedQuestionSnapshot } from './question-snapshot-node.js';
+import { accountAccess } from './employer-account.js';
 export { blockedQuestionKey };
 
 /** A retry can discover another missing fact without erasing earlier ones.
@@ -53,6 +54,8 @@ export function normaliseBlockedQuestions(raw: unknown): BlockedQuestion[] {
 /** A stopped attempt is an attention task only when the candidate can answer it. */
 export function normaliseAttentionOutcome(outcome: ApplyOutcome): ApplyOutcome {
   if (outcome.status !== 'needs-human') return outcome;
+  const access=accountAccess(outcome.accountAccess);
+  if(access&&!outcome.submitPressed)return {...outcome,accountAccess:access,questions:[]};
   const questions = normaliseBlockedQuestions(outcome.questions).slice(0, 30);
   if (questions.length) return { ...outcome, questions };
   return {

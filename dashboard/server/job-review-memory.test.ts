@@ -24,7 +24,7 @@ test('durable rejection memory survives expiry, 500-row retention, 2000 decision
     await client.query(`CREATE TABLE users(id BIGINT PRIMARY KEY);
       CREATE TABLE review_verdicts(user_id BIGINT, job_id TEXT, verdict TEXT);
       CREATE TABLE run_events(id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL, job_id TEXT,
-        title TEXT, company TEXT, status TEXT NOT NULL, reason TEXT, url TEXT, questions JSONB,
+        title TEXT, company TEXT, status TEXT NOT NULL, reason TEXT, url TEXT, questions JSONB, account_access JSONB,
         ts TIMESTAMPTZ NOT NULL, review_disposition TEXT, review_listing_fingerprint TEXT,
         review_context_fingerprint TEXT, review_content_fingerprint TEXT, review_expires_at TIMESTAMPTZ,
         UNIQUE(user_id,job_id,status,ts));

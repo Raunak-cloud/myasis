@@ -338,6 +338,7 @@ export async function syncRunResultsToDb(
           url: e.url ?? null,
           ts: e.ts ?? new Date(),
           questions: normaliseQuestions(e.questions).slice(0, 30),
+          accountAccess: e.accountAccess,
           reviewCache: e.reviewCache ?? null,
         });
         // Any attempt, finished or not, may have left the candidate with an account.

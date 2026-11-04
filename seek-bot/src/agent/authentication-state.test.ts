@@ -47,7 +47,7 @@ test('unknown credentials, rejected logins, accepted recovery and account isolat
   assert.equal(ctx.pendingCredentials?.size,0);
   await page.setContent(pageForm);
   await doCompleteAuthentication(ctx,{purpose:'create_account',password_rules:{max_length:14},...inputs});
-  assert.ok(ctx.pendingCredentials?.size);
+  assert.ok(!ctx.pendingCredentials?.size,'a saved employer account blocks duplicate registration before generating or filling a password');
   await page.setContent(pageForm);
   await doCompleteAuthentication(ctx,{purpose:'sign_in',...inputs});
   assert.equal(await page.locator('#password').inputValue(),acceptedPassword,'an unaccepted proposal cannot displace the actual saved login');

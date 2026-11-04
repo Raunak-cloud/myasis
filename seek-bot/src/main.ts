@@ -1293,7 +1293,7 @@ async function main() {
             outcome = normaliseAttentionOutcome(outcome);
             finalOutcome = outcome;
             const rejectionCache = applicationRejectionCache(job, outcome, reviewContext);
-            logOutcome({ ...outcome, title: job.title, company: job.company, url: job.url, reviewId: approvedApplication(job)?.id,
+            logOutcome({ ...outcome, title: job.title, company: job.company, url: outcome.status==='needs-human'&&outcome.accountAccess?outcome.url:job.url, reviewId: approvedApplication(job)?.id,
               ...(rejectionCache ? { reviewCache: rejectionCache } : {}) });
             // Accounts, sign-ins and documents added are the candidate's business whatever the outcome.
             for (const action of outcome.actions ?? []) console.log(`  ℹ ${action.detail}`);

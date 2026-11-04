@@ -58,6 +58,7 @@ export function outcomeFromRun(
         reason: run.outcome.reason,
         url: finalUrl,
         questions: run.outcome.questions,
+        ...(run.outcome.accountAccess?{accountAccess:run.outcome.accountAccess}:{}),
         ...extras,
       });
     }

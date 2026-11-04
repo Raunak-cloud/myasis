@@ -403,6 +403,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS run_events_dedupe_idx
 -- Employer questions a run could not answer from the profile, so the
 -- dashboard can ask the candidate once (see saved_answers).
 ALTER TABLE run_events ADD COLUMN IF NOT EXISTS questions JSONB;
+ALTER TABLE run_events ADD COLUMN IF NOT EXISTS account_access JSONB;
 
 -- Submitted on an employer's own site rather than the job board. The stored
 -- `url` is always the board listing, so the daily employer-site allowance

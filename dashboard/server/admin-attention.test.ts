@@ -6,7 +6,7 @@ import { loadAttention } from './attention.js';
 // All tables shadow production tables in this connection. No real user data is changed.
 const pool=getPool();pool.options.max=1;
 try {
-  await query(`CREATE TEMP TABLE run_events(id BIGSERIAL,user_id BIGINT,job_id TEXT,status TEXT,title TEXT,company TEXT,reason TEXT,url TEXT,ts TIMESTAMPTZ DEFAULT now(),questions JSONB,dismissed_at TIMESTAMPTZ)`);
+  await query(`CREATE TEMP TABLE run_events(id BIGSERIAL,user_id BIGINT,job_id TEXT,status TEXT,title TEXT,company TEXT,reason TEXT,url TEXT,ts TIMESTAMPTZ DEFAULT now(),questions JSONB, account_access JSONB,dismissed_at TIMESTAMPTZ)`);
   await query('CREATE TEMP TABLE applications(user_id BIGINT,job_id TEXT)');
   await query(`CREATE TEMP TABLE admin_attention_dismissals(actor_user_id BIGINT,user_id BIGINT,job_id TEXT,revision TEXT,event_ids BIGINT[])`);
   await query(`INSERT INTO run_events(user_id,job_id,status,title,reason,ts,questions) VALUES
