@@ -10,6 +10,7 @@ import { BlogView } from './BlogView';
 import { VisitorsView } from './VisitorsView';
 import { AdminEmailDialog } from './AdminEmailDialog';
 import { AdminUserPreferences } from './AdminUserPreferences';
+import { AdminUserDashboard } from './AdminUserDashboard';
 import type { AdminPreferenceSection } from '../admin-user-preferences';
 import { RunDiagnostics } from './RunDiagnostics';
 import type { RouteStatus } from '../route';
@@ -551,6 +552,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
                 </dl>
               </div>
 
+              <AdminUserDashboard key={user.id} userId={user.id} email={user.email} onChanged={onChanged} />
               <AdminUserPreferences sections={user.preferences ?? []} />
 
               <div className="section">

@@ -1,6 +1,8 @@
 import { simulations } from './simulate.js';
 import { formAdminAction } from './form-lab.js';
 import { adminUserPreferences } from './admin-user-preferences.js';
+import { adminAttention, removeAdminAttention, AttentionRemovalError } from './admin-attention.js';
+import { listApplicationReviews } from './application-reviews.js';
 import { preparedEventsCountSql, preparedRunCount } from './admin-run-counts.js';
 import { loadAdminRunCosts } from './admin-run-costs.js';
 import type { RunCost } from '../src/run-cost.js';
@@ -621,6 +623,13 @@ export async function handleAdminRequest(
     const self = target.id === actor.id;
 
     if (!action && method === 'GET') return send(await adminUserDetail(target.id));
+    if (action === 'dashboard' && method === 'GET') {
+      const [attention, applications] = await Promise.all([adminAttention(target.id), listApplicationReviews(target.id)]);
+      return send({userId:target.id,email:target.email,attention,applications});
+    }
+    if (action === 'attention' && method === 'DELETE') {
+      return send(await removeAdminAttention(actor.id, target.id, await readBody()));
+    }
     if (action === 'email' && method === 'GET') return send(await draftSetupEmail(target, actor));
     if (action === 'email-history' && method === 'GET') {
       const before = url.searchParams.get('before') ?? undefined;
@@ -743,6 +752,6 @@ export async function handleAdminRequest(
         return send({ error: 'Unknown admin action.' }, 404);
     }
   } catch (error) {
-    return send({ error: (error as Error).message }, error instanceof AccountDeletionError ? error.status : 500);
+    return send({ error: (error as Error).message }, error instanceof AccountDeletionError || error instanceof AttentionRemovalError ? error.status : 500);
   }
 }

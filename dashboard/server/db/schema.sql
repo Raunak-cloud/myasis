@@ -1065,3 +1065,13 @@ CREATE TABLE IF NOT EXISTS application_review_operator_answer_revisions (
   corrected_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
   UNIQUE(user_id,hold_id,previous_revision)
 );
+-- Admin queue removals are attributable without copying private answers.
+CREATE TABLE IF NOT EXISTS admin_attention_dismissals (
+  id BIGSERIAL PRIMARY KEY,
+  actor_user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  job_id TEXT NOT NULL,
+  revision TEXT NOT NULL,
+  event_ids BIGINT[] NOT NULL,
+  dismissed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
