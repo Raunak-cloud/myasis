@@ -98,7 +98,14 @@ pg_restore --list "$BACKUP.part" > /dev/null
 mv "$BACKUP.part" "$BACKUP"
 echo "Pre-release database backup verified: $(basename "$BACKUP")"
 REPLAY_REQUIRED=0
-if ! as_app "cd $APP && git diff --quiet HEAD $RELEASE_SHA -- seek-bot"; then
+CHECK_BASE_SHA=HEAD
+if [ -n "${REPLAY_BASELINE_SHA:-}" ]; then
+  [[ "$REPLAY_BASELINE_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo 'Replay baseline must be a full production revision' >&2; exit 1; }
+  [ "$REPLAY_BASELINE_SHA" != "$RELEASE_SHA" ] || { echo 'Production baseline cannot be the candidate release' >&2; exit 1; }
+  as_app "cd $APP && git merge-base --is-ancestor $REPLAY_BASELINE_SHA $RELEASE_SHA"
+  CHECK_BASE_SHA=$REPLAY_BASELINE_SHA
+fi
+if ! as_app "cd $APP && git diff --quiet $CHECK_BASE_SHA $RELEASE_SHA -- seek-bot"; then
   REPLAY_REQUIRED=1
 fi
 as_app "cd $APP && git merge --ff-only $RELEASE_SHA && git log --oneline -1"
@@ -118,7 +125,12 @@ as_app "cd $APP/market-scout && npm exec tsc -- -p ."
 echo 'Running limited deployment checks (180-second maximum)'
 FORCE_FLAG=0
 if [ "${FORCE_DEPLOY:-}" = 1 ]; then FORCE_FLAG=1; fi
-as_app "cd $APP && FORCE_DEPLOY=$FORCE_FLAG timeout --signal=TERM --kill-after=2s 178s bash deploy/smoke-check.sh $REPLAY_REQUIRED"
+REPLAY_BASELINE_FLAG=""
+if [ -n "${REPLAY_BASELINE_SHA:-}" ]; then
+  [[ "$REPLAY_BASELINE_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo 'Replay baseline must be a full production revision' >&2; exit 1; }
+  REPLAY_BASELINE_FLAG="REPLAY_BASELINE_SHA=$REPLAY_BASELINE_SHA "
+fi
+as_app "cd $APP && ${REPLAY_BASELINE_FLAG}FORCE_DEPLOY=$FORCE_FLAG timeout --signal=TERM --kill-after=2s 178s bash deploy/smoke-check.sh $REPLAY_REQUIRED"
 # Apply idempotent schema upgrades before the new dashboard and its scheduler
 # start querying new columns. A migration failure leaves the old process up.
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/migrate-db.mts"

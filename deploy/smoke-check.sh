@@ -8,6 +8,7 @@ APP=$(cd "$(dirname "$0")/.." && pwd)
 cd "$APP"
 for script in deploy/deploy.sh deploy/public-site.sh deploy/smoke-check.sh deploy/install-repair-pilot.sh deploy/repair-pilot-sandbox.sh; do bash -n "$script"; done
 REPLAY_REQUIRED=${1:-0}
+node --test deploy/replay-baseline.test.mjs
 
 # Each group uses its own process state and fixture directories. Check every
 # child exit status; launching a background job alone never establishes success.
@@ -83,6 +84,9 @@ if [ "$REPLAY_REQUIRED" = 1 ]; then
     trap 'rm -rf "$scratch"' EXIT
     release=$(git rev-parse HEAD)
     node "$APP/deploy/replay-sample.mjs" "$scratch/corpus" 10 "$release" "${CORPORA[@]}"
+    if [ -n "${REPLAY_BASELINE_SHA:-}" ]; then
+      CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node "$APP/deploy/replay-baseline.mjs" "$scratch/corpus" "$REPLAY_BASELINE_SHA" "$release"
+    fi
     if ! CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} CELERIS_API_KEY=replay-only node dist/form-replay.js "$scratch/corpus"; then
       if [ "${FORCE_DEPLOY:-}" != 1 ]; then exit 1; fi
       echo 'Continuing past reviewed replay findings (FORCE_DEPLOY=1)'
