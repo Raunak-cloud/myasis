@@ -1,4 +1,4 @@
-import { isSpecialistFixtureRequest } from './specialist-fixture.js';
+import { fixtureToolArguments, isSpecialistFixtureRequest } from './specialist-fixture.js';
 import assert from 'node:assert/strict';
 import {cpSync,mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync,symlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -46,7 +46,7 @@ try {
   const url=`https://employer.fixture.invalid/job/${prepare?'prepare':'auto'}`;await page.goto(url);
   privacy.rememberPrivateAuthenticationValue(page,'fixture-retained-secret');
   await page.evaluate('window.sends=0;window.nameWrites=0;window.uploadWrites=0;window.noop=0',undefined,undefined,false);
-  let index=0,recoveryReplies=0,resumed=false,markerSeen=false,allowanceChecks=0,concurrencyChecked=false,recordId='',specialistCalls=0;
+  let index=0,recoveryReplies=0,resumed=false,markerSeen=false,allowanceChecks=0,concurrencyChecked=false,recordId='',specialistCalls=0,recoveryInspection=false;
   const letter='Synthetic supporting attachment',fileId='generated:'+createHash('sha256').update(JSON.stringify(['Letter.txt','txt',letter])).digest('hex');
   const readinessReply=createReadinessFixtureReply();
   const calls=[
@@ -70,7 +70,26 @@ try {
     if(isSpecialistFixtureRequest(body)) {
       specialistCalls++;
       if(resumed){assert.match(JSON.stringify(body.messages),/Letter.txt/,'specialist receives actual attachment readback retained across repair');assert.ok(JSON.stringify(body.messages).includes(recordId));}
-      return Response.json({usage:{prompt_tokens:100,completion_tokens:10},choices:[{message:{role:'assistant',content:JSON.stringify({advice:'Retain completed work and continue the controlled fixture.',evidence:[{source:'parent-history',detail:'Malformed fixture calls were rejected.'}],unknowns:[],nextSteps:['Use the next supported scripted operation and verify current content.']})}}]});
+      return Response.json({usage:{prompt_tokens:100,completion_tokens:10},choices:[{message:{role:'assistant',content:null,tool_calls:[{id:`specialist-${specialistCalls}`,type:'function',function:{name:'return_application_advice',arguments:fixtureToolArguments(body,'return_application_advice',{
+        advice:resumed?'Retain completed Name and attachment, then fill the remaining City field.':'Inspect the actual controlled fixture before continuing its deliberately malformed calls.',evidence:[{source:'page',detail:'Developer at Fixture Employer is the controlled visible heading.'}],unknowns:[],nextSteps:[resumed?'Fill City with Sydney and verify its actual value.':'Inspect the controlled fixture heading without changing saved fields.'],recovery_goal:resumed?{kind:'field-value',target:'City',value:'Sydney'}:{kind:'visible-text',target:'Developer at Fixture Employer',value:'Developer at Fixture Employer'},
+      })}}]}}]});
+    }
+    if(forced==='respond_to_specialist'||forced==='check_specialist_recovery'){
+      const text=body.messages.map((message:any)=>typeof message.content==='string'?message.content:Array.isArray(message.content)?message.content.map((part:any)=>part.text??'').join('\n'):'').reverse().find((text:string)=>text.includes('SPECIALIST RECOVERY OBLIGATION\n'));
+      assert.ok(text,'Specialist recovery must carry its actual shared obligation');
+      const task=JSON.parse(text.match(/SPECIALIST RECOVERY OBLIGATION\n([^\n]+)/)![1]);
+      const args=forced==='respond_to_specialist'?{advice_id:task.advice_id,decision:'adopt',reason:'Use the supported current fixture operation while retaining prior work.',evidence_quote:'Developer at Fixture Employer',operation_tool:'browser_action',operation_action:resumed?'fill':'inspect',operation_purpose:resumed?'Fill the remaining City field with Sydney.':'Inspect the actual controlled fixture heading.',verification:task.verification}
+        :{advice_id:task.advice_id,assessment:'resolved',result_quote:task.result.slice(0,200),observation_quote:'Developer at Fixture Employer',reason:'Verified the committed operation against the actual browser and its recovery goal.'};
+      if(forced==='respond_to_specialist'){
+        if(resumed)assert.equal(calls[index]?.args.selector,'#city','The next normal operation must carry out the recorded repair');
+        else recoveryInspection=true;
+      }else if(resumed)assert.equal(await page.locator('#city').inputValue(),'Sydney','Recovery must be verified against the actual browser');
+      else assert.match(await page.locator('body').innerText(),/Developer at Fixture Employer/);
+      return Response.json({usage:{prompt_tokens:0,completion_tokens:0},choices:[{message:{role:'assistant',content:null,tool_calls:[{id:`specialist-recovery-${++recoveryReplies}`,type:'function',function:{name:forced,arguments:fixtureToolArguments(body,forced,args)}}]}}]});
+    }
+    if(forced==='browser_action'&&recoveryInspection){
+      recoveryInspection=false;
+      return Response.json({usage:{prompt_tokens:0,completion_tokens:0},choices:[{message:{role:'assistant',content:null,tool_calls:[{id:`specialist-inspection-${++recoveryReplies}`,type:'function',function:{name:forced,arguments:fixtureToolArguments(body,forced,{action:'inspect',selector:'body'})}}]}}]});
     }
     if(forced==='record_recovery_plan'||forced==='record_recovery_result'){
       const name=await page.locator('#name').inputValue(),city=await page.locator('#city').inputValue();
