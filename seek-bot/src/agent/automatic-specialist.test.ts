@@ -144,6 +144,13 @@ try {
     assert.equal(run.specialists, 1); assert.equal(run.result.outcome.status, 'prepared');
     assert.equal(run.trace.steps[0].disposition, 'reobserve'); assert.equal(run.sends, 0);
   });
+  await test('ordinary customer technical errors use the same recovery reviewer before stopping', async () => {
+    const error:Call={name:'finish',args:{status:'error',reason:'Verification widget could not finish.',evidence:'The current sign-in form still has an unresolved verification step.'}};
+    const run=await scenario('technical-error-review',[error,...complete]);
+    assert.equal(run.specialists,1);assert.equal(run.result.outcome.status,'prepared');
+    assert.equal(run.result.submitPressed,false);assert.equal(run.sends,0);
+    assert.ok(run.trace.steps.some((step:any)=>step.tool==='consult_application_specialist'&&step.label==='Automatic read-only specialist escalation'));
+  });
   await test('specialist provider failure leaves a truthful stop available without repeatedly paying for the same state', async () => {
     const run = await scenario('unavailable-specialist', [stop, stop], { specialistFails: true });
     assert.equal(run.specialists, 1); assert.equal(run.result.outcome.status, 'rehearsed');

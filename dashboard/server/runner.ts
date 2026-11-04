@@ -475,7 +475,7 @@ class Run {
     if (emailOnly) this.push('sys', '  Sending your confirmed email applications.');
     else {
       this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
-      this.push('sys', `  job review/applying/supervision: ${applicationModelLabel(env.APPLICATION_AI_MODEL)}`);
+      this.push('sys', `  job review/applying/recovery review: ${applicationModelLabel(env.APPLICATION_AI_MODEL)}`);
       this.push('sys', '  application decisions: Agent-only');
     }
     const shown = Object.entries(overrides)
@@ -563,7 +563,7 @@ class Run {
       COST_TRACKING: 'true',
     };
     this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
-    this.push('sys', `  job review/applying/supervision: ${applicationModelLabel(env.APPLICATION_AI_MODEL)}`);
+    this.push('sys', `  job review/applying/recovery review: ${applicationModelLabel(env.APPLICATION_AI_MODEL)}`);
     this.push('sys', '  application decisions: Agent-only');
     // Set only once the scan is really starting: a refused start must not overwrite the record of one in flight.
     this.runStartId = runStartId ?? null;

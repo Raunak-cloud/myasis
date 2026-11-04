@@ -189,7 +189,8 @@ test('required missing answers can be recorded after the paid canonical review c
 test('a stale question reference receives recoverable feedback and the current grounded question is saved without a send',{timeout:10000},async()=>{
  const f=await fixture('<main><label>Required detail<input required></label><button id="send">Submit application</button></main>');let turns=0;
  globalThis.fetch=async(_url,init)=>{
-  const body=JSON.parse(String(init?.body)) as Body;turns++;assert.ok(turns<=2,'one corrected reference must finish without a recovery loop');
+  const body=JSON.parse(String(init?.body)) as Body;const recoveryReply=specialistFixtureReply(body);if(recoveryReply)return recoveryReply;
+  turns++;assert.ok(turns<=2,'one corrected reference must finish without a recovery loop');
   if(turns===1)return packet([finish('needs-human',{questions:[{field_ref:'f999',form_quote:'Required detail',kind:'text'}]})]);
   const latest=(body.messages as Array<{role:string;content:string}>).filter(m=>m.role==='tool').at(-1)?.content;
   assert.match(latest??'',/Nothing was submitted or saved for attention.*native FIELD ref/);

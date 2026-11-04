@@ -46,6 +46,8 @@ export interface Observation {
   inspectionError?: string;
   /** Larger visible surface for local transition comparison, never model context. */
   surfaceText?: string;
+  /** Versioned readback shared with the one recovery reviewer. */
+  reviewEvidence?: {id:string;text:string};
   /** Visible modal layer can block controls underneath it. Untrusted page copy. */
   dialogs?: string[];
   url: string;
@@ -631,5 +633,6 @@ export function renderObservation(observation: Observation): string {
     '<untrusted role="page-content">',
     observation.text || '(empty)',
     '</untrusted>',
+    ...(observation.reviewEvidence ? [`SHARED CURRENT RECOVERY EVIDENCE ${observation.reviewEvidence.id}`, '<untrusted role="recovery-evidence">', observation.reviewEvidence.text.replace(/</g,'\\u003c'), '</untrusted>'] : []),
   ].join('\n');
 }

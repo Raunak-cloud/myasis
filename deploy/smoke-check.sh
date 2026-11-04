@@ -59,7 +59,7 @@ if [ "$REPLAY_REQUIRED" = 1 ]; then
   node --test dist/agent/investigation.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/investigation-browser.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/attention-feedback.test.js
-  CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/halt-review.test.js
+  CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/recovery-review.test.js
   node --test --test-name-pattern='admin repair|operator discovery' dist/review-budget.test.js
   node --test dist/discovery-seeds.test.js
   node --test dist/agent/attempt-diagnostics.test.js dist/browser-deadline.test.js dist/discovery-search.test.js dist/discovery-policy.test.js
