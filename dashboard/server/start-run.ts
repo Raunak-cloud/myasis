@@ -43,6 +43,8 @@ import { dailyApplicationLimit, USER_RUN_LIMITS } from '../../seek-bot/src/run-l
 import { targetedSeekRetryJobs } from './targeted-retry-jobs.js';
 import { VIP_RUN_PLAN, sponsoredRunAllowance, sponsoredRunEntitlements } from './operator-run-plan.js';
 import { discoverySeeds } from '../../seek-bot/src/discovery-seeds.js';
+import {approvedRunRepairs} from './approved-run-repairs.js';
+import type {PriorRunRepair} from '../src/priorRunRepair.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
@@ -60,7 +62,7 @@ const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board]
  */
 
 type StartRunOutcome =
-  | { ok: true; mode: RunMode }
+  | { ok: true; mode: RunMode; priorRunRepair?:PriorRunRepair }
   | { ok: false; status: number; error: string };
 
 interface StartRunRequest {
@@ -70,6 +72,10 @@ interface StartRunRequest {
   applicationMode?: 'auto' | 'semi-auto';
   scheduleGeneration?: number;
   approvals?: unknown;
+  /** Admin opt-in: retry the latest provably unsent approved batch first. */
+  repairPriorRuns?: boolean;
+  /** A support retry must never fall back to discovering unapproved jobs. */
+  requirePriorRunRepair?: boolean;
   /** Internal repair consumer only; never accepted by a public route. */
   repairCaseId?: string;
   repairJob?: import('../../seek-bot/src/types.js').JobListing;
@@ -160,6 +166,21 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
 
 async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcome> {
   const { userId, email, mode, trigger } = request;
+  let priorRunRepair:PriorRunRepair|undefined;
+  if(request.requirePriorRunRepair!==undefined&&typeof request.requirePriorRunRepair!=='boolean')return {ok:false,status:400,error:'Invalid repair-only option.'};
+  if(request.requirePriorRunRepair&&!request.repairPriorRuns)return {ok:false,status:400,error:'A repair-only run requires prior-run recovery.'};
+  if(request.repairPriorRuns!==undefined&&typeof request.repairPriorRuns!=='boolean')return {ok:false,status:400,error:'Choose whether to repair prior approved applications.'};
+  if(request.repairPriorRuns){
+    const actor=request.startedBy?await query<{email:string}>('SELECT email FROM users WHERE id=$1 AND blocked_at IS NULL',[request.startedBy]):[];
+    if(trigger!=='admin'||mode!=='live'||!isAdmin(actor[0]?.email))return {ok:false,status:403,error:'Only an administrator can start prior-run recovery.'};
+    if(request.approvals!==undefined||request.jobIds!==undefined||request.externalUrl!==undefined||request.oneTime!==undefined||request.scope!==undefined)return {ok:false,status:400,error:'Prior-run recovery cannot be combined with another targeted run.'};
+    const repairs=await approvedRunRepairs(userId);
+    if(!repairs.length&&request.requirePriorRunRepair)return {ok:false,status:409,error:'No safely retryable approved applications were found. No search or submission was started.'};
+    if(repairs.length){
+      priorRunRepair={count:repairs.length,sourceRunIds:[...new Set(repairs.map(x=>x.sourceRunId))]};
+      request={...request,applicationMode:'auto',approvals:repairs.map(({id,revision,retry})=>({id,revision,retry}))};
+    }
+  }
   if (request.repairCaseId && (userId !== '1' || trigger !== 'admin' || request.startedBy !== '1' || mode !== 'live')) return {ok:false,status:403,error:'Invalid admin repair retry.'};
   if (request.repairJob && !request.repairCaseId) return {ok:false,status:403,error:'A repair job requires its validated case.'};
   const admin = isAdmin(email);
@@ -286,6 +307,11 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   let selections;
   try { selections = request.approvals === undefined ? null : reviewSelection(request.approvals); }
   catch (error) { return { ok: false, status: 400, error: (error as Error).message }; }
+  if(priorRunRepair&&selections){
+    const cap=Number(overrides.MAX_APPS_PER_RUN);
+    if(Number.isInteger(cap)&&cap>0)selections=selections.slice(0,cap);
+    priorRunRepair.count=selections.length;overrides.PRIOR_RUN_REPAIR_COUNT=String(selections.length);
+  }
   let prepaid: PreparedApplication[] = [];
   try {
     if (selections) prepaid = await applicationsForConfirmation(userId, selections);
@@ -550,6 +576,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
         [runStartId,userId,JSON.stringify({plan:VIP_RUN_PLAN.plan,complimentary:true,maxEvaluations:Number(overrides.MAX_EVALUATIONS),maxApplications:Number(overrides.MAX_APPS_PER_RUN),timeoutMinutes:VIP_RUN_PLAN.timeoutMinutes,
           keywords:overrides.KEYWORDS,seedSeekJobIds:seeds.map(job=>job.id)})]);
       if (request.repairCaseId) await query('UPDATE run_starts SET repair_case_id=$2 WHERE id=$1 AND user_id=1',[runStartId,request.repairCaseId]);
+      if(priorRunRepair)await query("UPDATE run_starts SET operator_options=COALESCE(operator_options,'{}'::jsonb)||$3::jsonb WHERE id=$1 AND user_id=$2",[runStartId,userId,JSON.stringify({priorRunRepair})]);
       const result = await runner.start(
         mode,
         overrides,
@@ -588,7 +615,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
       }
 
       started = true;
-      return { ok: true, mode };
+      return { ok: true, mode, ...(priorRunRepair?{priorRunRepair}:{}) };
     };
     if (trigger === 'auto') {
       return await scheduledStart(userId, request.scheduleGeneration!, request.applicationMode!, entitlements.autoRunsPerDay, launch)

@@ -372,6 +372,8 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
   const [evaluationsInput, setEvaluationsInput] = useState('');
   const [homeRouteInput, setHomeRouteInput] = useState('');
   const [externalJobUrl, setExternalJobUrl] = useState('');
+  const [repairPriorRuns,setRepairPriorRuns]=useState(true);
+  const [repairCount,setRepairCount]=useState<number|null>(null);
   const [externalConfirmation, setExternalConfirmation] = useState<{ userId: string; email: string; url: string } | null>(null);
   const externalDialog = useRef<HTMLDivElement>(null);
   const externalCancel = useRef<HTMLButtonElement>(null);
@@ -381,6 +383,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
 
   const load = useCallback(() => {
     api<UserDetail>(`/users/${userId}`).then(setUser).catch((reason) => setError((reason as Error).message));
+    api<{applications:unknown[]}>(`/users/${userId}/repair-preview`).then(value=>setRepairCount(value.applications.length)).catch(()=>setRepairCount(null));
   }, [userId]);
   useEffect(load, [load]);
   useEffect(() => {
@@ -467,8 +470,8 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
     setError(null);
     setNotice(null);
     try {
-      await api(path, init);
-      setNotice(done);
+      const result=await api<{notice?:string|null}>(path, init);
+      setNotice(result.notice||done);
       load();
       onChanged();
     } catch (reason) {
@@ -573,6 +576,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
                       <span>Auto apply {user.autoApply.paused ? 'off' : `on · ${user.autoApply.runsPerDay} ${user.autoApply.runsPerDay === 1 ? 'run' : 'runs'} a day`}</span>
                     </label>
                   )}
+                  {!user.running&&<label className="job-meta"><input type="checkbox" checked={repairPriorRuns} onChange={event=>setRepairPriorRuns(event.target.checked)} /> Recover eligible failed approved applications{repairCount!==null?` (${repairCount} eligible)`:''}. A recovery run retries that batch. If none are eligible, start the usual search.</label>}
                   <div className="admin-button-row">
                     {user.running ? (
                       <button
@@ -589,7 +593,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
                           className="btn primary"
                           disabled={busy !== null}
                           onClick={() => window.confirm(`Start a live run for ${user.email}? It submits real applications under their plan.`)
-                            && act('run', `/users/${user.id}/run`, { method: 'POST', json: {} }, 'Run started.')}
+                            && act('run', `/users/${user.id}/run`, { method: 'POST', json: {repairPriorRuns} }, 'Run started.')}
                         >
                           {busy === 'run' ? 'Starting…' : 'Start run'}
                         </button>

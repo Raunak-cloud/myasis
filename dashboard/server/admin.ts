@@ -31,6 +31,8 @@ import { draftSetupEmail, sendAdminEmail, tailorSetupEmail, adminEmailHistory, v
 import { readSiteState } from './seek-state.js';
 import { sessionFor, stopSignin } from './signin.js';
 import { startRun } from './start-run.js';
+import {approvedRunRepairs} from './approved-run-repairs.js';
+import {priorRunRepairMessage} from '../src/priorRunRepair.js';
 import { userDir } from './userdata.js';
 import { PAID_PLANS, isPassPlanKey } from '../src/pricing.js';
 import { runDeviceFromHeaders, type RunDevice } from '../src/run-device.js';
@@ -590,7 +592,9 @@ export async function handleAdminRequest(
 
     if ((match = path.match(/^\/runs\/(\d+)\/diagnostics$/)) && method === 'GET') {
       const log = await runLog(match[1]);
-      return log ? send(readRunDiagnostics(match[1], userDir(log.userId), log.lines)) : send({ error: 'No such run.' }, 404);
+      if(!log)return send({error:'No such run.'},404);
+      const run=await one<{operator_options:any}>('SELECT operator_options FROM run_starts WHERE id=$1 AND user_id=$2',[match[1],log.userId]);
+      return send({...readRunDiagnostics(match[1],userDir(log.userId),log.lines),priorRunRepair:run?.operator_options?.priorRunRepair??null,live:log.live});
     }
     if ((match = path.match(/^\/runs\/(\d+)\/attempts\/([a-f0-9-]+)$/i)) && method === 'GET') {
       const owner = await one<{ user_id: string }>('SELECT user_id::text AS user_id FROM run_starts WHERE id=$1', [match[1]]);
@@ -623,6 +627,7 @@ export async function handleAdminRequest(
     const self = target.id === actor.id;
 
     if (!action && method === 'GET') return send(await adminUserDetail(target.id));
+    if(action==='repair-preview'&&method==='GET')return send({applications:await approvedRunRepairs(target.id)});
     if (action === 'dashboard' && method === 'GET') {
       const [attention, applications] = await Promise.all([adminAttention(target.id), listApplicationReviews(target.id)]);
       return send({userId:target.id,email:target.email,attention,applications});
@@ -696,6 +701,8 @@ export async function handleAdminRequest(
           mode: 'live',
           applicationMode: body?.applicationMode ?? schedule?.application_mode ?? 'auto',
           approvals: body?.approvals,
+          repairPriorRuns: body?.repairPriorRuns,
+          requirePriorRunRepair:body?.repairOnly,
           trigger: 'admin',
           startedBy: actor.id,
           initiatorDevice: runDeviceFromHeaders(req.headers ?? {}),
@@ -705,7 +712,8 @@ export async function handleAdminRequest(
           externalUrl: body?.externalUrl,
           oneTime: body?.oneTime,
         });
-        return result.ok ? send({ ok: true, user: await userRow(target) }) : send({ error: result.error }, result.status);
+        return result.ok ? send({ ok: true, user: await userRow(target),priorRunRepair:result.priorRunRepair??null,
+          notice:result.priorRunRepair?priorRunRepairMessage(result.priorRunRepair.count):null }) : send({ error: result.error }, result.status);
       }
       case 'email-draft': {
         const result = await tailorSetupEmail(target, actor, String(body?.instruction ?? ''));

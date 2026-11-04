@@ -8,6 +8,7 @@ export interface RunAttempt {
   mode: string; outcome?: string;
 }
 export interface RunDiagnostics {
+  priorRunRepair?:import('./priorRunRepair.js').PriorRunRepair|null;live?:boolean;
   runId: string; issues: RunIssue[]; attempts: RunAttempt[]; structured: boolean;
   note: string; retentionDays: number;
 }

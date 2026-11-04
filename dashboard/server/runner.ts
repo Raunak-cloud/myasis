@@ -14,6 +14,7 @@ import { browserBenchmarkInProgress } from './browser-benchmark-lock.js';
 import { applicationWorkerEnvironment } from './application-worker-policy.js';
 import { loadUserSettings } from './settings.js';
 import { applicationModelLabel } from '../../seek-bot/src/application-model-catalog.js';
+import {priorRunRepairMessage} from '../src/priorRunRepair.js';
 import { applicationModelCredentials, applicationModelForAccount } from './application-model-policy.js';
 import { applicationAgentModeForAccount, applicationScreenshotsForAccount } from './application-agent-policy.js';
 import { accountUnavailable, AccountDeletionError } from './account-lifecycle.js';
@@ -472,6 +473,10 @@ class Run {
     };
 
     this.push('sys', `▶ starting ${mode} run`);
+    if(/^\d+$/.test(overrides.PRIOR_RUN_REPAIR_COUNT??'')&&Number(overrides.PRIOR_RUN_REPAIR_COUNT)>0){
+      const count=Number(overrides.PRIOR_RUN_REPAIR_COUNT);
+      this.push('sys',`${priorRunRepairMessage(count)} Retrying ${count} previously approved ${count===1?'application':'applications'}.`);
+    }
     if (emailOnly) this.push('sys', '  Sending your confirmed email applications.');
     else {
       this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);

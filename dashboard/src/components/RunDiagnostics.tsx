@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../adminApi';
 import type { RunDiagnostics as Diagnostics } from '../run-diagnostics';
 import { TraceSteps } from './AttentionPanel';
+import {PriorRunRepairNotice} from './PriorRunRepairNotice';
 
 /** Operator-only detail; ordinary applicant activity keeps its simple wording. */
 export function RunDiagnostics({ runId }: { runId: string }) {
@@ -22,6 +23,7 @@ export function RunDiagnostics({ runId }: { runId: string }) {
     {error && <p role="alert">{error}</p>}
     {!data && !error && <p>Loading diagnostics…</p>}
     {data && <>
+      {data.priorRunRepair&&<PriorRunRepairNotice count={data.priorRunRepair.count} active={data.live}/>}
       <p>{data.issues.length} recorded error/warning {data.issues.length === 1 ? 'event' : 'events'} · {data.attempts.length} application {data.attempts.length === 1 ? 'attempt' : 'attempts'}</p>
       <p className="job-meta">{data.note} Detailed traces are retained for {data.retentionDays} days.</p>
       <a href={`/api/admin/runs/${runId}/diagnostics`} target="_blank" rel="noreferrer">Open diagnostic report</a>

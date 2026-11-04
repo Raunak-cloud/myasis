@@ -30,7 +30,8 @@ test('normal startRun resolves retained metadata and still enforces mode, accoun
   };
   try {
     writeFileSync(join(directory, 'boundary.mjs'), `
-export const state={credits:5,sent:0,busy:false,starts:[],queries:[],pending:['seek:held-fixture']};
+export const state={credits:5,sent:0,busy:false,starts:[],queries:[],pending:['seek:held-fixture'],repairs:[],approvedDrafts:[]};
+export const approvedRunRepairs=async()=>state.repairs;
 export const query=async(sql,params)=>{state.queries.push({sql,params});if(sql.includes('FROM run_events'))return [];
   if(sql.includes('UPDATE run_starts SET operator_options'))return [];
   if(sql.includes('FROM run_starts'))return [{id:'1145',user_id:'183',finished_at:'2026-11-02T17:45:00Z'}];
@@ -55,7 +56,7 @@ export const applyJobSourceAccess=()=>{},jobSourceSettingsError=()=>null;
 export const availableJobSources=boards=>({supported:boards,unavailable:[],usable:boards});
 export const loadProfile=async()=>({expectedSalary:'90000'});
 export class ApplicationReviewError extends Error{};
-export const applicationsForConfirmation=async()=>[],claimApplicationReviews=async()=>[],pendingReviewKeys=async()=>state.pending,releaseApplicationReviews=async()=>{},reviewSelection=value=>value;
+export const applicationsForConfirmation=async()=>state.approvedDrafts,claimApplicationReviews=async()=>state.approvedDrafts,pendingReviewKeys=async()=>state.pending,releaseApplicationReviews=async()=>{},reviewSelection=value=>value;
 export const gmailAccess=async()=>({connected:false}),scheduledStart=async()=>{throw Error('No scheduled fixture');};
 `);
     compile('./targeted-retry-jobs.ts', 'targeted.mjs', { './db/index.js': url('boundary.mjs'), './userdata.js': url('boundary.mjs') },
@@ -111,6 +112,20 @@ export const gmailAccess=async()=>({connected:false}),scheduledStart=async()=>{t
     assert.equal(JSON.parse(audit.params[2]).maxEvaluations,400);
     assert.ok(state.queries.every((entry:{sql:string})=>!/(INSERT|UPDATE|DELETE).*?(billing|settings|credit_grants)/i.test(entry.sql)), 'no saved preference or plan mutation');
     assert.equal((await startRun({...request,jobIds:undefined}) as {status:number}).status,402,'the next ordinary run still has its real allowance');
+    state.credits=5;
+    state.repairs=[{id:attemptId,revision:'a'.repeat(64),retry:true,sourceRunId:'1145'}];
+    state.approvedDrafts=[{id:attemptId,revision:'a'.repeat(64),job:{id,title:metadata.title,company:metadata.company,platform:'seek',location:'Sydney',url:trace.job.url},formUrl:trace.job.url,answers:[],resumeId:'fixture-resume'}];
+    const repairRequest={userId:'183',email:'candidate@fixture.invalid',trigger:'admin' as const,startedBy:'1',mode:'live' as const,applicationMode:'semi-auto' as const,repairPriorRuns:true};
+    assert.deepEqual(await startRun(repairRequest),{ok:true,mode:'live',priorRunRepair:{count:1,sourceRunIds:['1145']}});
+    const repaired=state.starts.at(-1)[1];
+    assert.equal(repaired.APPLICATION_REVIEW_MODE,'approved');assert.equal(repaired.PRIOR_RUN_REPAIR_COUNT,'1');
+    assert.equal(JSON.parse(repaired.APPROVED_APPLICATIONS_JSON)[0].revision,'a'.repeat(64),'the exact old approval is reused, never rewritten');
+    assert.equal((await startRun({...repairRequest,trigger:'manual'}) as {status:number}).status,403);
+    assert.equal((await startRun({...repairRequest,jobIds:[id]}) as {status:number}).status,400);
+    state.repairs=[];const beforeEmptyRepair=state.starts.length;
+    assert.equal((await startRun({...repairRequest,requirePriorRunRepair:true}) as {status:number}).status,409);
+    assert.equal(state.starts.length,beforeEmptyRepair,'an explicit repair-only request cannot fall through to discovery');
+    assert.ok(state.queries.every((entry:{sql:string})=>!/(INSERT|UPDATE|DELETE).*?(billing|settings|credit_grants)/i.test(entry.sql)));
   } finally {
     assert.ok(resolve(directory).startsWith(resolve(tmpdir())));
     rmSync(directory, { recursive: true, force: true });

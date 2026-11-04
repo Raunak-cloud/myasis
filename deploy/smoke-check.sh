@@ -22,6 +22,8 @@ node --test server/form-lab/engine.test.mjs
 ../seek-bot/node_modules/.bin/tsx --test server/run-diagnostics.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/admin-run-costs.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/targeted-retry-*.test.ts
+../seek-bot/node_modules/.bin/tsx --test server/approved-run-repairs.test.ts
+../seek-bot/node_modules/.bin/tsx scripts/test-prior-run-repair-ui.mts
 ../seek-bot/node_modules/.bin/tsx --test server/repair-*.test.ts
 ../seek-bot/node_modules/.bin/tsx scripts/test-visitor-analytics.mts
 ../seek-bot/node_modules/.bin/tsx server/visits.test.ts

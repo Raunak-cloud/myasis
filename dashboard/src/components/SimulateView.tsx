@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { startSimulation, type Simulation } from '../simulation';
 import { SecurityRetrySimulation } from './SecurityRetrySimulation';
+import {PriorRunRepairSimulation} from './PriorRunRepairSimulation';
 
 /**
  * Pick a customer state and see the dashboard as that customer does.
@@ -41,6 +42,7 @@ export function SimulateView() {
   const groups = [...new Set(simulations.map((simulation) => simulation.group))];
   return (
     <div className="admin-stack">
+      <PriorRunRepairSimulation />
       <SecurityRetrySimulation />
       <div className="banner">
         Preview the dashboard as a customer in each state. Nothing is saved and no account is touched: while a preview
