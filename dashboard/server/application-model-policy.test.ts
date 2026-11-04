@@ -5,7 +5,7 @@ import { applyJobSourceAccess } from './job-sources.js';
 
 test('authorized models receive only their own credential, including every OpenRouter model',()=>{
  const server={CELERIS_API_KEY:'fictional-celeris',OPENROUTER_API_KEY:'fictional-openrouter'};
- for(const model of ['minimax','deepseek'] as const){
+ for(const model of ['minimax'] as const){
   assert.deepEqual(applicationModelCredentials(model,server),{CELERIS_API_KEY:'',OPENROUTER_API_KEY:server.OPENROUTER_API_KEY});
   assert.throws(()=>applicationModelCredentials(model,{CELERIS_API_KEY:server.CELERIS_API_KEY}),/OPENROUTER_API_KEY/);
  }
@@ -25,10 +25,8 @@ test('only admins can choose a supported whole-run provider', () => {
   assert.equal(applicationModelSettingsError({},false),null);
   assert.equal(applicationModelSettingsError({APPLICATION_AI_MODEL:'celeris'},true),null);
   assert.equal(applicationModelSettingsError({APPLICATION_AI_MODEL:'minimax'},true),null);
-  assert.equal(applicationModelSettingsError({APPLICATION_AI_MODEL:'deepseek'},true),null);
   assert.equal(applicationModelSettingsError({APPLICATION_AI_MODEL:'deepseek'},false)?.status,403);
-  assert.equal(applicationModelForAccount('deepseek',true),'deepseek');
-  for (const invalid of ['retired', null, {}, ['minimax']]) {
+  for (const invalid of ['deepseek', 'glm', 'retired', null, {}, ['minimax']]) {
     assert.equal(applicationModelSettingsError({APPLICATION_AI_MODEL:invalid},true)?.status,400);
     assert.equal(applicationModelForAccount(invalid,true),'celeris');
   }

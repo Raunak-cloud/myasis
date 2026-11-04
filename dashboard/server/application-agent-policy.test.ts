@@ -10,9 +10,9 @@ import { startRun } from './start-run.js';
 after(async () => { await getPool().end(); });
 
 test('admin MiniMax uses DOM first but customer policy restores Magnus visual defaults', () => {
-  assert.equal(applicationScreenshotsForAccount('true', true, 'deepseek'), 'true');
-  assert.equal(applicationScreenshotsForAccount('false', true, 'deepseek'), 'false');
-  assert.equal(applicationScreenshotsForAccount('false', false, 'deepseek'), 'true');
+  assert.equal(applicationScreenshotsForAccount('true', true, 'celeris'), 'true');
+  assert.equal(applicationScreenshotsForAccount('false', true, 'celeris'), 'false');
+  assert.equal(applicationScreenshotsForAccount('false', false, 'celeris'), 'true');
   assert.equal(applicationScreenshotsForAccount('true', true, 'minimax'), 'false');
   const settings = { APPLICATION_AI_MODEL: 'minimax', APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: 'true' };
   applyJobSourceAccess(settings, true);

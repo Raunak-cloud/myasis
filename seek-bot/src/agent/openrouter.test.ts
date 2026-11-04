@@ -15,57 +15,6 @@ const reply = (cost = 0.001, finish = 'tool_calls') => ({ choices: [{ finish_rea
   tool_calls: [{ id: 'call-one', type: 'function', function: { name: 'browser_action', arguments: '{"action":"inspect"}' } }],
 } }], usage: { prompt_tokens: 1000, prompt_tokens_details: { cached_tokens: 500 }, completion_tokens: 100, cost } });
 
-test('DeepSeek retains screenshots, canonical tool arguments, reasoning continuation and its own charges', async()=>isolated(async()=>{
- const conditional={...tool,parameters:{type:'object',properties:{action:{type:'string'},sends_application:{type:'boolean'}},
-  required:['action'],anyOf:[{required:['sends_application']},{properties:{action:{enum:['inspect']}}}]}};
- const requests:any[]=[];
- globalThis.fetch=async(url,init)=>{
-  assert.equal(url,'https://openrouter.ai/api/v1/chat/completions');
-  assert.equal(new Headers(init?.headers).get('authorization'),'Bearer fictional-private-key');
-  const body=JSON.parse(String(init?.body));requests.push(body);
-  assert.equal(body.model,'deepseek/deepseek-v4.1-flash');
-  assert.equal(body.temperature,undefined);assert.deepEqual(body.reasoning,{effort:'high'});
-  assert.deepEqual(body.tools[0].function.parameters.required,['arguments_json']);
-  const response=reply(.007);response.choices[0].message.tool_calls[0].function.arguments=JSON.stringify({arguments_json:JSON.stringify({action:'click',sends_application:false})});
-  return Response.json(response);
- };
- const meter=new CostMeter(1),messages:ChatMessage[]=[{role:'user',content:[{type:'text',text:'Current fictional form.'},
-  {type:'image_url',image_url:{url:'data:image/png;base64,fixture'}}]}];
- const response=await applicationChat({model:'celeris-1-magnus',messages,tools:[conditional],reasoningEffort:'medium',meter});
- assert.deepEqual(response.toolCalls[0].args,{action:'click',sends_application:false});
- assert.equal(validToolInput(response.toolCalls[0].args,conditional.parameters),true);
- messages.push(response.message,{role:'tool',tool_call_id:'call-one',content:'Observed click complete.'});
- await applicationChat({model:'celeris-1-magnus',messages,tools:[conditional],meter});
- assert.deepEqual(requests[0].messages[0],messages[0]);
- assert.deepEqual(requests[1].messages[1].reasoning_details,reply().choices[0].message.reasoning_details);
- assert.equal(meter.totals.costUsd,.014);
- await withApplicationModel({APPLICATION_AI_MODEL:'deepseek',CELERIS_API_KEY:'unused'},async()=>{
-  await assert.rejects(applicationChat({model:'celeris-1-magnus',messages:[]}),/OPENROUTER_API_KEY/);
- });
- assert.equal(requests.length,2,'no credential or provider fallback');
-},'deepseek'));
-
-test('DeepSeek generation recovery uses supported low effort, bounded output growth and the original spend meter',async()=>isolated(async()=>{
- const originalNow=Date.now,originalTimeout=AbortSignal.timeout,originalRandom=Math.random;
- let elapsed=0;const requests:any[]=[],windows:number[]=[];
- Date.now=()=>originalNow()+elapsed;Math.random=()=>0;
- AbortSignal.timeout=ms=>{windows.push(ms);return originalTimeout(ms);};
- try{
-  globalThis.fetch=async(_url,init)=>{
-   const body=JSON.parse(String(init?.body));requests.push(body);
-   assert.equal(body.model,'deepseek/deepseek-v4.1-flash');
-   if(requests.length===1){assert.equal(body.reasoning.effort,'high');elapsed+=31_000;return Response.json(reply(.001,'length'));}
-   assert.equal(windows.at(-1),90_000);assert.equal(body.max_tokens,16_384);assert.equal(body.reasoning.effort,'low');
-   assert.match(JSON.stringify(body.messages),/Exact candidate approval/);
-   if(requests.length===2){elapsed+=90_000;throw new DOMException('Fixture inference timed out','TimeoutError');}
-   return Response.json(reply());
-  };
-  const meter=new CostMeter(1);
-  const response=await applicationChat({model:'celeris-1-magnus',messages:[{role:'user',content:'Exact candidate approval'}],tools:[tool],maxTokens:8192,meter});
-  assert.equal(response.toolCalls[0].name,tool.name);assert.equal(requests.length,3);assert.equal(meter.totals.calls,3);
- }finally{Date.now=originalNow;AbortSignal.timeout=originalTimeout;Math.random=originalRandom;}
-},'deepseek'));
-
 test('MiniMax wire projection leaves canonical dispatch validation and returned arguments unchanged', async () => isolated(async () => {
   const conditional = { ...tool, parameters: { type: 'object', properties: {
     action: { type: 'string', enum: ['click', 'inspect'] }, sends_application: { type: 'boolean' },

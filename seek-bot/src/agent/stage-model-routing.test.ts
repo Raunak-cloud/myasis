@@ -19,7 +19,7 @@ test('stage routes preserve concurrent owner isolation, exact model IDs and no f
   return Response.json({choices:[{finish_reason:'stop',message:{role:'assistant',content:'{}'}}],usage:{prompt_tokens:10,completion_tokens:2,cost:0.00001}});
  };
  try {
-  await Promise.all(['one','two','three','four'].map(owner=>withApplicationModel({DATA_DIR:join(dir,owner),COST_TRACKING:'true',APPLICATION_AI_MODEL:owner==='four'?'deepseek':owner==='three'?'minimax':'celeris',
+  await Promise.all(['one','two','three','four'].map(owner=>withApplicationModel({DATA_DIR:join(dir,owner),COST_TRACKING:'true',APPLICATION_AI_MODEL:owner==='three'||owner==='four'?'minimax':'celeris',
    CELERIS_API_KEY:owner+'-review',OPENROUTER_API_KEY:owner+'-apply',CELERIS_QUEUE_FILE:join(dir,'queue.sqlite'),CELERIS_MIN_INTERVAL_MS:'0'},async()=>{
     await Promise.all([reviewChat(request),rankingChat(request),applicationChat(request)]);
   })));
@@ -30,7 +30,7 @@ test('stage routes preserve concurrent owner isolation, exact model IDs and no f
    if(owner==='three'||owner==='four') {
     for(const call of scoped) {
      assert.equal(call.url,'https://openrouter.ai/api/v1/chat/completions');
-     assert.equal(call.body.model,owner==='four'?'deepseek/deepseek-v4.1-flash':'minimax/minimax-m3.1-flash');assert.equal(call.key,'Bearer '+owner+'-apply');
+     assert.equal(call.body.model,'minimax/minimax-m3.1-flash');assert.equal(call.key,'Bearer '+owner+'-apply');
      assert.equal(call.body.models,undefined);assert.equal(call.body.route,undefined);
     }
    } else {
