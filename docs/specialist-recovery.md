@@ -14,4 +14,6 @@ The existing spending meter, application approval, candidate evidence, authentic
 
 Explicit inspection of a unique, visible, non-private typed cover-letter control now retains its real approved-text readback across wizard pages. A fill request or model assertion does not establish that proof. Subsequent changed/blank/invalid values, cancellation, Escape and direct URL navigation invalidate it. Ambiguous inspections cannot establish it. This repairs the missing evidence path that caused Treasury's final submission guard to reject an inspected inline letter.
 
+When the native control has no HTML label, its current observed identity/ref must bind to exactly one non-private cover-letter field before that field's observed label can be used. A different or ambiguous control cannot borrow the label. The browser regression uses this markup rather than assuming a native label exists.
+
 Focused checks use scripted providers, isolated invalid-domain forms and fictional candidate data. They cover advice acceptance/alternatives, actual execution and verification, stale/repeated states, continuation, budget/uncertain-send boundaries and an approved letter inspected on an earlier wizard step followed by one fictional receipt-confirmed submission. No real model calls or employer applications are made by these checks.

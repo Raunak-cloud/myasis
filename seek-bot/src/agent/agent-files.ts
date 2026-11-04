@@ -42,15 +42,18 @@ export class AgentFiles {
   /** A normal explicit browser inspection is actual readback, not the parent's
    * assertion that a fill succeeded. Bind only a unique non-private letter
    * control, and never promote an unrelated or ambiguous inspection. */
-  witnessInspectedLetter(result:unknown):void {
+  witnessInspectedLetter(result:unknown,fields:FormField[]=[]):void {
     if(!result||typeof result!=='object')return;
     const record=result as Record<string,unknown>;
     if(Array.isArray(record.fields))return;
-    if(record.private||record.visible!==true||record.disabled||typeof record.label!=='string'
-      ||!isCoverLetterField(record.label)||typeof record.value!=='string'
+    const matching=fields.filter(field=>!field.sensitive&&!field.privateKind&&(record.controlIdentity
+      ?field.controlIdentity===record.controlIdentity:typeof record.ref==='string'&&field.ref===record.ref));
+    const label=typeof record.label==='string'&&record.label.trim()?record.label:matching.length===1?matching[0].label:undefined;
+    if(record.private||record.visible!==true||record.disabled||typeof label!=='string'
+      ||!isCoverLetterField(label)||typeof record.value!=='string'
       ||!(record.tag==='textarea'||record.tag==='input'&&['text','search'].includes(String(record.type))))return;
     if(record.invalid==='true'||record.validation){this.clearLetterWitness();return;}
-    this.witnessApprovedLetter([{ref:String(record.ref??''),label:record.label,kind:record.tag==='textarea'?'textarea':'text',
+    this.witnessApprovedLetter([{ref:String(record.ref??''),label,kind:record.tag==='textarea'?'textarea':'text',
       inputType:String(record.type),required:Boolean(record.required),currentValue:record.value,controlIdentity:typeof record.controlIdentity==='string'?record.controlIdentity:undefined}]);
   }
   recheckLetterWitness(fields:FormField[]):void {

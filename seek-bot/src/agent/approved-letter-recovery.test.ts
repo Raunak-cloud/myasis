@@ -21,7 +21,7 @@ test('explicit letter inspection survives a wizard handoff and permits one appro
  const originalFetch=globalThis.fetch,browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{channel:'chrome'})});
  try{
   const page=await browser.newPage();page.on('pageerror',error=>console.error('FIXTURE PAGE ERROR',error.message));
-  await page.route('**/*',route=>new URL(route.request().url()).hostname.endsWith('.invalid')?route.fulfill({contentType:'text/html',body:`<main><h1>Fictional Analyst</h1><div id=editor><label>Resume<input id=cv type=file></label><label>Cover letter<textarea id=letter></textarea></label><button id=next onclick="document.querySelector('#editor').hidden=true;document.querySelector('#review').hidden=false">Next</button></div><div id=review hidden><p>Step 5 of 5</p><button id=send onclick="localStorage.setItem(&quot;send-count&quot;,String(Number(localStorage.getItem(&quot;send-count&quot;)||0)+1));document.querySelector('#receipt').textContent='Application received for Fictional Analyst.'">Submit</button></div><p id=receipt></p></main>`}):route.abort());
+  await page.route('**/*',route=>new URL(route.request().url()).hostname.endsWith('.invalid')?route.fulfill({contentType:'text/html',body:`<main><h1>Fictional Analyst</h1><div id=editor><label>Resume<input id=cv type=file></label><div id=letter-label>Cover letter</div><textarea id=letter aria-labelledby=letter-label></textarea><button id=next onclick="document.querySelector('#editor').hidden=true;document.querySelector('#review').hidden=false">Next</button></div><div id=review hidden><p>Step 5 of 5</p><button id=send onclick="localStorage.setItem(&quot;send-count&quot;,String(Number(localStorage.getItem(&quot;send-count&quot;)||0)+1));document.querySelector('#receipt').textContent='Application received for Fictional Analyst.'">Submit</button></div><p id=receipt></p></main>`}):route.abort());
   await page.goto(job.url);
   const calls=[
    {name:'browser_action',args:{action:'set_input_files',selector:'#cv',file_ids:['cv']}},
@@ -49,6 +49,10 @@ test('explicit letter inspection survives a wizard handoff and permits one appro
   files.recheckLetterWitness([{ref:'f0',label:'Cover letter',kind:'textarea',required:false,currentValue:''}]);assert.equal(files.checkpointLetterWitness(),undefined,'fresh blank revokes old proof');
   files.witnessInspectedLetter({...native,value:'Different text'});assert.equal(files.checkpointLetterWitness(),undefined);
   files.witnessInspectedLetter({...native,private:true});assert.equal(files.checkpointLetterWitness(),undefined);
+  const bound={ref:'f0',label:'Cover letter',kind:'textarea' as const,required:false,controlIdentity:'textarea@fixture'};
+  files.witnessInspectedLetter({...native,label:null,controlIdentity:bound.controlIdentity},[bound]);assert.ok(files.checkpointLetterWitness(),'missing native label binds only to one current observed control identity');files.clearLetterWitness();
+  files.witnessInspectedLetter({...native,label:null,controlIdentity:'textarea@other'},[bound]);assert.equal(files.checkpointLetterWitness(),undefined,'a different control cannot borrow the observed label');
+  files.witnessInspectedLetter({...native,label:null,controlIdentity:bound.controlIdentity},[bound,bound]);assert.equal(files.checkpointLetterWitness(),undefined,'ambiguous identities cannot establish proof');
   files.witnessInspectedLetter(native);files.witnessInspectedLetter({...native,invalid:'true'});assert.equal(files.checkpointLetterWitness(),undefined,'validation errors revoke readback proof');
   files.witnessInspectedLetter({matched:2,fields:[native,native]});assert.equal(files.checkpointLetterWitness(),undefined,'ambiguous readback cannot create proof');
   files.witnessInspectedLetter(native);files.clearLetterWitness();assert.equal(files.checkpointLetterWitness(),undefined,'cancel/escape invalidation cannot leave a usable witness');

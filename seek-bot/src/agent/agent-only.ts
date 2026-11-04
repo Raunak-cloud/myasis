@@ -901,7 +901,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       }
       case 'inspect': {
         const result=await nativeInspect(target(ctx,args));
-        files.witnessInspectedLetter(result);ctx.letterWitness=files.checkpointLetterWitness();
+        files.witnessInspectedLetter(result,ctx.observation.fields);ctx.letterWitness=files.checkpointLetterWitness();
         return ok(JSON.stringify(result));
       }
       case 'wait': {
