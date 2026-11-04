@@ -128,7 +128,8 @@ export class AgentFiles {
       const matches = uploaded.filter(file => file.id === declaration.id);
       if (!matches.length && this.approved && declaration.role === 'cover-letter') {
         const file = this.resolve(declaration.id);
-        if (file.text === this.approvedLetter || approved.some(document => document.role === 'cover-letter' && document.fileId === file.id)) {
+        if (file.sourceId !== resumeId && !file.approvedBundle && (typeof this.approvedLetter === 'string' && this.approvedLetter.trim() && file.text === this.approvedLetter
+          || approved.some(document => document.role === 'cover-letter' && document.fileId === file.id))) {
           // Approval permits proceeding without attachment proof; it does not
           // fabricate a native upload or a new delivered-document record.
           continue;

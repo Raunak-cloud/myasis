@@ -96,6 +96,9 @@ try {
   assert.deepEqual(await editedFiles.reviewDocuments('cv', undefined, undefined),edited.documents,'approved revised letters do not require native-upload proof');
   assert.equal(await editedFiles.reviewDocuments('cv',edited.documents![0].fileId,undefined),undefined,'declaring an approved letter without an upload does not fabricate a delivered artifact');
   assert.deepEqual(editedFiles.checkpointUploads(),[]);
+  await assert.rejects(editedFiles.reviewDocuments('cv','cv',undefined),/no unambiguous successful native upload/,'an unuploaded resume cannot be relabelled as the approved cover letter');
+  const withoutLetter={...edited,coverLetter:undefined,documents:undefined};
+  await assert.rejects(new AgentFiles('no-approved-letter',withoutLetter).reviewDocuments('cv','cv',undefined),/no unambiguous successful native upload/,'job approval alone does not grant the approved-letter exemption');
   const supportingApproval={...edited,documents:edited.documents!.map(document=>({...document,role:'supporting' as const}))};
   await assert.rejects(new AgentFiles('supporting-approval',supportingApproval).reviewDocuments('cv',undefined,undefined),/candidate-revised attachment has not been uploaded/,'supporting documents retain their existing upload requirement');
   editedFiles.recordUpload('employer-letter-input', editedFiles.uploadSelection([edited.documents![0].fileId]));
