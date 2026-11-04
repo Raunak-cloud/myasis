@@ -31,7 +31,26 @@ test('advice cannot execute itself and unacknowledged navigation/send/finish are
  for(const name of ['browser_action','prepare_application','finish'])assert.match(r.permit(name,{action:'click'} )!,/Not executed/);
  assert.match(r.respond(plan(r),tools),/nothing executed/);assert.equal(r.requiredTool,'browser_action');
  assert.match(r.permit('browser_action',{action:'click',ref:'a1'})!,/Not executed/);
+ assert.equal(r.requiredTool,'respond_to_specialist','an unexecuted action mismatch needs a corrected decision');
+ r.respond(plan(r),tools);
  assert.equal(r.permit('browser_action',{action:'inspect',ref:'f0'}),undefined);
+});
+
+test('a type-versus-press mismatch can be replanned before execution without clearing the recovery goal',()=>{
+ const institution={kind:'field-value',target:'Institution *',value:'VTU'};
+ const observed=(value=''):Observation=>({...observation(),fields:[{ref:'f13',label:'Institution *',kind:'combobox',currentValue:value,disabled:false}as never]});
+ const r=new SpecialistRecovery();r.observe(observed());r.accept('READ-ONLY SPECIALIST ADVICE.\n'+JSON.stringify({advice:'Commit the observed VTU institution option using native keyboard interaction.',recovery_goal:institution}));
+ const typed={action:'type',ref:'f13',value:'VTU'},pressed={action:'press',ref:'f13',value:'Enter'};
+ r.respond(plan(r,{name:'browser_action',args:typed},{verification:institution}),tools);
+ assert.match(r.permit('browser_action',pressed)!,/Not executed/);
+ assert.equal(r.requiredTool,'respond_to_specialist');assert.equal(r.checkpoint().task!.operation,undefined,'a rejected call did not execute or bind an operation');
+ assert.deepEqual(r.checkpoint().task!.verification,institution);assert.match(r.permit('finish',{status:'applied'})!,/Not executed/);
+ const resumed=new SpecialistRecovery(structuredClone(r.checkpoint()));resumed.observe(observed());
+ resumed.respond(plan(resumed,{name:'browser_action',args:pressed},{verification:institution,decision:'alternative',reason:'The open institution dropdown needs Enter to commit its selected option.'}),tools);
+ complete(resumed,'browser_action',pressed,'Institution selection committed by native Enter',false);
+ assert.match(resumed.permit('finish',{status:'applied'})!,/Not executed/,'execution alone cannot clear verification');
+ resumed.observe(observed('VTU'));
+ resumed.check({...verify(resumed),result_quote:'Institution selection committed'});assert.equal(resumed.pending,false);
 });
 
 test('documented target defaults match the committed native action without accepting another target or send',()=>{
@@ -39,6 +58,8 @@ test('documented target defaults match the committed native action without accep
  r.respond(plan(r,{name:'browser_action',args}),tools);
  const actual={...args,target_mode:'locator',locator:{...args.locator,exact:true,frame:''}};
  assert.equal(r.permit('browser_action',actual),undefined);
+ assert.match(r.permit('browser_action',{...actual,action:'press'})!,/Not executed/);
+ assert.equal(r.requiredTool,'browser_action','a bound operation cannot be reset or retargeted');
  assert.match(r.permit('browser_action',{...actual,sends_application:true})!,/Not executed/);
  assert.match(r.permit('browser_action',{...actual,locator:{...actual.locator,value:'Different target'}})!,/Not executed/);
  assert.match(r.permit('browser_action',{...actual,target_mode:'selector',selector:'#other'})!,/Not executed/);

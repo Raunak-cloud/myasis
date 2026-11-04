@@ -166,7 +166,15 @@ export class SpecialistRecovery {
   if(name==='respond_to_specialist'&&this.task.phase==='decision'||name==='check_specialist_recovery'&&this.task.phase==='verification')return;
   if(this.task.phase==='action'&&(this.task.plan?.tool??this.task.operation?.name)===name) {
    if(this.observation&&this.task.before!==hash(surface(this.observation))){this.task.phase='decision';return 'Not executed: the observed page changed after this recovery decision. Reconsider using the fresh page.';}
-   if(this.task.plan?.action&&this.task.plan.action!==args.action)return 'Not executed: use the browser action in the recorded recovery decision.';
+   if(this.task.plan?.action&&this.task.plan.action!==args.action){
+    if(!this.task.operation){
+     // No operation was bound or executed. Require a corrected, evidenced
+     // decision instead of forcing the same incompatible tool call forever.
+     this.task.phase='decision';
+     return `Not executed: the recorded browser action is ${this.task.plan.action}, but ${String(args.action)} was requested. Use respond_to_specialist to correct the next operation against the current page while retaining the recovery goal. No browser action or send was queued.`;
+    }
+    return 'Not executed: an already committed recovery operation cannot be retargeted.';
+   }
    const commands=name==='browser_batch'?args.actions:[args];
    if(!Array.isArray(commands)||commands.some(c=>!c||typeof c!=='object'||(c as Record<string,unknown>).sends_application===true||(c as Record<string,unknown>).action==='script'||(c as Record<string,unknown>).target_mode==='coordinates'))return 'Not executed: recovery cannot send, use scripts or coordinate actions.';
    const op=normalizedOperation({name,args});
