@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Small automatic checks. deploy.sh bounds this entire phase to 180 seconds.
+# Small automatic checks. deploy.sh bounds this entire phase to 240 seconds.
 # Comprehensive suites remain available through their manual commands.
 set -euo pipefail
 # Keep background groups in the timeout-managed process group.
