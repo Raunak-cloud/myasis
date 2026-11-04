@@ -3,6 +3,8 @@ import {test} from 'node:test';
 import {SpecialistRecovery} from './specialist-recovery.js';
 import type {Observation} from './observe.js';
 import type {ToolSchema} from './celeris.js';
+import {specialistRecoveryTranscript,latestObservationScreenshotOnly} from './agent-only-transcript.js';
+import type {ChatMessage} from './celeris.js';
 const goal={kind:'field-value',target:'Cover letter',value:'Approved fictional letter'};
 const advice='READ-ONLY SPECIALIST ADVICE.\n'+JSON.stringify({advice:'Inspect and restore the approved letter, then verify it.',recovery_goal:goal});
 const observation=(step='Step 5',value='',ref='f0'):Observation=>({url:'https://fixture.invalid/apply',title:'Fictional application',text:step,fields:[{ref,label:'Cover letter',kind:'textarea',currentValue:value,disabled:false}as never],actions:[{ref:'a0',text:'Back',role:'button',disabled:false},{ref:'a1',text:'Next',role:'button',disabled:false}]});
@@ -10,6 +12,19 @@ const tools:ToolSchema[]=[{name:'browser_action',description:'fixture',parameter
 const plan=(r:SpecialistRecovery,op:{name:string;args:Record<string,unknown>}={name:'browser_action',args:{action:'inspect',ref:'f0'}},extra={})=>({advice_id:r.checkpoint().task!.id,decision:'adopt',reason:'The letter is the observed blocker.',evidence_quote:'Fictional application',operation_json:JSON.stringify(op),verification:goal,...extra});
 const verify=(r:SpecialistRecovery,assessment='resolved')=>({advice_id:r.checkpoint().task!.id,assessment,result_quote:'Cover letter',observation_quote:'Fictional application',reason:'Compared actual operation and current page evidence.'});
 function start(){const r=new SpecialistRecovery();r.observe(observation());r.accept(advice);return r;}
+
+test('required recovery generation keeps policy, candidate facts and fresh evidence without replaying obsolete plans',()=>{
+ const messages:ChatMessage[]=[{role:'system',content:'Immutable safety policy'},{role:'user',content:'Candidate facts and approval'},
+  {role:'assistant',content:null,tool_calls:[{id:'old',type:'function',function:{name:'browser_action',arguments:'{"action":"click","ref":"stale"}'}}]},
+  {role:'tool',tool_call_id:'old',content:'Old Next click'},
+  {role:'user',content:[{type:'text',text:'SPECIALIST RECOVERY OBLIGATION\nCurrent approved letter and actual tool result\nURL: https://fixture.invalid/apply'},{type:'image_url',image_url:{url:'data:image/png;base64,fictional'}}]}];
+ const original=structuredClone(messages),view=specialistRecoveryTranscript(messages,'respond_to_specialist');
+ assert.deepEqual(messages,original,'the retained audit transcript is untouched');
+ assert.deepEqual(view.slice(0,2),messages.slice(0,2));assert.equal(view[2],messages[4]);
+ assert.ok(!view.some(m=>m.role==='assistant'||m.role==='tool'));assert.match(String(view.at(-1)?.content),/exactly ONE respond_to_specialist/);
+ assert.deepEqual(latestObservationScreenshotOnly(view)[2],messages[4],'checkpoint instructions must not retire the fresh screenshot');
+ assert.throws(()=>specialistRecoveryTranscript(messages.slice(0,4),'respond_to_specialist'),/fresh browser observation/);
+});
 test('advice cannot execute itself and unacknowledged navigation/send/finish are refused',()=>{
  const r=start();assert.equal(r.requiredTool,'respond_to_specialist');
  for(const name of ['browser_action','prepare_application','finish'])assert.match(r.permit(name,{action:'click'} )!,/Not executed/);

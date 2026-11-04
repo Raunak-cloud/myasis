@@ -175,7 +175,7 @@ export async function consultApplicationSpecialist(
     if(advice===undefined)return ok(`${lastFormatIssue || 'Specialist work stopped at the shared budget.'} No action ran and no valid advice was accepted within the bounded consultation. Any passing tools are available: ${data(options.helpers?.schemas().map(t=>t.name)??[])}. Inspect the current page before using one.`, 'reobserve');
     if (ctx.page !== page || fingerprint(currentEvidence(ctx)) !== version) return ok('The browser or candidate evidence changed while the specialist was working. Its stale advice was discarded. Inspect the fresh page before choosing the next action.', 'reobserve');
     ctx.log(`  Specialist consultation ${state.calls}/2 complete (read only).`);
-    const message = `READ-ONLY SPECIALIST ADVICE. This is not an approval or a submission receipt; inspect the fresh page and act on useful advice directly without another recovery report.\n${data(advice)}`;
+    const message = `READ-ONLY SPECIALIST ADVICE. This is not an approval or a submission receipt. Address it through the required parent-owned recovery decision, actual normal operation and fresh verification.\n${data(advice)}`;
     if (shared && ticket && !shared.acceptAdvice(ticket, key, message)) return ok('The shared recovery record advanced while the specialist was working. Its stale advice was discarded; inspect current evidence.', 'reobserve');
     state.cache = { key, message };
     return ok(message, 'reobserve');

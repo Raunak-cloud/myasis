@@ -21,7 +21,7 @@ import { startAgentActivity } from './agent-activity.js';
 import { agentOnlyDocuments, agentOnlyEvidence, applicationAttemptHistory } from './agent-only-evidence.js';
 import { AgentFiles, fileIdsProperty } from './agent-files.js';
 import { reviewCurrentDuplicate } from '../duplicate-review.js';
-import { agentOnlyTranscript, latestObservationScreenshotOnly, generationRecoveryTranscript } from './agent-only-transcript.js';
+import { agentOnlyTranscript, latestObservationScreenshotOnly, generationRecoveryTranscript, specialistRecoveryTranscript } from './agent-only-transcript.js';
 import { ApplicationBudgetExhaustedError, type ChatMessage, type ToolSchema } from './celeris.js';
 import { applicationChat } from './application-chat.js';
 import { ProgressBudget } from './progress-budget.js';
@@ -1103,6 +1103,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       const reasoningEffort = !turn.completing && (highEffort || (!checkpoint||specialistCheckpoint) && recovery.needsDeepReasoning || readiness.needsDeepReasoning) ? 'high' : 'medium';
       const maxTokens = reasoningEffort === 'high' && applicationAgentIdentity().selection === 'celeris' ? 16_384 : 8192;
       const compact = (force = false) => {
+        if(specialistCheckpoint&&checkpoint===specialistCheckpoint)return specialistRecoveryTranscript(messages,checkpoint);
         const current = screenshotsEveryTurn || domFirst ? latestObservationScreenshotOnly(messages) : messages;
         const relevant = checkpoint === applicationReviewTool.name || recordOnly ? generationRecoveryTranscript(current) : current;
         const transcript = agentOnlyTranscript(relevant, contextLimit, force);
@@ -1133,15 +1134,16 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
           ? `Return exactly one ${checkpoint} tool call. No proposed browser actions were executed.`
           : toolInputIssue(call.args, checkpointSchema.parameters);
         if (issue) {
-          const feedback = `Recovery checkpoint response rejected: ${issue}`;
+          const feedback = `Recovery checkpoint response rejected: ${issue} Returned tools: ${JSON.stringify(reply.toolCalls.map(call=>call.name))}; text characters: ${reply.text.length}.`;
           recordDiagnostic({ severity: 'warning', category: 'checkpoint_format_error', stage: 'checkpoint', step: steps, tool: checkpoint, message: feedback });
           trace.push({ step: steps, url: ctx.page.url(), tool: checkpoint, label: 'Recovery checkpoint response rejected', args: {}, result: feedback,
             screenshot: ctx.observation.screenshot, startedAt: new Date().toISOString(), completedAt: new Date().toISOString() });
           for (const rejected of reply.toolCalls) messages.push({ role: 'tool', tool_call_id: rejected.id, content: feedback });
           messages.push({ role: 'user', content: feedback });
+          lastNote=feedback;
           saveLiveTrace();
-          // Keep the canonical review for one protocol correction. Recovery
-          // advisories never enter this mandatory-review branch.
+          // Allow one protocol correction; neither a malformed review nor a
+          // malformed specialist decision can authorize a browser operation.
           if (++invalidApplicationReviews >= 2) {
             terminal = { status: 'skipped', reason: 'The application could not be completed.' };
             finished = true;

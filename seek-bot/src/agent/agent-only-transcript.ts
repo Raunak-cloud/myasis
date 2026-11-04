@@ -5,7 +5,18 @@ import { estimateTranscriptTokens, trimTranscript } from './loop/transcript.js';
  * newer browser observation and must not retire that page's screenshot. */
 function isCheckpoint(message: ChatMessage): boolean {
   return message.role === 'user' && typeof message.content === 'string'
-    && /^(?:RECOVERY CHECKPOINT:|APPLICATION ACCURACY CHECKPOINT:)/.test(message.content);
+    && /^(?:RECOVERY CHECKPOINT:|APPLICATION ACCURACY CHECKPOINT:|SPECIALIST RECOVERY CHECKPOINT:)/.test(message.content);
+}
+
+/** The durable obligation carries the actual operation/result and fresh
+ * evidence. Retired browser plans must not compete with a required recovery
+ * decision. Keep the immutable policy/candidate prefix and current observation;
+ * this changes only the generation view, never the retained audit transcript. */
+export function specialistRecoveryTranscript(messages:ChatMessage[],tool:string):ChatMessage[] {
+  const observation=[...messages].reverse().find(message=>message.role==='user'&&!isCheckpoint(message)
+    && /^URL: /m.test(typeof message.content==='string'?message.content:message.content.filter(part=>part.type==='text').map(part=>part.text).join('\n')));
+  if(!observation)throw Error('Specialist recovery requires a fresh browser observation');
+  return [...messages.slice(0,2),observation,{role:'user',content:`SPECIALIST RECOVERY CHECKPOINT: return exactly ONE ${tool} tool call using its advertised schema. The current parent-owned obligation above is authoritative for this turn. A decision only records a plan; execute it on the following turn, then verify fresh evidence. Do not combine the decision, browser operation and verification into one reply. Keep the existing goal through intermediate steps. Existing tool permissions, approval and submission checks remain unchanged.`}];
 }
 
 /** Send one current picture while retaining prior text and actions. */
