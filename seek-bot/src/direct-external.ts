@@ -37,8 +37,11 @@ export async function identifyDirectJob(page: Page): Promise<PageIdentity> {
     const clean = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
     const places = Array.isArray(posting?.jobLocation) ? posting.jobLocation : [posting?.jobLocation];
     const locations = places.map(place => clean(place?.address?.addressLocality || place?.address?.addressRegion || '')).filter(Boolean);
-    const heading = [...document.querySelectorAll('main h1, [role="main"] h1, h1')]
-      .find(element => element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }))?.textContent;
+    const visible = (element: Element) => element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true });
+    // A comma-separated selector returns document order, so a shared portal
+    // header can precede the actual vacancy even when main is listed first.
+    const heading = ([...document.querySelectorAll('main h1, [role="main"] h1')].find(visible)
+      ?? [...document.querySelectorAll('h1')].find(visible))?.textContent;
     const siteName = document.querySelector('meta[property="og:site_name"]')?.getAttribute('content');
     const host = location.hostname.replace(/^www\./, '');
     // Google Careers keeps a visible, generic H1 outside the vacancy's main

@@ -24,6 +24,19 @@ test('Google vacancy identity uses its main role heading instead of the generic 
  }finally{await browser.close();}
 });
 
+test('a shared careers header cannot replace the main vacancy while metadata is unavailable',async()=>{
+ const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
+ try{
+  const page=await browser.newPage();
+  await page.setContent('<meta property="og:site_name" content="Westpac Group"><header><h1>Westpac Group Careers Job Search Page</h1></header><main><h1 hidden>Loading</h1><h1>Senior Penetration Tester</h1><p>Deliver web, API and mobile penetration testing in Sydney.</p></main>');
+  const job=await identifyDirectJob(page);
+  assert.equal(job.title,'Senior Penetration Tester');assert.equal(job.company,'Westpac Group');
+  assert.match(job.description,/Deliver web, API and mobile/);assert.doesNotMatch(job.description,/Job Search Page/);
+  await page.locator('main').evaluate(element=>element.remove());
+  assert.equal((await identifyDirectJob(page)).title,'Westpac Group Careers Job Search Page','Standalone pages retain the visible document heading fallback.');
+ }finally{await browser.close();}
+});
+
 test('Workday additional locations are read without credentials and bound to the exact requisition',async()=>{
  const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
  try{
