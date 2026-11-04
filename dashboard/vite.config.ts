@@ -13,7 +13,7 @@ import {
 } from './server/files.js';
 import { attachScreencast } from './server/screencast.js';
 import { loadQueue, updateQueueItem, answerForm } from './server/assist.js';
-import { loadAttention, dismissAllAttention } from './server/attention.js';
+import { loadAttention, dismissAllAttention, candidateAttention } from './server/attention.js';
 import { loadSkipped, setVerdict } from './server/skipped.js';
 import { setupStatus } from './server/setup.js';
 import { loadProfile as loadCandidate, saveProfile, SalaryValidationError } from './server/profile.js';
@@ -1001,7 +1001,7 @@ function dataApi(): Plugin {
 
       case '/api/attention':
         if (req.method !== 'GET') return send({ error: 'GET required.' }, 405);
-        return withUser(async (userId) => send(await loadAttention(userId)));
+        return withUser(async (userId) => send(candidateAttention(await loadAttention(userId))));
 
       // Skipped jobs and the candidate's call on each (server/skipped.ts). Administrators only while it is tried out.
       case '/api/skipped':
@@ -1075,6 +1075,8 @@ function dataApi(): Plugin {
       case '/api/trace': {
         // The step-by-step record (with screenshots) of an application that needs a person.
         return withUser(async (userId) => {
+          const user=await currentUser(req.headers?.cookie);
+          if(!isAdmin(user?.email))return send({error:'Not available on this account.'},403);
           const jobId = url.searchParams.get('jobId') ?? '';
           if (!/^[A-Za-z0-9_-]{1,64}$/.test(jobId)) return send({ error: 'jobId required' }, 400);
           const file = resolve(userDir(userId), 'traces', `${jobId}.json`);
@@ -1090,7 +1092,7 @@ function dataApi(): Plugin {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
         return withUser(async (userId) => {
           const cleared = await dismissAllAttention(userId);
-          return send({ ok: true, cleared, items: await loadAttention(userId) });
+          return send({ ok: true, cleared, items: candidateAttention(await loadAttention(userId)) });
         });
       }
 

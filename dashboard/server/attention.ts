@@ -4,6 +4,7 @@ import { normaliseBlockedQuestions as normaliseQuestions } from '../../seek-bot/
 import { blockedQuestionKey, mergePendingQuestions } from '../../seek-bot/src/blocked-questions.js';
 export { normaliseQuestions };
 import { plainReason } from '../src/run-messages.js';
+import { attentionCopy } from '../src/attention-copy.js';
 export { plainReason } from '../src/run-messages.js';
 
 /**
@@ -25,6 +26,19 @@ interface AttentionItem {
   at: string;
   /** Questions the candidate can answer right here to unblock the job. */
   questions?: BlockedQuestion[];
+}
+
+/** Public response boundary. Historical diagnostics and unverified legacy
+ * prompts remain in internal records; only captured employer questions are
+ * presented as questions to the candidate. Do not spread internal properties. */
+export function candidateAttention(items: AttentionItem[]) {
+  return items.map(item=>{
+    const questions=normaliseQuestions(item.questions).filter(question=>question.snapshot);
+    const needsQuestionCapture=!questions.length||questions.length!==(item.questions?.length??0);
+    return {jobId:item.jobId,title:item.title,company:item.company,kind:item.kind,
+      reason:questions.length?attentionCopy.answer:attentionCopy.recapture,url:item.url,at:item.at,
+      questions,needsQuestionCapture};
+  });
 }
 
 export interface RunEventRow {

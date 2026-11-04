@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { relative } from '../format';
-import { plainReason, userFacingError } from '../run-messages';
+import { userFacingError } from '../run-messages';
+import { attentionCopy } from '../attention-copy';
 import { blockedQuestionKey } from '../../../seek-bot/src/blocked-question-key';
 
 export type AttentionKind = 'captcha' | 'verification' | 'question' | 'off-platform' | 'error';
@@ -20,6 +21,7 @@ export interface AttentionItem {
   at: string;
   /** Questions the candidate can answer right here to unblock the job. */
   questions?: BlockedQuestion[];
+  needsQuestionCapture?: boolean;
 }
 
 /** The question as the candidate should read it: the written-out one when there is one, else the form's own label. */
@@ -51,10 +53,10 @@ export function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: (
         return next;
       });
       onSaved?.();
-    }catch(reason){setError((reason as Error).message);}finally{setSaving(false);}
+    }catch{setError(attentionCopy.saveError);}finally{setSaving(false);}
   }
   return <form className="answer-form" noValidate onSubmit={e=>{e.preventDefault();void save();}}>
-    {questions.map(q=>q.snapshot?<EmployerQuestion key={questionKey(q)} snapshot={q.snapshot} value={values[questionKey(q)]??{}} onChange={v=>setValues(current=>({...current,[questionKey(q)]:v}))}/>:<div key={questionKey(q)} className="answer-row"><span>{questionText(q)}</span><small>The original question and controls need to be captured again before you can answer.</small></div>)}
+    {questions.map(q=>q.snapshot?<EmployerQuestion key={questionKey(q)} snapshot={q.snapshot} value={values[questionKey(q)]??{}} onChange={v=>setValues(current=>({...current,[questionKey(q)]:v}))}/>:<div key={questionKey(q)} className="answer-row"><small>{attentionCopy.recapture}</small></div>)}
     {error&&<div role="alert" className="banner banner-bad">{userFacingError(error)}</div>}
     <div className="answer-actions"><button className="btn primary" disabled={saving||!answered.length} type="submit">{saving?'Saving…':'Save answers'}</button></div>
   </form>;
@@ -159,8 +161,9 @@ function TraceContent({ jobId, questions, endpoint }: { jobId: string; questions
 }
 
 /** One blocked job, plus its step-by-step trace on a full-width row beneath. */
-function AttentionRow({ item, onCleared, isAdmin }: { item: AttentionItem; onCleared?: () => void; isAdmin: boolean }) {
-  const [showTrace, setShowTrace] = useState(false);
+function AttentionRow({ item, onCleared }: { item: AttentionItem; onCleared?: () => void }) {
+  const captured=item.questions?.filter(question=>question.snapshot)??[];
+  const needsCapture=item.needsQuestionCapture||captured.length!==(item.questions?.length??0)||!captured.length;
   return (
     <>
       <tr className="attention-item">
@@ -173,12 +176,8 @@ function AttentionRow({ item, onCleared, isAdmin }: { item: AttentionItem; onCle
         </td>
         <td className="job-meta attention-reason">
           {/* With a question to answer, the question is the whole story; the reason only repeated it. */}
-          {item.questions?.length ? <AnswerForm item={item} onSaved={onCleared} /> : plainReason(item.reason)}
-          {isAdmin && <div className="trace-actions">
-            <button type="button" className="link-button" onClick={() => setShowTrace((open) => !open)}>
-              {showTrace ? 'Hide steps' : 'View steps'}
-            </button>
-          </div>}
+          {captured.length>0&&<AnswerForm item={{...item,questions:captured}} onSaved={onCleared} />}
+          {needsCapture&&<p>{attentionCopy.recapture}</p>}
         </td>
         <td className="attention-when nowrap job-meta">{relative(item.at)}</td>
         <td className="attention-open nowrap">
@@ -187,13 +186,6 @@ function AttentionRow({ item, onCleared, isAdmin }: { item: AttentionItem; onCle
           </a>
         </td>
       </tr>
-      {isAdmin && showTrace && (
-        <tr className="trace-row">
-          <td colSpan={5}>
-            <TraceSteps jobId={item.jobId} questions={item.questions} />
-          </td>
-        </tr>
-      )}
     </>
   );
 }
@@ -239,7 +231,6 @@ export function AttentionPanel({
   onCleared,
   loading = false,
   loadError = null,
-  isAdmin = false,
 }: {
   items: AttentionItem[];
   onCleared?: () => void;
@@ -261,8 +252,8 @@ export function AttentionPanel({
       const body = await response.json().catch(() => null);
       if (!response.ok || !body || body.ok !== true) throw new Error(body?.error ?? 'Could not clear the list. Please try again.');
       onCleared?.();
-    } catch (reason) {
-      setError((reason as Error).message);
+    } catch {
+      setError(attentionCopy.clearError);
     } finally {
       setClearing(false);
     }
@@ -284,7 +275,7 @@ export function AttentionPanel({
     [counts],
   );
 
-  if (loadError && !items.length) return <div className="card empty" role="alert"><p>{userFacingError(loadError)}</p><button className="btn" onClick={onCleared}>Try again</button></div>;
+  if (loadError && !items.length) return <div className="card empty" role="alert"><p>{attentionCopy.loadError}</p><button className="btn" onClick={onCleared}>Try again</button></div>;
   if (loading && !items.length) return <div className="card empty" role="status">Checking for jobs that need your attention…</div>;
   if (!items.length) {
     return (
@@ -297,7 +288,7 @@ export function AttentionPanel({
 
   return (
     <div className="attention-panel">
-      {loadError && <div className="banner banner-bad" role="alert">{userFacingError(loadError)} <button type="button" className="btn" onClick={onCleared}>Try again</button></div>}
+      {loadError && <div className="banner banner-bad" role="alert">{attentionCopy.loadError} <button type="button" className="btn" onClick={onCleared}>Try again</button></div>}
       {counts.verification ? (
         <div className="banner attention-hero">
           <strong>{counts.verification} listings are waiting on work-rights verification.</strong>
@@ -348,7 +339,7 @@ export function AttentionPanel({
           </thead>
           <tbody>
             {shown.map((i) => (
-              <AttentionRow key={i.jobId} item={i} onCleared={onCleared} isAdmin={isAdmin} />
+              <AttentionRow key={i.jobId} item={i} onCleared={onCleared} />
             ))}
           </tbody>
         </table>

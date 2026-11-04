@@ -33,7 +33,7 @@ try {
   await page.route('**/api/answers', async route => {
     const body = route.request().postDataJSON(); writes.push(body);
     if (mode === 'held') await new Promise<void>(done => { release = done; holdStarted?.(); });
-    await route.fulfill({ status: mode === 'failed' ? 503 : 200, contentType: 'application/json', body: mode === 'failed' ? JSON.stringify({ error: 'Could not save the answers. Please try again.' }) : JSON.stringify({ ok: true, saved: mode === 'malformed' ? 0 : body.answers.length }) });
+    await route.fulfill({ status: mode === 'failed' ? 503 : 200, contentType: 'application/json', body: mode === 'failed' ? JSON.stringify({ error: 'SPECIALIST_RECOVERY_SECRET f7 operation_json internal stack trace' }) : JSON.stringify({ ok: true, saved: mode === 'malformed' ? 0 : body.answers.length }) });
   });
   await page.goto(`http://127.0.0.1:${address.port}`);
   const notice = page.getByRole('textbox', { name: 'What is your notice period?', exact: true });
@@ -41,6 +41,7 @@ try {
   await notice.fill('Two weeks'); await reason.fill('Relevant work');
   await page.getByRole('button', { name: 'Save answers', exact: true }).click();
   await page.getByText('Could not save the answers. Please try again.', { exact: true }).waitFor();
+  assert.ok(!(await page.locator('body').innerText()).includes('SPECIALIST_RECOVERY_SECRET'),'arbitrary server errors never become candidate copy');
   assert.equal(await notice.inputValue(), 'Two weeks'); assert.equal(await reason.inputValue(), 'Relevant work');
   assert.deepEqual(writes[0].answers.map(a=>[a.questionId,a.response.part0]), [['q2_'+ '1'.repeat(64),'Two weeks'],['q2_'+ '2'.repeat(64),'Relevant work']], 'same component IDs in separate questions retain their own typed responses');
   mode = 'malformed';
@@ -115,11 +116,22 @@ try {
   await update([{question:parts.prompt,snapshot:parts}]);
   assert.equal(await page.locator('input[type=date]').count(),0,'composite date components are not replaced with three full-date pickers');
   await update([{question:'Month',kind:'text'}]);
-  await page.getByText('The original question and controls need to be captured again before you can answer.').waitFor();
+  await page.getByText("Open the application to check the employer's original question before answering.").waitFor();
   assert.equal(await page.getByRole('textbox').count(),0,'legacy fragments are not represented as complete questions');
-  assert.equal(await page.getByRole('button',{name:'Save answers',exact:true}).isDisabled(),true);
+  assert.equal(await page.getByRole('button',{name:'Save answers',exact:true}).count(),0);
   await update([{question:snapshot.prompt,snapshot:{...snapshot,completeness:'recapture'}}]);
   assert.equal(await page.getByRole('radio').count(),0,'incomplete catalogs cannot collect partial answers');
+  const diagnostic='ARBITRARY_FUTURE_DIAGNOSTIC specialist f7 operation_json selector #broken';
+  for(const admin of [false,true]){
+    await page.evaluate(({admin,diagnostic})=>document.dispatchEvent(new CustomEvent('attention-fixture',{detail:JSON.stringify({admin,error:diagnostic,items:[{jobId:'fixture-job',title:'Fixture role',company:'Fixture employer',kind:'question',reason:diagnostic,url:'https://example.test',at:'2026-10-30T00:00:00Z',questions:[{question:diagnostic,prompt:diagnostic}]}]})})),{admin,diagnostic});
+    await page.getByText("Open the application to check the employer's original question before answering.").waitFor();
+    assert.ok(!(await page.locator('body').innerText()).includes(diagnostic),'legacy prompts, reasons and refresh errors never render diagnostics for either role');
+    assert.equal(await page.getByRole('button',{name:'View steps',exact:true}).count(),0,'Needs attention has no diagnostic trace expansion');
+  }
+  const apiQuestion=sealQuestionSnapshot({...snapshot,prompt:'Describe your API debugging experience.',controls:[{...base,label:'Describe your API debugging experience.',kind:'textarea',choices:[]}]});
+  await update([{question:diagnostic,prompt:diagnostic,snapshot:apiQuestion}]);
+  assert.equal(await page.getByRole('textbox',{name:apiQuestion.prompt,exact:true}).count(),1,'original employer technical wording is preserved without a jargon blacklist');
+  assert.ok(!(await page.locator('body').innerText()).includes(diagnostic));
   console.log('PASS: repeated captions, save failures, malformed success, in-flight edits, refresh errors and typed original controls retain correct candidate drafts. Fixture only.');
 } finally {
   await browser?.close();

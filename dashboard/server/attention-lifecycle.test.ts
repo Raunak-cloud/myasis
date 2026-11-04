@@ -1,4 +1,6 @@
-import { plainReason, resolveAttention, type RunEventRow } from './attention.js';
+import { plainReason, resolveAttention, candidateAttention, type RunEventRow } from './attention.js';
+import { sealQuestionSnapshot } from '../../seek-bot/src/question-snapshot-node.js';
+import { attentionCopy } from '../src/attention-copy.js';
 import { normaliseAttentionOutcome } from '../../seek-bot/src/blocked-questions.js';
 import { normaliseSavedAnswers } from './answers.js';
 
@@ -96,6 +98,14 @@ check('PostgreSQL microsecond ordering wins over import identity within a millis
   { ...event('needs-human', 2, ['Street address']), id: '12', order_at: '1789207320000100' },
 ], new Set()).length === 0);
 check('invalid timestamps are ignored safely', resolveAttention([{ ...event('needs-human', 2, ['Street address']), ts: 'not-a-date' }], new Set()).length === 0);
+
+const originalQuestion=sealQuestionSnapshot({version:2,source:{origin:'https://employer.example',path:'/apply'},prompt:'Describe your API debugging experience.',context:['Experience'],help:[],completeness:'complete',controls:[{id:'part0',label:'Describe your API debugging experience.',kind:'textarea',required:true,multiple:false,choices:[],constraints:{}}]});
+const internal=resolveAttention([{...event('needs-human',5),reason:'SPECIALIST RECOVERY f7 HTTP503 operation_json selector #broken',questions:[{question:'Technical callback f7 failed',snapshot:originalQuestion},{question:'Internal browser checkpoint failed'}]}],new Set());
+const preserved=JSON.stringify(internal),publicItems=candidateAttention(internal);
+check('attention API never returns generated diagnostic reasons or legacy prompts',!JSON.stringify(publicItems).includes('SPECIALIST RECOVERY')&&!JSON.stringify(publicItems).includes('Internal browser checkpoint')&&!JSON.stringify(publicItems).includes('Technical callback'));
+check('actual employer technical questions keep their exact snapshot and response identity',publicItems[0]?.questions[0]?.snapshot?.revision===originalQuestion.revision&&publicItems[0]?.questions[0]?.prompt===originalQuestion.prompt);
+check('legacy questions require recapture without exposing their unverified wording',publicItems[0]?.needsQuestionCapture===true&&candidateAttention(resolveAttention([event('needs-human',6,['arbitrary_future_internal_diagnostic'])],new Set()))[0]?.reason===attentionCopy.recapture);
+check('presentation does not mutate worker evidence or historical pending questions',JSON.stringify(internal)===preserved);
 
 console.log(`\n${failures} failure(s)`);
 process.exit(failures ? 1 : 0);

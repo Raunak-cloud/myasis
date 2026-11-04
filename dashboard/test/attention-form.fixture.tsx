@@ -17,15 +17,17 @@ document.documentElement.dataset.saved = '0';
 export function Fixture() {
   const [items, setItems] = useState(initial);
   const [error, setError] = useState<string | null>(null);
+  const [admin,setAdmin]=useState(false);
   useEffect(() => {
     const update = (event: Event) => {
       const payload = JSON.parse((event as CustomEvent<string>).detail);
       if ('items' in payload) setItems(payload.items);
       if ('error' in payload) setError(payload.error);
+      if ('admin' in payload) setAdmin(payload.admin);
     };
     document.addEventListener('attention-fixture', update);
     return () => document.removeEventListener('attention-fixture', update);
   }, []);
-  return <AttentionPanel items={items} loadError={error} onCleared={() => { document.documentElement.dataset.saved = String(Number(document.documentElement.dataset.saved) + 1); }} />;
+  return <AttentionPanel items={items} isAdmin={admin} loadError={error} onCleared={() => { document.documentElement.dataset.saved = String(Number(document.documentElement.dataset.saved) + 1); }} />;
 }
 createRoot(document.getElementById('root')!).render(<Fixture />);
