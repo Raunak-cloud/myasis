@@ -18,6 +18,7 @@ const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{
 const previousFetch=globalThis.fetch;
 try{
  const email='candidate@fixture.invalid',company='Fixture Employer';
+ for(const board of ['https://www.seek.com.au/login','https://au.indeed.com/login'])assert.equal(employerAccountSite(board,'First Employer'),employerAccountSite(board,'Another Employer'),'a job-board login belongs to the board, not each vacancy employer');
  const html='<main><h1>Employer account</h1><p>An account already exists with this email. Please sign in.</p><label>Email<input type=email id=email oninput="window.writes++"></label><label>Password<input type=password id=password oninput="window.writes++"></label></main>';
  const context=await browser.newContext();
  await context.route('**/*',route=>new URL(route.request().url()).hostname.endsWith('.invalid')?route.fulfill({contentType:'text/html',body:html}):route.abort());

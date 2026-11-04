@@ -1,8 +1,10 @@
 /** Public identity of an employer login, never a password or a job-board identity. */
+import { jobBoardForHost } from './job-board-url.js';
 export const employerName = (name: string) => name.trim().toLowerCase().replace(/\s+/g, ' ');
 export function employerAccountSite(url: string, employer = ''): string {
   const parsed = new URL(url.includes('://') ? url : `https://${url}`);
   const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+  if(jobBoardForHost(host))return host;
   // SuccessFactors explicitly identifies its independent employer tenants by company.
   const company = /(?:^|\.)successfactors\.(?:com|eu)$/.test(host) ? parsed.searchParams.get('company') : null;
   if (company?.trim()) return `${host}/?company=${encodeURIComponent(company.trim())}`;
