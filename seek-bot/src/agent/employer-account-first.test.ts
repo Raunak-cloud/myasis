@@ -38,7 +38,9 @@ try{
   assert.equal(normaliseAttentionOutcome({...handoff.outcome,jobId:'fictional',url:page.url()}).status,'needs-human');
  }
  assert.equal(pendingCredential(page.url(),email,company,'create_account'),null,'a rejected duplicate draft is not a managed account');
- await page.locator('#password').fill('');state=await ctx();
+ assert.equal(await page.locator('#password').inputValue(),'','a rejected registration proposal is retired from the actual form before the user handoff');
+ assert.equal(state.pendingCredentials?.size,0);
+ state=await ctx();
  assert.equal((await doCompleteAuthentication(state,{purpose:'sign_in',...fields})).kind,'terminal','existing-account handoff survives a fresh applying context');
  assert.equal(await page.locator('#password').inputValue(),'');
  assert.equal(employerCredentialState(page.url(),'another@fixture.invalid',company).state,'missing');

@@ -3,7 +3,7 @@ import { browserTarget } from './browser-target.js';
 import type { Observation } from './observe.js';
 import { isForbiddenDestination } from './browser-boundaries.js';
 import { gmailAvailable, gmailAccount, findVerificationInGmail } from '../gmail-mailbox.js';
-import { authenticationValue, isAuthenticationPasswordField, hostOf, normalizeRules, type SiteCredential } from '../site-auth.js';
+import { authenticationValue, isAuthenticationPasswordField, hostOf, normalizeRules, sitePassword, type SiteCredential } from '../site-auth.js';
 import { storedCredential, rejectCredential, acceptPendingCredential, pendingCredential, stagePendingCredential, markPendingVerification, discardPendingCredential, employerCredentialState, rememberExternalAccount, type CredentialPurpose } from '../site-credentials.js';
 import { employerAccountSite, accountAccessMessage } from '../employer-account.js';
 import { ToolResult, ToolContext, ok, noteAction, siteName } from './context.js';
@@ -24,6 +24,18 @@ function accountHandoff(ctx:ToolContext):ToolResult {
   if(ctx.submissionAttempted)return ok('An application send may already have occurred. Preserve the send and investigate its receipt; an account-access task cannot authorize a retry.','uncertain');
   return {kind:'terminal',outcome:{status:'needs-human',reason:accountAccessMessage,accountAccess:{version:1,kind:'existing-account',site:employerCredentialState(credentialUrl(ctx),ctx.profile.email,ctx.job.company).site}}};
 }
+async function retirePrivateCredential(ctx:ToolContext,expected?:string):Promise<void>{
+  for(const frame of ctx.page.frames()){
+    if(frame!==ctx.page.mainFrame()&&!await(await frame.frameElement()).isVisible())continue;
+    await preparePrivateAuthenticationFields(frame);
+    for(const input of await frame.locator('[data-owtomate-private-auth="password"]').all()){
+      try{
+        assertLive();
+        if(await input.isVisible()&&await input.isEnabled()&&(expected===undefined||await input.inputValue({timeout:1000})===expected))await input.fill('',{timeout:1000});
+      }catch{assertLive();/* Do not expose a private value through a detached-input error. */}
+    }
+  }
+}
 /** The account-first lookup reads only this candidate's employer-scoped metadata. */
 export function authenticationAccountSummary(ctx:ToolContext):string {
   const state=employerCredentialState(credentialUrl(ctx),ctx.profile.email,ctx.job.company);
@@ -36,7 +48,13 @@ export async function doCheckEmployerAccount(ctx:ToolContext,args:Record<string,
     if(!['existing','not_found'].includes(String(args.outcome)))return ok('Choose lookup, existing or not_found.','invalid-arguments');
     if(!await employerMessageEvidence(ctx.page,String(args.evidence??'')))return ok('Copy the complete current employer account-discovery message. A sign-in button, filled email or local lookup does not establish whether an account exists.','reobserve');
     if(args.outcome==='existing'&&(state.state==='missing'||state.state==='pending'&&state.phase==='prepared')){
-      if(state.state==='pending')discardPendingCredential(credentialUrl(ctx),ctx.profile.email,ctx.job.company,state.purpose);
+      if(state.state==='pending'){
+        const proposal=pendingCredential(credentialUrl(ctx),ctx.profile.email,ctx.job.company,state.purpose);
+        const value=proposal?sitePassword(credentialUrl(ctx),ctx.profile.email,undefined,proposal):null;
+        if(value)await retirePrivateCredential(ctx,value);
+        discardPendingCredential(credentialUrl(ctx),ctx.profile.email,ctx.job.company,state.purpose,proposal??undefined);
+        ctx.pendingCredentials?.delete(state.site);
+      }
       rememberExternalAccount(credentialUrl(ctx),ctx.profile.email,ctx.job.company);
       return employerCredentialState(credentialUrl(ctx),ctx.profile.email,ctx.job.company).state==='external'?accountHandoff(ctx):ok(authenticationAccountSummary(ctx));
     }
@@ -248,14 +266,7 @@ export async function doRecordAuthenticationResult(ctx: ToolContext, args: Recor
     ctx.actions.push({ ...action, kind: 'authentication-rejected' });
     ctx.recoveryRecord?.resolveUncertainty('authentication','rejected',evidence.quote,authKey(ctx,purpose));
     // Retire the actual private value too; another click must not resubmit it.
-    for (const frame of ctx.page.frames()) {
-      if (frame !== ctx.page.mainFrame() && !await (await frame.frameElement()).isVisible()) continue;
-      await preparePrivateAuthenticationFields(frame);
-      for (const input of await frame.locator('[data-owtomate-private-auth="password"]').all()) {
-        try { assertLive(); if (await input.isVisible() && await input.isEnabled()) await input.fill('', { timeout: 1000 }); }
-        catch { assertLive(); /* Detached inputs cannot be reused on the current page. */ }
-      }
-    }
+    await retirePrivateCredential(ctx);
     return ok('Recorded rejected authentication. This sign-in credential will not be reused. Account recovery or a confirmed new credential is required.', 'reobserve');
   }
   if (outcome === 'needs_verification') {
