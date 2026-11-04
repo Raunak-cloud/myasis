@@ -17,7 +17,7 @@ interface PageIdentity {
   description: string;
 }
 
-async function identify(page: Page): Promise<PageIdentity> {
+export async function identifyDirectJob(page: Page): Promise<PageIdentity> {
   return page.evaluate(() => {
     const values: unknown[] = [];
     for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
@@ -40,9 +40,16 @@ async function identify(page: Page): Promise<PageIdentity> {
       .find(element => element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }))?.textContent;
     const siteName = document.querySelector('meta[property="og:site_name"]')?.getAttribute('content');
     const host = location.hostname.replace(/^www\./, '');
+    // Google Careers keeps a visible, generic H1 outside the vacancy's main
+    // panel. Confirm its metadata against the panel's actual role heading.
+    const googleCareers = host === 'google.com' && /^\/about\/careers\/applications\/jobs\/results\/\d+-/.test(location.pathname);
+    const googleTitle = googleCareers ? document.querySelector('meta[property="og:title"]')?.getAttribute('content') : null;
+    const googleHeading = googleTitle ? [...document.querySelectorAll('main h2, [role="main"] h2')]
+      .find(element => clean(element.textContent) === clean(googleTitle)
+        && element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) : undefined;
     return {
-      title: clean(posting?.title || heading || document.title || 'Direct employer application'),
-      company: clean(posting?.hiringOrganization?.name || siteName || host),
+      title: clean(posting?.title || googleHeading?.textContent || heading || document.title || 'Direct employer application'),
+      company: clean(posting?.hiringOrganization?.name || (googleHeading ? 'Google' : siteName || host)),
       location: clean(address?.addressLocality || address?.addressRegion || ''),
       description: (() => {
         if (posting?.description) {
@@ -78,7 +85,7 @@ export async function runDirectExternalApplication(
   }
   await page.waitForFunction(() => Boolean(document.body?.innerText.trim()), undefined, { timeout: 15_000 }).catch(() => {});
   await waitForApplicationSurface(page, 5_000).catch(() => false);
-  const identity = await identify(page);
+  const identity = await identifyDirectJob(page);
   let job: JobListing = {
     id,
     title: identity.title || 'Direct employer application',

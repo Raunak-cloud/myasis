@@ -6,9 +6,23 @@ import {join} from 'node:path';
 import {chromium} from 'patchright';
 import {withApplicationModel} from './application-model.js';
 import {config} from './config.js';
-import {runDirectExternalApplication} from './direct-external.js';
+import {identifyDirectJob,runDirectExternalApplication} from './direct-external.js';
 import {captureApplicationFailure} from './application-diagnostics.js';
 import type {FitAssessment} from './llm.js';
+
+test('Google vacancy identity uses its main role heading instead of the generic H1',async()=>{
+ const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
+ try{
+  const page=await browser.newPage();
+  await page.route('**/*',route=>route.fulfill({contentType:'text/html',body:'<meta property="og:title" content="Security Engineering Manager, Detection and Response"><h1>job details</h1><aside><h2>Jobs search results</h2><p>Unrelated sales recommendation.</p></aside><main><h2>Security Engineering Manager, Detection and Response</h2><p>Google</p><p>Review security designs and lead technical security assessments in Sydney.</p></main>'}));
+  await page.goto('https://www.google.com/about/careers/applications/jobs/results/123456789-security-engineering-manager');
+  const job=await identifyDirectJob(page);
+  assert.equal(job.title,'Security Engineering Manager, Detection and Response');
+  assert.equal(job.company,'Google');
+  assert.match(job.description,/technical security assessments in Sydney/);
+  assert.doesNotMatch(job.description,/Unrelated sales recommendation/);
+ }finally{await browser.close();}
+});
 
 test('direct URL must pass current-preference review before any application action',async()=>{
  const dir=mkdtempSync(join(tmpdir(),'direct-preferences-')),previous={dry:config.dryRun,external:config.allowExternalApply};
