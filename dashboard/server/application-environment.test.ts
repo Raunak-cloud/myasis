@@ -16,7 +16,7 @@ test('worker environment excludes retired controls and unknown credentials witho
     RETIRED_PROVIDER_API_KEY: 'must-not-inherit', RETIRED_PROVIDER_KEY: 'must-not-inherit', UNRELATED_SECRET: 'must-not-inherit',
     GMAIL_MCP_TOKEN: 'foreign-mailbox-capability', GMAIL_MCP_URL: 'http://foreign.invalid', GMAIL_MCP_ACCOUNT: 'foreign@fixture.invalid',
     OPENROUTER_API_KEY: 'foreign-credential', OPENROUTER_BASE_URL: 'http://foreign.invalid',
-    RETIRED_BROWSER_PASSWORD: 'fixture-browser-password' };
+    RETIRED_BROWSER_PASSWORD: 'fixture-browser-password', OPERATOR_MAX_EVALUATIONS:'400', OPERATOR_RUN_TIMEOUT_MINUTES:'120', OPERATOR_PLAN:'intensive-pass' };
   const before = { ...input };
   assert.deepEqual(applicationRunEnvironment(input), { PATH: 'fixture-path', DATA_DIR: '/owner/files',
     CELERIS_API_KEY: 'fixture-key', SITE_AUTH_SECRET: 'fixture-session' });

@@ -41,6 +41,7 @@ import { gmailAccess } from './gmail-access.js';
 import { scheduledStart } from './run-schedule.js';
 import { dailyApplicationLimit, USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
 import { targetedSeekRetryJobs } from './targeted-retry-jobs.js';
+import { VIP_RUN_PLAN, sponsoredRunAllowance, sponsoredRunEntitlements } from './operator-run-plan.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
@@ -93,7 +94,7 @@ interface StartRunRequest {
   /** One exact employer job page supplied by an administrator. */
   externalUrl?: unknown;
   /** Explicit operator exception, resolved for this run only; never saved as account settings. */
-  oneTime?: { allowMissingSalary?: boolean; maxApplications?: number; maxEvaluations?: number; applicationModel?: ApplicationModel; includeSavedChoices?: boolean };
+  oneTime?: { plan?: 'intensive-pass'; allowMissingSalary?: boolean; maxApplications?: number; maxEvaluations?: number; applicationModel?: ApplicationModel; includeSavedChoices?: boolean };
 }
 
 type Refusal = Extract<StartRunOutcome, { ok: false }>;
@@ -166,9 +167,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   const invalidSettings = jobSourceSettingsError(request.clientOverrides ?? {}, admin, true);
   if (invalidSettings) return { ok: false, ...invalidSettings };
   let borrowFreeProxy = false;
-  const entitlements = await entitlementsFor(userId, email);
-  const sourceError = jobSourceSettingsError(request.clientOverrides ?? {}, admin, entitlements.employerSources);
-  if (sourceError) return { ok: false, ...sourceError };
+  let entitlements = await entitlementsFor(userId, email);
   const controlRefused = runControlRefusal(trigger, entitlements, request.approvals !== undefined);
   if (controlRefused) return controlRefused;
   if (request.applicationMode !== undefined && !['auto', 'semi-auto'].includes(request.applicationMode)) return { ok: false, status: 400, error: 'Choose Auto apply or Semi auto.' };
@@ -197,14 +196,20 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     if (!isAdmin(actor[0]?.email)) return { ok: false, status: 403, error: 'One-time run exceptions require an administrator.' };
     const oneTime = request.oneTime;
     if (!oneTime || typeof oneTime !== 'object' || Array.isArray(oneTime)
+      || (oneTime.plan !== undefined && oneTime.plan !== VIP_RUN_PLAN.plan)
       || (oneTime.allowMissingSalary !== undefined && typeof oneTime.allowMissingSalary !== 'boolean')
       || (oneTime.includeSavedChoices !== undefined && typeof oneTime.includeSavedChoices !== 'boolean')
       || (oneTime.applicationModel !== undefined && oneTime.applicationModel !== 'minimax')
       || (oneTime.maxApplications !== undefined && (!Number.isInteger(oneTime.maxApplications) || oneTime.maxApplications < 1 || oneTime.maxApplications > USER_RUN_LIMITS.MAX_APPS_PER_DAY))
-      || (oneTime.maxEvaluations !== undefined && (!Number.isInteger(oneTime.maxEvaluations) || oneTime.maxEvaluations < 1 || oneTime.maxEvaluations > 150))) {
-      return { ok: false, status: 400, error: `Use 1–${USER_RUN_LIMITS.MAX_APPS_PER_DAY} applications and 1–150 job reviews for a one-time run.` };
+      || (oneTime.maxEvaluations !== undefined && (!Number.isInteger(oneTime.maxEvaluations) || oneTime.maxEvaluations < 1 || oneTime.maxEvaluations > (oneTime.plan ? VIP_RUN_PLAN.maxReviews : 150)))) {
+      return { ok: false, status: 400, error: `Use 1–${USER_RUN_LIMITS.MAX_APPS_PER_DAY} applications and 1–${oneTime?.plan === VIP_RUN_PLAN.plan ? VIP_RUN_PLAN.maxReviews : 150} job reviews for a one-time run.` };
     }
+    if (oneTime.plan && (request.approvals !== undefined || request.applicationMode === 'semi-auto')) return {ok:false,status:400,error:'A sponsored plan is for one Auto apply discovery run.'};
   }
+  const sponsored = request.oneTime?.plan === VIP_RUN_PLAN.plan;
+  if (sponsored) entitlements = sponsoredRunEntitlements(entitlements);
+  const sourceError = jobSourceSettingsError(request.clientOverrides ?? {}, admin, entitlements.employerSources);
+  if (sourceError) return { ok: false, ...sourceError };
 
   /**
    * Whether this account drives runs at all, checked before anything else.
@@ -265,6 +270,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * had not picked boards itself.
    */
   const overrides = applyRunPolicy(settings, entitlements, admin && effectiveTrigger === 'manual' ? 'manual' : 'auto', settingsSnapshot.saved[PLATFORMS_CHOSEN_KEY] === '1', settingsSnapshot.saved[EMPLOYER_SOURCES_CHOSEN_KEY] === '1');
+  if (sponsored) overrides.OPERATOR_PLAN = VIP_RUN_PLAN.plan;
   overrides.APPLICATION_REVIEW_MODE = request.applicationMode === 'semi-auto' ? 'prepare' : '';
   // A preference-scoped operator batch need not replay earlier Skipped-view
   // choices. Keep those durable choices and explicit prepared approvals intact.
@@ -338,13 +344,14 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
 
   if (consumes) {
     try {
-      const allowance = await billingStatus(userId, email);
+      const accountAllowance = await billingStatus(userId, email);
+      const allowance = sponsored ? sponsoredRunAllowance(accountAllowance) : accountAllowance;
       const unlimitedApplications = allowance.paid.unlimitedApplications === true;
       if (unlimitedApplications && !admin) {
         overrides.APPLICATIONS_UNLIMITED = 'true';
         // Unlimited ordinary runs still honor an administrator's explicit
         // one-time diagnostic cap and a direct single-vacancy preparation.
-        if (request.oneTime?.maxApplications === undefined && !directExternalUrl) overrides.MAX_APPS_PER_RUN = 'none';
+        if (request.oneTime?.maxApplications === undefined && !directExternalUrl && !sponsored) overrides.MAX_APPS_PER_RUN = 'none';
         // Every account has a daily ceiling, including unlimited passes.
         const chosenDailyCap = String(request.clientOverrides?.MAX_APPS_PER_DAY
           ?? (settingsSnapshot.saved[DAILY_APPLICATION_CAP_CHOSEN] === '1' ? settingsSnapshot.saved.MAX_APPS_PER_DAY : '') ?? '').trim();
@@ -378,7 +385,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
        */
       if (admin) overrides.ADMIN_UNLIMITED = 'true';
       else {
-        overrides.MAX_EXTERNAL_PER_DAY = unlimitedApplications ? '' : String(externalCeiling);
+        overrides.MAX_EXTERNAL_PER_DAY = unlimitedApplications && !sponsored ? '' : String(externalCeiling);
         overrides.EXTERNAL_ATTEMPTS_TODAY = String(externalUsedToday);
       }
 
@@ -389,7 +396,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
         if (refused) return refused;
         // Paid credits already receive a dedicated pooled address. Accounts
         // with only their free allowance borrow one until a submission lands.
-        borrowFreeProxy = allowance.paid.remaining < 1 && (allowance.free.remaining > 0 || Boolean(selections));
+        borrowFreeProxy = accountAllowance.paid.remaining < 1 && (sponsored || allowance.free.remaining > 0 || Boolean(selections));
         if (!selections && !unlimitedApplications) overrides.MAX_APPS_PER_RUN = String(Math.min(Number(overrides.MAX_APPS_PER_RUN || 1), allowance.totalRemaining));
       }
     } catch (error) {
@@ -532,12 +539,14 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     const launch = async (): Promise<StartRunOutcome> => {
       const runStartId = await recordRunStart(userId, mode, effectiveTrigger, request.startedBy, request.initiatorDevice, Boolean(selections));
       if (!runStartId) throw new Error('Could not save the run start.');
+      if (sponsored) await query('UPDATE run_starts SET operator_options=$3::jsonb WHERE id=$1 AND user_id=$2',
+        [runStartId,userId,JSON.stringify({plan:VIP_RUN_PLAN.plan,complimentary:true,maxEvaluations:Number(overrides.MAX_EVALUATIONS),maxApplications:Number(overrides.MAX_APPS_PER_RUN),timeoutMinutes:VIP_RUN_PLAN.timeoutMinutes})]);
       if (request.repairCaseId) await query('UPDATE run_starts SET repair_case_id=$2 WHERE id=$1 AND user_id=1',[runStartId,request.repairCaseId]);
       const result = await runner.start(
         mode,
         overrides,
         userId,
-        mode === 'live' && !admin && !selections
+        mode === 'live' && !admin && !selections && !sponsored
           ? async (external) => {
               let usageError: unknown = null;
               try {

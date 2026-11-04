@@ -1076,3 +1076,6 @@ CREATE TABLE IF NOT EXISTS admin_attention_dismissals (
   event_ids BIGINT[] NOT NULL,
   dismissed_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- A sponsored run records its operator authorization without changing the account's pass or settings.
+ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS operator_options JSONB;

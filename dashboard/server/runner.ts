@@ -43,6 +43,19 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
   const serverEnv = { ...readEnv(), ...process.env };
   const admin = isAdmin(owner.email);
   const selectedSettings = settings ?? await loadUserSettings(userId);
+  let operatorReviewLimit = '', operatorTimeout = '';
+  if (selectedSettings.OPERATOR_PLAN) {
+    if (!runStartId) throw new Error('A sponsored plan requires its recorded administrator run.');
+    const authorization = await query<{email:string;operator_options:{plan?:string;complimentary?:boolean;maxEvaluations?:number;timeoutMinutes?:number}}>(
+      `SELECT actor.email,run.operator_options FROM run_starts run JOIN users actor ON actor.id=run.started_by
+       WHERE run.id=$1 AND run.user_id=$2 AND run.trigger='admin' AND run.mode='live'
+         AND run.finished_at IS NULL AND actor.blocked_at IS NULL`,[runStartId,userId]);
+    const grant=authorization[0];
+    if (!isAdmin(grant?.email) || grant.operator_options?.plan !== 'intensive-pass' || grant.operator_options.complimentary !== true
+      || !Number.isInteger(grant.operator_options.maxEvaluations) || grant.operator_options.maxEvaluations! < 1 || grant.operator_options.maxEvaluations! > 400
+      || grant.operator_options.timeoutMinutes !== 120) throw new Error('This run has no valid administrator plan authorization.');
+    operatorReviewLimit='400';operatorTimeout='120';
+  }
   const selected = applicationModelForAccount(selectedSettings.APPLICATION_AI_MODEL, admin);
   if (runStartId && selectedSettings.ADMIN_APPLICATION_MODEL) {
     const operators = await query<{ email: string }>(
@@ -54,7 +67,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
   const credentials = applicationModelCredentials(selected, serverEnv);
   const queuePolicy = Object.fromEntries(['CELERIS_WORKSPACE_ID', 'CELERIS_QUEUE_FILE', 'CELERIS_MAX_CONCURRENT_REQUESTS', 'CELERIS_MIN_INTERVAL_MS']
     .flatMap(key => serverEnv[key]?.trim() ? [[key, serverEnv[key]!]] : []));
-  return { ...queuePolicy, DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
+  return { ...queuePolicy, OPERATOR_MAX_EVALUATIONS:operatorReviewLimit, OPERATOR_RUN_TIMEOUT_MINUTES:operatorTimeout, DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
     APPLICATION_AGENT_MODE: agentMode,
     APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: applicationScreenshotsForAccount(selectedSettings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, admin, selected),
     // Only the authorized provider credential enters the account's run context.
@@ -65,7 +78,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
 export function applicationRunEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const credentials = new Set(['CELERIS_API_KEY', 'CAPMONSTER_API_KEY',
     'SITE_AUTH_SECRET', 'WEBSHARE_API_KEY']);
-  return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('OPENROUTER_') && !key.startsWith('GMAIL_') && !key.startsWith('APPLICATION_AI_') && !key.startsWith('APPLICATION_AGENT_') && !key.startsWith('HUMANIZER_')
+  return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('OPERATOR_') && !key.startsWith('OPENROUTER_') && !key.startsWith('GMAIL_') && !key.startsWith('APPLICATION_AI_') && !key.startsWith('APPLICATION_AGENT_') && !key.startsWith('HUMANIZER_')
     && (!/(?:_KEY|SECRET|PASSWORD|PASSWD|TOKEN)$/.test(key) || credentials.has(key))));
 }
 
@@ -474,7 +487,7 @@ class Run {
       ? '  Semi auto: forms will be filled and saved for your confirmation. Nothing will be submitted.'
       : '  Auto apply: this user-started run will submit applications.');
 
-    this.spawnChild(spawn(process.execPath, args, { cwd: BOT_DIR, env, detached: process.platform !== 'win32' }), userId, dataDir, 'run');
+    this.spawnChild(spawn(process.execPath, args, { cwd: BOT_DIR, env, detached: process.platform !== 'win32' }), userId, dataDir, 'run', env.OPERATOR_RUN_TIMEOUT_MINUTES);
     return { ok: true };
   }
 
@@ -561,11 +574,11 @@ class Run {
   }
 
   /** Wiring shared by a run and a scan: console piping, exit handling, result sync. */
-  private spawnChild(child: ChildProcess, userId: string, dataDir: string, kind: 'run' | 'scan'): void {
+  private spawnChild(child: ChildProcess, userId: string, dataDir: string, kind: 'run' | 'scan', operatorTimeout?: string): void {
     this.child = child;
     child.stdout?.on('data', (b) => this.push('out', b.toString()));
     child.stderr?.on('data', (b) => this.push('err', b.toString()));
-    const timeoutMs = runTimeoutMs(process.env.RUN_TIMEOUT_MINUTES ?? readEnv().RUN_TIMEOUT_MINUTES);
+    const timeoutMs = runTimeoutMs(operatorTimeout || process.env.RUN_TIMEOUT_MINUTES || readEnv().RUN_TIMEOUT_MINUTES);
     this.supervisor = superviseRun(child, {
       timeoutMs,
       onTimeout: () => {
