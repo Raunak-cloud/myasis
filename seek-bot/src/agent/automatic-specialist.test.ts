@@ -47,9 +47,11 @@ async function scenario(id: string, calls: Call[], options: { specialistFails?: 
     document.getElementById('form')!.hidden = false;
     (document.getElementById('city') as HTMLInputElement).value = 'Sydney';
   });
-  let parents = 0, specialists = 0;
+  let parents = 0, specialists = 0,providerRequests=0;
+  let recoveryOperation:Call|undefined,blockedRecovery=false;
   const readiness = createReadinessFixtureReply();
   globalThis.fetch = async (_url, init) => {
+    assert.ok(++providerRequests<80,'Fixture exceeded its bounded scripted decision count');
     if (String(_url).includes('mailbox.fixture.invalid')) return Response.json({ error: 'Fixture mailbox unavailable' }, { status: 401 });
     const body = JSON.parse(String(init?.body));
     if (options.model === 'minimax') assert.equal(body.model, MINIMAX_APPLICATION_MODEL);
@@ -65,14 +67,28 @@ async function scenario(id: string, calls: Call[], options: { specialistFails?: 
       return Response.json({ usage: { prompt_tokens: 100, completion_tokens: 30 }, choices: [{ message: { content: null,
         tool_calls: [{ id: `specialist-${specialists}`, type: 'function', function: { name: 'return_application_advice', arguments: fixtureToolArguments(body, 'return_application_advice', { advice: 'Repeated code waits do not establish progress. The current page offers another sign-in method.',
           evidence: [{ source: 'page', detail: 'Login with Google is visible.' }], unknowns: [],
-          nextSteps: ['Inspect the observed Login with Google control, use the existing candidate session, then verify the actual employer form.'] }) } }],
+          nextSteps: ['Inspect the observed Login with Google control, use the existing candidate session, then verify the actual employer form.'],recovery_goal:{kind:'field-value',target:'City',value:'Sydney'} }) } }],
       } }] });
     }
     const review = readiness(body); if (review) return review;
+    const taskText=body.messages.map((message:any)=>typeof message.content==='string'?message.content:Array.isArray(message.content)?message.content.map((part:any)=>part.text??'').join('\n'):'').reverse().find((text:string)=>text.includes('SPECIALIST RECOVERY OBLIGATION\n'));
+    const task=taskText?JSON.parse(taskText.match(/SPECIALIST RECOVERY OBLIGATION\n([^\n]+)/)![1]):undefined;
+    const forced=body.tool_choice?.function?.name;
+    const scripted=(name:string,args:Record<string,unknown>)=>Response.json({usage:{prompt_tokens:100,completion_tokens:10},choices:[{message:{role:'assistant',content:null,tool_calls:[{id:`recovery-${name}-${Date.now()}`,type:'function',function:{name,arguments:fixtureToolArguments(body,name,args)}}]}}]});
+    if(forced==='respond_to_specialist') {
+      // Once advice arrives, this scripted parent follows the different repair
+      // instead of replaying any remaining pre-escalation no-op decisions.
+      while(calls[parents]?.args.selector==='#noop')parents++;
+      blockedRecovery=calls[parents]?.name==='finish';
+      recoveryOperation=blockedRecovery?{name:'browser_action',args:{action:'inspect',selector:'#otp'}}:calls[parents++];
+      assert.ok(recoveryOperation,'Fixture requires a concrete recovery operation');
+      return scripted(forced,{advice_id:task.advice_id,decision:'adopt',reason:'Use the current supported login method and complete the fictional City field.',evidence_quote:'Fixture application sign in',operation_json:JSON.stringify(recoveryOperation),verification:task.verification});
+    }
+    if(forced==='check_specialist_recovery')return scripted(forced,{advice_id:task.advice_id,assessment:blockedRecovery?'blocked':await page.locator('#city').inputValue()==='Sydney'?'resolved':'no_progress',result_quote:task.result.slice(0,Math.min(task.result.length,200)),observation_quote:'Fixture application sign in',reason:'Verified the actual tool result; until City is filled the specialist goal remains unresolved.'});
     // Only the invalid-domain, route-isolated fixture can simulate an actual
     // send. The entry guard has already verified its dry-run isolation.
     if (options.postSend) config.dryRun = false;
-    const call = calls[parents++];
+    const call = recoveryOperation??calls[parents++];recoveryOperation=undefined;
     assert.ok(call, `Unexpected parent decision in ${id}; specialist calls: ${specialists}`);
     if (call.name === 'browser_action' && call.args.selector === '#google') assert.equal(specialists, 1, 'automatic advice arrives before the next recovery action');
     return Response.json({ usage: { prompt_tokens: options.exhausted ? 3_000_000 : 100, completion_tokens: 10 }, choices: [{ message: { role: 'assistant', content: null,

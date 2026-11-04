@@ -13,7 +13,7 @@ const directories: string[] = [];
 const originalFetch = globalThis.fetch;
 after(() => { globalThis.fetch = originalFetch; directories.forEach(directory => rmSync(directory, { recursive: true, force: true })); });
 const advice = { advice: 'Read the current validation message and choose the observed matching option.',
-  evidence: [{ source: 'page', detail: 'A required referral source is blank.' }], unknowns: [], nextSteps: ['Observe the current dropdown options.'] };
+  evidence: [{ source: 'page', detail: 'A required referral source is blank.' }], unknowns: [], nextSteps: ['Observe the current dropdown options.'],recovery_goal:{kind:'field-value',target:'Referral source',value:'Job board'} };
 
 function account(marker: string, model = 'celeris') {
   const dir = mkdtempSync(join(tmpdir(), 'consultation-')); directories.push(dir);
@@ -137,7 +137,7 @@ test('the selected provider receives only the typed advice terminal without fall
       const body = JSON.parse(String(init?.body));
       assert.deepEqual(body.tools.map((tool: any) => tool.function.name), ['return_application_advice']);
       assert.deepEqual(body.tool_choice, { type: 'function', function: { name: 'return_application_advice' } });
-      assert.deepEqual(body.tools[0].function.parameters.required, ['advice', 'evidence', 'unknowns', 'nextSteps']);
+      assert.deepEqual(body.tools[0].function.parameters.required, ['advice', 'evidence', 'unknowns', 'nextSteps','recovery_goal']);
       assert.equal(body.response_format, undefined, 'the complete terminal argument contract is advertised as a tool');
       if (model === 'celeris') {
         assert.match(String(url), /\/celeris-1-magnus\/v1\/chat\/completions$/);

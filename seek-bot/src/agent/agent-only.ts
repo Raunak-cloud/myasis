@@ -26,6 +26,7 @@ import { ApplicationBudgetExhaustedError, type ChatMessage, type ToolSchema } fr
 import { applicationChat } from './application-chat.js';
 import { ProgressBudget } from './progress-budget.js';
 import { consultApplicationSpecialist, consultationToolSchema, newConsultationState } from './consultation.js';
+import {SpecialistRecovery,specialistRecoveryTools} from './specialist-recovery.js';
 import { privateAuthenticationValues, rememberedPrivateAuthenticationValues, redactPrivateAuthenticationData } from '../private-auth-fields.js';
 import { newHaltReviewState,reviewHalt,haltReviewTools } from './halt-review.js';
 import { isExternal } from './browser-boundaries.js';
@@ -141,6 +142,7 @@ export const agentOnlyTools: ToolSchema[] = [
   schema('save_progress', 'Keep a concise durable recovery note across context compaction. Record completed steps, current problem, observed evidence, your next approach and any verification still needed. Update answers/documents here so they need not be rediscovered. This never chooses an action or resets the browser.', { note: string, cover_letter: string, resume_id: string, answers: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { question: string, answer: string }, required: ['question', 'answer'] } } }, ['note']),
   schema('reason_through_problem', 'Request deeper reasoning for the next turn only when medium reasoning has not resolved a semantic form error or repeated lack of progress. Magnus uses xhigh; MiniMax uses high. Routine filling and successful final reviews stay at medium.', { problem: string }, ['problem']),
   ...recoveryTools,
+  ...specialistRecoveryTools,
   ...authenticationTools(),
   schema('record_authentication_result', 'Report the observed authentication result before another attempt. Choose uncertain when acceptance/rejection is not established; this preserves pending work for investigation and does not record success or failure. Choose rejected for a rejected login, needs_verification for an incomplete verification step, and accepted only after actual registration, reset or authenticated account access succeeds. Accepted, rejected and needs_verification require a COMPLETE exact current employer message, not a narrative. Filling fields, requesting reset mail and clearing CAPTCHA do not establish acceptance.', {
     purpose: { type: 'string', enum: ['sign_in', 'create_account', 'reset_password'] },
@@ -334,6 +336,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
   const specialistState = newConsultationState();
   specialistState.calls = restored.consultation.calls; specialistState.inFlight = false;
   const specialistEvidence = new Set((restored.controls?.specialistEvidence as string[]|undefined)??[]);
+  const specialistRecovery=new SpecialistRecovery(restored.controls?.specialistRecovery as ReturnType<SpecialistRecovery['checkpoint']>|undefined);
   let haltCorrection:string|undefined;
   // Keep the cacheable prefix stable. Smaller evidence reads reduce payload;
   // frequent compaction can cost more by destroying provider cache hits.
@@ -345,7 +348,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
   const recoveryWork = (): RecoveryWork => ({ captured:ctx.captured,
     actions:ctx.actions,coverLetter:ctx.coverLetter,documents:ctx.documents,resumeUsed:ctx.resumeUsed,resumeName:ctx.resumeName,files:files.checkpoint(),uploads:files.checkpointUploads(),letterWitness:files.checkpointLetterWitness(),
     pendingCredentials:ctx.pendingCredentials?[...ctx.pendingCredentials]:undefined });
-  const recoveryControls = () => ({ recovery:recovery.checkpoint(),turn:turnCoordinator.checkpoint(),haltReview,specialistEvidence:[...specialistEvidence],answerSources:[...answerSources],
+  const recoveryControls = () => ({ recovery:recovery.checkpoint(),specialistRecovery:specialistRecovery.checkpoint(),turn:turnCoordinator.checkpoint(),haltReview,specialistEvidence:[...specialistEvidence],answerSources:[...answerSources],
     budget:{spentUsd:meter.totals.costUsd,actionAllowanceUsd:meter.limitUsd,maximumUsd:meter.maximum,finalizing:meter.finalizing} });
   const syncRecovery = () => shared.checkpoint(recoveryWork(), recoveryControls(),
     {url:ctx.observation.url,title:ctx.observation.title,text:ctx.observation.text.slice(0,12000),
@@ -438,7 +441,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     // authorize recovery after a possible send. Manual and automatic calls
     // share one bounded consultation state, including in-run continuations.
     if (ctx.submissionAttempted || meter.actionExhausted || meter.finalizing || specialistState.inFlight
-      || specialistState.calls >= 2 || dialogs.has(ctx.page) || ctx.page.isClosed()) return;
+      || specialistState.calls >= 2 || specialistRecovery.pending || dialogs.has(ctx.page) || ctx.page.isClosed()) return;
     let consultationTrace: TraceStep | undefined;
     try {
       if (trigger === 'technical-stop') {
@@ -463,6 +466,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         enabled: true, meter, state: specialistState, trigger: 'automatic', helpers,
         applicationHistory: redactPrivateAuthenticationData(`${specialistHistory()}\n${recovery.render()}`, secrets),
       });
+      if(advice.kind==='ok'){specialistRecovery.observe(ctx.observation);specialistRecovery.accept(advice.message);syncRecovery();}
       Object.assign(consultationTrace, { result: advice.kind === 'ok' ? advice.message : 'No specialist advice was returned.',
         disposition: 'reobserve', completedAt: new Date().toISOString() });
       saveLiveTrace();
@@ -479,7 +483,10 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
   };
 
   const act = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
+    if(name==='respond_to_specialist')return ok(specialistRecovery.respond(args,[...offeredTools,...helpers.schemas()]),'reobserve');
+    if(name==='check_specialist_recovery')return ok(specialistRecovery.check(args),'reobserve');
     if(helpers.has(name))return helpers.execute(name,args,async(primitive,input)=>{
+      if(specialistRecovery.pending&&(input.sends_application===true||input.action==='script'||['finish','prepare_application','prepare_email_application'].includes(primitive)))return ok('A recovery helper cannot submit, prepare or execute arbitrary scripts while specialist advice remains unresolved. No primitive ran.','failed');
       if(await hasHcaptchaChallenge(ctx.page))return {kind:'terminal',outcome:{status:'skipped',reason:HCAPTCHA_SKIP_REASON}};
       recordDiagnostic({severity:'info',category:'helper_operation',stage:'tool',tool:primitive,message:`Executing ${name} using the normal ${primitive} executor.`});
       const effectBefore=browserEffectEpoch;
@@ -658,6 +665,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
           if(++haltReview.rejections>3)return {kind:'terminal',outcome:{status:'skipped',reason:'The applying agent repeatedly contradicted the verified stopping review; no candidate question or send was created.'}};
           haltCorrection=JSON.stringify(assessment);
           haltReview.pendingAction=true;
+          specialistRecovery.reconsider();
           return ok('The fresh evidence review contradicts this stopping decision. Inspect its exact source excerpts and complete the supported work from the current saved browser state. No send or candidate question was authorized.','reobserve');
         }
       }
@@ -709,8 +717,10 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     if (name === consultationToolSchema.name) {
       recovery.specialistRequested();
       if (recovery.evidenceKey) specialistEvidence.add(recovery.evidenceKey);
-      return consultApplicationSpecialist(ctx, args as { question: string }, { enabled: true, meter, state: specialistState, helpers,
+      const result=await consultApplicationSpecialist(ctx, args as { question: string }, { enabled: true, meter, state: specialistState, helpers,
         applicationHistory: specialistHistory() });
+      if(result.kind==='ok'){specialistRecovery.observe(ctx.observation);specialistRecovery.accept(result.message);}
+      return result;
     }
     if (isSnapshotOperation(name,args)) {
       await assertCurrentRef(ctx, args);
@@ -788,6 +798,12 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       }, undefined, { timeout: 2500 }).catch(() => '');
     }
     const sendsApplication = args.sends_application === true;
+    if(['fill','type'].includes(String(args.action))&&isCoverLetterField(actionLabel)
+      ||args.action==='click'&&/^cancel\b/i.test(actionLabel.trim())
+      ||args.action==='press'&&/^(?:esc|escape)$/i.test(String(args.key??args.value??''))
+      ||args.action==='navigate') {
+      files.clearLetterWitness();ctx.letterWitness=undefined;
+    }
     if (sendsApplication) {
       const form = await readSavedForm(ctx.page);
       readiness.observe({ ...ctx.observation, url: form.url, fields: form.fields.map(field => field.frame ? { ...field, section: `Frame ${field.frame}: ${field.section ?? ''}` } : field) });
@@ -883,7 +899,11 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         const result = JSON.stringify(await evaluateBrowser(ctx.page, args)) ?? 'Script completed.';
         return ok(result.length > 24000 ? `${result.slice(0, 24000)}\n[Result truncated. Request a focused slice or summary in your next inspection.]` : result);
       }
-      case 'inspect': return ok(JSON.stringify(await nativeInspect(target(ctx, args))));
+      case 'inspect': {
+        const result=await nativeInspect(target(ctx,args));
+        files.witnessInspectedLetter(result);ctx.letterWitness=files.checkpointLetterWitness();
+        return ok(JSON.stringify(result));
+      }
       case 'wait': {
         if (!hasWaitCondition(args)) throw new Error('Provide a current target for action=wait, or wait={locator/state/url} for a follow-up condition. timeout_ms is a maximum, not a delay.');
         const waitNote = await waitAfterAction(ctx.page, args);
@@ -991,10 +1011,12 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       // Inspect the results of already-executed actions before enforcing the
       // next-call budget. This does not run another model or replay a write.
       if (!pendingDialog && !ctx.observation.inspectionError) {
+        files.recheckLetterWitness(ctx.observation.fields);ctx.letterWitness=files.checkpointLetterWitness();
         meter.observe(ctx.observation.fields, browserMutated);
         browserMutated = false;
       }
       if (!ctx.observation.inspectionError) recovery.observe(ctx.observation);
+      specialistRecovery.observe(ctx.observation);
       syncRecovery();
       // Visual recovery supplements fresh DOM evidence, without another DOM read.
       // The agent still chooses every field, action and repair.
@@ -1009,11 +1031,12 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         submissionAttempted: Boolean(ctx.submissionAttempted),
         preparations: reviewingApplications() ? ['prepare_application', 'prepare_email_application'] : pendingPreparation ? [pendingPreparation] : [] });
       if (turn.stopped) { budgetStopped = true; break; }
-      const checkpoint = turn.checkpoint;
+      const specialistCheckpoint=!pendingDialog&&!turn.completing&&!ctx.submissionAttempted?specialistRecovery.requiredTool:undefined;
+      const checkpoint = turn.checkpoint??specialistCheckpoint;
       const finalRecords = turn.tools ?? [];
       const recordOnly = turn.completing && !checkpoint;
       if (turn.completing) meter.beginCompletion();
-      else meter.setPhase(checkpoint ? 'application-review' : 'work');
+      else meter.setPhase(checkpoint===applicationReviewTool.name ? 'application-review' : 'work');
       if (meter.exhausted) { budgetStopped = true; break; }
       if (!pendingDialog && !checkpoint && !recordOnly && recovery.needsSpecialist) {
         const advice = await automaticSpecialist('stalled');
@@ -1048,7 +1071,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         finished = true;
         break;
       }
-      messages.push(observationMessage(ctx.observation, `${lastNote}\nOpen pages: ${JSON.stringify(pages)}\n${recovery.render()}\nSHARED RECOVERY RECORD (tool observations and agent assessments are separate; historical evidence is not a receipt or permission): ${JSON.stringify(shared.view())}\nRecorded draft (action audit, not independent proof of saved values): ${JSON.stringify(draft)}${dialog ? `\nPending ${dialog.type()} dialog: ${dialog.message()}` : ''}`));
+      messages.push(observationMessage(ctx.observation, `${lastNote}\nOpen pages: ${JSON.stringify(pages)}\n${recovery.render()}\n${specialistRecovery.render()}\nSHARED RECOVERY RECORD (tool observations and agent assessments are separate; historical evidence is not a receipt or permission): ${JSON.stringify(shared.view())}\nRecorded draft (action audit, not independent proof of saved values): ${JSON.stringify(draft)}${dialog ? `\nPending ${dialog.type()} dialog: ${dialog.message()}` : ''}`));
       if (recordOnly) messages.push({ role: 'user', content: 'Browser-action spending is exhausted. Use the reserved completion lane only to prepare the current application for candidate confirmation or record its truthful final outcome. No edits, specialist calls or sends are available. Preparation still requires a fresh canonical accuracy review and all validation; unresolved required facts go to Needs attention, and unfinished technical work must be reported honestly. Continue directly to preparation when the observed form is complete; do not write another recovery report.' });
       if (checkpoint) {
         let wholePage = '';
@@ -1071,11 +1094,13 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       // The forced checkpoint already accepts only this named tool. Advertise
       // that exact contract; normal turns retain every available action.
       const availableTools=haltReviewTools([...offeredTools,...helpers.schemas()],haltReview,recordOnly).filter(tool =>
-        !recoveryTools.some(item => item.name === tool.name) || tool.name === recovery.tool);
+        (!recoveryTools.some(item => item.name === tool.name) || tool.name === recovery.tool)
+        &&(!specialistRecoveryTools.some(item=>item.name===tool.name)||tool.name===specialistRecovery.requiredTool)
+        &&!(recordOnly&&specialistRecovery.unresolved&&['prepare_application','prepare_email_application'].includes(tool.name)));
       const turnTools = checkpoint ? availableTools.filter(tool => tool.name === checkpoint)
         : recordOnly ? availableTools.filter(tool => finalRecords.includes(tool.name)) : availableTools;
       const forceTool = checkpoint ?? (recordOnly && turnTools.length === 1 ? turnTools[0].name : undefined);
-      const reasoningEffort = !turn.completing && (highEffort || !checkpoint && recovery.needsDeepReasoning || readiness.needsDeepReasoning) ? 'high' : 'medium';
+      const reasoningEffort = !turn.completing && (highEffort || (!checkpoint||specialistCheckpoint) && recovery.needsDeepReasoning || readiness.needsDeepReasoning) ? 'high' : 'medium';
       const maxTokens = reasoningEffort === 'high' && applicationAgentIdentity().selection === 'celeris' ? 16_384 : 8192;
       const compact = (force = false) => {
         const current = screenshotsEveryTurn || domFirst ? latestObservationScreenshotOnly(messages) : messages;
@@ -1103,7 +1128,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       messages.push(reply.message);
       if (checkpoint) {
         const call = reply.toolCalls[0];
-        const checkpointSchema = agentOnlyTools.find(tool => tool.name === checkpoint)!;
+        const checkpointSchema = turnTools.find(tool => tool.name === checkpoint)!;
         const issue = reply.toolCalls.length !== 1 || call?.name !== checkpoint
           ? `Return exactly one ${checkpoint} tool call. No proposed browser actions were executed.`
           : toolInputIssue(call.args, checkpointSchema.parameters);
@@ -1156,7 +1181,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         // later judgement from a plan whose preceding action did not run.
         const receiptResult = call.name === 'record_recovery_result' && call.args.assessment === 'complete'
           && typeof call.args.receipt_quote === 'string' && Boolean(call.args.receipt_quote.trim());
-        const assessmentOnly = call.name === checkpoint || recoveryTools.some(tool => tool.name === call.name) && call.name === recovery.tool;
+        const assessmentOnly = call.name === checkpoint&&(checkpoint===applicationReviewTool.name||specialistRecoveryTools.some(tool=>tool.name===checkpoint)) || recoveryTools.some(tool => tool.name === call.name) && call.name === recovery.tool;
         // Saving a prepared draft or asking for its canonical review cannot
         // transmit an application. Do not discard that paid final record just
         // because its generation crossed the ordinary browser-action allowance.
@@ -1177,6 +1202,8 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
             if (recoveryTools.some(item => item.name === call.name)) call.args = recoveryInput(call.name, call.args);
             const issue = toolInputIssue(call.args, tool.parameters);
             if (issue) throw new Error(`Invalid tool input: ${issue}`);
+            const recoveryRefusal=call.name===applicationReviewTool.name?undefined:specialistRecovery.permit(call.name,call.args,recordOnly,call.name==='finish'&&call.args.status==='applied'&&Boolean(ctx.submissionAttempted));
+            if(recoveryRefusal)throw new Error(recoveryRefusal);
             if (recoveryTools.some(item => item.name === call.name) && call.name !== recovery.tool) throw new Error('A recovery note needs current unreviewed recovery evidence. Continue from the current form instead of repeating a report.');
             failureKind='execution';
             operationMayMutate=helpers.has(call.name)||['complete_authentication','enter_emailed_code','open_emailed_link','add_cover_letter','wait_for_verification'].includes(call.name)
@@ -1196,6 +1223,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
             ownedPages.add(ctx.page);
           } catch (error) {
             if (error instanceof RecoveryRecordError) throw error;
+            specialistRecovery.failedCheck(call.name,(error as Error).message);
             diagnosticError = error;
             if(error instanceof BrowserTargetInputError)failureKind='arguments';
             result = error instanceof StaleObservedRefError
@@ -1207,6 +1235,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         }
         const text = result.kind === 'ok' ? result.message : JSON.stringify(result.outcome);
         const disposition = result.kind === 'ok' ? result.disposition : 'terminal';
+        if(dispatchStarted)specialistRecovery.complete(call.name,call.args,text,failedToolResult(result)||result.kind==='ok'&&['reobserve','uncertain'].includes(result.disposition??''));
         if(result.kind==='ok'&&failedToolResult(result)&&dispatchStarted&&browserEffectEpoch>effectBefore&&diagnosticError)
           shared.openUncertainty('operation',`${call.name}:${String(call.args.action??'')}`,`The ${call.name} operation returned an execution error. Its actual effect must be investigated from fresh readback before retrying; an error alone is not proof that nothing happened.`);
         if (operationId) shared.complete(operationId, text, disposition??'completed', recoveryWork(), Boolean(ctx.submissionAttempted), recoveryControls());

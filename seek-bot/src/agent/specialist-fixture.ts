@@ -14,8 +14,19 @@ export function specialistFixtureReply(body: any): Response | undefined {
   if (isSpecialistFixtureRequest(body)) {
     return Response.json({ usage: { prompt_tokens: 0, completion_tokens: 0 }, choices: [{ message: {
       content: JSON.stringify({ advice: 'Preserve completed fixture work and use the current observed evidence. This fixture supplies no additional recovery path.',
-        evidence: [], unknowns: [], nextSteps: ['The parent should record the controlled outcome honestly if the blocker remains.'] }),
+        evidence: [], unknowns: [], nextSteps: ['The parent should record the controlled outcome honestly if the blocker remains.'],recovery_goal:{kind:'visible-text',target:'Controlled fixture recovery',value:'Controlled fixture recovery'} }),
     } }] });
+  }
+  const forced=body.tool_choice?.function?.name;
+  if(['respond_to_specialist','check_specialist_recovery'].includes(forced)) {
+    const text=body.messages.map((m:any)=>typeof m.content==='string'?m.content:Array.isArray(m.content)?m.content.map((p:any)=>p.text??'').join('\n'):'').reverse().find((text:string)=>text.includes('SPECIALIST RECOVERY OBLIGATION\n'));
+    const task=JSON.parse(text.match(/SPECIALIST RECOVERY OBLIGATION\n([^\n]+)/)[1]);
+    const pageEvidence=text.split('Current observation evidence for exact quotations: ')[1];
+    const quote=JSON.parse('"'+pageEvidence.match(/"url":"([^"]+)"/)[1]+'"');
+    const args=forced==='respond_to_specialist'?{advice_id:task.advice_id,decision:'adopt',reason:'Read the actual controlled fixture once before preserving its intentional technical stop.',evidence_quote:quote,
+      operation_json:JSON.stringify({name:'browser_action',args:{action:'inspect',target_mode:'selector',selector:'body'}}),verification:task.verification}
+      :{advice_id:task.advice_id,assessment:'blocked',result_quote:task.result.slice(0,200),observation_quote:quote,reason:'The isolated fixture supplies no supported recovery path; preserve its controlled unresolved outcome.'};
+    return Response.json({usage:{prompt_tokens:0,completion_tokens:0},choices:[{message:{role:'assistant',content:null,tool_calls:[{id:'fixture-specialist-'+forced,type:'function',function:{name:forced,arguments:fixtureToolArguments(body,forced,args)}}]}}]});
   }
   const last = body.messages?.filter((message: any) => message.role === 'tool').at(-1);
   if (typeof last?.content !== 'string' || !['AUTOMATIC SPECIALIST REVIEW BEFORE STOPPING','UNCERTAINTY INVESTIGATION BEFORE STOPPING'].some(prefix=>last.content.startsWith(prefix))) return;

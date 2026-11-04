@@ -9,6 +9,7 @@ import { recordDiagnostic } from './attempt-diagnostics.js';
 import type { AdviceTicket } from './recovery-record.js';
 import { APPLICATION_ENTRY_POLICY, UNCERTAINTY_INVESTIGATION_POLICY } from './application-policy.js';
 import {helperBuilderTool,helperRecipeExample,type ApplicationHelpers} from './application-helpers.js';
+import {specialistVerificationSchema} from './specialist-recovery.js';
 
 export const consultationToolSchema: ToolSchema = {
   name: 'consult_application_specialist',
@@ -59,15 +60,16 @@ const replySchema = {
     } },
     unknowns: { type: 'array', maxItems: 12, items: { type: 'string', maxLength: 1000 } },
     nextSteps: { type: 'array', maxItems: 6, items: { type: 'string', maxLength: 1000 } },
+    recovery_goal:specialistVerificationSchema,
   },
-  required: ['advice', 'evidence', 'unknowns', 'nextSteps'],
+  required: ['advice', 'evidence', 'unknowns', 'nextSteps', 'recovery_goal'],
 };
 /** Returning advice is a typed terminal operation, never a browser capability.
  * Keep it advertised alongside helper tests so provider-native tool generation
  * always sees the complete contract it must satisfy. */
 export const returnApplicationAdviceTool: ToolSchema = {
   name: 'return_application_advice',
-  description: 'Return the completed specialist advice, supporting evidence, unknowns and practical next steps to the applying agent. This is the terminal response for this consultation. It does not execute browser actions, approve answers, authorize a send or claim an employer outcome.',
+  description: 'Return advice, evidence, unknowns, practical next steps and recovery_goal: an observable condition resolving this blocker (a named field value, visible page text, enabled named control or exact origin/path). Choose a supported goal from current evidence, not an intermediate Back/Next milestone or a claim of submission. Unknown targets require fresh parent inspection and an evidence-based alternative. This terminal response cannot execute browser actions, approve answers or authorize a send.',
   parameters: replySchema,
 };
 

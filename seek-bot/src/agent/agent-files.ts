@@ -7,6 +7,7 @@ import type { ApplicationDocument, PreparedApplication } from '../application-re
 import { documentHash, preserveDocument, verifiedDocumentPath } from '../application-documents.js';
 import { extractText } from '../knowledge.js';
 import { observedApprovedCoverLetter, typedCoverLetterControls } from '../application-letter.js';
+import {isCoverLetterField} from '../cover-letter-policy.js';
 import type { FormField } from '../types.js';
 import { agentOnlyUploadInventory, agentOnlyUploadPath } from './agent-only-evidence.js';
 import { PDFDocument } from 'pdf-lib';
@@ -37,6 +38,25 @@ export class AgentFiles {
     }
   }
   checkpointLetterWitness(): FormField[] | undefined { return this.letterWitness ? structuredClone(this.letterWitness) : undefined; }
+  clearLetterWitness():void {this.witnessedLetter=undefined;this.letterWitness=undefined;}
+  /** A normal explicit browser inspection is actual readback, not the parent's
+   * assertion that a fill succeeded. Bind only a unique non-private letter
+   * control, and never promote an unrelated or ambiguous inspection. */
+  witnessInspectedLetter(result:unknown):void {
+    if(!result||typeof result!=='object')return;
+    const record=result as Record<string,unknown>;
+    if(Array.isArray(record.fields))return;
+    if(record.private||record.visible!==true||record.disabled||typeof record.label!=='string'
+      ||!isCoverLetterField(record.label)||typeof record.value!=='string'
+      ||!(record.tag==='textarea'||record.tag==='input'&&['text','search'].includes(String(record.type))))return;
+    if(record.invalid==='true'||record.validation){this.clearLetterWitness();return;}
+    this.witnessApprovedLetter([{ref:String(record.ref??''),label:record.label,kind:record.tag==='textarea'?'textarea':'text',
+      inputType:String(record.type),required:Boolean(record.required),currentValue:record.value,controlIdentity:typeof record.controlIdentity==='string'?record.controlIdentity:undefined}]);
+  }
+  recheckLetterWitness(fields:FormField[]):void {
+    const current=typedCoverLetterControls(fields);
+    if(this.letterWitness&&current.length&&(current.some(field=>field.validationError)||!observedApprovedCoverLetter(this.approved,fields)))this.clearLetterWitness();
+  }
   private get approvedLetter(): string | undefined { return this.approved?.coverLetter ?? this.witnessedLetter; }
 
   checkpoint(): Array<AgentFile> { return [...this.generated.values()].map(file=>({...file})); }
