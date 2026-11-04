@@ -6,6 +6,8 @@ import { AttentionPanel } from '../src/components/AttentionPanel';
 import { ApplicationsPanel } from '../src/components/ApplicationsPanel';
 import { PreparedApplications } from '../src/components/PreparedApplications';
 import { plainReason, preparedStatusLabel, userFacingError } from '../src/run-messages';
+import { attentionCopy } from '../src/attention-copy';
+import { sealQuestionSnapshot } from '../../seek-bot/src/question-snapshot-node';
 
 test('attention loading and errors never claim the list is empty', () => {
   for (const props of [{ loading: true }, { loadError: 'Could not check your jobs. Please try again.' }]) {
@@ -34,19 +36,23 @@ test('prepared applications wait for data instead of briefly claiming the list i
 });
 
 test('normal users see their actual question without diagnostic logs or a trace link', () => {
-  const item = { jobId: 'test', title: 'Assistant', company: 'Employer', kind: 'question' as const, reason: 'TypeError: HTTP 503', url: 'https://example.test', at: '2026-10-25T00:00:00Z', questions: [{ question: 'Current clearance', options: ['None', 'Baseline'] }] };
+  const snapshot=sealQuestionSnapshot({version:2,source:{origin:'https://example.test',path:'/apply'},prompt:'Current clearance',context:[],help:[],completeness:'complete',controls:[{id:'clearance',label:'Current clearance',kind:'radio',required:true,multiple:false,constraints:{},choices:['None','Baseline'].map((label,index)=>({id:`choice${index}`,label,value:label,disabled:false}))}]});
+  const item = { jobId: 'test', title: 'Assistant', company: 'Employer', kind: 'question' as const, reason: 'TypeError: HTTP 503', url: 'https://example.test', at: '2026-10-25T00:00:00Z', questions: [{ question: snapshot.prompt, snapshot }] };
   const html = renderToStaticMarkup(<AttentionPanel items={[item]} />);
   assert.match(html, /Current clearance/);
+  assert.match(html, /None/);
+  assert.match(html, /Baseline/);
   assert.doesNotMatch(html, /TypeError|HTTP|View steps/);
-  assert.match(renderToStaticMarkup(<AttentionPanel items={[item]} isAdmin />), /View steps/);
+  assert.doesNotMatch(renderToStaticMarkup(<AttentionPanel items={[item]} isAdmin />), /TypeError|HTTP|View steps/);
   assert.doesNotMatch(userFacingError(new Error('TypeError: HTTP 503 at https://private.example')), /TypeError|503|private/);
 });
 
-test('mailbox transport failures show a pending verification state without changing successful reads', () => {
+test('legacy rows without an original question request recapture instead of exposing mailbox diagnostics', () => {
   const reason = 'The account requires email verification. The Gmail MCP is unreachable, so the link cannot be retrieved programmatically.';
   const item = { jobId: 'mail-test', title: 'Analyst', company: 'Employer', kind: 'verification' as const, reason, url: 'https://example.test', at: '2026-10-30T00:00:00Z' };
   const html = renderToStaticMarkup(<AttentionPanel items={[item]} />);
-  assert.match(html, /Email verification is pending/);
+  assert.ok(html.includes(attentionCopy.recapture.replace(/'/g,'&#x27;')));
+  assert.doesNotMatch(html, /<input|<select|<textarea|Save answers/);
   assert.doesNotMatch(html, /MCP|unreachable|programmatically/);
   assert.equal(plainReason('Read the verification link through Gmail MCP.'), 'Read the verification link through Gmail.');
 });
