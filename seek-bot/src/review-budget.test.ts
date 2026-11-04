@@ -67,6 +67,7 @@ export const search = async (_page,_keyword,pageNumber,scope) => {
   return jobs.filter(job=>job.platform===platform && (job.searchPage??1)===pageNumber && (!job.searchScope || job.searchScope===searchScope));
 };
 export const fetchJobDetail = async (_page, job) => {
+  job={...job,...jobs.find(value=>value.id===job.id && value.platform===job.platform)};
   record('detail',job.id,{page:_page.worker});
   _page.currentJob=job.id;
   await new Promise(done=>setTimeout(done,job.detailDelayMs||0));
@@ -169,6 +170,24 @@ ${options.queue ? "process.argv[1]='queue.js';" : ''} await import('./main.mjs')
     rmSync(directory, { recursive: true, force: true });
   }
 }
+
+test('operator discovery leads recheck the live employer, age and fit while ordinary discovery continues',()=>{
+  const previous=process.env.DISCOVERY_SEED_JOBS_JSON;
+  const ids=['95369588','95369589','95369590'];
+  process.env.DISCOVERY_SEED_JOBS_JSON=JSON.stringify(ids.map(id=>({id,title:'Security Engineer',company:'Initial search card',source:'chosen',fitReview:{score:100}})));
+  try {
+    const result=run([
+      job(ids[0],{company:'Excluded Employer',searchPage:99}),
+      job(ids[1],{ageDays:30,searchPage:99}),
+      job(ids[2],{fitReject:true,searchPage:99}),
+      job('ordinary-search-result',{reviewPriority:80}),
+    ],{apply:true,reviews:2,cap:1,excludedCompanies:['Excluded Employer']});
+    assert.deepEqual(result.events.filter(event=>event.stage==='fit').map(event=>event.id),[ids[2],'ordinary-search-result']);
+    assert.deepEqual(result.events.filter(event=>event.stage==='apply').map(event=>event.id),['ordinary-search-result']);
+    assert.ok(result.events.some(event=>event.stage==='search'),'a lead list must not disable normal keyword search');
+    for(const id of ids)assert.ok(result.events.some(event=>event.stage==='detail'&&event.id===id),'every lead gets live listing evidence');
+  }finally{if(previous===undefined)delete process.env.DISCOVERY_SEED_JOBS_JSON;else process.env.DISCOVERY_SEED_JOBS_JSON=previous;}
+});
 
 const requiredAnswerSnapshot = (options = ['Yes', 'No']) => sealQuestionSnapshot({ version: 2,
   source: { origin: 'https://employer.fixture.invalid', path: '' }, prompt: 'Do you hold the required current licence?', context: [], help: [], completeness: 'complete',

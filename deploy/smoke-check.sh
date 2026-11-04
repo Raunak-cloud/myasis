@@ -57,7 +57,8 @@ if [ "$REPLAY_REQUIRED" = 1 ]; then
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/investigation-browser.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/attention-feedback.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/halt-review.test.js
-  node --test --test-name-pattern='admin repair' dist/review-budget.test.js
+  node --test --test-name-pattern='admin repair|operator discovery' dist/review-budget.test.js
+  node --test dist/discovery-seeds.test.js
   node --test dist/agent/attempt-diagnostics.test.js dist/browser-deadline.test.js dist/discovery-search.test.js dist/discovery-policy.test.js
   node --test dist/agent/generation-recovery.test.js dist/agent/celeris-queue.test.js dist/agent/openrouter.test.js dist/agent/tool-input.test.js dist/agent/agent-only-transcript.test.js dist/agent/application-policy.test.js dist/agent/application-readiness.test.js dist/agent/application-turn.test.js dist/agent/consultation.test.js dist/agent/recovery-checkpoint.test.js dist/agent/recovery-record.test.js dist/agent/progress-budget.test.js dist/agent/agent-file-inventory.test.js dist/verification-email-local.test.js dist/gmail-verification.test.js dist/gmail-read-cancellation.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/automatic-specialist.test.js

@@ -62,7 +62,7 @@ export const gmailAccess=async()=>({connected:false}),scheduledStart=async()=>{t
       ['../../seek-bot/src/job-board-url.js', '../../seek-bot/src/repair-safety.js', './run-diagnostics.js']);
     compile('./start-run.ts', 'start.mjs', { './targeted-retry-jobs.js': url('targeted.mjs') },
       ['../../seek-bot/src/application-model-catalog.js', '../../seek-bot/src/employer-source-config.js', '../src/salary.js',
-        '../../seek-bot/src/job-board-url.js', '../../seek-bot/src/cover-letter-policy.js', '../../seek-bot/src/run-limits.js', './employer-site-access.js', './operator-run-plan.js']);
+        '../../seek-bot/src/job-board-url.js', '../../seek-bot/src/cover-letter-policy.js', '../../seek-bot/src/run-limits.js', '../../seek-bot/src/discovery-seeds.js', './employer-site-access.js', './operator-run-plan.js']);
     const { startRun } = await import(url('start.mjs')) as typeof import('./start-run.js');
     const { state } = await import(url('boundary.mjs'));
     const request = { userId: '183', email: 'candidate@fixture.invalid', trigger: 'admin' as const, startedBy: '1', mode: 'live' as const,
@@ -96,12 +96,15 @@ export const gmailAccess=async()=>({connected:false}),scheduledStart=async()=>{t
     assert.equal(state.starts.length, starts, 'refused starts never launch a process');
     state.credits=0;
     const sponsored={...request,jobIds:undefined,scope:undefined,applicationMode:'auto' as const,
-      oneTime:{plan:'intensive-pass' as const,maxApplications:50,maxEvaluations:400}};
+      oneTime:{plan:'intensive-pass' as const,maxApplications:50,maxEvaluations:400,seedSeekJobs:[{id:'95369588',title:'Principal Penetration Tester',company:'Fixture Employer',source:'chosen',fitReview:{score:100}}]}};
     assert.deepEqual(await startRun(sponsored),{ok:true,mode:'live'},'a sponsored run works without purchasing or granting a persistent pass');
     const launched=state.starts.at(-1);
     assert.equal(launched[1].MAX_EVALUATIONS,'400');assert.equal(launched[1].MAX_APPS_PER_RUN,'50');
     assert.equal(launched[1].MIN_SCORE,'70');assert.equal(launched[1].MAX_AGE_DAYS,'15');
     assert.equal(launched[1].OPERATOR_PLAN,'intensive-pass');assert.equal(launched[1].ALLOW_EXTERNAL_APPLY,'true');
+    assert.equal(JSON.parse(launched[1].DISCOVERY_SEED_JOBS_JSON)[0].source,'search');
+    assert.equal(JSON.parse(launched[1].DISCOVERY_SEED_JOBS_JSON)[0].fitReview,undefined,'a discovery lead carries no approval or fit waiver');
+    assert.equal(launched[1].TARGET_SEEK_JOBS,undefined,'leads do not replace the ordinary discovery streams');
     assert.equal(launched[3],undefined,'complimentary applications must not install the credit-deduction callback');
     assert.equal(typeof launched[4],'function','a temporary network route is still released on completion');
     const audit=state.queries.findLast((entry:{sql:string})=>entry.sql.includes('UPDATE run_starts SET operator_options'));

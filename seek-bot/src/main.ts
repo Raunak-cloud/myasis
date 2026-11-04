@@ -37,6 +37,7 @@ shouldStopDiscovery,
 } from './discovery-policy.js';
 import { fetchJobDetail, search } from './discovery.js';
 import { discoverySearches, type DiscoverySearch } from './discovery-search.js';
+import { discoverySeeds } from './discovery-seeds.js';
 import { passesListingAge } from './listing-age.js';
 import { EmployerFeedDiscovery } from './employer-feeds.js';
 import { EMPLOYER_SOURCES, employerFeedsEnabled } from './employer-source-config.js';
@@ -350,6 +351,7 @@ async function main() {
     // Sign in before querying date-filtered searches. Homepage recommendations
     // have no date filter and are deliberately not part of automatic discovery.
     const targeted: Array<{ job_id: string; title: string; company: string }> = JSON.parse(process.env.TARGET_SEEK_JOBS ?? '[]');
+    const seeded = discoverySeeds(process.env.DISCOVERY_SEED_JOBS_JSON ? JSON.parse(process.env.DISCOVERY_SEED_JOBS_JSON) : undefined);
     const repairTarget: JobListing | null = process.env.OWTOMATE_REPAIR_CASE_ID && process.env.TARGET_REPAIR_JOB_JSON
       ? JSON.parse(process.env.TARGET_REPAIR_JOB_JSON) : null;
     if (repairTarget && (!repairTarget.id || !repairTarget.url || !repairTarget.title || !repairTarget.company
@@ -404,6 +406,10 @@ async function main() {
         selectedAccepted.push(...ingest(targetedJobs, adapter));
         console.log(`  Targeted retry: ${targeted.length} listing(s); normal fit, scope and duplicate checks still apply.`);
         continue;
+      }
+      if (adapter.id === 'seek' && seeded.length) {
+        selectedAccepted.push(...ingest(seeded, adapter));
+        console.log(`  Discovery leads: ${seeded.length} listing(s); live details, fit, salary, exclusions and duplicate checks still apply. Normal search continues.`);
       }
     }
 

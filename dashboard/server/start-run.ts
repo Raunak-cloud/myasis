@@ -42,6 +42,7 @@ import { scheduledStart } from './run-schedule.js';
 import { dailyApplicationLimit, USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
 import { targetedSeekRetryJobs } from './targeted-retry-jobs.js';
 import { VIP_RUN_PLAN, sponsoredRunAllowance, sponsoredRunEntitlements } from './operator-run-plan.js';
+import { discoverySeeds } from '../../seek-bot/src/discovery-seeds.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
@@ -94,7 +95,7 @@ interface StartRunRequest {
   /** One exact employer job page supplied by an administrator. */
   externalUrl?: unknown;
   /** Explicit operator exception, resolved for this run only; never saved as account settings. */
-  oneTime?: { plan?: 'intensive-pass'; allowMissingSalary?: boolean; maxApplications?: number; maxEvaluations?: number; applicationModel?: ApplicationModel; includeSavedChoices?: boolean };
+  oneTime?: { plan?: 'intensive-pass'; seedSeekJobs?: unknown; allowMissingSalary?: boolean; maxApplications?: number; maxEvaluations?: number; applicationModel?: ApplicationModel; includeSavedChoices?: boolean };
 }
 
 type Refusal = Extract<StartRunOutcome, { ok: false }>;
@@ -208,6 +209,10 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   }
   const sponsored = request.oneTime?.plan === VIP_RUN_PLAN.plan;
   if (sponsored) entitlements = sponsoredRunEntitlements(entitlements);
+  let seeds: ReturnType<typeof discoverySeeds> = [];
+  try { seeds = discoverySeeds(request.oneTime?.seedSeekJobs); }
+  catch (error) { return {ok:false,status:400,error:(error as Error).message}; }
+  if (seeds.length && (request.approvals !== undefined || request.jobIds !== undefined || request.externalUrl !== undefined)) return {ok:false,status:400,error:'Discovery leads cannot be combined with an approval or targeted retry.'};
   const sourceError = jobSourceSettingsError(request.clientOverrides ?? {}, admin, entitlements.employerSources);
   if (sourceError) return { ok: false, ...sourceError };
 
@@ -271,6 +276,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    */
   const overrides = applyRunPolicy(settings, entitlements, admin && effectiveTrigger === 'manual' ? 'manual' : 'auto', settingsSnapshot.saved[PLATFORMS_CHOSEN_KEY] === '1', settingsSnapshot.saved[EMPLOYER_SOURCES_CHOSEN_KEY] === '1');
   if (sponsored) overrides.OPERATOR_PLAN = VIP_RUN_PLAN.plan;
+  overrides.DISCOVERY_SEED_JOBS_JSON = JSON.stringify(seeds);
   overrides.APPLICATION_REVIEW_MODE = request.applicationMode === 'semi-auto' ? 'prepare' : '';
   // A preference-scoped operator batch need not replay earlier Skipped-view
   // choices. Keep those durable choices and explicit prepared approvals intact.
@@ -495,6 +501,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     };
   }
   if (!directExternalUrl && !emailOnly) overrides.PLATFORMS = usable.join(',');
+  if (seeds.length && !usable.includes('seek')) return {ok:false,status:428,error:'Sign in to SEEK before running these discovery leads.'};
   if (unavailable.length) overrides.SKIPPED_BOARDS = unavailable.join(',');
 
   /**
@@ -540,7 +547,8 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
       const runStartId = await recordRunStart(userId, mode, effectiveTrigger, request.startedBy, request.initiatorDevice, Boolean(selections));
       if (!runStartId) throw new Error('Could not save the run start.');
       if (sponsored) await query('UPDATE run_starts SET operator_options=$3::jsonb WHERE id=$1 AND user_id=$2',
-        [runStartId,userId,JSON.stringify({plan:VIP_RUN_PLAN.plan,complimentary:true,maxEvaluations:Number(overrides.MAX_EVALUATIONS),maxApplications:Number(overrides.MAX_APPS_PER_RUN),timeoutMinutes:VIP_RUN_PLAN.timeoutMinutes})]);
+        [runStartId,userId,JSON.stringify({plan:VIP_RUN_PLAN.plan,complimentary:true,maxEvaluations:Number(overrides.MAX_EVALUATIONS),maxApplications:Number(overrides.MAX_APPS_PER_RUN),timeoutMinutes:VIP_RUN_PLAN.timeoutMinutes,
+          keywords:overrides.KEYWORDS,seedSeekJobIds:seeds.map(job=>job.id)})]);
       if (request.repairCaseId) await query('UPDATE run_starts SET repair_case_id=$2 WHERE id=$1 AND user_id=1',[runStartId,request.repairCaseId]);
       const result = await runner.start(
         mode,
