@@ -216,8 +216,19 @@ test('cleanup failure cannot overwrite a completed result or the primary provide
  const f=await fixture(form);config.dryRun=true;
  const unroute=f.context.unroute.bind(f.context);f.context.unroute=async()=>{throw new Error('Fictional cleanup failure');};
  try{
-  globalThis.fetch=async(_url,init)=>specialistFixtureReply(JSON.parse(String(init?.body)))??packet([finish()]);
-  const r=await runAgentOnlyApplication({...f,simulation:'isolated-form'});assert.equal(r.outcome.status,'rehearsed');assert.match(r.usage,/6 calls/,'parent stop, specialist, recovery decision, actual inspection, verification and final record all remain on the same meter');
+  let requests=0,specialists=0;
+  globalThis.fetch=async(_url,init)=>{
+   const body=JSON.parse(String(init?.body)) as Body;requests++;
+   assert.ok(requests<=3,'advisory recovery must not require extra reporting turns before the agent can stop');
+   assert.ok(!['respond_to_specialist','check_specialist_recovery'].includes(body.tool_choice?.function?.name??''),'specialist reports cannot be forced');
+   const specialist=specialistFixtureReply(body);if(isSpecialistFixtureRequest(body))specialists++;
+   const response=await (specialist??packet([finish()])).json();
+   response.usage={prompt_tokens:Math.round(.01*1_000_000/CELERIS_RATES.promptUncached),completion_tokens:0};
+   return Response.json(response);
+  };
+  const r=await runAgentOnlyApplication({...f,simulation:'isolated-form'});assert.equal(r.outcome.status,'rehearsed');assert.equal(specialists,1);
+  assert.ok(r.usage.startsWith(`${requests} calls ·`),'every actual parent and specialist request remains on the same meter');
+  assert.ok(r.usage.endsWith(`$${(requests*.01).toFixed(5)}`),'the shared meter retains parent and specialist costs despite cleanup failure');
   globalThis.fetch=async()=>new Response('Fictional provider rejection',{status:400});
   await assert.rejects(()=>runAgentOnlyApplication({...f,job:{...f.job,id:f.job.id+'-provider'},simulation:'isolated-form'}),/Fictional provider rejection/);
   const diagnostics=readdirSync(join(directory,'traces')).filter(name=>name.endsWith('.diagnostics.jsonl')).map(name=>readFileSync(join(directory,'traces',name),'utf8')).join('\n');
