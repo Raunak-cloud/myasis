@@ -16,4 +16,6 @@ Explicit inspection of a unique, visible, non-private typed cover-letter control
 
 When the native control has no HTML label, its current observed identity/ref must bind to exactly one non-private cover-letter field before that field's observed label can be used. A different or ambiguous control cannot borrow the label. The browser regression uses this markup rather than assuming a native label exists.
 
+The verified native readback returned after a fill can establish the same proof; the requested text alone cannot. Operation matching normalizes documented targeting defaults (inferred target mode, exact text matching and an empty main-frame scope), while still rejecting changed targets, values, scope or submission intent.
+
 Focused checks use scripted providers, isolated invalid-domain forms and fictional candidate data. They cover advice acceptance/alternatives, actual execution and verification, stale/repeated states, continuation, budget/uncertain-send boundaries and an approved letter inspected on an earlier wizard step followed by one fictional receipt-confirmed submission. No real model calls or employer applications are made by these checks.

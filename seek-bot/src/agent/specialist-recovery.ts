@@ -28,6 +28,24 @@ export const specialistRecoveryTools:ToolSchema[]=[
 const normal=(value:unknown)=>String(value??'').replace(/\s+/g,' ').trim();
 const canonical=(value:unknown):unknown=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,canonical(v)])):value;
 const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
+/** Only documented transport defaults are equivalent. Target, value, scope,
+ * action and send intent still have to match the committed operation. */
+function normalizedOperation(op:Operation):Operation {
+ const normalize=(input:Record<string,unknown>)=>{
+  const args={...input};
+  if(args.target_mode===undefined){const mode=args.locator?'locator':args.selector?'selector':args.ref?'ref':undefined;if(mode)args.target_mode=mode;}
+  if(args.locator&&typeof args.locator==='object'&&!Array.isArray(args.locator)){
+   const locator={...args.locator as Record<string,unknown>};
+   if(['role','label','placeholder','text'].includes(String(locator.by))&&locator.exact===undefined)locator.exact=true;
+   if(locator.frame==='')delete locator.frame;
+   args.locator=locator;
+  }
+  return args;
+ };
+ return {...op,args:op.name==='browser_batch'?{...op.args,actions:Array.isArray(op.args.actions)?op.args.actions.map(action=>normalize(action as Record<string,unknown>)):op.args.actions}
+  :['browser_action','take_snapshot'].includes(op.name)?normalize(op.args):op.args};
+}
+const operationHash=(name:string,args:Record<string,unknown>)=>hash(normalizedOperation({name,args}));
 function resultMaterial(result:string):string {
  const parts=[result];
  const visit=(value:unknown,depth:number):void=>{
@@ -64,7 +82,7 @@ function readOnly(op:Operation):boolean {
 }
 const workTools=new Set(['browser_action','browser_batch','take_snapshot','complete_authentication','enter_emailed_code','open_emailed_link','record_authentication_result','wait_for_verification','render_approved_cover_letter','convert_file','create_file','read_candidate_evidence','read_browser_experience']);
 function operationKey(op:Operation,o:Observation):string {
- const args={...op.args};
+ const args={...normalizedOperation(op).args};
  const control=[...o.fields,...o.actions].find(c=>c.ref===args.ref);
  if(control){delete args.ref;delete args.target_mode;args.observed_target='label'in control?{label:control.label,section:control.section}:{label:control.text,context:control.context};}
  return hash([hash(surface(o)),op.name,args]);
@@ -115,7 +133,7 @@ export class SpecialistRecovery {
   const key=operationKey(op,o);if(t.history.includes(key))throw Error('This recovery operation was already attempted in this observed state. Inspect a different target or choose a materially different repair; do not repeat the loop');
   const verification=args.verification as unknown as Verification;
   if(t.verification&&hash(t.verification)!==hash(verification)&&args.decision==='adopt')throw Error('Keep the original recovery goal through intermediate steps, or explain an evidence-based alternative');
-  t.decision=String(args.decision);t.reason=String(args.reason);t.operation=op;t.verification=verification;
+  t.decision=String(args.decision);t.reason=String(args.reason);t.operation=normalizedOperation(op);t.verification=verification;
   t.before=hash(surface(o));t.beforeSatisfied=satisfies(verification,o);t.readOnly=readOnly(op);
   t.phase='action';t.invalidChecks=0;delete t.result;delete t.failed;
   return 'Recovery decision recorded; nothing executed. Now issue exactly the committed operation using the normal tool. Its result will require fresh verification.';
@@ -127,15 +145,15 @@ export class SpecialistRecovery {
   if(!this.pending)return;
   if(this.observation?.inspectionError&&readOnly({name,args}))return;
   if(name==='respond_to_specialist'&&this.task.phase==='decision'||name==='check_specialist_recovery'&&this.task.phase==='verification')return;
-  if(this.task.phase==='action'&&this.task.operation?.name===name&&hash(this.task.operation.args)===hash(args)) {
+  if(this.task.phase==='action'&&this.task.operation?.name===name&&operationHash(name,this.task.operation.args)===operationHash(name,args)) {
    if(this.observation&&this.task.before!==hash(surface(this.observation))){this.task.phase='decision';return 'Not executed: the observed page changed after this recovery plan. Reconsider the advice using the fresh page before choosing an operation.';}
    return;
   }
-  return `Not executed: specialist recovery ${this.task.id} is ${this.task.phase}. Required next tool: ${this.requiredTool}. Follow the committed recovery or provide a fresh evidence-based alternative; no browser action or send was queued.`;
+  return `Not executed: specialist recovery ${this.task.id} is ${this.task.phase}. Required next tool: ${this.requiredTool}. ${this.task.phase==='action'?'Exact committed operation: '+JSON.stringify(this.task.operation):'Follow the committed recovery or provide a fresh evidence-based alternative.'} No browser action or send was queued.`;
  }
  complete(name:string,args:Record<string,unknown>,result:string,failed:boolean):void {
   const t=this.task,o=this.observation;
-  if(!t||t.phase!=='action'||t.operation?.name!==name||hash(t.operation.args)!==hash(args)||!o)return;
+  if(!t||t.phase!=='action'||t.operation?.name!==name||operationHash(name,t.operation.args)!==operationHash(name,args)||!o)return;
   t.history.push(operationKey(t.operation,o));t.result=result;t.failed=failed;
   t.actionObservation=this.observationVersion;t.phase='verification';
   t.invalidChecks=0;

@@ -9,7 +9,7 @@ import {closeCelerisQueues} from '../../../shared/celeris-queue.mjs';
 import {createReadinessFixtureReply} from './readiness-fixture.js';
 import {fixtureToolArguments} from './specialist-fixture.js';
 
-test('explicit letter inspection survives a wizard handoff and permits one approved fictional submission',async()=>{
+test('native letter readback survives a wizard handoff and permits one approved fictional submission',async()=>{
  const dir=mkdtempSync(join(tmpdir(),'approved-letter-recovery-'));
  Object.assign(process.env,{DATA_DIR:dir,CELERIS_API_KEY:'fixture-only',CELERIS_QUEUE_FILE:join(dir,'queue.sqlite'),CELERIS_MIN_INTERVAL_MS:'0',APPLICATION_AI_MODEL:'celeris',APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN:'false',APPLICATION_REVIEW_MODE:'approved',COST_TRACKING:'false'});
  const {config}=await import('../config.js');config.dryRun=true;config.allowExternalApply=true;
@@ -26,7 +26,6 @@ test('explicit letter inspection survives a wizard handoff and permits one appro
   const calls=[
    {name:'browser_action',args:{action:'set_input_files',selector:'#cv',file_ids:['cv']}},
    {name:'browser_action',args:{action:'fill',selector:'#letter',value:letter}},
-   {name:'browser_action',args:{action:'inspect',selector:'#letter'}},
    {name:'browser_action',args:{action:'click',selector:'#next',sends_application:false}},
    {name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}},
    {name:'finish',args:{status:'applied',reason:'The fictional employer receipt confirms delivery.',evidence:'Actual receipt text is visible.',receipt:{quote:'Application received for Fictional Analyst.'}}},
@@ -41,7 +40,7 @@ test('explicit letter inspection survives a wizard handoff and permits one appro
    return Response.json({usage:{prompt_tokens:100,completion_tokens:10},choices:[{message:{role:'assistant',content:null,tool_calls:[{id:'wizard-'+turn,type:'function',function:{name:call.name,arguments:fixtureToolArguments(body,call.name,call.args)}}]}}]});
   };
   const result=await runAgentOnlyApplication({simulation:'isolated-form',page,job,profile:{name:'Fictional Candidate',email:'fixture@example.invalid',skills:[]}as never,log:()=>{}});
-  assert.equal(result.outcome.status,'applied');assert.equal(await page.evaluate(()=>Number(localStorage.getItem('send-count')||0)),1);assert.equal(result.submitPressed,true);assert.equal(turn,6);
+  assert.equal(result.outcome.status,'applied');assert.equal(await page.evaluate(()=>Number(localStorage.getItem('send-count')||0)),1);assert.equal(result.submitPressed,true);assert.equal(turn,5);
   assert.equal(await page.locator('#letter').inputValue(),letter,'the exact approved text remains unchanged');
   const {AgentFiles}=await import('./agent-files.js');const files=new AgentFiles(job.id,draft);
   const native={tag:'textarea',type:'textarea',visible:true,private:false,disabled:false,label:'Cover letter',value:letter,ref:'f0'};

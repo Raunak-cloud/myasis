@@ -32,6 +32,19 @@ test('advice cannot execute itself and unacknowledged navigation/send/finish are
  assert.match(r.permit('browser_action',{action:'click',ref:'a1'})!,/Not executed/);
  assert.equal(r.permit('browser_action',{action:'inspect',ref:'f0'}),undefined);
 });
+
+test('documented target defaults match the committed native action without accepting another target or send',()=>{
+ const r=start(),args={action:'click',locator:{by:'text',value:'Visible receiving label'},sends_application:false};
+ r.respond(plan(r,{name:'browser_action',args}),tools);
+ const actual={...args,target_mode:'locator',locator:{...args.locator,exact:true,frame:''}};
+ assert.equal(r.permit('browser_action',actual),undefined);
+ assert.match(r.permit('browser_action',{...actual,sends_application:true})!,/Not executed/);
+ assert.match(r.permit('browser_action',{...actual,locator:{...actual.locator,value:'Different target'}})!,/Not executed/);
+ assert.match(r.permit('browser_action',{...actual,target_mode:'selector',selector:'#other'})!,/Not executed/);
+ r.complete('browser_action',actual,'Cover letter recovery: native label clicked',false);assert.equal(r.requiredTool,'check_specialist_recovery');
+ r.observe(observation());r.check(verify(r,'no_progress'));
+ assert.throws(()=>r.respond(plan(r,{name:'browser_action',args}),tools),/already attempted/,'adding default metadata cannot evade repeated-operation history');
+});
 test('a plan or fabricated result cannot establish completion; real letter inspection can',()=>{
  const r=start();r.respond(plan(r),tools);
  assert.throws(()=>r.check(verify(r)),/fresh/);

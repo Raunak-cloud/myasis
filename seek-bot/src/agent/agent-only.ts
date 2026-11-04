@@ -941,6 +941,9 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         else await element.selectOption({ label: value }, { timeout: 4000 }).catch(() => element.selectOption(value, { timeout: 4000 }));
         const waitNote = await waitAfterAction(ctx.page, args);
         const readback = await nativeReadback(target(ctx, args)) as { private: boolean; controlIdentity?: string; value?: string; checked?: boolean; selected?: Array<{ label: string }> };
+        // The actual native readback, never the requested fill text, can bind
+        // approved-letter evidence just like a separate explicit inspection.
+        files.witnessInspectedLetter(readback,ctx.observation.fields);ctx.letterWitness=files.checkpointLetterWitness();
         browserMutated = true; // retain successful writes even if a later command in the batch fails
         const saved = args.action === 'check' ? String(readback.checked)
           : args.action === 'select' ? readback.selected?.map(option => option.label).join(', ') : readback.value;
