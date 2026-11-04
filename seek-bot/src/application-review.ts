@@ -5,7 +5,7 @@ import { config } from './config.js';
 import { applicationRevision } from './application-review-content.js';
 import { isCoverLetterField, cleanCoverLetter } from './cover-letter-policy.js';
 export { applicationContent } from './application-review-content.js';
-import { readSavedForm, savedHiddenCoverLetterMatches } from './agent/saved-form.js';
+import { readSavedForm } from './agent/saved-form.js';
 import type { Locator } from 'patchright';
 import { agentOnlyResumePath } from './agent/agent-only-evidence.js';
 import { observedApprovedCoverLetter, typedCoverLetterControls } from './application-letter.js';
@@ -48,13 +48,13 @@ const normal = (text: string) => text.replace(/\s+/g, ' ').trim();
 /** Preparation records candidate-visible work. Confirmation authorizes this
  * vacancy, not a particular DOM serialization. An approved submission can
  * repair its saved work, but must never create another Prepared application. */
-export async function applicationApprovalGate(ctx: ToolContext, sendControl?: Locator): Promise<ToolResult | null> {
+export async function applicationApprovalGate(ctx: ToolContext, _sendControl?: Locator): Promise<ToolResult | null> {
   if (!reviewingApplications()) return null;
   const approved = approvedApplication(ctx.job);
   const form = await readSavedForm(ctx.page);
   if (!preparingApplications() && !approved)
     return { kind: 'ok', disposition: 'failed', message: 'No server-supplied approval exists for this vacancy. Do not submit a different job or create another prepared draft.' };
-  if (approved?.documents?.some(document => document.requiresUpload && !ctx.uploadedDocuments?.some(file => file.fileId === document.fileId && file.sha256 === document.sha256
+  if (approved?.documents?.some(document => document.role !== 'cover-letter' && document.requiresUpload && !ctx.uploadedDocuments?.some(file => file.fileId === document.fileId && file.sha256 === document.sha256
     || document.provenance === 'text' && document.text !== undefined && file.coverLetterDigest === createHash('sha256').update(document.text).digest('hex'))))
     return { kind: 'ok', disposition: 'failed', message: 'Upload the exact candidate-revised attachment before sending. Its filename alone does not prove that the new approved bytes replaced the old employer file.' };
   const currentLetterControls = typedCoverLetterControls(form.fields);
@@ -102,10 +102,9 @@ export async function applicationApprovalGate(ctx: ToolContext, sendControl?: Lo
       && (actual.has(normal(item.question)) || observedEmpty.has(normal(item.question)))
       && (actual.get(normal(item.question)) ?? '') !== normal(item.answer));
     if (conflict) return { kind: 'ok', disposition: 'failed', message: `Restore the approved answer to "${conflict.question}" in the actual form before sending. The job remains approved; do not prepare it again.` };
-    // Authorization text is an expectation, never proof that the letter was
-    // delivered. Current blanks override old typed witnesses; a wizard step
-    // without the control can retain its actual prior readback. Upload widgets
-    // may consume their FileList, so retain the completed native byte selection.
+    // An approved letter does not require a separate delivery-proof gate.
+    // Reject an observed replacement, but leave inclusion to the applying
+    // agent and employer validation. Missing evidence is not an upload receipt.
     const typed = currentLetterControls.length ? currentLetterControls : typedCoverLetterControls(ctx.letterWitness ?? []);
     const legacyLetters = [...new Set(approved.answers.filter(answer => typed.some(field => normal(field.label) === normal(answer.question)))
       .map(answer => answer.answer).filter(text => text.trim()))];
@@ -113,18 +112,6 @@ export async function applicationApprovalGate(ctx: ToolContext, sendControl?: Lo
       ?? (legacyLetters.length === 1 ? legacyLetters[0] : undefined);
     if (expectedLetter && actualLetters.some(text => text.trim() && normal(text) !== normal(expectedLetter)))
       return { kind: 'ok', disposition: 'failed', message: 'Restore the exact approved cover letter in the actual form or attachment before sending. The job remains approved; do not prepare it again.' };
-    if (expectedLetter) {
-      const digest = createHash('sha256').update(expectedLetter).digest('hex');
-      const typedProof = typed.some(field => field.currentValue !== undefined && normal(field.currentValue) === normal(expectedLetter));
-      const uploadProof = ctx.uploadedDocuments?.some(file => file.coverLetterDigest === digest
-        || [...(approved.documents ?? []), ...(ctx.documents ?? [])].some(document => document.role === 'cover-letter'
-          && document.fileId === file.fileId && document.sha256 === file.sha256 && document.text !== undefined
-          && normal(document.text) === normal(expectedLetter)));
-      const hiddenProof = !typedProof && !uploadProof && sendControl && await savedHiddenCoverLetterMatches(sendControl, expectedLetter);
-      if (!typedProof && !uploadProof && !hiddenProof)
-        return { kind: 'ok', disposition: 'failed', message: 'Restore the exact approved cover letter in the actual form or upload its verified file, then inspect the saved result before sending. Approved text or a filename alone is not delivery evidence. The job remains approved; do not prepare it again.' };
-      ctx.coverLetter = expectedLetter;
-    }
     // New questions use the normal grounded-answer/readiness controls. Unknown
     // consequential facts still require Needs attention. Employer receipts,
     // explicit send intent, document checks and duplicate controls are unchanged.

@@ -98,7 +98,7 @@ export class AgentFiles {
     const uploaded = [...this.uploads.values()].flatMap(upload => upload.files);
     const removed = new Set([...this.uploads.values()].flatMap(upload => upload.removedFileIds ?? []));
     const approved = this.approved?.documents ?? [];
-    if (approved.some(document => document.requiresUpload && !uploaded.some(file => file.id === document.fileId && file.sha256 === document.sha256
+    if (approved.some(document => document.role !== 'cover-letter' && document.requiresUpload && !uploaded.some(file => file.id === document.fileId && file.sha256 === document.sha256
       || document.provenance === 'text' && document.text !== undefined && file.coverLetterDigest === documentHash(Buffer.from(document.text)))))
       throw Error('A candidate-revised attachment has not been uploaded. Select its exact approved file_id and inspect the employer response before preparing; the same filename does not prove matching bytes.');
     const declarations = [
@@ -115,7 +115,7 @@ export class AgentFiles {
     // when no new arguments were supplied. A new draft must name every upload.
     if (this.approved?.documents && coverLetterFileId === undefined && supportingFileIds === undefined
       && !nonResume.some(file => file.coverLetter && !approved.some(document => document.fileId === file.id && document.sha256 === file.sha256))) {
-      if (approved.some(document => removed.has(document.fileId) && !uploaded.some(file => file.id === document.fileId)))
+      if (approved.some(document => document.role !== 'cover-letter' && removed.has(document.fileId) && !uploaded.some(file => file.id === document.fileId)))
         throw Error('An approved attachment was explicitly removed. Restore the exact approved file before sending; the job remains approved.');
       for (const document of approved) verifiedDocumentPath(document);
       if (nonResume.some(file => !approved.some(document => document.fileId === file.id && document.sha256 === file.sha256)))
@@ -126,6 +126,14 @@ export class AgentFiles {
     const documents: ApplicationDocument[] = [];
     for (const declaration of declarations) {
       const matches = uploaded.filter(file => file.id === declaration.id);
+      if (!matches.length && this.approved && declaration.role === 'cover-letter') {
+        const file = this.resolve(declaration.id);
+        if (file.text === this.approvedLetter || approved.some(document => document.role === 'cover-letter' && document.fileId === file.id)) {
+          // Approval permits proceeding without attachment proof; it does not
+          // fabricate a native upload or a new delivered-document record.
+          continue;
+        }
+      }
       const identities = new Set(matches.map(file => file.sha256));
       if (!matches.length || identities.size !== 1) throw Error(`The declared document has no unambiguous successful native upload (${declaration.id}; active file IDs: ${JSON.stringify([...new Set(uploaded.map(file => file.id))])}). Inspect and attach the exact intended file first.`);
       const file = matches[0];

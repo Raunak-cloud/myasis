@@ -93,10 +93,14 @@ try {
   assert.notEqual(edited.revision, attached.revision);
   assert.equal(edited.documents![0].provenance, 'text');
   const editedFiles = new AgentFiles('edited-approval', edited);
-  await assert.rejects(editedFiles.reviewDocuments('cv', undefined, undefined), /candidate-revised attachment has not been uploaded/);
+  assert.deepEqual(await editedFiles.reviewDocuments('cv', undefined, undefined),edited.documents,'approved revised letters do not require native-upload proof');
+  assert.equal(await editedFiles.reviewDocuments('cv',edited.documents![0].fileId,undefined),undefined,'declaring an approved letter without an upload does not fabricate a delivered artifact');
+  assert.deepEqual(editedFiles.checkpointUploads(),[]);
+  const supportingApproval={...edited,documents:edited.documents!.map(document=>({...document,role:'supporting' as const}))};
+  await assert.rejects(new AgentFiles('supporting-approval',supportingApproval).reviewDocuments('cv',undefined,undefined),/candidate-revised attachment has not been uploaded/,'supporting documents retain their existing upload requirement');
   editedFiles.recordUpload('employer-letter-input', editedFiles.uploadSelection([edited.documents![0].fileId]));
   assert.equal((await editedFiles.reviewDocuments('cv', undefined, undefined))?.[0].sha256, edited.documents![0].sha256,
-    'same-name candidate edit requires native selection of its new exact bytes before confirmation can send');
+    'an actual upload still records the exact candidate-revised bytes');
   assert.equal(new AgentFiles('edited-approval', edited).resolve(edited.documents![0].fileId).text, editedLetter);
   const anotherOwner = mkdtempSync(join(tmpdir(), 'owtomate-other-document-owner-'));
   try { await assert.rejects(reviseAttachedCoverLetter(attached, editedLetter, anotherOwner), /artifact is unavailable/); }
@@ -212,11 +216,15 @@ try {
   await inlinePage.setContent('<button>Submit</button>');
   const deliveryContext = { ...inlineContext, job: deliveryApproval.job, captured: [], coverLetter: editedLetter, documents: deliveryApproval.documents };
   const missingDelivery = await applicationApprovalGate(deliveryContext);
-  assert.ok(missingDelivery?.kind === 'ok' && missingDelivery.disposition === 'failed', 'final-send gate cannot skip the candidate-revised upload by avoiding prepare_application');
+  assert.equal(missingDelivery,null,'approved revised letters do not require a final-send upload-proof gate');
+  writeFileSync(join(directory,'approved-applications.json'),JSON.stringify([{...deliveryApproval,documents:supportingApproval.documents}]));
+  const missingSupporting=await applicationApprovalGate({...deliveryContext,documents:supportingApproval.documents});
+  assert.ok(missingSupporting?.kind==='ok'&&missingSupporting.disposition==='failed','the final-send exemption applies only to approved cover letters');
+  writeFileSync(join(directory,'approved-applications.json'),JSON.stringify([deliveryApproval]));
   const delivered = bundleFiles.checkpointUploads().flatMap(upload => upload.files.map(file => ({ fileId: file.id, sha256: file.sha256, coverLetterDigest: file.coverLetterDigest })));
   assert.equal(await applicationApprovalGate({ ...deliveryContext, uploadedDocuments: delivered }), null);
   const wrongDelivery = await applicationApprovalGate({ ...deliveryContext, uploadedDocuments: delivered.map(file => ({ ...file, coverLetterDigest: 'wrong' })) });
-  assert.ok(wrongDelivery?.kind === 'ok' && wrongDelivery.disposition === 'failed', 'a different source-text digest cannot fulfil edited-letter delivery');
+  assert.equal(wrongDelivery,null,'a delivery digest is no longer a submission condition for approved letters');
   writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify([legacyInline]));
   assert.equal(JSON.parse(readFileSync(join(directory, 'approved-applications.json'), 'utf8'))[0].coverLetter, undefined, 'legacy source history remains unchanged');
   await inlinePage.close(); process.env.APPLICATION_REVIEW_MODE = 'prepare';
@@ -256,9 +264,9 @@ try {
   const removing = new AgentFiles('removal', attached);
   removing.recordUpload('actual-input', removing.uploadSelection(['supporting:10']));
   removing.recordUpload('actual-input', []);
-  await assert.rejects(removing.reviewDocuments('cv', undefined, undefined), /explicitly removed/);
+  assert.deepEqual(await removing.reviewDocuments('cv', undefined, undefined),attached.documents,'approved letter absence does not block preparation after clearing a file input');
   const restoredRemoval = new AgentFiles('removal', attached); restoredRemoval.restoreUploads(removing.checkpointUploads());
-  await assert.rejects(restoredRemoval.reviewDocuments('cv', undefined, undefined), /explicitly removed/);
+  assert.deepEqual(await restoredRemoval.reviewDocuments('cv', undefined, undefined),attached.documents,'the exemption persists across recovery without inventing another upload');
   const removedBeforePrepare = new AgentFiles('new-removal');
   removedBeforePrepare.restoreUploads(retained); removedBeforePrepare.recordUpload('actual-input', []);
   assert.equal(await removedBeforePrepare.reviewDocuments('cv', undefined, undefined), undefined);

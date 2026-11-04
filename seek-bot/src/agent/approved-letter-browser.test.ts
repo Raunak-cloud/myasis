@@ -70,7 +70,7 @@ test('approved letter renders and uploads byte-exact without model transcription
    return decision;
   };
   const expectRepair=(decision:Awaited<ReturnType<typeof gate>>)=>{
-   assert.ok(decision?.kind==='ok'&&decision.disposition==='failed','missing or changed delivery requests repair in place and cannot create a new Prepared draft');
+   assert.ok(decision?.kind==='ok'&&decision.disposition==='failed','observed changed content requests repair without replacing approval');
    assert.match(decision.message,/Restore.*approved/);
    assert.match(decision.message,/job remains approved; do not prepare it again/);
   };
@@ -82,9 +82,10 @@ test('approved letter renders and uploads byte-exact without model transcription
   await page.locator('#received').evaluate(node=>{node.textContent='';});
   assert.equal(await gate({...ctx as object,coverLetter:undefined} as never),null,'completed native upload evidence survives a consumed FileList and absent body metadata');
   const missing={...ctx as object,coverLetter:undefined,uploadedDocuments:[]} as never;
-  expectRepair(await gate(missing));
-  expectRepair(await gate({...missing as object,coverLetter:text} as never));
-  expectRepair(await gate({...missing as object,uploadedDocuments:[{fileId:renderedFileId,sha256:digest,coverLetterDigest:'wrong-source-digest'}]} as never));
+  assert.equal(await gate(missing),null,'an approved letter does not require separate upload proof');
+  assert.equal((missing as any).coverLetter,undefined,'passing the gate does not invent delivered letter text');
+  assert.equal(await gate({...missing as object,coverLetter:text} as never),null);
+  assert.equal(await gate({...missing as object,uploadedDocuments:[{fileId:renderedFileId,sha256:digest,coverLetterDigest:'wrong-source-digest'}]} as never),null,'incomplete delivery metadata cannot block an approved letter');
 
   const inlineDraft={...draft,answers:[{question:'Write a cover letter',answer:text}]};
   writeFileSync(join(dir,'approved-applications.json'),JSON.stringify([inlineDraft]));
@@ -99,7 +100,7 @@ test('approved letter renders and uploads byte-exact without model transcription
   assert.equal(alteredContext.coverLetter,'Actually changed browser letter.','fresh current prose overrides stale authorization text');
   await page.locator('#body').fill('');
   const clearedContext={...inline,captured:inlineDraft.answers,coverLetter:text};
-  expectRepair(await gate(clearedContext));
+  assert.equal(await gate(clearedContext),null,'a blank optional letter does not reinstate the removed delivery guard');
   assert.equal(clearedContext.coverLetter,undefined,'a fresh empty field cannot inherit stale letter text');
 
   const legacy={...inlineDraft,coverLetter:undefined};
@@ -107,7 +108,7 @@ test('approved letter renders and uploads byte-exact without model transcription
   await page.locator('#body').fill(text);
   assert.equal(await gate({...inline,coverLetter:undefined}),null,'a matching current legacy textarea remains reusable');
   await page.locator('#body').fill('');
-  expectRepair(await gate({...inline,coverLetter:text}));
+  assert.equal(await gate({...inline,coverLetter:text}),null,'legacy approved letters also proceed without delivery proof');
   await page.setContent('<p>The next wizard page contains no letter control.</p><button>Submit</button>');
   assert.equal(await gate({...inline,coverLetter:text}),null,'an absent wizard step retains an actual previous typed witness without treating absence as deletion');
 
@@ -121,21 +122,22 @@ test('approved letter renders and uploads byte-exact without model transcription
   await page.locator('input').evaluate((node,body)=>{(node as HTMLInputElement).value=body;},text);
   assert.equal(await gate(savedContext),null,'fresh enabled hidden form data can carry the approved letter on a saved review');
   await page.locator('input').evaluate(node=>{(node as HTMLInputElement).value='';});
-  expectRepair(await gate(savedContext));
+  assert.equal(await gate(savedContext),null);
   await page.locator('input').evaluate((node,body)=>{(node as HTMLInputElement).value=body;(node as HTMLInputElement).disabled=true;},text);
-  expectRepair(await gate(savedContext));
+  assert.equal(await gate(savedContext),null);
   await page.locator('input').evaluate(node=>{(node as HTMLInputElement).disabled=false;node.setAttribute('data-owtomate-private-auth','password');});
-  expectRepair(await gate(savedContext));
+  assert.equal(await gate(savedContext),null);
   await page.locator('input').evaluate(node=>{node.removeAttribute('data-owtomate-private-auth');(node as HTMLInputElement).name='';});
-  expectRepair(await gate(savedContext));
+  assert.equal(await gate(savedContext),null);
   await page.setContent('<form><fieldset disabled><input type="hidden" name="payload_3"></fieldset><button>Submit</button></form>');
   await page.locator('input').evaluate((node,body)=>{(node as HTMLInputElement).value=body;},text);
-  expectRepair(await gate(savedContext));
+  assert.equal(await gate(savedContext),null);
   await page.setContent('<form id="unrelated"><input type="hidden" name="payload_3"></form><form><button>Submit</button></form>');
   await page.locator('input').evaluate((node,body)=>{(node as HTMLInputElement).value=body;},text);
-  expectRepair(await gate(savedContext));
+  assert.equal(await gate(savedContext),null);
   await page.setContent('<input type="hidden" name="payload_3"><button>Submit</button>');
   await page.locator('input').evaluate((node,body)=>{(node as HTMLInputElement).value=body;},text);
-  expectRepair(await gate(savedContext));
+  assert.equal(await gate(savedContext),null);
+  assert.equal(savedContext.uploadedDocuments.length,0,'no hidden-form case fabricates upload evidence');
  }finally{globalThis.fetch=originalFetch;await browser.close();closeCelerisQueues();keys.forEach((k,i)=>prior[i]===undefined?delete process.env[k]:process.env[k]=prior[i]);rmSync(dir,{recursive:true,force:true});}
 });
