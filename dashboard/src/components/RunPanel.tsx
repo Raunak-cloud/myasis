@@ -19,6 +19,7 @@ import { GmailConnect } from './GmailConnect';
 import { LiveActionViewer } from './LiveActionViewer';
 import { MascotLogo } from './MascotLogo';
 import { useRunStatus } from '../runStatus';
+import {PriorRunRepairNotice} from './PriorRunRepairNotice';
 import { fmtDateTime } from '../format';
 import { MAX_SEARCH_TERMS } from '../search-limits';
 import { activityEvents, activitySummary, formatActivityReason, runResultLabel, type LogLine } from '../activity';
@@ -689,6 +690,7 @@ export function RunPanel({
           <div className="banner">Job matching is temporarily unavailable. Please try again later.</div>
         )}
         {status?.connectionLost && <div className="banner" role="status">Could not refresh the run status. Showing the last known result.</div>}
+        {status?.isOwner!==false&&(status?.priorRunRepairCount??0)>0&&<PriorRunRepairNotice count={status!.priorRunRepairCount!} active={running}/>}
         {running && status?.isOwner === false && (
           <div className="banner">
             Applications are busy right now. Please try again shortly.

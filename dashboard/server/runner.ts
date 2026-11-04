@@ -112,6 +112,7 @@ interface LogLine {
 }
 
 interface RunState {
+  priorRunRepairCount?:number;
   running: boolean;
   mode: RunMode | null;
   applicationMode: 'auto' | 'semi-auto' | null;
@@ -470,6 +471,7 @@ class Run {
       applied: 0,
       prepared: 0,
       ownerUserId: userId,
+      priorRunRepairCount:/^\d+$/.test(overrides.PRIOR_RUN_REPAIR_COUNT??'')?Number(overrides.PRIOR_RUN_REPAIR_COUNT):undefined,
     };
 
     this.push('sys', `▶ starting ${mode} run`);

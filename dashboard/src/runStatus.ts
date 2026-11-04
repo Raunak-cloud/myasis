@@ -15,6 +15,7 @@ import { useSyncExternalStore } from 'react';
  * at another tab, and the shell still needs to know when the run ends.
  */
 interface RunStatus {
+  priorRunRepairCount?:number;
   running: boolean;
   mode: string | null;
   applicationMode: 'auto' | 'semi-auto' | null;
