@@ -29,7 +29,9 @@ function feedbackAtAdmission(): ReturnType<typeof recentReviewFeedback> {
 /** Operational readiness is separate from suitability. Only authoritative
  * current captured questions hold a normal attempt; old labels are recaptured.
  * The active owner environment resolves every read at admission time. */
-export function waitingForCurrentAnswers(job: JobListing): boolean {
+export function waitingForCurrentAnswers(job: JobListing, phase: 'application' | 'preparation' = 'application'): boolean {
+  // A job/letter draft does not need answers to an application it has not filled.
+  if(phase==='preparation')return false;
   const pending = [...feedbackAtAdmission()].flatMap(([key, feedback]) => {
     const [jobId] = JSON.parse(key) as string[];
     if (jobId !== job.id || !feedback.url || feedback.unansweredQuestions === undefined) return [];

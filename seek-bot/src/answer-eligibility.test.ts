@@ -23,6 +23,8 @@ test('current owner, exact question revision and changed answers determine eligi
   try {
     pending(a); pending(b); answer(b);
     assert.equal(inside(a), true); assert.equal(inside(b), false); assert.equal(inside(a), true, 'another owner response never releases this owner task');
+    assert.equal(withApplicationModel({...process.env,DATA_DIR:a},()=>waitingForCurrentAnswers(job,'preparation')),false,'unanswered form questions do not block a job-and-letter draft');
+    assert.equal(inside(a),true,'preparation does not resolve or bypass questions when the job is actually applied to');
     answer(a); assert.equal(inside(a), false, 'changed structured answer is read even when the pending snapshot file is unchanged');
     pending(a, capture(['Yes', 'No', 'Other'])); assert.equal(inside(a), true, 'a changed current revision cannot use the old response');
     const customRequired = sealQuestionSnapshot({ ...original, controls: original.controls.map(control => ({ ...control, required: false })) });

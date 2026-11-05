@@ -239,7 +239,7 @@ async function main() {
       // none grants an answer, changes approval or permits an extra send.
       if (approvedApplication(job) || job.source === 'chosen'
         || repairTarget && repairTarget.id === job.id && repairTarget.platform === (job.platform ?? 'seek')) return false;
-      return waitingForCurrentAnswers(job);
+      return waitingForCurrentAnswers(job,preparingApplications()?'preparation':'application');
     };
     const skipExistingApplication = (job: JobListing): boolean => {
       const review = reviewDuplicate(job, index.all);

@@ -10,7 +10,6 @@ import { employerCredentialState } from './site-credentials.js';
 import { isAuthenticationPasswordField } from './site-auth.js';
 import { redactPrivateAuthenticationData, privateAuthenticationValues } from './private-auth-fields.js';
 import type { CandidateProfile, JobListing } from './types.js';
-import { runDeadline } from './run-deadline.js';
 import { isForbiddenDestination } from './agent/browser-boundaries.js';
 import { assertExternalJobUrl } from './external-url.js';
 import { jobBoardForHost } from './job-board-url.js';
@@ -78,7 +77,6 @@ export async function checkPreparationAccess(page:Page,job:JobListing,profile:Ca
     entered=Boolean(job.applicationUrl && job.applicationUrl!==job.url);
     await current.waitForLoadState('domcontentloaded');
     for(let step=0;step<10&&!meter.exhausted;step++){
-      if(runDeadline.reached)return {ok:false,reason:'Run time limit reached before this job could be prepared.'};
       const opened=page.context().pages().filter(p=>!pagesBefore.has(p));
       if(opened.length)current=opened[opened.length-1];
       ctx.page=current;ctx.observation=await observe(current);
