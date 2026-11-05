@@ -7,6 +7,7 @@ import { EnvView } from './EnvView';
 import { SimulateView } from './SimulateView';
 import { ProxiesView } from './ProxiesView';
 import { BlogView } from './BlogView';
+import { JobIndexView } from './JobIndexView';
 import { VisitorsView } from './VisitorsView';
 import { AdminEmailDialog } from './AdminEmailDialog';
 import { AdminUserPreferences } from './AdminUserPreferences';
@@ -1070,10 +1071,10 @@ function RunsView({ onOpenRun }: { onOpenRun: (run: AdminRun) => void }) {
 }
 
 export function AdminPanel() {
-  const [view, setView] = useState<'overview' | 'users' | 'runs' | 'visitors' | 'blog' | 'proxies' | 'server' | 'config' | 'simulate'>(() =>
+  const [view, setView] = useState<'overview' | 'users' | 'runs' | 'visitors' | 'blog' | 'jobs' | 'proxies' | 'server' | 'config' | 'simulate'>(() =>
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('adminView') === 'simulate' ? 'simulate' : 'overview');
   const [openRun, setOpenRun] = useState<AdminRun | null>(null);
-  const labels = { overview: 'Overview', users: 'Users', runs: 'Runs', visitors: 'Visitors', blog: 'Blog', proxies: 'Proxies', server: 'Server', config: 'Config', simulate: 'Simulate' } as const;
+  const labels = { overview: 'Overview', users: 'Users', runs: 'Runs', visitors: 'Visitors', blog: 'Blog', jobs: 'Job index', proxies: 'Proxies', server: 'Server', config: 'Config', simulate: 'Simulate' } as const;
   return (
     <div className="admin-page">
       <nav className="admin-nav" aria-label="Admin sections">
@@ -1090,6 +1091,7 @@ export function AdminPanel() {
       {view === 'runs' && <RunsView onOpenRun={setOpenRun} />}
       {view === 'visitors' && <VisitorsView />}
       {view === 'blog' && <BlogView />}
+      {view === 'jobs' && <JobIndexView />}
       {view === 'proxies' && <ProxiesView />}
       {view === 'server' && <ServerView />}
       {view === 'config' && <EnvView />}

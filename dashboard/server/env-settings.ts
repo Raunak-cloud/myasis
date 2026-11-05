@@ -75,6 +75,13 @@ const PER_ACCOUNT = new Set<string>([
 
 const GROUPS: GroupSpec[] = [
   {
+    key:'job-index',title:'Job discovery',
+    keys:[
+      {key:'JOB_INDEX_DATABASE_URL',label:'Neon database connection',help:'Direct connection URL for the separate job database. Use TLS; this never changes the application database.',kind:'secret'},
+      {key:'BRAVE_SEARCH_API_KEY',label:'Brave Search API key',help:'Public job discovery only. Maximum 20 search requests per day across the crawler.',kind:'secret'},
+    ],
+  },
+  {
     key: 'application-costs', title: 'Application cost accounting',
     note: 'Admin-only USD estimates. Rates are saved with new usage; changing them does not rewrite history. Leave unknown rates blank. Credits and taxes are not included.',
     keys: [

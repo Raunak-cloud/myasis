@@ -4,6 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "job-index:once": "node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/job-index-worker.mts --once",
+    "test:job-index": "node ../seek-bot/node_modules/tsx/dist/cli.mjs --test server/job-index/config.test.ts server/job-index/extract.test.ts server/job-index/network.test.ts",
     "dev": "vite",
     "build": "tsc -b && vite build && node scripts/prerender.mts",
     "lint": "oxlint --deny-warnings",
@@ -21,11 +23,13 @@
     "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.1",
     "fast-xml-parser": "^5.11.1",
+    "linkedom": "0.18.13",
     "maxmind": "^5.0.7",
     "pg": "^8.23.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "resend": "^6.28.0",
+    "robots-parser": "3.0.1",
     "stripe": "^22.5.0",
     "ws": "^8.21.3"
   },

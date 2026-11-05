@@ -78,6 +78,9 @@ if [ "$(active_runs)" != 0 ]; then
   exit 1
 fi
 as_app "printf '%s\n' building > $LOCK"
+# A crawler never shares an application browser, but must not import dist while
+# the build is replacing it. Its leased index tasks recover after interruption.
+as_app "pm2 stop owtomate-job-index >/dev/null 2>&1 || true"
 
 # A deployment may wait while new commits arrive. Freeze the release only
 # after runs drain, then use that same revision for checks and fast-forwarding.
@@ -141,6 +144,7 @@ if [ "$OPERATOR_HOLD_REQUIRED" = 1 ]; then
   (cd "$APP/dashboard" && ../seek-bot/node_modules/.bin/tsx scripts/apply-operator-holds.mts "$OPERATOR_HOLD_PLAN")
 fi
 if [ -f /etc/owtomate-repair-pilot.json ]; then bash "$APP/deploy/install-repair-pilot.sh" --refresh; fi
+bash "$APP/deploy/install-job-index.sh"
 # Cron invokes Bash explicitly, so a Git checkout cannot disable backups by
 # resetting maintenance.sh's execute bit. Keep installed scheduling in sync.
 install -m 644 "$APP/deploy/myasis.cron" /etc/cron.d/myasis
