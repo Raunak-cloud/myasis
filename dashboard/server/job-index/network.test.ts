@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { CrawlBlocked, CrawlDeferred, PublicCrawler, crawlUrl, publicIPv4, type PageResponse } from './network.js';
+import { createServer,connect,type AddressInfo } from 'node:net';
+import { CrawlBlocked, CrawlDeferred, PublicCrawler, crawlUrl, publicIPv4, pinnedLookup, type PageResponse } from './network.js';
+
+test('pinned DNS connects through the real Node transport with both lookup callback modes',async()=>{
+  // The trusted lookup helper uses a loopback fixture here. publicRequest's
+  // independent public-address checks still reject loopback in production.
+  const server=createServer(s=>s.end('fixture response'));await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const modes:boolean[]=[];
+  try {for(const autoSelectFamily of [true,false]) {
+    const body=await new Promise<string>((resolve,reject)=>{
+      let text='';const socket=connect({host:'pinned.fixture.test',port:(server.address() as AddressInfo).port,autoSelectFamily,lookup:(host,options,callback)=>{modes.push(options.all===true);pinnedLookup('127.0.0.1')(host,options,callback);}});
+      socket.setTimeout(2000,()=>socket.destroy(Error('Fixture transport timed out')));socket.on('data',b=>text+=b);socket.on('end',()=>resolve(text));socket.on('error',reject);
+    });assert.equal(body,'fixture response');
+  }assert.deepEqual(modes,[true,false]);}finally{await new Promise<void>(resolve=>server.close(()=>resolve()));}
+});
 
 test('crawler excludes private, metadata, IP literal and credential form addresses',()=>{
   for(const ip of ['127.0.0.1','10.0.0.1','172.31.1.2','192.168.1.1','169.254.169.254','100.64.0.2','198.18.0.1','0.0.0.0','224.1.1.1','::1','::ffff:127.0.0.1'])assert.equal(publicIPv4(ip),false,ip);

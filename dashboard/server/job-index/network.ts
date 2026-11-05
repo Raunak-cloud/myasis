@@ -1,6 +1,6 @@
 import { lookup } from 'node:dns/promises';
 import { request } from 'node:https';
-import { isIP } from 'node:net';
+import { isIP, type LookupFunction } from 'node:net';
 import { createRequire } from 'node:module';
 import { canonicalUrl } from './extract.js';
 
@@ -21,6 +21,10 @@ export function crawlUrl(raw: string): URL {
   return u;
 }
 export interface PageResponse { url: string; status: number; type: string; text: string; retryAfter: string | null; location?:string }
+/** Match both Node lookup contracts, including family auto-selection's all mode. */
+export const pinnedLookup=(address:string):LookupFunction=>(_host,options,callback)=>{
+  if(options.all)callback(null,[{address,family:4}]);else callback(null,address,4);
+};
 
 /** Resolve, validate and pin each redirect's DNS target; never forward cookies or credentials. */
 export async function publicRequest(raw: string, init: { body?: string; signal?: AbortSignal } = {}): Promise<PageResponse> {
@@ -32,7 +36,7 @@ export async function publicRequest(raw: string, init: { body?: string; signal?:
   if (init.body && !/^[a-z0-9-]+\.wd\d+\.myworkdayjobs\.com$/.test(u.hostname)) throw new CrawlBlocked('Only a public Workday listing search can receive a query body.');
   if (init.body && !/^\/wday\/cxs\/[\w-]+\/[\w-]+\/jobs$/.test(u.pathname)) throw new CrawlBlocked('Only the public listing search endpoint is accepted.');
   return new Promise<PageResponse>((resolve, reject) => {
-    const req = request(u, { method: init.body ? 'POST' : 'GET', signal, headers: { 'User-Agent': AGENT, Accept: 'text/html,application/json,application/xml,text/plain', ...(init.body ? { 'Content-Type': 'application/json' } : {}) }, lookup: (_hostname, _options, callback) => callback(null, addresses[0].address, 4) }, res => {
+    const req = request(u, { method: init.body ? 'POST' : 'GET', family: 4, signal, headers: { 'User-Agent': AGENT, Accept: 'text/html,application/json,application/xml,text/plain', ...(init.body ? { 'Content-Type': 'application/json' } : {}) }, lookup: pinnedLookup(addresses[0].address) }, res => {
       const status = res.statusCode ?? 0;
       if ([301,302,303,307,308].includes(status)) {
         res.resume();
