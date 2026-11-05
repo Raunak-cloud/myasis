@@ -80,3 +80,29 @@ test('a complete synthetic crawl saves a tagged job and private match without ap
   const result=await store.search(new URLSearchParams({user:'1'})) as {jobs:Array<{payload:{pay:{status:string}}}>};assert.equal(result.jobs.length,1);assert.equal(result.jobs[0].payload.pay.status,'disclosed');
   assert.equal((await pool.query('SELECT count(*) FROM applications')).rows[0].count,'0');assert.equal((await pool.query('SELECT count(*) FROM application_credit_grants')).rows[0].count,'3');
 });
+
+test('discovery lanes and detail priorities avoid feed backlog starvation',async()=>{
+  await pool.query('DELETE FROM crawl_tasks');
+  await store.enqueue('feed',{source:'smartrecruiters',target:'Backlog',keyword:'fixture'},2);
+  await store.enqueue('feed',{source:'greenhouse',target:'Fixture',job:{id:'detail'}},3);
+  const detail=await store.claim({kind:'feed',source:'greenhouse'});assert.equal(detail?.payload.job.id,'detail');
+  const page='https://careers.fixture.org/jobs/lane';await store.enqueue('page',{url:page},0);
+  assert.equal((await store.claim({kind:'page'}))?.payload.url,page);
+  assert.equal((await store.claim({kind:'feed',source:'smartrecruiters'}))?.payload.source,'smartrecruiters');
+});
+
+test('search leads stay transient and only publisher-verified job facts are saved',async()=>{
+  await pool.query('DELETE FROM crawl_tasks');
+  await pool.query('DELETE FROM search_usage');
+  await store.enqueue('search',{keyword:'Data engineer'},100);
+  const lead='https://careers.fixture.org/discovery-only-url';
+  const declared='https://careers.fixture.org/jobs/publisher-verified';
+  const crawler=new PublicCrawler(async address=>({url:address,status:200,type:'text/html',retryAfter:null,text:address.endsWith('/robots.txt')?'User-agent: *\nAllow: /':`<script type="application/ld+json">${JSON.stringify({'@type':'JobPosting',title:'Data engineer',hiringOrganization:{name:'Fictional publisher'},description:'Use Python and SQL to build reliable data engineering systems.',url:declared})}</script>`}));
+  let searches=0;
+  const searchFetch:typeof fetch=async()=>{searches++;return Response.json({web:{results:[{url:lead,title:'Provider snippet never persisted',description:'Unverified snippet'}]}});};
+  const stats=await crawlCycle(store,pool,{crawler,searchFetch,braveKey:'fixture-key',maxTasks:1});assert.equal(searches,1);assert.equal(stats.jobsSaved,1);
+  const tasks=JSON.stringify((await pool.query('SELECT payload FROM crawl_tasks')).rows);
+  assert.doesNotMatch(tasks,/discovery-only-url|Provider snippet|Unverified snippet/);
+  assert.equal((await pool.query('SELECT company FROM indexed_jobs WHERE canonical_url=$1',[declared])).rows[0].company,'Fictional publisher');
+  assert.equal((await pool.query('SELECT count(*) FROM applications')).rows[0].count,'0');
+});

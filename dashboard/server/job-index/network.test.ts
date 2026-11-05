@@ -28,6 +28,18 @@ test('robots exclusions prevent page reads and access challenges are never bypas
   const blocked=new PublicCrawler(async url=>response(url,url.endsWith('/robots.txt')?'User-agent: *\nAllow: /':'Verify you are human'));
   await assert.rejects(()=>blocked.get('https://public.org/jobs'),CrawlBlocked);
 });
+
+test('public vacancies remain readable when scripts configure CAPTCHA or JSON mentions it',async()=>{
+  for(const [type,text] of [
+    ['text/html','<html><body><script>window.settings={GOOGLE_RECAPTCHA_ENDPOINT:"https://www.recaptcha.net/"}</script><h1>Engineering careers</h1></body></html>'],
+    ['application/json',JSON.stringify({jobs:[{description:'Develop CAPTCHA detection software.'}]})],
+  ]) {
+    const c=new PublicCrawler(async url=>url.endsWith('/robots.txt')?response(url,'User-agent: *\nAllow: /'):{...response(url,text),type});
+    assert.equal((await c.get('https://public.org/jobs')).text,text);
+  }
+  const c=new PublicCrawler(async url=>response(url,url.endsWith('/robots.txt')?'User-agent: *\nAllow: /':'<html><body>Please complete the CAPTCHA to continue.</body></html>'));
+  await assert.rejects(()=>c.get('https://public.org/jobs'),CrawlBlocked);
+});
 test('redirect destinations receive their own robots policy before any job read',async()=>{
   const calls:string[]=[];const c=new PublicCrawler(async url=>{
     calls.push(url);if(url==='https://one.org/robots.txt')return response(url,'User-agent: *\nAllow: /');

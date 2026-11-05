@@ -3,6 +3,7 @@ import { request } from 'node:https';
 import { isIP, type LookupFunction } from 'node:net';
 import { createRequire } from 'node:module';
 import { canonicalUrl } from './extract.js';
+import { parseHTML } from 'linkedom';
 
 export const AGENT = 'OwtomateJobIndex/1.0 (+https://owtomate.com)';
 export class CrawlBlocked extends Error {}
@@ -25,6 +26,16 @@ export interface PageResponse { url: string; status: number; type: string; text:
 export const pinnedLookup=(address:string):LookupFunction=>(_host,options,callback)=>{
   if(options.all)callback(null,[{address,family:4}]);else callback(null,address,4);
 };
+
+/** A CAPTCHA library/configuration on a public careers page is not a challenge. */
+function accessChallenge(page:PageResponse):boolean {
+  if(!/html/.test(page.type))return false;
+  const {document}=parseHTML(`<html><body>${page.text}</body></html>`);
+  if(document.querySelector('script[src*="/cdn-cgi/challenge-platform/"]'))return true;
+  document.querySelectorAll('script,style,noscript,template,[hidden]').forEach(n=>n.remove());
+  const visible=(document.body?.textContent??document.textContent??'').replace(/\s+/g,' ');
+  return /verify (?:that )?you are human|access denied|please (?:complete|solve) (?:the )?(?:captcha|security check)/i.test(visible);
+}
 
 /** Resolve, validate and pin each redirect's DNS target; never forward cookies or credentials. */
 export async function publicRequest(raw: string, init: { body?: string; signal?: AbortSignal } = {}): Promise<PageResponse> {
@@ -85,7 +96,7 @@ export class PublicCrawler {
     const page=await this.request(u.href,init);
     if(page.location){if(redirects>=4)throw new CrawlBlocked('Page redirect limit reached.');return this.get(page.location,{signal:init?.signal},redirects+1);}
     if(page.status===429) { const retry=Number(page.retryAfter); const waitMs=Number.isFinite(retry)&&retry>0?Math.min(retry*1000,24*3600_000):15*60_000; this.next.set(u.origin,Date.now()+waitMs); throw new CrawlDeferred(waitMs); }
-    if([401,403].includes(page.status)||/captcha|cf-chl|verify (?:that )?you are human|access denied/i.test(page.text.slice(0,20_000)))throw new CrawlBlocked('The public source requires access or human verification.');
+    if([401,403].includes(page.status)||accessChallenge(page))throw new CrawlBlocked('The public source requires access or human verification.');
     // Don't index or follow an HTML login wall that happens to return 200.
     if(/text\/html/.test(page.type)&&/<input\b[^>]*type\s*=\s*["']password["']/i.test(page.text)&&!/"@type"\s*:\s*"JobPosting"/.test(page.text))throw new CrawlBlocked('Sign-in page excluded.');
     return page;

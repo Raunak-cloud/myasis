@@ -87,12 +87,17 @@ export function normaliseJob(raw: any, sourceUrl: string, source = 'structured-d
 }
 
 /** Bounded JSON-LD graphs, not snippets or guessed listing titles. */
-export function extractPage(html: string, sourceUrl: string): { jobs: IndexedJob[]; links: string[]; closedUrls:string[] } {
+export function extractPage(html: string, sourceUrl: string, requireDeclaredUrl=false): { jobs: IndexedJob[]; links: string[]; closedUrls:string[] } {
   const { document } = parseHTML(html); const jobs = new Map<string, IndexedJob>(); const closedUrls:string[]=[];let visited = 0;
+  // Transient search leads may only become persistent jobs when the publisher
+  // independently supplies a job URL or a canonical page address.
+  let declaredUrl='';
+  const canonical=document.querySelector('link[rel="canonical"]')?.getAttribute('href');
+  if(canonical)try{declaredUrl=canonicalUrl(new URL(canonical,sourceUrl).href);}catch{/* invalid publisher canonical */}
   const walk = (value: any, depth: number): void => {
     if (depth > 12 || ++visited > 5000 || !value || typeof value !== 'object') return;
     if (Array.isArray(value)) { value.slice(0, 1000).forEach(v => walk(v, depth + 1)); return; }
-    if (strings(value['@type']).some(t => /(?:^|\/)JobPosting$/.test(t))) { const job = normaliseJob(value, sourceUrl); if (job) jobs.set(job.id, job);else if(typeof value.validThrough==='string'&&Date.parse(value.validThrough)<=Date.now())try{closedUrls.push(canonicalUrl(value.url??sourceUrl));}catch{/* malformed expired listing */} }
+    if (strings(value['@type']).some(t => /(?:^|\/)JobPosting$/.test(t))) { const job = normaliseJob(value, requireDeclaredUrl?declaredUrl:sourceUrl); if (job) jobs.set(job.id, job);else if(!requireDeclaredUrl&&typeof value.validThrough==='string'&&Date.parse(value.validThrough)<=Date.now())try{closedUrls.push(canonicalUrl(value.url??sourceUrl));}catch{/* malformed expired listing */} }
     for (const [key, v] of Object.entries(value)) if (key !== '@context') walk(v, depth + 1);
   };
   for (const script of [...document.querySelectorAll('script[type="application/ld+json"]')].slice(0, 50)) { try { walk(JSON.parse(script.textContent ?? ''), 0); } catch { /* malformed markup isn't a vacancy */ } }

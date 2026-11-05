@@ -4,7 +4,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { EMPLOYER_SOURCES, type EmployerSourceId, employerTargets } from '../../../seek-bot/src/employer-source-config.js';
 import { paidProfiles, PAID_ACCOUNTS_SQL } from './accounts.js';
 import { canonicalUrl, extractPage, normaliseJob } from './extract.js';
-import { PublicCrawler, CrawlBlocked, CrawlDeferred, crawlUrl } from './network.js';
+import { PublicCrawler, CrawlBlocked, CrawlDeferred, crawlUrl, type PageResponse } from './network.js';
 import { JobIndexStore } from './store.js';
 import type { JobListing } from '../../../seek-bot/src/types.js';
 interface Feed { search:(keyword:string,page:number)=>Promise<JobListing[]>;detail:(job:JobListing)=>Promise<JobListing> }
@@ -27,7 +27,7 @@ export function discoveredFeed(raw:string):{source:EmployerSourceId;target:strin
   }catch{return null;}
 }
 const errorText=(e:unknown):string=>e instanceof Error?e.message.split('\n')[0].replace(/(?:postgres(?:ql)?|https?):\/\/\S+/g,'[source]').slice(0,350):'Public source could not be indexed.';
-export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{braveKey?:string;maxTasks?:number;crawler?:PublicCrawler;signal?:AbortSignal}={}):Promise<Record<string,unknown>> {
+export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{braveKey?:string;maxTasks?:number;crawler?:PublicCrawler;searchFetch?:typeof fetch;signal?:AbortSignal}={}):Promise<Record<string,unknown>> {
   const lock=await store.pool.connect();let cycleId:string|undefined;
   const stats={profiles:0,tasks:0,jobsSaved:0,matchesUpdated:0,blocked:0,failed:0,deferred:0,searchConfigured:!!options.braveKey,warnings:[] as string[]};
   try {
@@ -51,9 +51,29 @@ export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{bra
     }
     for(const url of seeds)try{await store.enqueue('page',{url:crawlUrl(url).href,depth:0},1);}catch{/* private/apply destination */}
     if(options.braveKey)for(const keyword of keys)await store.enqueue('search',{keyword},1);
+    const savePage=async(page:PageResponse,depth:number,transient=false)=>{
+      if(page.status>=400)throw Error('Public source returned an error.');
+      const sitemap=/xml/.test(page.type)&&/<(?:urlset|sitemapindex)\b/.test(page.text);
+      if(sitemap) {
+        const parsed=new XMLParser({processEntities:false,ignoreAttributes:true}).parse(page.text);
+        const entries=parsed.urlset?.url??parsed.sitemapindex?.sitemap??[];
+        for(const entry of (Array.isArray(entries)?entries:[entries]).slice(0,200))try{const url=crawlUrl(entry.loc).href;if(depth<2&&(/sitemap/i.test(url)||/career|jobs?|vacanc|opportunit/i.test(url)))await store.enqueue('page',{url,depth:depth+1},0);}catch{/* invalid publisher lead */}
+      } else {
+        const found=extractPage(page.text,page.url,transient);
+        for(const closed of found.closedUrls)await store.close(closed);
+        for(const job of found.jobs){await store.save(job);stats.jobsSaved++;}
+        // Only links actually found on the fetched publisher page enter the queue.
+        if(depth<2)for(const url of found.links)try{await store.enqueue('page',{url:crawlUrl(url).href,depth:depth+1},0);}catch{/* non-public destination */}
+        if(!transient&&depth===0)await store.enqueue('page',{url:`${new URL(page.url).origin}/sitemap.xml`,depth:1},0);
+      }
+      if(!transient){const feed=discoveredFeed(page.url);if(feed)for(const keyword of feed.source==='greenhouse'?['']:keys)await store.enqueue('feed',{...feed,keyword},2);}
+    };
+    // Give every source a turn; a large blocked feed backlog must not starve
+    // public pages, provider discovery or another employer integration.
+    const lanes=[{kind:'page' as const},{kind:'search' as const},...EMPLOYER_SOURCES.map(s=>({kind:'feed' as const,source:s.id}))];
     if(profiles.length) for(let i=0;i<(options.maxTasks??40)&&crawler.requests<crawler.maxRequests;i++) {
       options.signal?.throwIfAborted();if(!await store.enabled())break;
-      const task=await store.claim();if(!task)break;stats.tasks++;
+      const task=await store.claim(lanes[i%lanes.length])??await store.claim();if(!task)break;stats.tasks++;
       try {
         const {payload:p}=task;
         if(task.kind==='feed') {
@@ -79,30 +99,23 @@ export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{bra
           if(!options.braveKey)throw new CrawlBlocked('Web discovery requires a configured search-provider key.');
           if(!await store.reserveSearch())throw new CrawlDeferred(24*3600_000);
           const u=new URL('https://api.search.brave.com/res/v1/web/search');u.search=new URLSearchParams({q:`${String(p.keyword).slice(0,70)} jobs careers Australia`,country:'au',count:'20'}).toString();
-          const response=await fetch(u,{headers:{'X-Subscription-Token':options.braveKey,Accept:'application/json'},signal:AbortSignal.any([AbortSignal.timeout(15_000),...(options.signal?[options.signal]:[])])});
+          const response=await (options.searchFetch??fetch)(u,{headers:{'X-Subscription-Token':options.braveKey,Accept:'application/json'},signal:AbortSignal.any([AbortSignal.timeout(15_000),...(options.signal?[options.signal]:[])])});
           if(response.status===429)throw new CrawlDeferred(3600_000);if(!response.ok)throw Error('Search provider unavailable.');
           const body=await response.text();if(body.length>2_000_000)throw Error('Search result exceeded limit.');
-          for(const result of (JSON.parse(body).web?.results??[]).slice(0,20))try{await store.enqueue('page',{url:crawlUrl(result.url).href,depth:0},2);}catch{/* invalid lead */}
+          // Provider responses, including returned URLs/snippets, remain in memory.
+          // Persist only facts/links independently observed on employer pages.
+          let leadFailures=0;
+          for(const result of (JSON.parse(body).web?.results??[]).slice(0,20)) {
+            options.signal?.throwIfAborted();if(crawler.requests>=crawler.maxRequests)break;
+            if(!await store.enabled())break;
+            try{await savePage(await crawler.get(crawlUrl(result.url).href,{signal:options.signal}),0,true);}
+            catch(e){if(e instanceof CrawlBlocked)stats.blocked++;else if(e instanceof CrawlDeferred)stats.deferred++;else leadFailures++;}
+          }
+          if(leadFailures){stats.failed+=leadFailures;stats.warnings.push(`${leadFailures} search leads could not be fetched; discovery will try again in its next cycle.`);}
         } else {
-          const feed=discoveredFeed(p.url);
-          if(feed)for(const keyword of feed.source==='greenhouse'?['']:keys)await store.enqueue('feed',{...feed,keyword},2);
           const page=await crawler.get(p.url,{signal:options.signal});
           if([404,410].includes(page.status))await store.close(canonicalUrl(p.url));
-          else if(page.status>=400)throw Error('Public source returned an error.');
-          else {
-            const sitemap=/xml/.test(page.type)&&/<(?:urlset|sitemapindex)\b/.test(page.text);
-            if(sitemap) {
-              const parsed=new XMLParser({processEntities:false,ignoreAttributes:true}).parse(page.text);
-              const entries=parsed.urlset?.url??parsed.sitemapindex?.sitemap??[];
-              for(const entry of (Array.isArray(entries)?entries:[entries]).slice(0,200))try{const url=crawlUrl(entry.loc).href;if((p.depth??0)<2&&(/sitemap/i.test(url)||/career|jobs?|vacanc|opportunit/i.test(url)))await store.enqueue('page',{url,depth:(p.depth??0)+1},0);}catch{/* invalid sitemap lead */}
-            } else {
-              const found=extractPage(page.text,page.url);
-              for(const closed of found.closedUrls)await store.close(closed);
-              for(const job of found.jobs){await store.save(job);stats.jobsSaved++;}
-              if((p.depth??0)<2)for(const url of found.links)try{await store.enqueue('page',{url:crawlUrl(url).href,depth:(p.depth??0)+1},0);}catch{/* non-public destination */}
-              if((p.depth??0)===0)await store.enqueue('page',{url:`${new URL(page.url).origin}/sitemap.xml`,depth:1},0);
-            }
-          }
+          else await savePage(page,p.depth??0);
         }
         await store.finish(task,'done',null,task.kind==='search'?24*3600_000:6*3600_000);
       } catch(e) {

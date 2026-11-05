@@ -47,3 +47,11 @@ test('private discovery matches are preliminary, owner-specific and cannot infer
 test('external discovery terms omit emails, phone numbers and raw resume facts',()=>{
   assert.deepEqual(safeKeywords('Data analyst, person@example.org, 0400123456, https://profile.org, Software engineer'),['Data analyst','Software engineer']);
 });
+
+test('transient search URLs are not stored as implicit job identities',()=>{
+  const markup=`<script type="application/ld+json">${JSON.stringify({'@type':'JobPosting',...raw})}</script>`;
+  assert.equal(extractPage(markup,url,true).jobs.length,0);
+  const publisher='https://careers.fixture.org/jobs/publisher-canonical';
+  assert.equal(extractPage(`<link rel="canonical" href="${publisher}">${markup}`,url,true).jobs[0].url,publisher);
+  assert.equal(extractPage(`<script type="application/ld+json">${JSON.stringify({'@type':'JobPosting',...raw,url:publisher})}</script>`,url,true).jobs[0].url,publisher);
+});

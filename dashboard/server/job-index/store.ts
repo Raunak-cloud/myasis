@@ -72,11 +72,12 @@ export class JobIndexStore {
     await this.pool.query(`INSERT INTO crawl_tasks(key,kind,payload,priority) SELECT $1,$2,$3,$4 WHERE (SELECT count(*) FROM crawl_tasks WHERE state IN ('queued','running'))<5000
       ON CONFLICT(key) DO UPDATE SET payload=CASE WHEN crawl_tasks.state='running' THEN crawl_tasks.payload ELSE excluded.payload END,priority=greatest(crawl_tasks.priority,excluded.priority)`,[key,kind,JSON.stringify(payload),priority]);
   }
-  async claim():Promise<CrawlTask|null> {
+  async claim(lane?:{kind:CrawlTask['kind'];source?:string}):Promise<CrawlTask|null> {
     const lease=randomUUID();
     const result=await this.pool.query(`WITH next AS (SELECT key FROM crawl_tasks WHERE due_at<=now() AND (state IN ('queued','done','blocked') OR state='running' AND lease_until<now())
-      ORDER BY due_at,priority DESC,key FOR UPDATE SKIP LOCKED LIMIT 1)
-      UPDATE crawl_tasks t SET state='running',lease=$1,lease_until=now()+interval '10 minutes',updated_at=now() FROM next WHERE t.key=next.key RETURNING t.*`,[lease]);
+      AND ($2::text IS NULL OR kind=$2) AND ($3::text IS NULL OR payload->>'source'=$3)
+      ORDER BY priority DESC,due_at,key FOR UPDATE SKIP LOCKED LIMIT 1)
+      UPDATE crawl_tasks t SET state='running',lease=$1,lease_until=now()+interval '10 minutes',updated_at=now() FROM next WHERE t.key=next.key RETURNING t.*`,[lease,lane?.kind??null,lane?.source??null]);
     return result.rows[0]??null;
   }
   async reserveSearch():Promise<boolean> {
