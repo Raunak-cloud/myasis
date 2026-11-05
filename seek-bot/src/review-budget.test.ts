@@ -710,9 +710,11 @@ test('an unconfirmed result leaves the allowance available while confirmed sends
   const result = run([job('seek-one', { uncertain: true, delayMs: 50 }), job('indeed-one', { platform: 'indeed' })],
     { apply: true, workers: 2, cap: 1, reviews: 10 });
   assert.equal(result.events.filter(event => event.stage === 'apply').length, 2);
-  assert.equal(result.history.length, 1);
-  assert.equal(result.history[0].submittedByMyasis, true);
-  assert.equal(result.history[0].jobId, 'indeed-one');
+  const confirmed=result.history.filter(record=>record.confirmationStatus!=='unconfirmed');
+  assert.equal(confirmed.length, 1);
+  assert.equal(confirmed[0].submittedByMyasis, true);
+  assert.equal(confirmed[0].jobId, 'indeed-one');
+  assert.equal(result.history.filter(record=>record.confirmationStatus==='unconfirmed').length,1);
 });
 test('a known pre-send failure leaves the shared slot available for the other platform', () => {
   const result = run([job('seek-one', { preSendFailure: true, delayMs: 50 }), job('indeed-one', { platform: 'indeed' })],
@@ -851,5 +853,6 @@ test('an unconfirmed send cannot be repeated through a known cross-board alias i
     job('indeed-alias', { platform: 'indeed', applicationUrl, detailDelayMs: 100 }),
   ], { apply: true, workers: 2, cap: 2, reviews: 5 });
   assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['seek-uncertain']);
-  assert.equal(result.history.length, 0, 'uncertain sends are not fabricated into confirmed applications');
+  assert.equal(result.history.filter(record=>record.confirmationStatus!=='unconfirmed').length, 0, 'uncertain sends are not fabricated into confirmed applications');
+  assert.equal(result.history.filter(record=>record.confirmationStatus==='unconfirmed').length,1,'retain the uncertain send for duplicate protection');
 });
