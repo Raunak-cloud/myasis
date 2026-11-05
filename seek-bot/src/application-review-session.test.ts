@@ -12,7 +12,7 @@ config.dryRun = false;
 mkdirSync(join(directory, 'resumes'));
 writeFileSync(join(directory, 'resumes', 'CV.txt'), 'Original candidate CV');
 writeFileSync(join(directory, 'resumes.json'), JSON.stringify([{ id: 'cv', fileName: 'CV.txt', label: 'CV' }]));
-const browser = await chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : {}) });
+const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath:process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 try {
   const page = await browser.newPage();
   let submissions = 0;
