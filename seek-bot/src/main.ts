@@ -59,6 +59,7 @@ import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 import { approvedApplications, approvedApplication, pendingApplicationKeys, preparingApplications } from './application-review.js';
 import { applicationKeys } from './application-identity.js';
 import { waitingForCurrentAnswers } from './answer-eligibility.js';
+import { runDeadline } from './run-deadline.js';
 
 const searchOnly = process.argv.includes('--search-only');
 const doSync = process.argv.includes('--sync');
@@ -138,6 +139,7 @@ if (employerFeedsEnabled(process.env)) {
 
 async function main() {
   const startedAt = performance.now();
+  if (runDeadline.reached) return;
   if (!searchOnly && await runApprovedEmailBatch(approvedApplications())) return;
   const profile = loadProfile();
   const directExternalUrl = process.env.DIRECT_EXTERNAL_JOB_URL
@@ -201,6 +203,7 @@ async function main() {
   }
   if (runScope() !== 'all') console.log(`Scope: ${SCOPE_LABEL[runScope()]}`);
 
+  if (runDeadline.reached) return;
   const ctx = await launchBrowser();
   resetLiveWorkers(config.dataDir);
   const directNavigation = directExternalUrl ? await guardExternalNavigations(ctx) : null;
@@ -209,7 +212,7 @@ async function main() {
 
   try {
     if (directExternalUrl) {
-      await runDirectExternalApplication(page, directExternalUrl, profile, () => directNavigation?.blocked() ?? null);
+      if (!runDeadline.reached) await runDirectExternalApplication(page, directExternalUrl, profile, () => directNavigation?.blocked() ?? null);
       return;
     }
     // ---- per-platform sign-in and discovery ---------------------
@@ -329,7 +332,7 @@ async function main() {
     /** Rank only the new batch; earlier batches stay in the combined queue. */
     const rankNew = async (jobs: JobListing[]): Promise<void> => {
       jobs = jobs.filter(job => passesListingAge(job, config.rules.maxAgeDays) && !priorRejections.has(listingKey(job)));
-      if (!jobs.length || !rankingAvailable || approvedApplications().length) return;
+      if (runDeadline.reached || !jobs.length || !rankingAvailable || approvedApplications().length) return;
       try {
         for (const [key, value] of await rankJobsForReview(jobs, profile)) reviewPriorities.set(key, value);
       } catch (error) {
@@ -358,6 +361,7 @@ async function main() {
       || !repairTarget.platform || platforms.length !== 1 || platforms[0].id !== repairTarget.platform)) throw new Error('Invalid repair retry target.');
     const selectedAccepted: JobListing[] = [];
     for (const platform of platforms) {
+      if (runDeadline.reached) break;
       const adapter = ADAPTERS.get(platform.id);
       if (!adapter) {
         console.warn(`  No adapter registered for ${platform.label} — skipping.`);
@@ -365,6 +369,7 @@ async function main() {
       }
       try {
         await adapter.assertSignedIn(page);
+        if (runDeadline.reached) break;
         console.log(adapter.apiDiscovery ? `${adapter.label} public job feed ready (admin only).` : `${adapter.label} session OK.`);
       } catch (error) {
         console.log(`\n⚠ ${adapter.label}: ${(error as Error).message}`);
@@ -396,6 +401,7 @@ async function main() {
         targetedAdapters.add(adapter.id);
         const targetedJobs: JobListing[] = [];
         for (const target of targeted.slice(0, 10)) {
+          if (runDeadline.reached) break;
           const id = target.job_id;
           if (!/^\d{6,12}$/.test(id) || !target.title || !target.company) throw new Error('Invalid targeted job metadata.');
           targetedJobs.push(await adapter.fetchJobDetail(page, {
@@ -489,6 +495,7 @@ async function main() {
       const pageNumber = nextPage++;
       const round: JobListing[][] = [];
       for (const stream of liveStreams()) {
+        if (runDeadline.reached) break;
         // The round's list was taken before it started: a board walled earlier in this round is not asked again.
         if (blockedPlatforms.has(stream.adapter.id)) {
           stream.exhausted = true;
@@ -498,6 +505,7 @@ async function main() {
         try {
           results = await readPlatform(stream.adapter.id, async () => {
             await sitePacer.ready(stream.adapter.id);
+            if (runDeadline.reached) return [];
             try {
               return await measured(
                 'discovery',
@@ -536,7 +544,7 @@ async function main() {
       );
     }
 
-    while (!stoppedEarly && searchesLeft()) {
+    while (!runDeadline.reached && !stoppedEarly && searchesLeft()) {
       await searchPageRound();
       const pageNumber = nextPage - 1;
       if (shouldStopDiscovery({
@@ -632,11 +640,12 @@ async function main() {
     let prepared = 0;
     let rehearsed = 0;
     const applicationLimit = new AbortController();
-    const limitReached = () => !searchOnly && (
+    const limitReached = () => runDeadline.reached || !searchOnly && (
       applied + prepared + (config.dryRun && process.env.REHEARSE === 'true' ? rehearsed : 0) >= config.limits.maxApplicationsPerRun
       || index.appliedToday() >= config.limits.maxApplicationsPerDay);
     const workWaiters = new Set<() => void>();
     const workChanged = () => { for (const resolve of workWaiters) resolve(); workWaiters.clear(); };
+    runDeadline.onReached(() => { applicationLimit.abort(); workChanged(); });
     /** Every job that qualified this run, applied for yet or not. */
     let qualified = 0;
     const pendingFits: Array<{
@@ -1234,6 +1243,7 @@ async function main() {
             console.log('Shared application allowance is reached; this worker is finished.');
             break;
           }
+          if (limitReached()) { slot.finish(false); break; }
 
           let finalOutcome: ApplyOutcome | undefined;
           let finalized = false;
@@ -1252,8 +1262,6 @@ async function main() {
             }
           };
           try {
-            console.log(`\n→ ${preparingApplications() ? 'Preparing' : 'Applying'}: ${job.title} @ ${job.company}`);
-
             /**
              * A dead browser must not take the whole run's reporting with it. It is
              * unrecoverable (every later job would fail the same way), but the run
@@ -1264,7 +1272,10 @@ async function main() {
             // Applying opens the board's listing again: a search just made there still has its gap to run out.
             await showLiveActivity({ phase: 'waiting', detail: 'Pausing before opening this application.' });
             await sitePacer.ready(platformId);
+            if (limitReached()) break;
+            console.log(`\n→ ${preparingApplications() ? 'Preparing' : 'Applying'}: ${job.title} @ ${job.company}`);
             await showLiveActivity({ phase: 'applying', detail: `${job.title} at ${job.company}` }, applicationPage);
+            if (limitReached()) break;
             try {
               const apply = () => measured('application', () => approvedApplication(job)?.email
                 ? submitApprovedEmail(approvedApplication(job)!)
@@ -1455,7 +1466,8 @@ async function main() {
   }
 }
 
+const disposeDeadline = runDeadline.listen();
 main().catch((err) => {
   console.error(`\nFatal: ${err.message}`);
-  process.exit(1);
-});
+  process.exitCode = 1;
+}).finally(disposeDeadline);

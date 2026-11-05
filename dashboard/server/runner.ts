@@ -514,7 +514,9 @@ class Run {
       ? '  Semi auto: forms will be filled and saved for your confirmation. Nothing will be submitted.'
       : '  Auto apply: this user-started run will submit applications.');
 
-    this.spawnChild(spawn(process.execPath, args, { cwd: BOT_DIR, env, detached: process.platform !== 'win32' }), userId, dataDir, 'run', env.OPERATOR_RUN_TIMEOUT_MINUTES);
+    const timeoutMs = runTimeoutMs(env.OPERATOR_RUN_TIMEOUT_MINUTES || process.env.RUN_TIMEOUT_MINUTES || readEnv().RUN_TIMEOUT_MINUTES);
+    env.OWTOMATE_RUN_DEADLINE_AT = String(Date.now() + timeoutMs);
+    this.spawnChild(spawn(process.execPath, args, { cwd: BOT_DIR, env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], detached: process.platform !== 'win32' }), userId, dataDir, 'run', env.OPERATOR_RUN_TIMEOUT_MINUTES);
     return { ok: true };
   }
 
@@ -608,9 +610,12 @@ class Run {
     const timeoutMs = runTimeoutMs(operatorTimeout || process.env.RUN_TIMEOUT_MINUTES || readEnv().RUN_TIMEOUT_MINUTES);
     this.supervisor = superviseRun(child, {
       timeoutMs,
+      finishCurrent: kind === 'run',
       onTimeout: () => {
-        this.timedOut = true;
-        this.push('err', `Run reached its ${timeoutMs / 60_000}-minute time limit; stopping the worker.`);
+        this.timedOut = kind !== 'run';
+        this.push(kind === 'run' ? 'sys' : 'err', kind === 'run'
+          ? `Run reached its ${timeoutMs / 60_000}-minute time limit; finishing current applications before exiting.`
+          : `Run reached its ${timeoutMs / 60_000}-minute time limit; stopping the worker.`);
       },
       onEscalation: () => this.push('err', 'Worker did not stop within 10 seconds; forcing its process tree to exit.'),
       onError: (error) => this.push('err', `Worker process error: ${error.message}`),

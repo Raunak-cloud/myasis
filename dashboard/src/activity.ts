@@ -13,6 +13,7 @@ export function runResultLabel(status: { running: boolean; finishedAt: string | 
   if (!status.finishedAt) return 'Ready';
   if (lines.some(line => /stop requested/i.test(line.text))) return 'Stopped';
   if (status.exitCode !== 0) return 'Stopped early';
+  if (lines.some(line => /time limit; finishing current applications before exiting/i.test(line.text))) return 'Finished at time limit';
   if (lines.some(line => /✗\s+(?:unexpected )?error:|Submission not confirmed:|^Fatal:|time limit; stopping the worker/i.test(line.text))) return 'Finished with issues';
   return 'Finished';
 }
@@ -221,6 +222,9 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       add(line, 'Run started', 'done');
     } else if (/stop requested/i.test(text)) {
       stopNotice = add(line, 'Stopping run', 'neutral', 'This run is stopping. Applications already submitted stay submitted.');
+      explained = true;
+    } else if (/Run reached its .+ time limit; finishing current applications before exiting/i.test(text)) {
+      stopNotice = add(line, 'Run time limit reached', 'neutral', 'Finishing applications already in progress, then saving results and ending this run. No new jobs will be started.');
       explained = true;
     } else if (/Run reached its .+ time limit; stopping the worker/i.test(text)) {
       stopNotice = add(line, 'Run time limit reached', 'warn', 'This run is stopping because it reached its time limit. Applications already submitted stay submitted.');
@@ -433,8 +437,11 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
     } else if ((match = text.match(/run finished \(exit ([^)]*)\)/i))) {
       finished = true;
       if (stopNotice) {
-        stopNotice.title = 'Run stopped';
-        stopNotice.detail = 'This run has stopped. Applications already submitted stay submitted.';
+        const drained = match[1] === '0' && lines.some(line => /time limit; finishing current applications before exiting/i.test(line.text));
+        stopNotice.title = drained ? 'Finished at time limit' : 'Run stopped';
+        stopNotice.detail = drained
+          ? 'The run finished its current work and saved the results. No new jobs were started after the time limit.'
+          : 'This run has stopped. Applications already submitted stay submitted.';
       }
       if (match[1] !== '0' && !explained) {
         add(

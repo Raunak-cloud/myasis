@@ -5,6 +5,7 @@ import { AppliedIndex, logOutcome, saveRunSummary, recordUnconfirmedApplication 
 import { countHealth } from './run-health.js';
 import { config } from './config.js';
 import { normaliseAttentionOutcome } from './blocked-questions.js';
+import { runDeadline } from './run-deadline.js';
 
 /** Exact approved emails need neither a job-board session nor form reconstruction. */
 export async function runApprovedEmailBatch(drafts: PreparedApplication[]): Promise<boolean> {
@@ -14,6 +15,7 @@ export async function runApprovedEmailBatch(drafts: PreparedApplication[]): Prom
   const index = new AppliedIndex(); let applied = 0;
   console.log(`Submitting ${drafts.length} confirmed email application(s) through Gmail MCP.`);
   for (const draft of drafts) {
+    if (runDeadline.reached) break;
     if (index.appliedToday() >= config.limits.maxApplicationsPerDay) {
       console.log(`Daily cap of ${config.limits.maxApplicationsPerDay} reached.`);
       break;

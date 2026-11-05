@@ -22,6 +22,7 @@ npm run test:statuses
 node --test server/form-lab/engine.test.mjs
 ../seek-bot/node_modules/.bin/tsx server/form-lab-access.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/run-diagnostics.test.ts
+../seek-bot/node_modules/.bin/tsx --test server/run-watchdog.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/admin-run-costs.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/targeted-retry-*.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/approved-run-repairs.test.ts
@@ -56,6 +57,7 @@ check_bot() (
 if [ "$REPLAY_REQUIRED" = 1 ]; then
   cd "$APP/seek-bot"
   node dist/company-match.test.js
+  node --test dist/run-deadline.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/direct-external.test.js
   node --test dist/application-model.test.js dist/application-model-cache.test.js dist/agent/stage-model-routing.test.js
   node --test dist/answer-eligibility.test.js dist/agent/personal-declaration-policy.test.js dist/agent/provider-tool-schema.test.js dist/fit-provenance.test.js

@@ -5,6 +5,17 @@ import { plainReason } from '../src/run-messages.ts';
 
 const log = (texts) => texts.map((text, seq) => ({ seq, stream: 'out', text }));
 
+test('a drained deadline displays completion and saved results rather than a timeout failure', () => {
+  const lines=log(['Run reached its 60-minute time limit; finishing current applications before exiting.',
+    'Ready for confirmation: Example role @ Example employer',
+    '=== Semi auto complete: 17 application(s) ready for confirmation ===', '■ run finished (exit 0)']);
+  assert.equal(runResultLabel({running:false,finishedAt:new Date().toISOString(),exitCode:0},lines),'Finished at time limit');
+  const events=activityEvents(lines,Infinity);
+  assert.ok(events.some(e=>e.title==='Finished at time limit' && /saved the results/.test(e.detail)));
+  assert.ok(!events.some(e=>e.title==='Run stopped' || e.title==='The run stopped unexpectedly'));
+  assert.equal(runResultLabel({running:false,finishedAt:new Date().toISOString(),exitCode:1},lines),'Stopped early','a real failure is still a failure');
+});
+
 test('historical sole-agent judgements without saved questions are skipped, not phantom attention tasks', () => {
   const lines = log([
     '✓ 90 · Insurance Analyst @ Insurance Employer',
