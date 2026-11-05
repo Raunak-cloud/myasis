@@ -2,6 +2,7 @@
 .job-index-toolbar, .job-index-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .job-index-toolbar { justify-content: space-between; }
 .job-index-toolbar > p { margin: 0; }
+.job-index-search-controls { margin-top: 18px; }
 .job-index-filters { display: grid; grid-template-columns: minmax(180px, 2fr) minmax(110px, .7fr) repeat(2, minmax(160px, 1fr)); gap: 10px; margin: 20px 0; }
 .job-index-filters input, .job-index-filters select { width: 100%; min-width: 0; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--border, #dbe2ec); border-radius: 8px; background: var(--surface, #fff); color: inherit; font: inherit; }
 .job-index :focus-visible { outline: 2px solid #2b67ad; outline-offset: 2px; }

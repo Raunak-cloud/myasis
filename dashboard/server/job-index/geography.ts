@@ -22,9 +22,10 @@ export function declaredCountries(value:unknown):string[] {
   return [...new Set(list(value).flatMap(v=>walk(v,0)).map(text).filter(Boolean))];
 }
 
-// Display-only legacy/feed locations require an explicit country token. Bare
-// cities/states, APAC and “remote” are ambiguous and deliberately stay unknown.
-const australianLabel=(s:string)=>s.split(/[,;|/()\n]+/).some(t=>isAustralia(t));
+// Resolve exact Australian capital + subdivision pairs in publisher location
+// fields. A bare city stays unknown, and explicit country fields still win.
+const capitalStates=[['Sydney','NSW|New South Wales'],['Melbourne','VIC|Victoria'],['Brisbane','QLD|Queensland'],['Perth','WA|Western Australia'],['Adelaide','SA|South Australia'],['Hobart','TAS|Tasmania'],['Darwin','NT|Northern Territory'],['Canberra','ACT|Australian Capital Territory']];
+const australianLabel=(s:string)=>s.split(/[,;|/()\n]+/).some(t=>isAustralia(t))||s.split(/\s+or\s+|[;|/\n]/i).some(part=>capitalStates.some(([city,state])=>new RegExp(`^${city}\\s*,?\\s*(?:${state})(?:\\s+\\d{4})?$`,'i').test(part.trim())));
 export type AustralianEligibility={status:'eligible'|'excluded'|'unknown';evidence:string[]};
 export function australianEligibility(job:Pick<IndexedJob,'locations'|'applicantLocations'|'workArrangement'|'locationCountries'|'applicantLocationCountries'>):AustralianEligibility {
   const locationCountries=job.locationCountries??[],applicantCountries=job.applicantLocationCountries??[];

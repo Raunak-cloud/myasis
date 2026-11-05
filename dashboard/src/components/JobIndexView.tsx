@@ -3,7 +3,8 @@ import { api } from '../adminApi';
 import type { IndexedJob, MatchResult } from '../../server/job-index/types';
 import './JobIndexView.css';
 
-interface Status {enabled:boolean;searchConfigured:boolean;counts:{jobs:number;fresh_jobs:number};profiles:number}
+interface ManualSearch {id:string;provider:'brave'|'codex';state:string;stats:{newJobs?:number;fitUnavailable?:number};error:string|null}
+interface Status {enabled:boolean;searchConfigured:boolean;codexConnected?:boolean;searches?:ManualSearch[];counts:{jobs:number;fresh_jobs:number};profiles:number}
 interface JobRecord {payload:IndexedJob;first_seen_at?:string;verified_at:string;payload_hash?:string;candidate_match:MatchResult|null;matches?:Array<{userId:string;matchedAt:string;match:MatchResult}>}
 interface Results {jobs:JobRecord[];hasMore:boolean}
 const tagLabels:Record<keyof IndexedJob['tags'],string>={categories:'Categories',employmentTypes:'Employment types',seniority:'Seniority',suitableFor:'Suitable for',skills:'Skills',requirements:'Requirements'};
@@ -68,11 +69,25 @@ export function JobIndexView() {
     const timer=window.setTimeout(()=>{setLoading(true);setResults(null);Promise.all([api<Status>('/job-index/status'),api<Results>(`/job-index?${params}`)]).then(([s,r])=>{if(current){setStatus(s);setResults(r);setError('');}}).catch(e=>{if(current)setError((e as Error).message);}).finally(()=>{if(current)setLoading(false);});},250);
     return()=>{current=false;window.clearTimeout(timer);};
   },[query,arrangement,pay,user,page,revision]);
+  const active=status?.searches?.some(s=>['queued','searching','running'].includes(s.state))??false;
+  useEffect(()=>{
+    let current=true;
+    const timer=window.setInterval(()=>{void api<Status>('/job-index/status').then(next=>{if(!current)return;setStatus(next);if(active&&!next.searches?.some(s=>['queued','searching','running'].includes(s.state)))setRevision(v=>v+1);}).catch(()=>{});},active?3000:15000);
+    return()=>{current=false;window.clearInterval(timer);};
+  },[active]);
   async function toggle(){if(!status)return;setBusy(true);try{await api('/job-index/control',{method:'POST',json:{enabled:!status.enabled}});setRevision(v=>v+1);}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
+  async function search(provider:'brave'|'codex'){setBusy(true);setError('');try{await api('/job-index/search',{method:'POST',json:{provider}});setRevision(v=>v+1);}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
+  const latest=status?.searches?.[0];
   return <section className="card job-index" aria-label="Saved jobs" aria-busy={loading}>
-    <div className="job-index-toolbar">{status&&<p className="job-meta">{status.counts.fresh_jobs.toLocaleString()} matching {status.counts.fresh_jobs===1?'job':'jobs'} · {status.profiles} paid accounts · {status.enabled?'Scheduled':'Paused'}</p>}<div className="job-index-actions"><button className="btn" onClick={()=>setRevision(v=>v+1)}>Refresh</button>{status&&<button className="btn" disabled={busy} onClick={()=>void toggle()}>{status.enabled?'Pause crawler':'Resume crawler'}</button>}</div></div>
+    <div className="job-index-toolbar">{status&&<p className="job-meta">{status.counts.fresh_jobs.toLocaleString()} matching {status.counts.fresh_jobs===1?'job':'jobs'} · {status.profiles} paid accounts · {status.enabled?'Manual search':'Paused'}</p>}<div className="job-index-actions"><button className="btn" onClick={()=>setRevision(v=>v+1)}>Refresh</button>{status&&<button className="btn" disabled={busy} onClick={()=>void toggle()}>{status.enabled?'Pause crawler':'Resume crawler'}</button>}</div></div>
+    {status&&<div className="job-index-actions job-index-search-controls">
+      <button className="btn" disabled={busy||active||!status.enabled||!status.searchConfigured} onClick={()=>void search('brave')}>Search with Brave</button>
+      <button className="btn" disabled={busy||active||!status.enabled||!status.codexConnected} onClick={()=>void search('codex')}>Search with Codex</button>
+      {!status.codexConnected&&<span className="job-meta">Codex connector offline</span>}
+    </div>}
+    {latest&&<p className="job-meta" role="status">{latest.provider==='codex'?'Codex':'Brave'} · {latest.state==='completed'?`Completed · ${latest.stats.newJobs??0} new matching jobs${latest.stats.fitUnavailable?' · Some reviews unavailable':''}`:latest.state==='failed'?latest.error??'Search could not finish.':latest.state==='queued'?'Queued':latest.state==='searching'?'Searching employer pages…':'Verifying and matching jobs…'}</p>}
     {error&&<div className="banner banner-bad" role="alert">{error}</div>}
-    {status&&!status.searchConfigured&&<p className="job-meta">Employer feeds enabled. Web search needs a search-provider key.</p>}
+    {status&&!status.searchConfigured&&<p className="job-meta">Brave search is not configured.</p>}
     <div className="job-index-filters">
       <input aria-label="Search indexed jobs" placeholder="Search jobs" value={query} onChange={e=>{setQuery(e.target.value);setPage(0);}}/>
       <input aria-label="Account ID for private matches" placeholder="Account ID" inputMode="numeric" value={user} onChange={e=>{setUser(e.target.value.replace(/\D/g,''));setPage(0);}}/>

@@ -22,6 +22,7 @@ import { billingStatus, isAdmin } from './billing.js';
 import { adminOverridesFor, entitlementsFor, RUN_TIME_ZONE, setAdminOverrides } from './entitlements.js';
 import { changeSchedule, scheduleFor } from './run-schedule.js';
 import { indexConfig, indexStore } from './job-index/config.js';
+import {requestSearch,searchStatus,ManualSearchError} from './job-index/manual.js';
 import { applyEnvChanges, envReport, restartDashboard } from './env-settings.js';
 import { readServerLogs, serverHealth } from './health.js';
 import { pruneAllProfiles } from './profile-prune.js';
@@ -491,7 +492,12 @@ export async function handleAdminRequest(
       const store=indexStore();
       if(!store)return send({error:'Connect Neon in Admin → Config → Job discovery.'},503);
       if(path==='/job-index'&&method==='GET')return send(await store.search(url.searchParams));
-      if(path==='/job-index/status'&&method==='GET')return send({...(await store.status() as object),searchConfigured:!!indexConfig()?.braveKey});
+      if(path==='/job-index/status'&&method==='GET')return send({...(await store.status() as object),...(await searchStatus(store) as object),searchConfigured:!!indexConfig()?.braveKey});
+      if(path==='/job-index/search'&&method==='POST'){
+        if(existsSync(new URL('../../.deploying',import.meta.url)))return send({error:'An update is being installed. Try again shortly.'},503);
+        try{return send(await requestSearch(store,actor.id,(await readBody())?.provider,undefined,!!indexConfig()?.braveKey),202);}
+        catch(e){if(e instanceof ManualSearchError)return send({error:e.message},e.status);throw e;}
+      }
       if(path==='/job-index/control'&&method==='POST') {
         const body=await readBody();if(typeof body?.enabled!=='boolean')return send({error:'Choose Resume or Pause.'},400);
         await store.setEnabled(actor.id,body.enabled);return send({ok:true});

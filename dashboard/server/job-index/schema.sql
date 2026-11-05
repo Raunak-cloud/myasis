@@ -73,3 +73,11 @@ UPDATE crawl_tasks SET payload=jsonb_set(payload,'{job}',jsonb_strip_nulls(jsonb
 
 -- Legacy/unverified geography is quarantined until the shared admission policy checks it.
 ALTER TABLE indexed_jobs ADD COLUMN IF NOT EXISTS country_policy text;
+
+CREATE TABLE IF NOT EXISTS manual_searches (
+ id uuid PRIMARY KEY,provider text NOT NULL CHECK(provider IN ('brave','codex')),actor_id bigint NOT NULL,
+ state text NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','searching','running','completed','failed')),
+ created_at timestamptz NOT NULL DEFAULT now(),started_at timestamptz,finished_at timestamptz,
+ lease uuid,lease_until timestamptz,stats jsonb NOT NULL DEFAULT '{}',error text
+);
+CREATE UNIQUE INDEX IF NOT EXISTS manual_searches_one_active ON manual_searches((true)) WHERE state IN ('queued','searching','running');

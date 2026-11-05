@@ -11,6 +11,7 @@ import {PublicCrawler,CrawlDeferred} from './network.js';
 import {confirmedMatch,type FitReviewer} from './review.js';
 import type {SearchProfile} from './types.js';
 import {discoveryQueries} from './discovery.js';
+import {requestSearch,claimSearch,finishSearch,clearSignal} from './manual.js';
 const schema=`job_index_test_${randomUUID().replaceAll('-','')}`;
 const connectionString=process.env.JOB_INDEX_TEST_URL??process.env.DATABASE_URL??readEnv().DATABASE_URL;
 if(!connectionString)throw Error('A local PostgreSQL test connection is required.');
@@ -28,7 +29,7 @@ before(async()=>{await pool.query(`CREATE SCHEMA ${schema}`);await store.migrate
  CREATE TABLE settings(user_id bigint,key text,value text);
  CREATE TABLE resumes(id bigint,user_id bigint,file_name text,is_default boolean,uploaded_at timestamptz);
  CREATE TABLE applications(user_id bigint,url text,external boolean,applied_at timestamptz);`);});
-beforeEach(async()=>{await pool.query(`TRUNCATE search_profiles,indexed_jobs,job_versions,candidate_job_matches,fit_decisions,fit_review_requests,crawl_tasks,crawl_cycles,search_usage,users,application_credit_grants,billing_purchases,profiles,settings,resumes,applications CASCADE;
+beforeEach(async()=>{await pool.query(`TRUNCATE manual_searches,search_profiles,indexed_jobs,job_versions,candidate_job_matches,fit_decisions,fit_review_requests,crawl_tasks,crawl_cycles,search_usage,users,application_credit_grants,billing_purchases,profiles,settings,resumes,applications CASCADE;
  UPDATE job_index_config SET enabled=true;
  INSERT INTO users VALUES(1,NULL),(2,NULL),(3,now());
  INSERT INTO billing_purchases VALUES(1,1,'essential-pass'),(2,2,'intensive-pass'),(3,3,'job-search-pass');
@@ -164,4 +165,22 @@ test('scheduled crawls persist a six-hour start interval and do not rerun after 
  assert.equal((await pool.query('SELECT count(*) FROM crawl_cycles')).rows[0].count,'1');
  await pool.query("UPDATE crawl_cycles SET started_at=now()-interval '6 hours 1 second'");
  const next=await crawlCycle(restartedStore,pool,options);assert.notEqual(next.status,'waiting');assert.equal((await pool.query('SELECT count(*) FROM crawl_cycles')).rows[0].count,'2');
+});
+
+
+test('manual searches require valid providers, connection, enabled state and one shared request lease',async()=>{
+ try{
+  await assert.rejects(()=>requestSearch(store,'99','arbitrary',true),/Choose Brave/);
+  await assert.rejects(()=>requestSearch(store,'99','codex',false),/offline/);
+  await assert.rejects(()=>requestSearch(store,'99','brave',true,false),/Connect Brave/);
+  await store.setEnabled('99',false);await assert.rejects(()=>requestSearch(store,'99','brave',true),/Resume/);await store.setEnabled('99',true);
+  const [a,b]=await Promise.all([requestSearch(store,'99','codex',true),requestSearch(store,'99','codex',true)]);assert.equal(a.id,b.id);
+  assert.equal((await pool.query('SELECT count(*) FROM manual_searches')).rows[0].count,'1');
+  const job=await claimSearch(store,'codex');assert.equal(job.state,'searching');assert.equal(await claimSearch(store,'codex'),null);
+  await finishSearch(store,{...job,lease:randomUUID()},{newJobs:999});assert.equal((await pool.query('SELECT state FROM manual_searches')).rows[0].state,'searching');
+  await finishSearch(store,job,{newJobs:2});assert.equal((await pool.query('SELECT stats FROM manual_searches')).rows[0].stats.newJobs,2);
+  await pool.query('INSERT INTO search_usage VALUES(current_date,20)');await assert.rejects(()=>requestSearch(store,'99','brave',true),/daily search allowance/);
+  await pool.query('UPDATE search_usage SET calls=0');const next=await requestSearch(store,'99','brave',true);assert.notEqual(next.id,a.id);
+  const brave=await claimSearch(store,'brave');assert.equal(brave.state,'running');await finishSearch(store,brave,{},'Synthetic provider unavailable');assert.equal((await pool.query('SELECT state FROM manual_searches WHERE id=$1',[next.id])).rows[0].state,'failed');
+ }finally{clearSignal('brave');clearSignal('codex');}
 });
