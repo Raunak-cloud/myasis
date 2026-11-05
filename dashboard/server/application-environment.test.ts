@@ -28,7 +28,7 @@ test('owner authorization selects one whole-run provider and server-owned creden
   const names = ['CELERIS_API_KEY','OPENROUTER_API_KEY','ADMIN_EMAILS'] as const;
   const prior = Object.fromEntries(names.map(name => [name,process.env[name]]));
   Object.assign(process.env,{CELERIS_API_KEY:'server-review-key',OPENROUTER_API_KEY:'server-apply-key',ADMIN_EMAILS:'admin@fixture.invalid'});
-  pool.query = (async(sql:string,params:unknown[]) => ({rows: sql.includes('FROM run_starts')
+  pool.query = (async(sql:string,params:unknown[]) => ({rows: sql.includes('FROM application_model_assignments') ? [] : sql.includes('FROM run_starts')
     ? params[0]==='authorized'?[{email:'admin@fixture.invalid'}]:[]
     : [{id:params[0],email:params[0]==='admin'?'admin@fixture.invalid':'customer@fixture.invalid'}]})) as typeof originalQuery;
   try {

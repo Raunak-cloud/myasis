@@ -34,6 +34,7 @@ import { marketScoutProxy } from './server/market-scout.js';
 import { isAdmin as isAdminEmail } from './server/billing.js';
 import { jobSourceSettingsError } from './server/job-sources.js';
 import { applicationModelForAccount } from './server/application-model-policy.js';
+import { assignedApplicationModel } from './server/application-model-assignments.js';
 import { migrateFilesToUser } from './server/db/migrate-files.js';
 import { endPageView, pulsePageView, recordPageView, startVisitMaintenance } from './server/visits.js';
 import { matchKeysFromRequest, reportRedditConversion } from './server/reddit-capi.js';
@@ -485,14 +486,14 @@ function dataApi(): Plugin {
               await upsertSettingRow(userId, DAILY_APPLICATION_CAP_CHOSEN, '1');
               settings[DAILY_APPLICATION_CAP_CHOSEN] = '1';
             }
-            return send({ ok: true, settings: { ...settings, APPLICATION_AI_MODEL: applicationModelForAccount(settings.APPLICATION_AI_MODEL, isAdminEmail(settingsUser?.email)), KEYWORDS: limitSearchTerms(settings.KEYWORDS ?? ''), PLATFORMS: effectivePlatforms(settings, entitlements),
+            return send({ ok: true, settings: { ...settings, APPLICATION_AI_MODEL: applicationModelForAccount(settings.APPLICATION_AI_MODEL, isAdminEmail(settingsUser?.email), await assignedApplicationModel(userId)), KEYWORDS: limitSearchTerms(settings.KEYWORDS ?? ''), PLATFORMS: effectivePlatforms(settings, entitlements),
               MAX_APPS_PER_DAY: String(dailyApplicationLimit(entitlements.tier === 'intensive' && settings[DAILY_APPLICATION_CAP_CHOSEN] !== '1' ? undefined : settings.MAX_APPS_PER_DAY)) } });
           }
           // What the run screen shows is what a run would use, not the raw saved value.
           const viewer = await currentUser(req.headers?.cookie);
           const saved = await loadUserSettings(userId);
           const entitlements = await entitlementsFor(userId, viewer?.email);
-          return send({ ...saved, APPLICATION_AI_MODEL: applicationModelForAccount(saved.APPLICATION_AI_MODEL, isAdminEmail(viewer?.email)), KEYWORDS: limitSearchTerms(saved.KEYWORDS ?? ''), PLATFORMS: effectivePlatforms(saved, entitlements),
+          return send({ ...saved, APPLICATION_AI_MODEL: applicationModelForAccount(saved.APPLICATION_AI_MODEL, isAdminEmail(viewer?.email), await assignedApplicationModel(userId)), KEYWORDS: limitSearchTerms(saved.KEYWORDS ?? ''), PLATFORMS: effectivePlatforms(saved, entitlements),
             MAX_APPS_PER_DAY: String(dailyApplicationLimit(entitlements.tier === 'intensive' && saved[DAILY_APPLICATION_CAP_CHOSEN] !== '1' ? undefined : saved.MAX_APPS_PER_DAY)) });
         });
       }

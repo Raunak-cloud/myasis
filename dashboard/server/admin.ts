@@ -32,6 +32,9 @@ import { draftSetupEmail, sendAdminEmail, tailorSetupEmail, adminEmailHistory, v
 import { readSiteState } from './seek-state.js';
 import { sessionFor, stopSignin } from './signin.js';
 import { startRun } from './start-run.js';
+import { assignedApplicationModel, assignApplicationModel, ApplicationModelAssignmentError } from './application-model-assignments.js';
+import { applicationModelForAccount, applicationModelCredentials } from './application-model-policy.js';
+import { isApplicationModel, type ApplicationModel } from '../../seek-bot/src/application-model-catalog.js';
 import {approvedRunRepairs} from './approved-run-repairs.js';
 import {priorRunRepairMessage} from '../src/priorRunRepair.js';
 import { userDir } from './userdata.js';
@@ -85,6 +88,7 @@ interface AdminUserRow {
   autoApply: { runsPerDay: number; usedToday: number; paused: boolean; canPause: boolean; nextRunAt: string | null; applicationMode: 'auto' | 'semi-auto' | null };
   /** An operator's per-account overrides for control: how many jobs a run reviews, and how many it may apply to. Null means the plan decides. */
   overrides: { evaluationsPerRun: number | null; maxApplicationsPerRun: number | null };
+  applicationModel: ApplicationModel;
   /**
    * Where this account's browsers go out: the loopback port its home tunnel
    * lands on, its proxy (never the password), and what the route is doing now.
@@ -104,7 +108,7 @@ interface AdminUserRow {
 }
 
 async function userRow(user: UserRecord): Promise<AdminUserRow> {
-  const [billing, entitlements, overrides, setup, counts, lastRun, lastEmail, schedule] = await Promise.all([
+  const [billing, entitlements, overrides, setup, counts, lastRun, lastEmail, schedule, assignedModel] = await Promise.all([
     billingStatus(user.id, user.email),
     entitlementsFor(user.id, user.email),
     adminOverridesFor(user.id),
@@ -125,8 +129,10 @@ async function userRow(user: UserRecord): Promise<AdminUserRow> {
     ),
     one<{ sent_at: Date }>('SELECT sent_at FROM admin_emails WHERE user_id = $1 ORDER BY sent_at DESC LIMIT 1', [user.id]),
     scheduleFor(user.id),
+    assignedApplicationModel(user.id),
   ]);
   const admin = isAdmin(user.email);
+  const savedModel = admin ? await one<{value:string}>("SELECT value FROM settings WHERE user_id=$1 AND key='APPLICATION_AI_MODEL'", [user.id]) : null;
   return {
     id: user.id,
     email: user.email,
@@ -156,6 +162,7 @@ async function userRow(user: UserRecord): Promise<AdminUserRow> {
       applicationMode: schedule?.application_mode ?? null,
     },
     overrides,
+    applicationModel: applicationModelForAccount(savedModel?.value, admin, assignedModel),
     route: {
       homePort: await homeRoutePort(user.id),
       proxy: await proxySummary(user.id),
@@ -669,6 +676,16 @@ export async function handleAdminRequest(
     const body = await readBody();
 
     switch (action) {
+      case 'application-model': {
+        if (!isApplicationModel(body?.model)) return send({ error: 'Choose Celeris or MiniMax.' }, 400);
+        try {
+          applicationModelCredentials(body.model, { ...readEnv(), ...process.env });
+          await assignApplicationModel(actor.id, target.id, body.model);
+        } catch (error) {
+          return send({ error: (error as Error).message }, error instanceof ApplicationModelAssignmentError ? error.status : 400);
+        }
+        return send({ ok: true, user: await userRow(target) });
+      }
       case 'limits': {
         const hasEvaluations = Object.prototype.hasOwnProperty.call(body ?? {}, 'evaluationsPerRun');
         const hasMaxApps = Object.prototype.hasOwnProperty.call(body ?? {}, 'maxApplicationsPerRun');

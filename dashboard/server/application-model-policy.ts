@@ -17,6 +17,7 @@ export function applicationModelSettingsError(updates: Record<string, unknown>, 
     : { status: 400, error: 'Choose an available run model.' };
 }
 /** Rechecked for the account owner at every start, including queued/scheduled work. */
-export function applicationModelForAccount(value: unknown, admin: boolean): ApplicationModel {
+export function applicationModelForAccount(value: unknown, admin: boolean, assigned: ApplicationModel | null = null): ApplicationModel {
+  if (assigned) return assigned;
   return admin && isApplicationModel(value) ? value : CUSTOMER_APPLICATION_MODEL;
 }

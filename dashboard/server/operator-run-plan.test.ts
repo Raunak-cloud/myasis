@@ -27,6 +27,7 @@ test('review and timeout exception requires an unfinished owner-bound administra
  process.env.ADMIN_EMAILS='operator@fixture.invalid';process.env.CELERIS_API_KEY='fixture-only-key';
  let actor='operator@fixture.invalid', options={plan:'intensive-pass',complimentary:true,maxEvaluations:400,timeoutMinutes:120};
  pool.query=(async(sql:string,params:unknown[])=>{
+  if(sql.includes('FROM application_model_assignments'))return {rows:[]};
   if(sql.includes('FROM run_starts')){
    assert.match(sql,/run.user_id=\$2/);assert.match(sql,/run.finished_at IS NULL/);assert.match(sql,/run.trigger='admin'/);
    return {rows:params[0]==='authorized'?[{email:actor,operator_options:options}]:[]};

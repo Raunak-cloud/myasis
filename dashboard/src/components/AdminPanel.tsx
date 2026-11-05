@@ -17,6 +17,7 @@ import type { RouteStatus } from '../route';
 import { StackedTable } from './StackedTable';
 import { runDeviceLabel, type RunDevice } from '../run-device';
 import { formatRunCost,runCostTitle,type RunCost } from '../run-cost';
+import { APPLICATION_MODELS, applicationModelLabel, type ApplicationModel } from '../../../seek-bot/src/application-model-catalog';
 
 /**
  * The operator's dashboard: the whole installation at a glance, every
@@ -50,6 +51,7 @@ interface AdminUser {
   boards: { seek: boolean | null; indeed: boolean | null };
   autoApply: { runsPerDay: number; usedToday: number; paused: boolean; canPause: boolean; nextRunAt: string | null; applicationMode: 'auto' | 'semi-auto' | null };
   overrides: { evaluationsPerRun: number | null; maxApplicationsPerRun: number | null };
+  applicationModel: ApplicationModel;
   route: {
     homePort: number | null;
     proxy: { address: string; username: string } | null;
@@ -370,6 +372,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
   const [grantPlan, setGrantPlan] = useState<string>('job-search-pass');
   const [confirmEmail, setConfirmEmail] = useState('');
   const [evaluationsInput, setEvaluationsInput] = useState('');
+  const [modelInput, setModelInput] = useState<ApplicationModel>('celeris');
   const [homeRouteInput, setHomeRouteInput] = useState('');
   const [externalJobUrl, setExternalJobUrl] = useState('');
   const [repairPriorRuns,setRepairPriorRuns]=useState(true);
@@ -405,6 +408,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
   if (formUser !== user) {
     setFormUser(user);
     setEvaluationsInput(user?.overrides.evaluationsPerRun != null ? String(user.overrides.evaluationsPerRun) : '');
+    setModelInput(user?.applicationModel ?? 'celeris');
     setHomeRouteInput(user?.route.homePort != null ? String(user.route.homePort) : '');
     setProxyInput(user?.route.proxy ? `socks5://${user.route.proxy.username}:••••••@${user.route.proxy.address}` : '');
   }
@@ -561,6 +565,18 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
               <div className="section">
                 <h3>Controls</h3>
                 <div className="admin-controls">
+                  <div className="admin-button-row">
+                    <label htmlFor="admin-future-run-model">Future run model</label>
+                    <select id="admin-future-run-model" className="input" value={modelInput} disabled={busy !== null}
+                      onChange={event => setModelInput(event.target.value as ApplicationModel)}>
+                      {APPLICATION_MODELS.map(model => <option key={model} value={model}>{applicationModelLabel(model)}</option>)}
+                    </select>
+                    <button className="btn btn-outline" disabled={busy !== null || modelInput === (user.applicationModel ?? 'celeris')}
+                      onClick={() => act('application-model', `/users/${user.id}/application-model`, { method: 'POST', json: { model: modelInput } }, 'Future run model saved.')}>
+                      {busy === 'application-model' ? 'Saving…' : 'Save model'}
+                    </button>
+                  </div>
+                  <p className="job-meta">Used for future manual and scheduled runs, including job review, applying and recovery review. A run already in progress keeps its current model.</p>
                   {user.autoApply.runsPerDay > 0 && (
                     <label className="admin-switch-row">
                       <button

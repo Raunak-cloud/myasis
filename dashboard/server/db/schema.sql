@@ -33,6 +33,16 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS sessions_expiry_idx ON sessions(expires_at);
 
+-- Append-only administrator choices, separate from customer-editable settings.
+CREATE TABLE IF NOT EXISTS application_model_assignments (
+  id BIGSERIAL PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  model TEXT NOT NULL CHECK (model IN ('celeris', 'minimax')),
+  assigned_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+  assigned_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS application_model_assignments_owner_idx ON application_model_assignments(user_id, id DESC);
+
 -- The candidate details form. One row per user, mirroring the flat shape the
 -- UI already posts so there is nothing to reshape.
 CREATE TABLE IF NOT EXISTS profiles (

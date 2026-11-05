@@ -16,6 +16,7 @@ import { loadUserSettings } from './settings.js';
 import { applicationModelLabel } from '../../seek-bot/src/application-model-catalog.js';
 import {priorRunRepairMessage} from '../src/priorRunRepair.js';
 import { applicationModelCredentials, applicationModelForAccount } from './application-model-policy.js';
+import { assignedApplicationModel } from './application-model-assignments.js';
 import { applicationAgentModeForAccount, applicationScreenshotsForAccount } from './application-agent-policy.js';
 import { accountUnavailable, AccountDeletionError } from './account-lifecycle.js';
 import { finishApplicationReviews } from './application-reviews.js';
@@ -57,7 +58,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
       || grant.operator_options.timeoutMinutes !== 120) throw new Error('This run has no valid administrator plan authorization.');
     operatorReviewLimit='400';operatorTimeout='120';
   }
-  let selected = applicationModelForAccount(selectedSettings.APPLICATION_AI_MODEL, admin);
+  let selected = applicationModelForAccount(selectedSettings.APPLICATION_AI_MODEL, admin, await assignedApplicationModel(userId));
   if (selectedSettings.ADMIN_APPLICATION_MODEL) {
     if (!runStartId) throw new Error('This run has no valid administrator model authorization.');
     const operators = await query<{ email: string }>(
