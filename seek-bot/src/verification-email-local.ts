@@ -74,6 +74,43 @@ function linkPurpose(link: { text: string; url: string }): { reset: boolean; act
 
 type VerificationRequest = { hint?: string; site?: string; purpose?: VerificationPurpose };
 
+/** Retain the observed employer tenant, never session tokens or account data. */
+export function verificationSiteUrl(value: string): string {
+  const url = new URL(value.includes('://') ? value : `https://${value}`);
+  const tenant = successFactorsTenant(url);
+  return tenant ? `https://${url.hostname}/?company=${encodeURIComponent(tenant)}` : url.hostname;
+}
+
+function successFactorsTenant(url: URL): string | undefined {
+  if (url.protocol !== 'https:' || url.username || url.password || url.port
+    || !/^career\d+\.successfactors\.(?:com|eu)$/.test(url.hostname)) return;
+  const companies = url.searchParams.getAll('company');
+  return companies.length === 1 && /^[a-z0-9_-]{1,100}$/i.test(companies[0]) ? companies[0] : undefined;
+}
+
+function tenantDestination(url: URL, ask: VerificationRequest): boolean {
+  try {
+    const active = new URL(ask.site?.includes('://') ? ask.site : `https://${ask.site || ''}`);
+    const tenant = successFactorsTenant(active);
+    return Boolean(tenant && url.hostname === active.hostname && successFactorsTenant(url) === tenant);
+  } catch { return false; }
+}
+
+/** Shared ATS mail may name the employer only in its action's company realm.
+ * Require both the actual provider sender and the exact observed tenant/host.
+ * Display names, arbitrary query values and a provider hostname alone cannot
+ * establish this fallback. */
+function matchesTenantRealm(email: LocalVerificationEmail, ask: VerificationRequest): boolean {
+  const sender = (email.sender || '').trim().match(/(?:^|<)[^<>\s@]+@((?:[a-z0-9-]+\.)*successfactors\.(?:com|eu))>?$/i)?.[1].toLowerCase();
+  if (!sender) return false;
+  return email.links.some(link => {
+    try {
+      const url = new URL(link.url);
+      return tenantDestination(url, ask) && (url.hostname === sender || url.hostname.endsWith(`.${sender}`));
+    } catch { return false; }
+  });
+}
+
 /** An explicitly named multiword identity provider may spell its brand as one
  * DNS label. Accept that spelling only from the actual sender address, with the
  * current authentication host inside that sender's exact DNS realm. Display
@@ -128,7 +165,7 @@ export interface VerificationEmailMatchDecision {
   /** Only abstract decisions leave this helper. Skipped gates are omitted,
    * rather than reported as false or revealing unrelated message purposes. */
   checks: { contextPresent: boolean; identityMatched?: boolean; providerRealmMatched?: boolean;
-    requestedPurposeCompatible?: boolean; authenticationLanguageRecognized?: boolean };
+    tenantRealmMatched?: boolean; requestedPurposeCompatible?: boolean; authenticationLanguageRecognized?: boolean };
 }
 
 /** One decision drives both acceptance and private diagnostics; there is no
@@ -144,7 +181,8 @@ export function verificationEmailMatchDecision(email: LocalVerificationEmail, as
   const identity = `${email.sender || ''}\n${content}\n${hosts.join('\n')}`;
   checks.identityMatched = matchesContext(identity, ask);
   checks.providerRealmMatched = matchesSenderDomainAlias(email, ask);
-  if (!checks.identityMatched && !checks.providerRealmMatched) return finish('identity-unproven');
+  checks.tenantRealmMatched = matchesTenantRealm(email, ask);
+  if (!checks.identityMatched && !checks.providerRealmMatched && !checks.tenantRealmMatched) return finish('identity-unproven');
   const resetMail = resetPurpose(email.subject) || (!activationPurpose(email.subject) && !signInPurpose(email.subject) && resetPurpose(email.text));
   const activationMail = activationPurpose(email.subject);
   checks.requestedPurposeCompatible = false;
@@ -204,6 +242,11 @@ export function readVerificationEmailsLocally(emails: LocalVerificationEmail[], 
       const candidates = email.links.flatMap(link => {
         try {
           const url = new URL(link.url);
+          // When a tenant was observed, never open a different employer's
+          // action, including a second link in an otherwise matching email.
+          let tenantScoped = false;
+          try { tenantScoped = Boolean(successFactorsTenant(new URL(ask.site?.includes('://') ? ask.site : `https://${ask.site || ''}`))); } catch { /* no tenant context */ }
+          if (tenantScoped && !tenantDestination(url, ask)) return [];
           const purpose = linkPurpose(link);
           if (ask.purpose) {
             if (ask.purpose === 'reset_password' && (purpose.activation && !purpose.reset || purpose.signIn && !purpose.reset)) return [];

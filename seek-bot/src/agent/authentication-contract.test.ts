@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { authenticationTools } from './auth-tools.js';
-import { doCompleteAuthentication, doEnterEmailedCode } from './authentication.js';
+import { doCompleteAuthentication, doEnterEmailedCode, doOpenEmailedLink } from './authentication.js';
+import { GmailMcpService } from '../gmail-mcp-service.js';
 import { failedToolResult, ok, type ToolContext } from './context.js';
 import { toolInputIssue, validToolInput } from './tool-input.js';
 
@@ -50,4 +51,35 @@ test('rejected arguments cannot count as successful work; expected handoffs stil
   assert.equal(failedToolResult(ok('Current page changed', 'reobserve')), false);
   assert.equal(failedToolResult(ok('Filled', 'completed')), false);
   assert.equal(failedToolResult({ kind: 'terminal', outcome: { status: 'applied' } }), false);
+});
+
+test('emailed reset keeps the observed employer tenant after SuccessFactors drops company from the page URL', async () => {
+  const names = ['GMAIL_MCP_URL', 'GMAIL_MCP_TOKEN', 'GMAIL_MCP_ACCOUNT', 'GMAIL_ACCESS_MODE'] as const;
+  const previous = Object.fromEntries(names.map(name => [name, process.env[name]]));
+  const destination = 'https://career10.successfactors.com/career?company=fixtureTenant&login_ns=pwd_reset&verify=fixture-token';
+  const queries: string[] = [], navigated: string[] = [];
+  const gateway = new GmailMcpService({
+    search: async (_owner, query) => { queries.push(query); return [{ id: 'fixture-thread' }]; },
+    thread: async () => [{ id: 'fixture-message', sender: 'system@successfactors.com', subject: 'Password Reset', date: new Date().toISOString(),
+      plaintextBody: 'Please click on the URL below to change your password.', htmlBody: `<a href="${destination}">Click Here</a>` }],
+    send: async () => { throw Error('Authentication must not send email'); },
+  });
+  const lease = await gateway.grant('fixture-owner', 'candidate@fixture.invalid');
+  Object.assign(process.env, { GMAIL_MCP_URL: lease.connection.url, GMAIL_MCP_TOKEN: lease.connection.token,
+    GMAIL_MCP_ACCOUNT: lease.connection.account, GMAIL_ACCESS_MODE: 'mcp' });
+  const original = { url: () => 'https://career10.successfactors.com/career?_s.crb=PRIVATE_SESSION',
+    context: () => ({ newPage: async () => ({ goto: async (url: string) => { navigated.push(url); } }) }) };
+  const ctx = { page: original, authenticationRealm: 'https://career10.successfactors.com/?company=fixtureTenant',
+    job: { company: 'Fixture Employer', url: 'https://www.seek.com.au/job/12345678' }, profile: { email: 'candidate@fixture.invalid' },
+    actions: [], log: () => {} } as unknown as ToolContext;
+  try {
+    const result = await doOpenEmailedLink(ctx, { purpose: 'reset_password', sender_hint: 'SuccessFactors' });
+    assert.match(result.kind === 'ok' ? result.message : '', /Opened the emailed link/);
+    assert.deepEqual(navigated, [destination]);
+    assert.match(queries[0], /fixturetenant/);
+    assert.doesNotMatch(queries.join(' '), /PRIVATE_SESSION/);
+  } finally {
+    lease.revoke(); await gateway.close();
+    for (const name of names) { if (previous[name] === undefined) delete process.env[name]; else process.env[name] = previous[name]; }
+  }
 });

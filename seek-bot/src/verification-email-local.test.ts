@@ -1,6 +1,42 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isRequestedVerificationEmail, readVerificationEmailsLocally as read, verificationSenderHint, verificationEmailMatchDecision } from './verification-email-local.js';
+import { isRequestedVerificationEmail, readVerificationEmailsLocally as read, verificationSenderHint, verificationEmailMatchDecision, verificationSiteUrl } from './verification-email-local.js';
+
+test('SuccessFactors reset mail uses the observed tenant without accepting another employer or exposing session values', () => {
+  const site = verificationSiteUrl('https://career10.successfactors.com/career?company=departme13P1&account=PRIVATE_ACCOUNT&_s.crb=PRIVATE_SESSION');
+  assert.equal(site, 'https://career10.successfactors.com/?company=departme13P1');
+  const ask = { site, hint: 'Department of Communities and Justice | SuccessFactors', purpose: 'reset_password' as const, want: 'link' as const };
+  // Redacted structure of the failed live message; no real recipient or token.
+  const link = { text: 'Click Here', url: 'https://career10.successfactors.com/career?company=departme13P1&login_ns=pwd_reset&account=fixture&verify=fixture-token' };
+  const email = { position: 0, sender: 'system@successfactors.com', subject: 'Password Reset',
+    text: 'Dear Fixture Candidate, Please click on the URL below to change your password: Click Here. Kind Regards Talent Acquisition Team', links: [link] };
+  assert.equal(verificationEmailMatchDecision(email, ask).checks.tenantRealmMatched, true);
+  assert.equal(read([email], ask)?.value, link.url);
+  assert.equal(read([email], { ...ask, site: 'career10.successfactors.com' }), null, 'a hosting realm without a tenant is insufficient');
+  assert.equal(read([email], { ...ask, purpose: 'account_verification' }), null);
+  assert.equal(read([email], { ...ask, purpose: 'sign_in' }), null);
+  const activation = { ...email, subject: 'Account Activation', text: 'Activate your account using this link.',
+    links: [{ ...link, text: 'Activate account', url: link.url.replace('pwd_reset', 'activation') }] };
+  assert.equal(read([activation], { ...ask, purpose: 'account_verification' })?.value, activation.links[0].url);
+  assert.equal(read([activation], ask), null, 'the correct tenant cannot turn activation into password recovery');
+  for (const url of [link.url.replace('departme13P1', 'OtherEmployer'), link.url.replace('career10.', 'career11.'),
+    link.url.replace('successfactors.com', 'successfactors.com.attacker.invalid'), link.url.replace('https:', 'http:'),
+    link.url + '&company=OtherEmployer', link.url.replace('company=', 'trackingCompany='),
+    link.url.replace('https://', 'https://user:password@')]) {
+    assert.equal(read([{ ...email, links: [{ ...link, url }] }], ask), null, url);
+  }
+  for (const sender of ['DCJ Recruiting <system@attacker.invalid>', 'system@successfactors.com.attacker.invalid',
+    'system@successfactors.eu', 'system@other.successfactors.com']) {
+    assert.equal(read([{ ...email, sender }], ask), null, sender);
+  }
+  const wrong = { ...link, url: link.url.replace('departme13P1', 'OtherEmployer') };
+  assert.equal(read([{ ...email, text: 'Department of Communities and Justice: reset your password.', links: [wrong] }], ask), null,
+    'visible employer text cannot authorize a link to a different observed tenant');
+  assert.equal(read([{ ...email, links: [wrong, link] }], ask)?.value, link.url, 'select only the observed employer action');
+  assert.equal(read([{ ...email, links: [link, { ...link, url: link.url.replace('fixture-token', 'second-token') }] }], ask), null, 'same-tenant ambiguity still fails closed');
+  assert.equal(read([{ ...email, subject: 'News', text: 'Welcome to our team.' }], ask), null, 'tenant identity does not supply authentication purpose');
+  assert.doesNotMatch(JSON.stringify(verificationEmailMatchDecision(email, ask)), /departme|fixture-token|PRIVATE_|system@/);
+});
 
 test('abstract match diagnostics identify the exact failed gate without changing acceptance or disclosing mail', () => {
   const base = { position: 0, sender: 'noreply@fixture.invalid', subject: 'Fixture security notice PRIVATE_SUBJECT',

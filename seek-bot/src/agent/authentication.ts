@@ -10,7 +10,7 @@ import { ToolResult, ToolContext, ok, noteAction, siteName } from './context.js'
 import { assertLive } from '../tool-run.js';
 import { employerMessageEvidence } from './employer-message.js';
 import { rememberPrivateAuthenticationValue, preparePrivateAuthenticationFields } from '../private-auth-fields.js';
-import { VERIFICATION_PURPOSES, verificationSenderHint, type VerificationPurpose } from '../verification-email-local.js';
+import { VERIFICATION_PURPOSES, verificationSenderHint, verificationSiteUrl, type VerificationPurpose } from '../verification-email-local.js';
 import { GMAIL_IO_TIMEOUT_MS } from '../gmail-mcp-client.js';
 
 // Private credential transport. Magnus chooses controls; native fill emits normal input events.
@@ -355,7 +355,7 @@ export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, 
   const hint = verificationSenderHint(ctx.job.company, ctx.job.url, args.sender_hint);
   ctx.log('  ✉ waiting for the emailed verification code');
 
-  const site = hostOf(ctx.page.url());
+  const site = verificationSiteUrl(credentialUrl(ctx));
   const found = await findVerificationInGmail({ hint, site, purpose: args.purpose as VerificationPurpose, want: 'code', allowAlternative: true, requestedAt: freshness.requestedAt, timeoutMs: EMAIL_WAIT_MS, log: ctx.log });
   assertLive();
   if (!('error' in found) && found.kind !== 'code') return ok(`The site's email ("${found.subject.slice(0, 60)}") carries a link, not a code. Call open_emailed_link instead.`);
@@ -397,7 +397,7 @@ export async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, u
   if (freshness.error !== undefined) return ok(freshness.error, 'invalid-arguments');
   const hint = verificationSenderHint(ctx.job.company, ctx.job.url, args.sender_hint);
   ctx.log('  ✉ waiting for the emailed verification link');
-  const found = await findVerificationInGmail({ hint, site: hostOf(ctx.page.url()), purpose: args.purpose as VerificationPurpose, want: 'link', allowAlternative: true, requestedAt: freshness.requestedAt, timeoutMs: EMAIL_WAIT_MS, log: ctx.log });
+  const found = await findVerificationInGmail({ hint, site: verificationSiteUrl(credentialUrl(ctx)), purpose: args.purpose as VerificationPurpose, want: 'link', allowAlternative: true, requestedAt: freshness.requestedAt, timeoutMs: EMAIL_WAIT_MS, log: ctx.log });
   assertLive();
   if ('error' in found) {
     ctx.log(`  ✉ ${found.error}`);
