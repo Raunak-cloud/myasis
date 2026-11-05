@@ -30,8 +30,9 @@ export function discoveredFeed(raw:string):{source:EmployerSourceId;target:strin
   }catch{return null;}
 }
 const errorText=(e:unknown):string=>e instanceof Error?e.message.split('\n')[0].replace(/(?:postgres(?:ql)?|https?):\/\/\S+/g,'[source]').slice(0,350):'Public source could not be indexed.';
-export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{braveKey?:string;reviewer?:FitReviewer;maxReviews?:number;maxTasks?:number;crawler?:PublicCrawler;searchFetch?:typeof fetch;signal?:AbortSignal}={}):Promise<Record<string,unknown>> {
+export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{scheduled?:boolean;braveKey?:string;reviewer?:FitReviewer;maxReviews?:number;maxTasks?:number;crawler?:PublicCrawler;searchFetch?:typeof fetch;signal?:AbortSignal}={}):Promise<Record<string,unknown>> {
   const lock=await store.pool.connect();let cycleId:string|undefined;
+  let nextCrawlAt:Date|undefined;
   const stats={profiles:0,tasks:0,jobsSaved:0,matchesUpdated:0,fitCalls:0,filtered:0,blocked:0,failed:0,deferred:0,searchConfigured:!!options.braveKey,warnings:[] as string[]};
   try {
     if(!(await lock.query('SELECT pg_try_advisory_lock(830711,1) AS locked')).rows[0].locked)return {status:'busy'};
@@ -40,7 +41,15 @@ export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{bra
     await store.profiles(profiles);
     if(!await store.enabled())return {status:'paused'};
     await store.pool.query("UPDATE crawl_cycles SET status='interrupted',finished_at=now() WHERE status='running'");
-    cycleId=randomUUID();await store.pool.query('INSERT INTO crawl_cycles(id) VALUES($1)',[cycleId]);
+    // Under the existing single-worker lock, persist cadence through restarts
+    // and deployments. Explicit operator --once diagnostics remain available.
+    if(options.scheduled){
+      const next=(await lock.query<{next:Date|null}>("SELECT max(started_at)+interval '6 hours' AS next FROM crawl_cycles")).rows[0]?.next;
+      if(next&&next.getTime()>Date.now())return {status:'waiting',nextCrawlAt:next.toISOString()};
+    }
+    cycleId=randomUUID();
+    const started=(await store.pool.query<{started_at:Date}>('INSERT INTO crawl_cycles(id) VALUES($1) RETURNING started_at',[cycleId])).rows[0].started_at;
+    if(options.scheduled)nextCrawlAt=new Date(started.getTime()+6*60*60_000);
     const reviewsByOwner=new Map<string,number>();
     const ownerAllowance=Math.max(1,Math.ceil((options.maxReviews??8)/Math.max(1,profiles.length)));
     const admit=async(job:IndexedJob)=>{
@@ -162,7 +171,7 @@ export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{bra
     const activeIds=(await reader.query<{id:string}>(PAID_ACCOUNTS_SQL)).rows.map(u=>u.id);
     const activeProfiles=profiles.filter(p=>activeIds.includes(p.userId));await store.profiles(activeProfiles);
     await store.pool.query("UPDATE crawl_cycles SET finished_at=now(),status='finished',stats=$2 WHERE id=$1",[cycleId,JSON.stringify(stats)]);
-    return stats;
+    return {...stats,...(nextCrawlAt?{nextCrawlAt:nextCrawlAt.toISOString()}:{})};
   } catch(e) {
     if(cycleId)await store.pool.query("UPDATE crawl_cycles SET finished_at=now(),status='failed',error=$2,stats=$3 WHERE id=$1",[cycleId,errorText(e),JSON.stringify(stats)]);
     throw e;

@@ -123,3 +123,14 @@ test('uncertain vacancies do not block independently observed employer discovery
  assert.equal(stats.deferred,1);assert.equal(stats.jobsSaved,0);assert.equal((await pool.query('SELECT count(*) FROM indexed_jobs')).rows[0].count,'0');
  assert.equal((await pool.query("SELECT count(*) FROM crawl_tasks WHERE kind='feed' AND payload->>'source'='workday' AND payload->>'target'='https://example.wd3.myworkdayjobs.com/en-US/External'")).rows[0].count,'1');
 });
+
+test('scheduled crawls persist a six-hour start interval and do not rerun after restart',async()=>{
+ const options={scheduled:true,maxTasks:0,reviewer:pass};
+ const first=await crawlCycle(store,pool,options);assert.ok(Date.parse(String(first.nextCrawlAt))>Date.now()+5.99*3600_000);
+ await pool.query("UPDATE crawl_cycles SET status='running'");
+ const restartedStore=new JobIndexStore(pool);
+ const waiting=await crawlCycle(restartedStore,pool,options);assert.equal(waiting.status,'waiting');assert.equal(waiting.nextCrawlAt,first.nextCrawlAt);assert.equal((await pool.query('SELECT status FROM crawl_cycles')).rows[0].status,'interrupted');
+ assert.equal((await pool.query('SELECT count(*) FROM crawl_cycles')).rows[0].count,'1');
+ await pool.query("UPDATE crawl_cycles SET started_at=now()-interval '6 hours 1 second'");
+ const next=await crawlCycle(restartedStore,pool,options);assert.notEqual(next.status,'waiting');assert.equal((await pool.query('SELECT count(*) FROM crawl_cycles')).rows[0].count,'2');
+});
