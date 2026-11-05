@@ -85,6 +85,8 @@ export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{bra
     if(options.braveKey)for(const query of queries)await store.enqueue('search',{query},1);
     const savePage=async(page:PageResponse,depth:number,transient=false)=>{
       if(page.status>=400)throw Error('Public source returned an error.');
+      // Public employer discovery is independent of any one candidate's fit.
+      const feed=discoveredFeed(page.url);if(feed)for(const keyword of feed.source==='greenhouse'?['']:keys)await store.enqueue('feed',{...feed,keyword},2);
       const sitemap=/xml/.test(page.type)&&/<(?:urlset|sitemapindex)\b/.test(page.text);
       if(sitemap) {
         const parsed=new XMLParser({processEntities:false,ignoreAttributes:true}).parse(page.text);
@@ -98,7 +100,6 @@ export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{bra
         if(depth<2)for(const url of found.links)try{await store.enqueue('page',{url:crawlUrl(url).href,depth:depth+1},0);}catch{/* non-public destination */}
         if(!transient&&depth===0)await store.enqueue('page',{url:`${new URL(page.url).origin}/sitemap.xml`,depth:1},0);
       }
-      const feed=discoveredFeed(page.url);if(feed)for(const keyword of feed.source==='greenhouse'?['']:keys)await store.enqueue('feed',{...feed,keyword},2);
     };
     // Give every source a turn; a large blocked feed backlog must not starve
     // public pages, provider discovery or another employer integration.

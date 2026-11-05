@@ -116,3 +116,10 @@ test('one uncertain owner cannot prevent a confirmed match for another paid owne
  assert.equal(stats.jobsSaved,1);assert.equal(stats.deferred,1);assert.deepEqual((await pool.query('SELECT user_id::text FROM candidate_job_matches')).rows,[{user_id:'2'}]);
  const p=(await store.cachedProfiles()).find(p=>p.userId==='1')!;assert.equal(await store.cachedDecision(p,job),'uncertain');
 });
+
+test('uncertain vacancies do not block independently observed employer discovery',async()=>{
+ const url='https://example.wd3.myworkdayjobs.com/en-US/External/job/Sydney/Analyst';await store.enqueue('page',{url});
+ const stats=await crawlCycle(store,pool,{maxTasks:1,crawler:crawlerFor([raw('Data engineer',url)]),reviewer:async(j,p,e)=>({...await pass(j,p,e),decision:'uncertain'})});
+ assert.equal(stats.deferred,1);assert.equal(stats.jobsSaved,0);assert.equal((await pool.query('SELECT count(*) FROM indexed_jobs')).rows[0].count,'0');
+ assert.equal((await pool.query("SELECT count(*) FROM crawl_tasks WHERE kind='feed' AND payload->>'source'='workday' AND payload->>'target'='https://example.wd3.myworkdayjobs.com/en-US/External'")).rows[0].count,'1');
+});
