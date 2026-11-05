@@ -13,8 +13,8 @@ export function runResultLabel(status: { running: boolean; finishedAt: string | 
   if (!status.finishedAt) return 'Ready';
   if (lines.some(line => /stop requested/i.test(line.text))) return 'Stopped';
   if (status.exitCode !== 0) return 'Stopped early';
-  if (lines.some(line => /time limit; finishing current applications before exiting/i.test(line.text))) return 'Finished at time limit';
   if (lines.some(line => /✗\s+(?:unexpected )?error:|Submission not confirmed:|^Fatal:|time limit; stopping the worker/i.test(line.text))) return 'Finished with issues';
+  if (lines.some(line => /time limit; finishing current applications before exiting/i.test(line.text))) return 'Finished at time limit';
   return 'Finished';
 }
 

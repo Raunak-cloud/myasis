@@ -14,6 +14,7 @@ test('a drained deadline displays completion and saved results rather than a tim
   assert.ok(events.some(e=>e.title==='Finished at time limit' && /saved the results/.test(e.detail)));
   assert.ok(!events.some(e=>e.title==='Run stopped' || e.title==='The run stopped unexpectedly'));
   assert.equal(runResultLabel({running:false,finishedAt:new Date().toISOString(),exitCode:1},lines),'Stopped early','a real failure is still a failure');
+  assert.equal(runResultLabel({running:false,finishedAt:new Date().toISOString(),exitCode:0},[...lines,...log(['✗ error: Employer form could not be completed'])]),'Finished with issues','deadline completion must not hide an actual application error');
 });
 
 test('historical sole-agent judgements without saved questions are skipped, not phantom attention tasks', () => {
