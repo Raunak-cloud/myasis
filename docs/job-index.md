@@ -1,6 +1,6 @@
 # Paid-user job index
 
-The collector is independent of application runs. It reads active paid accounts, derives role/skill targeting from saved keywords and owned resumes, gathers public vacancies, shortlists by current preferences, reviews professional fit with MiniMax, and stores only confirmed matches in a **separate Neon-hosted PostgreSQL database, outside the VPS**. The crawler process can run on the VPS; the job catalog is never provisioned there. The administrator can search it under **Admin → Job index**. No job is approved, prepared, submitted or charged an application credit by this collector. Existing application schedules and fit criteria are unchanged.
+The collector is independent of application runs. It reads active paid accounts, derives role/skill targeting from saved keywords and owned resumes, gathers public vacancies, shortlists by current preferences, reviews professional fit with MiniMax, and stores only confirmed matches in a **separate Neon-hosted PostgreSQL database, outside the VPS**. The crawler process can run on the VPS; the job catalog is never provisioned there. The administrator can search it under the admin-only **Jobs** sidebar tab. No job is approved, prepared, submitted or charged an application credit by this collector. Existing application schedules and fit criteria are unchanged.
 
 ```mermaid
 flowchart LR
@@ -49,3 +49,5 @@ Design references: [Schema.org JobPosting](https://schema.org/JobPosting), [Gree
 Additional checks cover AI evidence validation, selected-model transport and truncation, matching-only atomic storage, stale-owner rejection, legacy catalog cleanup, negative-cache privacy, review budgets, transient leads, rotating multi-owner discovery, and failure/uncertainty handling. The crawler remains admin-only with no application browser or application/billing write grants.
 
 Scheduled collection starts no more than once every six hours, measured from the last recorded cycle start under the single-worker lock. Restarts and deployments preserve that due time. The worker sleeps until the next due time so Neon can suspend between crawls; missing configuration/deployment gates retry after one minute and paused/busy checks after five minutes, without collecting jobs. Explicit operator `--once` diagnostics bypass the scheduled cadence.
+
+The Jobs sidebar page is gated by admin entitlements; its existing `/api/admin/job-index` endpoints independently enforce administrator authentication. Expand a job to inspect its full public description, source/record identifiers, dates, tags, evidence and current owner match reasons/scores/model. This page does not initiate collection or applications when opened.

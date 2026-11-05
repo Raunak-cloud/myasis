@@ -120,6 +120,7 @@ const PAGES: Record<string, string> = {
   setup: 'Settings',
   support: 'Support',
   admin: 'Admin',
+  jobs: 'Jobs',
 };
 const pageLabel = (page: string) => PAGES[page] ?? page;
 function pageJourney(pages: string[]): string {

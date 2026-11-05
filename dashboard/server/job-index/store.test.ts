@@ -44,7 +44,7 @@ test('only current AI-approved owners can atomically retain jobs and content ver
  await store.profiles([profile]);await Promise.all([store.save(job,[a]),store.save(job,[a])]);
  assert.equal((await pool.query('SELECT count(*) FROM indexed_jobs')).rows[0].count,'1');
  assert.equal((await pool.query('SELECT count(*) FROM job_versions')).rows[0].count,'1');
- assert.equal((await store.search(new URLSearchParams({user:'1'})) as any).jobs.length,1);
+ const shown=(await store.search(new URLSearchParams({user:'1'})) as any).jobs;assert.equal(shown.length,1);assert.equal(shown[0].matches[0].userId,'1');assert.equal(shown[0].matches[0].match.review.score,90);assert.ok(shown[0].first_seen_at);assert.ok(shown[0].payload_hash);
  assert.equal((await store.search(new URLSearchParams({user:'2'})) as any).jobs.length,0);
  await store.profiles([{...profile,fingerprint:'changed'}]);
  assert.equal((await pool.query('SELECT count(*) FROM indexed_jobs')).rows[0].count,'0');

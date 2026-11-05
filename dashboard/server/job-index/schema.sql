@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS candidate_job_matches (
 );
 ALTER TABLE candidate_job_matches ADD COLUMN IF NOT EXISTS job_fingerprint text NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS candidate_job_matches_owner ON candidate_job_matches(user_id,matched_at DESC);
+CREATE INDEX IF NOT EXISTS candidate_job_matches_job ON candidate_job_matches(job_id,user_id);
 CREATE TABLE IF NOT EXISTS crawl_tasks (
  key text PRIMARY KEY, kind text NOT NULL CHECK(kind IN ('page','feed','search')),
  payload jsonb NOT NULL, state text NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','running','done','blocked','failed')),

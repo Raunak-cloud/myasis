@@ -106,7 +106,11 @@ export class JobIndexStore {
     const arrangement=params.get('arrangement'),pay=params.get('pay'),q=(params.get('q')??'').slice(0,150);
     const page=Math.max(0,Math.min(10_000,Math.floor(Number(params.get('page'))||0)));
     const filters:unknown[]=[q,user,arrangement,pay,page*50];
-    const result=await this.pool.query(`SELECT j.payload,j.first_seen_at,j.verified_at,${user?'m.payload':'NULL'} AS candidate_match
+    const result=await this.pool.query(`SELECT j.payload,j.first_seen_at,j.verified_at,j.payload_hash,
+      coalesce((SELECT jsonb_agg(jsonb_build_object('userId',cm.user_id::text,'matchedAt',cm.matched_at,'match',cm.payload) ORDER BY cm.user_id)
+        FROM candidate_job_matches cm JOIN search_profiles owner ON owner.user_id=cm.user_id AND owner.fingerprint=cm.profile_fingerprint
+        WHERE cm.job_id=j.id AND cm.job_fingerprint=j.payload_hash), '[]'::jsonb) AS matches,
+      ${user?'m.payload':'NULL'} AS candidate_match
       FROM indexed_jobs j ${user?'JOIN candidate_job_matches m ON m.job_id=j.id AND m.user_id=$2::bigint':'LEFT JOIN candidate_job_matches m ON false'}
       WHERE EXISTS(SELECT 1 FROM candidate_job_matches approved WHERE approved.job_id=j.id AND approved.job_fingerprint=j.payload_hash AND approved.payload#>>'{review,policy}'='resume-fit-v1') AND j.closed_at IS NULL AND (j.expires_at IS NULL OR j.expires_at>now()) AND j.verified_at>now()-interval '14 days'
        AND ($1='' OR j.search@@websearch_to_tsquery('english',$1)) AND ($3::text IS NULL OR j.arrangement=$3) AND ($4::text IS NULL OR j.pay_status=$4)

@@ -11,6 +11,7 @@ const AttentionPanel = lazy(() => import('./components/AttentionPanel').then((m)
 const ApplicationsPanel = lazy(() => import('./components/ApplicationsPanel').then((m) => ({ default: m.ApplicationsPanel })));
 const PreparedApplications = lazy(() => import('./components/PreparedApplications').then((m) => ({ default: m.PreparedApplications })));
 const SetupPanel = lazy(() => import('./components/SetupPanel').then((m) => ({ default: m.SetupPanel })));
+const JobsPanel = lazy(() => import('./components/JobIndexView').then((m) => ({ default: m.JobIndexView })));
 const AdminPanel = lazy(() => import('./components/AdminPanel').then((m) => ({ default: m.AdminPanel })));
 const PricingPanel = lazy(() => import('./components/PricingPanel').then((m) => ({ default: m.PricingPanel })));
 const SupportPanel = lazy(() => import('./components/SupportPanel').then((m) => ({ default: m.SupportPanel })));
@@ -31,7 +32,7 @@ import { captureRedditClickId, initRedditPixel, trackRedditEvent } from './reddi
 import { initMetaPixel, trackMetaEvent } from './metaPixel';
 import { useRunStatus } from './runStatus';
 
-type Tab = 'run' | 'prepared' | 'attention' | 'applications' | 'pricing' | 'setup' | 'support' | 'admin' | 'marketing';
+type Tab = 'run' | 'prepared' | 'attention' | 'applications' | 'pricing' | 'setup' | 'support' | 'admin' | 'jobs' | 'marketing';
 
 const FOLLOW_UP_DAYS = 10;
 const THEME_CYCLE: ThemePref[] = ['system', 'light', 'dark'];
@@ -61,6 +62,7 @@ const PAGE_COPY: Record<Tab, { title: string; description: string }> = {
     title: 'Submitted Applications',
     description: 'Track what was sent and record employer responses.',
   },
+  jobs: { title: 'Jobs', description: '' },
   admin: {
     title: 'Admin',
     description: 'Every account, every run, and the controls for them.',
@@ -133,7 +135,7 @@ export default function App() {
   const [boardsOpen, setBoardsOpen] = useState(false);
   /** Operator pages are only offered to admins; their APIs enforce the same restriction. */
   const isAdmin = entitlements?.tier === 'admin';
-  if (entitlements && !isAdmin && (tab === 'admin' || tab === 'marketing')) setTab('run');
+  if (entitlements && !isAdmin && (tab === 'admin' || tab === 'jobs' || tab === 'marketing')) setTab('run');
   /** What is in front of the visitor: the landing page while signed out, otherwise the tab. */
   useEffect(() => {
     // A first-time visitor already has the landing page in front of them while
@@ -343,6 +345,13 @@ export default function App() {
                 onClick={() => go('admin')}
               >
                 Admin dashboard
+              </button>
+              <button
+                className={`side-link ${tab === 'jobs' ? 'active' : ''}`}
+                aria-current={tab === 'jobs' ? 'page' : undefined}
+                onClick={() => go('jobs')}
+              >
+                Jobs
               </button>
             </>
           )}
@@ -568,6 +577,7 @@ export default function App() {
             <ApplicationsPanel apps={apps} loading={appsLoading} loadError={appsError} onChange={setApps} followUpDays={FOLLOW_UP_DAYS} showSkipped={isAdmin} showCosts={isAdmin} />
           )}
           {tab === 'admin' && isAdmin && <AdminPanel />}
+          {tab === 'jobs' && isAdmin && <JobsPanel />}
           {tab === 'pricing' && <PricingPanel />}
           {tab === 'setup' && <SetupPanel />}
           {tab === 'support' && <SupportPanel />}
