@@ -117,7 +117,7 @@ export const assessFit = async job => {
 import { record, waitForEvent } from './boundary.mjs';
 import { applicationAllowance } from ${JSON.stringify(new URL('./application-allowance.js', import.meta.url).href)};
 import { isExternalApplicationUrl } from ${JSON.stringify(new URL('./job-board-url.js', import.meta.url).href)};
-export const applyToJobWithAgent = async (_page,job) => {
+const performFixtureWork = async (_page,job) => {
   record('apply',job.id);
   if(job.applyWaitFor) await waitForEvent(job.applyWaitFor);
   await new Promise(done=>setTimeout(done,job.delayMs||0));
@@ -129,13 +129,15 @@ export const applyToJobWithAgent = async (_page,job) => {
   return job.lateApplied ? {status:'already-applied',jobId:job.id,reason:'Already recorded by the employer'}
     : {status:'applied',jobId:job.id,at:new Date().toISOString()};
 };
+export const applyToJobWithAgent = async (...args) => {record('form-fill',args[1].id);return performFixtureWork(...args);};
+export const prepareMatchedJob = async (...args) => {record('prepare-only',args[1].id);return performFixtureWork(...args);};
 export const applyToIndeedJob = applyToJobWithAgent;
 `);
     writeFileSync(join(directory, 'blocker.mjs'), "export const WALL_STATES = new Set(['captcha','login','identity']); export const judgePage = async () => ({state:'loading',reason:'Fixture delayed listing'});");
     const overrides: Record<string, string> = {
       './config.js': 'config.mjs', './browser.js': 'browser.mjs', './llm.js': 'llm.mjs',
       './discovery.js': 'discovery.mjs', './discovery-indeed.js': 'discovery.mjs',
-      './agent/apply-agent.js': 'apply.mjs', './apply-indeed.js': 'apply.mjs', './blocker.js': 'blocker.mjs',
+      './agent/apply-agent.js': 'apply.mjs', './apply-indeed.js': 'apply.mjs', './prepare-job.js':'apply.mjs', './blocker.js': 'blocker.mjs',
     };
     const main = readFileSync(new URL(options.queue ? './queue.js' : './main.js', import.meta.url), 'utf8').replace(
       /from ['"](\.\.?\/[^'"]+)['"]/g,
@@ -221,9 +223,9 @@ for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply
   const blocked = job('waiting'), fresh = job('different-job', { company: blocked.company, applicationUrl: 'https://employer.fixture.invalid/shared/apply' });
   const snapshot = requiredAnswerSnapshot();
   const result = run([blocked, fresh], { apply: true, prepare, waiting: [{ job: blocked, questions: [{ question: snapshot.prompt, snapshot }] }] });
-  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), [fresh.id]);
-  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), [fresh.id]);
-  assert.match(result.output, /waiting for your answers/);
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), [prepare?blocked.id:fresh.id]);
+  assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), [prepare?blocked.id:fresh.id]);
+  if(!prepare)assert.match(result.output, /waiting for your answers/);
 });
 test('an exact structured response reopens a pending job without deleting old ambiguous fragments', () => {
   const blocked = job('answered'), snapshot = requiredAnswerSnapshot();
@@ -242,8 +244,8 @@ for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply
   });
   const waiting = [{ job: blocked, questions: [{ question: snapshot.prompt, snapshot }] }];
   const held = run([blocked, fresh], { apply: true, prepare, waiting });
-  assert.deepEqual(held.events.filter(event => event.stage === 'fit').map(event => event.id), [fresh.id]);
-  assert.deepEqual(held.events.filter(event => event.stage === 'apply').map(event => event.id), [fresh.id]);
+  assert.deepEqual(held.events.filter(event => event.stage === 'fit').map(event => event.id), [prepare?blocked.id:fresh.id]);
+  assert.deepEqual(held.events.filter(event => event.stage === 'apply').map(event => event.id), [prepare?blocked.id:fresh.id]);
   const reopened = run([blocked], { apply: true, prepare, waiting,
     savedAnswers: [{ question: snapshot.prompt, answer: 'Synthetic applicant response.', snapshot, response: { part0: 'Synthetic applicant response.' } }],
   });
@@ -271,11 +273,12 @@ test('equal board IDs on a different source and different forms are not pending-
   const result = run([other], { apply: true, platform: 'indeed', waiting: [{ job: original, questions: [{ question: snapshot.prompt, snapshot }] }] });
   assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), [other.id]);
 });
-test('pending state is re-read after matching and before the applying agent starts', () => {
+for(const prepare of [false,true])test(`${prepare?'Preparation defers':'Auto apply rechecks'} a question arriving after matching`, () => {
   const target = job('late-question'), snapshot = requiredAnswerSnapshot();
-  const result = run([target], { apply: true, prepare: true, attentionOnFit: { job: target, questions: [{ question: snapshot.prompt, snapshot }] } });
+  const result = run([target], { apply: true, prepare, attentionOnFit: { job: target, questions: [{ question: snapshot.prompt, snapshot }] } });
   assert.ok(result.events.some(event => event.stage === 'fit'));
-  assert.equal(result.events.some(event => event.stage === 'apply'), false);
+  assert.equal(result.events.some(event => event.stage === 'apply'), prepare);
+  assert.equal(result.events.some(event=>event.stage==='form-fill'),false);
 });
 test('the existing exact operator repair target may recapture a pending question without a new bypass', () => {
   const target = job('repair-waiting'), snapshot = requiredAnswerSnapshot();
@@ -345,9 +348,11 @@ for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply
   assert.equal(result.history.filter(record => record.submittedByMyasis).length, prepare ? 0 : 3);
 });
 
-test('Semi auto fills only its run cap and records no submitted applications', () => {
+test('Semi auto prepares only its run cap without entering the form-filling adapter or recording submissions', () => {
   const result = run([job('one'), job('two'), job('three')], { apply: true, prepare: true, cap: 2, reviews: 3 });
   assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['one', 'two']);
+  assert.deepEqual(result.events.filter(event => event.stage === 'prepare-only').map(event => event.id), ['one','two']);
+  assert.equal(result.events.some(event=>event.stage==='form-fill'),false);
   assert.equal(result.history.length, 0);
   assert.match(result.output, /Semi auto complete: 2 application/);
 });

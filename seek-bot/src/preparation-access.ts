@@ -105,6 +105,16 @@ export async function checkPreparationAccess(page:Page,job:JobListing,profile:Ca
         const refs=Array.isArray(args.refs)?args.refs.map(String):[];
         const fields=o.fields.filter(f=>refs.includes(f.ref));
         if(!fields.length||fields.length!==refs.length||fields.some(f=>!isAuthenticationPasswordField(f)&&f.inputType!=='email'&&!/^(?:email(?: address)?|username|user name)$/i.test(f.label.trim())))return {ok:false,reason:'Access checking cannot fill application fields.'};
+        for(const f of fields){
+          const isolated=await browserTarget(current,{ref:f.ref}).evaluate(node=>{
+            const input=node as HTMLInputElement;
+            if(input.type==='password')return true;
+            const form=input.form??input.closest('[role="dialog"]');
+            const passwords=[...node.ownerDocument.querySelectorAll('input[type="password"]')].filter(n=>(n as HTMLElement).offsetParent!==null);
+            return !passwords.length||Boolean(form&&passwords.some(p=>form.contains(p)));
+          });
+          if(!isolated)return {ok:false,reason:'Only fields belonging to the observed sign-in form can be filled.'};
+        }
         const account=employerCredentialState(current.url(),profile.email,job.company);
         if(fields.some(isAuthenticationPasswordField)&&account.state!=='accepted')return {ok:false,reason:'Login is required but no accepted saved credential is available.'};
         attemptedLogin=true;
@@ -125,7 +135,13 @@ export async function checkPreparationAccess(page:Page,job:JobListing,profile:Ca
           const el=node as HTMLButtonElement;const form=el.form??node.closest('form');
           if(kind==='apply'&&form)return false;
           if(kind==='login'&&form){const inputs=[...form.querySelectorAll('input,textarea,select')].filter(n=>(n as HTMLElement).offsetParent!==null);
-            if(inputs.some(n=>n.tagName!=='INPUT'||!['email','password','text','submit','button','checkbox','hidden','tel','number'].includes((n as HTMLInputElement).type)))return false;}
+            if(inputs.some(n=>{
+              if(n.tagName!=='INPUT')return true;
+              const input=n as HTMLInputElement;
+              if(['email','password','submit','button','checkbox','hidden'].includes(input.type))return false;
+              const label=[...(input.labels??[])].map(l=>l.textContent??'').join(' ')+' '+(input.getAttribute('aria-label')??'')+' '+input.name;
+              return !/^(?:text|tel|number)$/.test(input.type)||!/email|username|user name|user.?id|password|verification|one.?time|otp|code/i.test(label);
+            }))return false;}
           return true;
         },action);
         if(!safe)return {ok:false,reason:'The access control could modify an application form.'};

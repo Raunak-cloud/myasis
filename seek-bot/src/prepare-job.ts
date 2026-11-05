@@ -13,6 +13,9 @@ import { runDeadline } from './run-deadline.js';
 import { withJobCost } from './cost-ledger.js';
 import { withApplicationAttempt, recordDiagnostic } from './agent/attempt-diagnostics.js';
 import { persistTrace, type TraceStep } from './agent/loop/trace.js';
+import { isExternalApplicationUrl } from './job-board-url.js';
+import { outsideScope } from './run-scope.js';
+import { applicationAllowance } from './application-allowance.js';
 
 /** Matching remains in the coordinator. This stage never invokes the applying agent. */
 export function prepareMatchedJob(page:Page,job:JobListing,profile:CandidateProfile,deps:{access?:typeof checkPreparationAccess;letter?:typeof finishedCoverLetterForJob}={}):Promise<ApplyOutcome>{
@@ -29,6 +32,10 @@ export function prepareMatchedJob(page:Page,job:JobListing,profile:CandidateProf
         recordDiagnostic({severity:'info',category:'preparation_access',stage:'preparation',tool:action,message:result});
       }});
       if(!access.ok)return finish({status:'skipped',jobId:job.id,reason:access.reason});
+      const external=isExternalApplicationUrl(access.checkedUrl);
+      if(external&&!config.allowExternalApply||outsideScope(external?'external':'hosted')||!await applicationAllowance(external))
+        return finish({status:'skipped',jobId:job.id,reason:'This application destination is outside the current scope or allowance.'});
+      job.applicationMode=external?'external':'hosted';
       const resume=resolveResume(config.resume.select||undefined)??(!config.resume.select&&loadResumes().length===1?loadResumes()[0]:null);
       const path=resume&&agentOnlyResumePath(resume.id);
       if(!resume||!path)return finish({status:'error',jobId:job.id,error:'Select an available account resume before preparing jobs.'});
