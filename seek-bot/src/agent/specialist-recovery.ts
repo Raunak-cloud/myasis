@@ -109,6 +109,7 @@ export class SpecialistRecovery {
  private task?:Task;
  private observation?:Observation;
  private observationVersion=0;
+ private checkpointGoal?:Verification;
  constructor(saved?:{version:1;task?:Task;observationVersion:number}) {
   if(saved){
    if(saved.version!==1)throw Error('Unsupported specialist recovery checkpoint');
@@ -117,11 +118,37 @@ export class SpecialistRecovery {
     this.task.attempts??=[];
     // Older records could be blocked by malformed reports rather than failed work.
     if(this.task.phase==='blocked'&&this.task.stopReason?.startsWith('Specialist recovery verification could not be completed:'))this.task.phase='decision';
+    // Older checkpoints could store the newest advice alongside its predecessor's
+    // goal. Reconcile a same-control correction only after fresh named evidence.
+    if(this.task.phase!=='resolved'&&this.task.advice.startsWith('READ-ONLY SPECIALIST ADVICE.')){
+     try{
+      const goal=JSON.parse(this.task.advice.slice(this.task.advice.indexOf('\n')+1)).recovery_goal as Verification;
+      const old=this.task.verification;
+      if(!toolInputIssue(goal,specialistVerificationSchema)&&old&&goal.kind===old.kind
+       &&normal(goal.target)===normal(old.target)&&hash(goal)!==hash(old))this.checkpointGoal=goal;
+     }catch{/* Invalid historical advice cannot change the recorded goal. */}
+    }
    }
   }
  }
  checkpoint(){return {version:1 as const,task:this.task,observationVersion:this.observationVersion};}
- observe(o:Observation){this.observation=o;if(!o.inspectionError)this.observationVersion++;}
+ observe(o:Observation){
+  this.observation=o;
+  if(!o.inspectionError){
+   this.observationVersion++;
+   const goal=this.checkpointGoal;
+   const named=goal?.kind==='field-value'?safeFields(o).filter(f=>normal(f.label)===normal(goal.target))
+    :goal?.kind==='control-enabled'?o.actions.filter(a=>normal(a.text)===normal(goal.target)):[];
+   if(goal&&named.length===1){this.checkpointGoal=undefined;this.reviseGoal(goal);}
+  }
+ }
+ private reviseGoal(goal:Verification):void {
+  const t=this.task!;
+  // Invalidate reports based on the previous advice without minting more work
+  // attempts or discarding actual operations, results and duplicate protection.
+  t.id=randomUUID();t.verification=goal;t.phase='decision';t.attemptOpen=false;t.invalidChecks=0;
+  delete t.decision;delete t.reason;delete t.plan;delete t.stopReason;
+ }
  private get observationId(){return this.observation?`observation:${this.observationVersion}:${hash(surface(this.observation)).slice(0,16)}`:undefined;}
  private get resultId(){return this.task?.result!==undefined?`result:${this.task.id}:${this.task.resultVersion??0}`:undefined;}
  private get goalObserved(){return !!this.task?.verification&&!!this.observation&&satisfies(this.task.verification,this.observation);}
@@ -131,10 +158,17 @@ export class SpecialistRecovery {
   const goal=bindGoal(contents.recovery_goal as Verification,this.observation);
   const issue=toolInputIssue(goal,specialistVerificationSchema);if(issue)throw Error('Specialist advice lacks a verifiable recovery goal: '+issue);
   const adviceKey=hash([advice,this.observation?surface(this.observation):'']);
-  if(this.task?.adviceKey===adviceKey)return;
+  const goalChanged=!!this.task&&(!this.task.verification||hash(this.task.verification)!==hash(goal));
+  if(this.task?.adviceKey===adviceKey&&!goalChanged)return;
+  this.checkpointGoal=undefined;
+  const boundAdvice=header+'\n'+JSON.stringify({...contents,recovery_goal:goal});
   // Another consultation cannot reset this blocker's spent attempts.
-  if(this.pending){this.task!.advice=advice;this.task!.adviceKey=adviceKey;this.task!.verification??=goal;return;}
-  this.task={id:randomUUID(),advice:header+'\n'+JSON.stringify({...contents,recovery_goal:goal}),adviceKey,phase:'decision',verification:goal,history:[],verifiedEvidence:[],visited:this.observation?[hash(surface(this.observation))]:[],checks:0,attempts:[]};
+  if(this.pending){
+   this.task!.advice=boundAdvice;this.task!.adviceKey=adviceKey;
+   if(goalChanged)this.reviseGoal(goal);
+   return;
+  }
+  this.task={id:randomUUID(),advice:boundAdvice,adviceKey,phase:'decision',verification:goal,history:[],verifiedEvidence:[],visited:this.observation?[hash(surface(this.observation))]:[],checks:0,attempts:[]};
  }
  get pending(){return !!this.task&&this.task.phase!=='resolved'&&!this.goalObserved;}
  get unresolved(){return this.pending;}

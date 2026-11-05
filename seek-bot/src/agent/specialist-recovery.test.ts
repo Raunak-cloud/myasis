@@ -81,3 +81,74 @@ test('recovery is bounded before any specialist consultation and advice cannot r
  act(r,{action:'press',ref:'f0',value:'ArrowDown'},true);act(r,{action:'press',ref:'f0',value:'Space'},true);
  assert.match(r.permit('browser_action',{action:'press',ref:'f0',value:'Enter'})!,/three distinct/);
 });
+
+const referralLabel='How did you hear about this role?';
+const referral=(value='',validationError?:string):Observation=>({...obs(),fields:[
+ {ref:'f0',label:referralLabel,kind:'text',required:false,currentValue:value,validationError},
+]});
+const adviceFor=(value:string,target=referralLabel)=>'READ-ONLY SPECIALIST ADVICE.\n'+JSON.stringify({
+ advice:'Use the exact employer option supported by current evidence.',recovery_goal:{kind:'field-value',target,value},
+});
+
+test('new advice replaces a stale generic referral goal with the observed employer option',()=>{
+ const r=new SpecialistRecovery();r.observe(referral());r.accept(adviceFor('Job board'));
+ const action={action:'fill',ref:'f0',value:'Seek.com.au'};
+ assert.equal(r.permit('browser_action',action),undefined);
+ r.complete('browser_action',action,'Selected Seek.com.au',false,true);r.observe(referral('Seek.com.au'));
+ assert.throws(()=>r.check(check(r,'resolved')),/not yet observed/,'reproduce the old literal mismatch');
+ const old=view(r),history=structuredClone(r.checkpoint().task!.history);
+ r.failedCheck('check_specialist_recovery','The old goal is not observed.');
+ r.accept(adviceFor('Seek.com.au','f0'));
+ const current=view(r);
+ assert.deepEqual(current.verification,{kind:'field-value',target:referralLabel,value:'Seek.com.au'});
+ assert.notEqual(current.advice_id,old.advice_id,'reports referring to the former goal become stale');
+ assert.equal(current.goal_observed,true);assert.equal(r.pending,false);assert.equal(current.attempts,1);
+ assert.deepEqual(r.checkpoint().task!.history,history);assert.equal(current.stopReason,undefined);
+ assert.equal(r.checkpoint().task!.result,'Selected Seek.com.au','actual operation evidence is retained');
+ assert.throws(()=>r.check({...check(r,'resolved'),advice_id:old.advice_id}),/actual operation/);
+ assert.throws(()=>r.respond({...plan(r),advice_id:old.advice_id},tools),/stale/);
+ assert.match(r.check(check(r,'resolved')),/goal is observed/);
+ assert.equal(r.permit('prepare_application',{}),undefined,'normal preparation still owns its accuracy/approval checks');
+ assert.equal(JSON.parse(r.checkpoint().task!.advice.split('\n').slice(1).join('\n')).recovery_goal.target,referralLabel);
+ const restored=new SpecialistRecovery(structuredClone(r.checkpoint()));restored.observe(referral('Seek.com.au'));
+ assert.equal(view(restored).advice_id,current.advice_id,'a consistent checkpoint does not revise the goal again');
+});
+
+test('a corrected goal still requires actual matching values without validation errors',()=>{
+ for(const current of [referral('No Selection'),referral('Seek.com.au','Choose an option')]){
+  const r=new SpecialistRecovery();r.observe(referral());r.accept(adviceFor('Job board'));
+  r.complete('browser_action',{action:'inspect',ref:'f0'},'Actual field readback',false,true);r.observe(current);
+  r.accept(adviceFor('Seek.com.au'));assert.equal(r.pending,true);
+  assert.throws(()=>r.check(check(r,'resolved')),/not yet observed/);
+ }
+});
+
+test('goal replacement preserves the spent approach limit and rejects malformed advice',()=>{
+ const r=start();
+ for(const args of [{action:'click',ref:'a0'},{action:'fill',ref:'f0',value:'attempt'},{action:'press',ref:'f0',value:'ArrowDown'}])act(r,args,true);
+ const prior=structuredClone(r.checkpoint());
+ assert.throws(()=>r.accept('READ-ONLY SPECIALIST ADVICE.\n'+JSON.stringify({advice:'Missing a goal'})),/verifiable recovery goal/);
+ assert.deepEqual(r.checkpoint(),prior,'invalid new advice cannot alter the current goal');
+ r.accept(adviceFor('Another supported answer','Answer'));
+ assert.equal(view(r).attempts,3);assert.match(r.permit('browser_action',{action:'press',ref:'f0',value:'Tab'})!,/three distinct/);
+ const id=view(r).advice_id;r.accept(adviceFor('Another supported answer','Answer'));
+ assert.equal(view(r).advice_id,id,'repeated same advice is idempotent');
+});
+
+test('legacy mismatched checkpoint waits for fresh named field evidence before adopting its latest advice',()=>{
+ const r=new SpecialistRecovery();r.observe(referral());r.accept(adviceFor('Job board'));
+ r.complete('browser_action',{action:'fill',ref:'f0',value:'Seek.com.au'},'Actual selection result',false,true);
+ const saved=structuredClone(r.checkpoint()),oldId=saved.task!.id;
+ // Shape produced by the old accept() bug: new advice, old verification.
+ saved.task!.advice=adviceFor('Seek.com.au');saved.task!.stopReason='Stale reporting feedback';
+ const restored=new SpecialistRecovery(saved);
+ restored.observe({...referral('Seek.com.au'),inspectionError:'Inspection failed'});
+ assert.equal(view(restored).verification.value,'Job board');
+ restored.observe(obs('A different field has the same transient ref','Seek.com.au'));
+ assert.equal(view(restored).verification.value,'Job board','a reused field ref cannot authorize migration');
+ restored.observe(referral('Seek.com.au'));
+ assert.equal(view(restored).verification.value,'Seek.com.au');assert.notEqual(view(restored).advice_id,oldId);
+ assert.equal(restored.pending,false);assert.equal(view(restored).attempts,1);
+ assert.equal(restored.checkpoint().task!.result,'Actual selection result');
+ assert.equal(view(restored).stopReason,undefined);
+});
