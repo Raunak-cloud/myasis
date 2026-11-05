@@ -61,8 +61,9 @@ test('paused cycles still remove stale owners and jobs beyond their saved age li
 });
 
 test('legacy unreviewed catalog entries are removed by an idempotent catalog-only migration',async()=>{
+ await pool.query('UPDATE job_index_config SET match_policy=NULL');await store.enqueue('page',{url:job.url});const task=(await store.claim())!;await store.finish(task,'done');
  await pool.query(`INSERT INTO indexed_jobs(id,canonical_url,title,company,description,source,source_id,payload,payload_hash,arrangement,pay_status) VALUES($1,$2,'Legacy','Fixture','Old public listing','fixture','x',$3,'legacy','not-mentioned','not-mentioned')`,[job.id,job.url,JSON.stringify(job)]);
- await store.migrate();await store.migrate();assert.equal((await pool.query('SELECT count(*) FROM indexed_jobs')).rows[0].count,'0');
+ await store.migrate();const due=(await pool.query('SELECT due_at FROM crawl_tasks')).rows[0].due_at;assert.ok(+due<=Date.now());await store.migrate();assert.equal(+(await pool.query('SELECT due_at FROM crawl_tasks')).rows[0].due_at,+due);assert.equal((await pool.query('SELECT count(*) FROM indexed_jobs')).rows[0].count,'0');
  assert.equal((await pool.query('SELECT count(*) FROM application_credit_grants')).rows[0].count,'3');
 });
 
@@ -106,4 +107,12 @@ test('expanded search combines role and resume skills while returned provider UR
  const stats=await crawlCycle(store,pool,{maxTasks:1,reviewer:pass,braveKey:'fictional',crawler:crawlerFor([raw('Data engineer',job.url)]),searchFetch:async(_url,init)=>{searches++;assert.match(String(_url),/freshness=pm/);assert.doesNotMatch(String(_url),/person@|resume/);assert.match(String(init?.headers&&JSON.stringify(init.headers)),/fictional/);return Response.json({web:{results:[{url:'https://careers.fixture.org/transient-lead',description:'Do not store snippet'}]}});}});
  assert.equal(searches,1);assert.equal(stats.jobsSaved,1);assert.doesNotMatch(JSON.stringify((await pool.query('SELECT payload FROM crawl_tasks')).rows),/transient-lead|Do not store snippet/);
  assert.deepEqual(discoveredFeed('https://job-boards.greenhouse.io/Fixture/jobs/123'),{source:'greenhouse',target:'Fixture'});
+});
+
+test('one uncertain owner cannot prevent a confirmed match for another paid owner',async()=>{
+ await pool.query("UPDATE application_credit_grants SET expires_at=now()+interval '1 day' WHERE user_id=2; UPDATE settings SET value='Data engineer' WHERE user_id=2; INSERT INTO profiles VALUES(2,'Python, SQL','Data engineer')");
+ await store.enqueue('page',{url:job.url});
+ const stats=await crawlCycle(store,pool,{maxTasks:1,crawler:crawlerFor([raw('Data engineer',job.url)]),reviewer:async(j,p,e)=>({...await pass(j,p,e),decision:p.userId==='1'?'uncertain':'match'})});
+ assert.equal(stats.jobsSaved,1);assert.equal(stats.deferred,1);assert.deepEqual((await pool.query('SELECT user_id::text FROM candidate_job_matches')).rows,[{user_id:'2'}]);
+ const p=(await store.cachedProfiles()).find(p=>p.userId==='1')!;assert.equal(await store.cachedDecision(p,job),'uncertain');
 });

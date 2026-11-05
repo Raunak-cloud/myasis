@@ -41,27 +41,32 @@ export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{bra
     if(!await store.enabled())return {status:'paused'};
     await store.pool.query("UPDATE crawl_cycles SET status='interrupted',finished_at=now() WHERE status='running'");
     cycleId=randomUUID();await store.pool.query('INSERT INTO crawl_cycles(id) VALUES($1)',[cycleId]);
+    const reviewsByOwner=new Map<string,number>();
+    const ownerAllowance=Math.max(1,Math.ceil((options.maxReviews??8)/Math.max(1,profiles.length)));
     const admit=async(job:IndexedJob)=>{
-      await store.invalidate(job);let saved=false;
+      await store.invalidate(job);let saved=false,pendingWait=0;
       for(const profile of profiles){
         const pre=matchJob(job,profile);if(!pre)continue;
         let match=await store.cachedDecision(profile,job);
+        if(match==='uncertain'){pendingWait=3600_000;continue;}
         if(match===undefined){
           const facts=evidence.get(profile.userId);
           if(!facts?.resume){stats.warnings.push(`Account ${profile.userId}: professional evidence unavailable; no job admitted.`);continue;}
-          if(!options.reviewer||stats.fitCalls>=(options.maxReviews??8))throw new CrawlDeferred(5*60_000,'AI fit-review cycle allowance reached; remaining reviews are queued.');
-          stats.fitCalls++;
-          const decision=await options.reviewer(job,profile,facts,options.signal);
+          if(!options.reviewer||stats.fitCalls>=(options.maxReviews??8)||(reviewsByOwner.get(profile.userId)??0)>=ownerAllowance){pendingWait=5*60_000;continue;}
+          stats.fitCalls++;reviewsByOwner.set(profile.userId,(reviewsByOwner.get(profile.userId)??0)+1);
+          let decision;
+          try{decision=await options.reviewer(job,profile,facts,options.signal);}catch(error){if(error instanceof CrawlDeferred){pendingWait=error.waitMs;continue;}throw error;}
           match=confirmedMatch(decision,job,profile,facts,pre);
-          const uncertain=decision.decision==='uncertain'||decision.decision==='match'&&decision.constraints==='unknown';
+          const uncertain=decision.decision==='uncertain';
           await store.cacheDecision(profile,job,match,uncertain);
-          if(uncertain)throw new CrawlDeferred(3600_000,'Fit remains uncertain; the job is queued for re-evaluation, not saved as a match.');
+          if(uncertain){pendingWait=3600_000;continue;}
         }
         if(match){
           const active=(await reader.query<{id:string}>(PAID_ACCOUNTS_SQL)).rows;
           if(active.some(u=>u.id===profile.userId)&&await store.save(job,[{profile,match}])){if(!saved)stats.jobsSaved++;saved=true;stats.matchesUpdated++;}
         }
       }
+      if(pendingWait)throw new CrawlDeferred(pendingWait,'Some owner reviews remain uncertain, unavailable or over their cycle allowance; remaining work is queued.');
       if(!saved)stats.filtered++;
     };
     const crawler=options.crawler??new PublicCrawler();
@@ -123,7 +128,7 @@ export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{bra
           }
           }catch(e){throw lastIssue??e;}
         } else if(task.kind==='search') {
-          if(!queries.includes(p.query)){await store.finish(task,'done',null,365*86400_000);continue;}
+          if(!queries.includes(p.query)){await store.finish(task,'done',null,24*3600_000);continue;}
           if(!options.braveKey)throw new CrawlBlocked('Web discovery requires a configured search-provider key.');
           if(!await store.reserveSearch())throw new CrawlDeferred(24*3600_000);
           const u=new URL('https://api.search.brave.com/res/v1/web/search');u.search=new URLSearchParams({q:p.query,country:'au',count:'10',freshness:'pm'}).toString();

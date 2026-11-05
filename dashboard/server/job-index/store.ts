@@ -55,9 +55,9 @@ export class JobIndexStore {
     await c.query(`DELETE FROM indexed_jobs j WHERE NOT EXISTS(SELECT 1 FROM candidate_job_matches m WHERE m.job_id=j.id AND m.job_fingerprint=j.payload_hash AND m.payload#>>'{review,policy}'=$1)`,[MATCH_POLICY]);
     await c.query('DELETE FROM fit_decisions WHERE expires_at<now()');
   }
-  async cachedDecision(p:SearchProfile,job:IndexedJob):Promise<MatchResult|null|undefined> {
+  async cachedDecision(p:SearchProfile,job:IndexedJob):Promise<MatchResult|null|'uncertain'|undefined> {
     const rows=(await this.pool.query('SELECT decision,match FROM fit_decisions WHERE user_id=$1 AND profile_fingerprint=$2 AND job_fingerprint=$3 AND policy=$4 AND expires_at>now()',[p.userId,p.fingerprint,fingerprint(job),MATCH_POLICY])).rows;
-    return !rows.length?undefined:rows[0].decision==='match'?rows[0].match:null;
+    return !rows.length?undefined:rows[0].decision==='match'?rows[0].match:rows[0].decision==='uncertain'?'uncertain':null;
   }
   async cacheDecision(p:SearchProfile,job:IndexedJob,match:MatchResult|null,uncertain=false):Promise<void> {
     await this.pool.query(`INSERT INTO fit_decisions(user_id,profile_fingerprint,job_fingerprint,policy,decision,match,expires_at) SELECT $1,$2,$3,$4,$5,$6,now()+$7*interval '1 hour' WHERE EXISTS(SELECT 1 FROM search_profiles WHERE user_id=$1 AND fingerprint=$2)

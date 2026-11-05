@@ -59,6 +59,11 @@ CREATE TABLE IF NOT EXISTS fit_review_requests (
  id uuid PRIMARY KEY,created_at timestamptz NOT NULL DEFAULT now(),reserved_usd numeric NOT NULL CHECK(reserved_usd>0),
  amount_usd numeric,basis text NOT NULL DEFAULT 'unknown',status text NOT NULL DEFAULT 'requested'
 );
+ALTER TABLE job_index_config ADD COLUMN IF NOT EXISTS match_policy text;
+-- Rebuild from previously readable publisher sources once when activating the
+-- gate. Do not retry refused sources or reset application/schedule history.
+UPDATE crawl_tasks SET due_at=now() WHERE state='done' AND kind IN ('feed','page') AND (SELECT match_policy FROM job_index_config WHERE singleton) IS DISTINCT FROM 'resume-fit-v1';
+UPDATE job_index_config SET match_policy='resume-fit-v1' WHERE singleton;
 -- Catalog-only migration: remove legacy unreviewed entries and their public
 -- versions. Customer applications, credentials and activity are in another DB.
 DELETE FROM candidate_job_matches WHERE payload#>>'{review,policy}' IS DISTINCT FROM 'resume-fit-v1';
