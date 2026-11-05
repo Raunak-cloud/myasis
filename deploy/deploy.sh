@@ -7,6 +7,14 @@
 # account. So: refuse new runs first (the dashboard checks the lock file),
 # wait for the ones in flight to finish, and only then build and restart.
 set -euo pipefail
+# Operators may allow slow hosts more verification time, but may neither skip
+# checks nor leave them unbounded. Validate before taking the deployment gate.
+CHECK_TIMEOUT_SECONDS=${DEPLOY_CHECK_TIMEOUT_SECONDS:-240}
+if ! [[ "$CHECK_TIMEOUT_SECONDS" =~ ^[0-9]{3}$ ]] || (( CHECK_TIMEOUT_SECONDS < 240 || CHECK_TIMEOUT_SECONDS > 600 )); then
+  echo 'DEPLOY_CHECK_TIMEOUT_SECONDS must be between 240 and 600' >&2
+  exit 2
+fi
+CHECK_SOFT_TIMEOUT_SECONDS=$((CHECK_TIMEOUT_SECONDS - 2))
 # Serialize whole releases, including builds/tests. The .deploying file only
 # blocks job starts; it cannot keep two deploys from clearing the same dist.
 exec 9>/run/lock/myasis-deploy.lock
@@ -124,9 +132,9 @@ as_app "set -o pipefail; cd $APP/seek-bot && npm run build 2>&1 | tail -1"
 as_app "set -o pipefail; cd $APP/dashboard && npm run build 2>&1 | tail -1"
 as_app "cd $APP/market-scout && npm exec tsc -- -p ."
 # Allow the additional production-baseline compilation on the 2-vCPU server.
-# At most 238 seconds to finish, then 2 seconds before forced termination.
+# Reserve two seconds for forced termination within the configured bound.
 # A failed or timed-out check stops the release; it never counts as a pass.
-echo 'Running limited deployment checks (240-second maximum)'
+echo "Running limited deployment checks ($CHECK_TIMEOUT_SECONDS-second maximum)"
 FORCE_FLAG=0
 if [ "${FORCE_DEPLOY:-}" = 1 ]; then FORCE_FLAG=1; fi
 REPLAY_BASELINE_FLAG=""
@@ -134,7 +142,7 @@ if [ -n "${REPLAY_BASELINE_SHA:-}" ]; then
   [[ "$REPLAY_BASELINE_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo 'Replay baseline must be a full production revision' >&2; exit 1; }
   REPLAY_BASELINE_FLAG="REPLAY_BASELINE_SHA=$REPLAY_BASELINE_SHA "
 fi
-as_app "cd $APP && ${REPLAY_BASELINE_FLAG}FORCE_DEPLOY=$FORCE_FLAG timeout --signal=TERM --kill-after=2s 238s bash deploy/smoke-check.sh $REPLAY_REQUIRED"
+as_app "cd $APP && ${REPLAY_BASELINE_FLAG}FORCE_DEPLOY=$FORCE_FLAG timeout --signal=TERM --kill-after=2s ${CHECK_SOFT_TIMEOUT_SECONDS}s bash deploy/smoke-check.sh $REPLAY_REQUIRED"
 # Apply idempotent schema upgrades before the new dashboard and its scheduler
 # start querying new columns. A migration failure leaves the old process up.
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/migrate-db.mts"
