@@ -79,6 +79,26 @@ export class AppliedIndex {
   }
 }
 
+/** A possible send belongs in visible history even without a receipt. Keep
+ * it out of submitted counts and prevent automatic retries; never replace
+ * an existing confirmed or owner-recorded outcome with uncertainty. */
+export function recordUnconfirmedApplication(index: AppliedIndex, job: JobListing, outcome: ApplyOutcome,
+  score = job.fitReview?.score ?? 0, scoreReasons = job.fitReview?.evidence ?? []): boolean {
+  if (outcome.submitPressed !== true || !['skipped','error','needs-human','off-platform'].includes(outcome.status)
+    || index.hasApplication(job)) return false;
+  let site = outcome.site;
+  if (!site && job.applicationMode === 'external') {
+    try { site = new URL(outcome.applicationUrl ?? job.applicationUrl ?? job.url).hostname; } catch { /* Retain the known listing even if the destination is unavailable. */ }
+  }
+  index.add({jobId:job.id,title:job.title,company:job.company,location:job.location,url:job.url,
+    platform:job.platform ?? 'seek',appliedAt:new Date().toISOString(),score,scoreReasons,
+    confirmationStatus:'unconfirmed',submittedByMyasis:false,external:job.applicationMode==='external',
+    salary:job.salary,workArrangement:job.workArrangement,ageDaysAtApply:job.ageDays,
+    applicationUrl:outcome.applicationUrl ?? job.applicationUrl,site,
+    coverLetter:outcome.coverLetter,answers:outcome.answers,resume:outcome.resume,actions:outcome.actions});
+  return true;
+}
+
 export function logOutcome(outcome: ApplyOutcome & { title?: string; company?: string; url?: string; reviewId?: string; reviewCache?: ReviewCacheMetadata }) {
   if (outcome.status === 'applied') recordSubmittedCost(outcome.jobId);
   ensureDir();

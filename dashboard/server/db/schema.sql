@@ -416,7 +416,7 @@ ALTER TABLE applications ADD COLUMN IF NOT EXISTS external BOOLEAN NOT NULL DEFA
 -- submit. A legacy row with neither a score nor a submitted cover letter came
 -- from a discovery-only path; recovered submission artefacts remain visible.
 ALTER TABLE applications ADD COLUMN IF NOT EXISTS submitted_by_myasis BOOLEAN NOT NULL DEFAULT true;
-UPDATE applications SET submitted_by_myasis = false WHERE score = 0 AND cover_letter IS NULL;
+UPDATE applications SET submitted_by_myasis = false WHERE score = 0 AND cover_letter IS NULL AND outcome IS NULL;
 
 -- OAuth grants are encrypted per account. Only the private Gmail MCP service
 -- decrypts them for verification reads and candidate-confirmed email sends.

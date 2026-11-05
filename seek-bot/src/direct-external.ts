@@ -7,7 +7,7 @@ import { applicationFailureContext } from './application-diagnostics.js';
 import { assessFit } from './llm.js';
 import { refreshMatchedApplication } from './matched-application.js';
 import { config } from './config.js';
-import { AppliedIndex, logOutcome, saveRunSummary } from './store.js';
+import { AppliedIndex, logOutcome, saveRunSummary, recordUnconfirmedApplication } from './store.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 
 interface PageIdentity {
@@ -159,7 +159,8 @@ export async function runDirectExternalApplication(
     outcome = { status: 'error', jobId: job.id, error: (error as Error).message,
       submitPressed: applicationFailureContext(error)?.submitPressed === true };
   }
-  logOutcome({ ...outcome, title: job.title, company: job.company });
+  recordUnconfirmedApplication(index, job, outcome);
+  logOutcome({ ...outcome, title: job.title, company: job.company, url: job.url });
   for (const action of outcome.actions ?? []) console.log(`  ℹ ${action.detail}`);
 
   if (outcome.status === 'applied') {

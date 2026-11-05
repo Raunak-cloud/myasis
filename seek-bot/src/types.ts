@@ -181,6 +181,11 @@ export type ApplyOutcome = (
     }
   | { status: 'error'; jobId: string; error: string; recoveryId?: string; retryable?: boolean }
 ) & {
+  /** Captured attempt content; an unconfirmed send does not prove delivery. */
+  site?: string;
+  coverLetter?: string;
+  answers?: Array<{ question: string; answer: string }>;
+  resume?: string;
   /** What this attempt changed or used on the candidate's behalf, whatever its result. */
   actions?: ApplicationAction[];
   /**

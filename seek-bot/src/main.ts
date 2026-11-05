@@ -53,7 +53,7 @@ import { countHealth } from './run-health.js';
 import { outsideScope, runScope, SCOPE_LABEL, scopeSkipReason } from './run-scope.js';
 import { deterministicExclusion, scoreJob } from './scoring.js';
 import { SmartRecruitersDiscovery } from './smartrecruiters.js';
-import { AppliedIndex, logOutcome, saveRunSummary, syncFromSeek } from './store.js';
+import { AppliedIndex, logOutcome, saveRunSummary, syncFromSeek, recordUnconfirmedApplication } from './store.js';
 import { reviewDuplicate, DuplicateReviewQueue } from './duplicate-review.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
 import { approvedApplications, approvedApplication, pendingApplicationKeys, preparingApplications } from './application-review.js';
@@ -1243,6 +1243,8 @@ async function main() {
             slot.finish(finalOutcome?.status === 'applied' || finalOutcome?.status === 'prepared');
             if (finalOutcome?.status === 'prepared') for (const key of applicationKeys(job)) preparedKeys.add(key);
             if (finalOutcome?.submitPressed && finalOutcome.status !== 'applied') for (const key of applicationKeys(job)) uncertainKeys.add(key);
+            if (finalOutcome) recordUnconfirmedApplication(index, job, finalOutcome, score,
+              job.fitReview?.evidence ?? reasons);
             releaseDuplicateReview?.();
             if (limitReached()) {
               applicationLimit.abort();

@@ -132,7 +132,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
   const [filter, setFilter] = useState<'all' | 'awaiting' | 'interview' | 'rejected'>('all');
   const [open, setOpen] = useState<Application | null>(null);
   const [outcomeSaving, setOutcomeSaving] = useState(false);
-  const [outcomeError, setOutcomeError] = useState<{ jobId: string; message: string } | null>(null);
+  const [outcomeError, setOutcomeError] = useState<{ jobId: string; platform: string; message: string } | null>(null);
   const [query, setQuery] = useState('');
   const [accounts, setAccounts] = useState<SiteAccount[]>([]);
 
@@ -144,21 +144,21 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
       .catch(() => {});
   }, [apps]);
 
-  async function setOutcome(jobId: string, outcome: Outcome | null) {
+  async function setOutcome(jobId: string, outcome: Outcome | null, platform?: string) {
     if (outcomeSaving) return;
     setOutcomeSaving(true); setOutcomeError(null);
     try {
       const res = await fetch('/api/applications', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId, patch: { outcome } }),
+        body: JSON.stringify({ jobId, platform:platform ?? 'seek', patch: { outcome } }),
       });
       const j = await res.json().catch(() => null);
       if (!res.ok || !Array.isArray(j?.applications)) throw new Error(j?.error ?? 'Could not save this outcome. Please try again.');
       onChange(j.applications);
-      setOpen(current => current?.jobId === jobId ? null : current);
+      setOpen(current => current?.jobId === jobId && (current.platform ?? 'seek') === (platform ?? 'seek') ? null : current);
     } catch (reason) {
-      setOutcomeError({ jobId, message: reason instanceof Error ? reason.message : 'Could not save this outcome. Please try again.' });
+      setOutcomeError({ jobId, platform:platform ?? 'seek', message: reason instanceof Error ? reason.message : 'Could not save this outcome. Please try again.' });
     } finally { setOutcomeSaving(false); }
   }
 
@@ -258,7 +258,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                 const age = daysSince(a.appliedAt);
                 const stale = !a.confirmationStatus && !a.outcome && age >= followUpDays;
                 return (
-                  <tr key={a.jobId} className="clickable application-item" onClick={() => setOpen(a)}>
+                  <tr key={`${a.platform ?? 'seek'}:${a.jobId}`} className="clickable application-item" onClick={() => setOpen(a)}>
                     <td className="application-role">
                       <div className="job-title">
                         {a.title}
@@ -366,33 +366,34 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                 </div>
               ) : null}
 
-              {!open.confirmationStatus && <div className="section">
+              <div className="section">
                 <h3>Outcome</h3>
+                {open.confirmationStatus && <p className="job-meta">Received an interview invitation or rejection? Record it here to confirm the application reached the employer.</p>}
                 <div className="chips">
-                  {OUTCOMES.map((o) => (
+                  {OUTCOMES.filter(o=>!open.confirmationStatus||o.id==='interview'||o.id==='rejected').map((o) => (
                     <button
                       key={o.id}
                       disabled={outcomeSaving}
                       className={`chip ${open.outcome === o.id ? 'on' : ''}`}
-                      onClick={() => setOutcome(open.jobId, o.id)}
+                      onClick={() => setOutcome(open.jobId, o.id, open.platform)}
                     >
                       {o.label}
                     </button>
                   ))}
                   {open.outcome && (
-                    <button className="chip" disabled={outcomeSaving} onClick={() => setOutcome(open.jobId, null)}>
+                    <button className="chip" disabled={outcomeSaving} onClick={() => setOutcome(open.jobId, null, open.platform)}>
                       Clear
                     </button>
                   )}
                 </div>
-                {outcomeError?.jobId === open.jobId && <p className="job-meta" role="alert">{outcomeError.message}</p>}
-                {!open.outcome && daysSince(open.appliedAt) >= followUpDays && (
+                {outcomeError?.jobId === open.jobId && outcomeError.platform === (open.platform ?? 'seek') && <p className="job-meta" role="alert">{outcomeError.message}</p>}
+                {!open.confirmationStatus && !open.outcome && daysSince(open.appliedAt) >= followUpDays && (
                   <p className="job-meta follow-hint">
                     Sent {daysSince(open.appliedAt)} days ago with no outcome recorded. A short
                     follow-up to the recruiter is reasonable at this point.
                   </p>
                 )}
-              </div>}
+              </div>
 
               {open.resumeName && !open.confirmationStatus && (
                 <div className="section">

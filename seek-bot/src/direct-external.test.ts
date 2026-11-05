@@ -90,5 +90,9 @@ test('direct URL must pass current-preference review before any application acti
   assert.equal(actions,2,'Orchestration never retries an uncertain send.');
   const rows=readFileSync(join(dir,'run-log.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
   assert.equal(rows[0].status,'skipped');assert.equal(rows[1].status,'needs-human');assert.equal(rows[2].status,'error');assert.equal(rows[2].submitPressed,true);
+  const history=JSON.parse(readFileSync(join(dir,'applied.json'),'utf8'));
+  assert.equal(history.length,1,'only the attempt that might have sent is retained in visible application history');
+  assert.equal(history[0].confirmationStatus,'unconfirmed');assert.equal(history[0].submittedByMyasis,false);
+  assert.equal(history[0].platform,'external');assert.equal(history[0].external,true);
  });}finally{await browser.close();config.dryRun=previous.dry;config.allowExternalApply=previous.external;rmSync(dir,{recursive:true,force:true});}
 });

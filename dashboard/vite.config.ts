@@ -23,6 +23,7 @@ import {
 } from './server/settings.js';
 import { query, one, health as dbHealth, migrate as dbMigrate } from './server/db/index.js';
 import { upsertSettingRow } from './server/db/records.js';
+import { recordApplicationOutcome, ApplicationOutcomeError } from './server/application-outcomes.js';
 import { matchThresholdError } from './src/runSettings.js';
 import { CUSTOM_MIN_SCORE } from './src/pricing.js';
 import { userRunLimitError, dailyApplicationLimit } from '../seek-bot/src/run-limits.js';
@@ -391,11 +392,8 @@ function dataApi(): Plugin {
             // Only the user-recorded outcome is writable; the record of what
             // was actually sent to an employer stays immutable.
             const b = await readBody();
-            await query(
-              `UPDATE applications SET outcome = $3
-                WHERE user_id = $1 AND job_id = $2 AND submitted_by_myasis`,
-              [userId, b.jobId, b.patch?.outcome ?? null],
-            );
+            try { await recordApplicationOutcome(userId,b.jobId,b.platform,b.patch?.outcome); }
+            catch(error) { if(error instanceof ApplicationOutcomeError)return send({error:error.message},error.status); throw error; }
             const rows = await query<ApplicationRow>(
               `SELECT job_id, title, company, location, url, platform, score, salary, work_arrangement,
                       age_days_at_apply, cover_letter, answers, score_reasons, outcome, applied_at,

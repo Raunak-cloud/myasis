@@ -21,7 +21,8 @@ export function outcomeFromRun(
 ): ApplyOutcome {
   const extras = {
     ...(run.actions.length ? { actions: run.actions } : {}),
-    ...(run.submitPressed ? { submitPressed: true } : {}),
+    ...(run.submitPressed ? { submitPressed: true, site: run.site, coverLetter: run.coverLetter, answers: run.captured,
+      ...(run.resumeName || run.resumeUsed ? { resume: run.resumeName || run.resumeUsed } : {}) } : {}),
     ...(run.applicationUrl ? { applicationUrl: run.applicationUrl } : {}),
   };
   switch (run.outcome.status) {

@@ -1,7 +1,7 @@
 import type { PreparedApplication } from './application-review-types.js';
 import { submitApprovedEmail } from './gmail-mailbox.js';
 import { withApplicationAllowance } from './application-allowance.js';
-import { AppliedIndex, logOutcome, saveRunSummary } from './store.js';
+import { AppliedIndex, logOutcome, saveRunSummary, recordUnconfirmedApplication } from './store.js';
 import { countHealth } from './run-health.js';
 import { config } from './config.js';
 import { normaliseAttentionOutcome } from './blocked-questions.js';
@@ -26,6 +26,7 @@ export async function runApprovedEmailBatch(drafts: PreparedApplication[]): Prom
     }
     // The MCP server rechecks this exact, paid approval before it accesses Gmail.
     const outcome = normaliseAttentionOutcome(await withApplicationAllowance(async () => index.appliedToday() < config.limits.maxApplicationsPerDay, () => submitApprovedEmail(draft)));
+    recordUnconfirmedApplication(index, job, outcome);
     logOutcome({ ...outcome, reviewId: draft.id, title: job.title, company: job.company, url: job.url });
     countHealth('attempted');
     if (outcome.status === 'applied') {

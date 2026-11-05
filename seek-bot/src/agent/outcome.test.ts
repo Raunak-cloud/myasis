@@ -10,6 +10,8 @@ const run = (outcome: Run['outcome'], submitPressed: boolean): Run => ({
 const skipped = outcomeFromRun(run({ status: 'skipped', reason: 'page did not change' }, true), 'job-1', 'https://employer.example/apply');
 assert.equal(skipped.status, 'skipped');
 assert.equal(skipped.submitPressed, true);
+const captured=outcomeFromRun({...run({status:'skipped',reason:'Receipt unavailable'},true),coverLetter:'Actual captured letter',resumeName:'CV.txt',captured:[{question:'Licence',answer:'Yes'}]},'uncertain','https://employer.example/apply');
+assert.equal(captured.coverLetter,'Actual captured letter');assert.equal(captured.resume,'CV.txt');assert.deepEqual(captured.answers,[{question:'Licence',answer:'Yes'}]);
 assert.equal(outcomeFromRun(run({ status: 'skipped', reason: 'x' }, false), 'job-1', '').submitPressed, undefined);
 const rejection = outcomeFromRun(run({ status: 'skipped', reason: 'Location mismatch', fitRejection: { source: 'listing', evidence: 'Melbourne VIC' } }, false), 'job-1', '');
 assert.ok(rejection.status === 'skipped' && rejection.fitRejection?.source === 'listing');
