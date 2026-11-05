@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {publisherJob,parseLeads} from './codex-discovery.js';
+import {publisherJob,parseLeads,leadSchema,MAX_CODEX_PACKET_BYTES,aggregatorUrl} from './codex-discovery.js';
 import {australianEligibility} from './geography.js';
 const url='https://careers.fixture.org/jobs/123';
 const description='Build reliable data pipelines with Python and SQL, collaborate with analysts and deliver accurate reporting products for the finance and operations teams.';
@@ -24,7 +24,17 @@ test('capital/subdivision resolution cannot override foreign structured countrie
  for(const location of ['Sydney','Melbourne, Florida','Sydney, NSW, Canada','Australia excluded'])assert.notEqual(australianEligibility({locations:[location],applicantLocations:[],workArrangement:'onsite'}).status,'eligible');
  assert.notEqual(australianEligibility({locations:['Sydney, NSW'],locationCountries:['Canada'],applicantLocations:[],workArrangement:'onsite'}).status,'eligible');
 });
-test('agent packets reject malformed, duplicate, non-public and oversized results',()=>{
+test('agent packets have no fixed listing count while retaining byte, type and URL guards',()=>{
  assert.equal(parseLeads({jobs:[lead,lead]}).length,1);
- for(const jobs of [[{...lead,url:'http://localhost/jobs'}],[{...lead,title:42}],[{...lead,workArrangement:'invented'}],Array(16).fill(lead)])assert.throws(()=>parseLeads({jobs}));
+ assert.equal('maxItems' in leadSchema.properties.jobs,false);
+ assert.equal(parseLeads({jobs:Array.from({length:100},(_,i)=>({...lead,url:url+'-'+i}))}).length,100);
+ for(const jobs of [[{...lead,url:'http://localhost/jobs'}],[{...lead,title:42}],[{...lead,workArrangement:'invented'}],[{...lead,discoveredFrom:'javascript:alert(1)'}]])assert.throws(()=>parseLeads({jobs}));
+ assert.throws(()=>parseLeads({jobs:[],extra:'x'.repeat(MAX_CODEX_PACKET_BYTES)}),/transfer size/);
+});
+test('aggregators are discovery sources, never the final employer application destination',()=>{
+ for(const source of ['https://au.jora.com/job/123','https://www.adzuna.com.au/details/123','https://au.jooble.org/job/123','https://au.talent.com/view?id=123']){
+  assert.equal(aggregatorUrl(source),true);assert.equal(publisherJob(html,source,{...lead,url:source}),null);
+  const j=publisherJob(html,url,{...lead,discoveredFrom:source})!;assert.ok(j);assert.equal(j.url,url);assert.equal(j.evidence.discoverySource,source);
+ }
+ assert.equal(aggregatorUrl('https://jobs.lever.co/fixture/vacancy'),false);
 });

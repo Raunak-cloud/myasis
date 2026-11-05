@@ -3,7 +3,7 @@ import {writeFileSync,existsSync} from 'node:fs';
 import {createInterface} from 'node:readline';
 import {indexStore,indexConfig,appReader} from '../server/job-index/config.js';
 import {claimSearch,finishSearch,readyPath,waiting} from '../server/job-index/manual.js';
-import {parseLeads,leadSchema,importCodexJobs} from '../server/job-index/codex-discovery.js';
+import {parseLeads,leadSchema,importCodexJobs,MAX_CODEX_PACKET_BYTES} from '../server/job-index/codex-discovery.js';
 import {minimaxReviewer} from '../server/job-index/review.js';
 import {readEnv} from '../server/runner.js';
 import {paidProfiles} from '../server/job-index/accounts.js';
@@ -23,7 +23,7 @@ try{
   const rl=createInterface({input:process.stdin,crlfDelay:Infinity});
   const packet=await new Promise<any>((resolve,reject)=>{
    const deadline=setTimeout(()=>{rl.close();reject(Error('Codex search timed out.'));},10*60_000);
-   rl.once('line',line=>{clearTimeout(deadline);try{if(Buffer.byteLength(line)>256_000)throw Error();resolve(JSON.parse(line));}catch{reject(Error('Invalid Codex response.'));}finally{rl.close();}});
+   rl.once('line',line=>{clearTimeout(deadline);try{if(Buffer.byteLength(line)>MAX_CODEX_PACKET_BYTES)throw Error();resolve(JSON.parse(line));}catch{reject(Error('Invalid Codex response.'));}finally{rl.close();}});
    rl.once('close',()=>{clearTimeout(deadline);reject(Error('Codex connection ended before results were received.'));});
   });
   if(packet.id!==job.id||packet.lease!==job.lease)throw Error('Search ownership changed.');

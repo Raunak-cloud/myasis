@@ -9,6 +9,7 @@ cd "$APP"
 for script in deploy/deploy.sh deploy/public-site.sh deploy/smoke-check.sh deploy/install-repair-pilot.sh deploy/repair-pilot-sandbox.sh; do bash -n "$script"; done
 REPLAY_REQUIRED=${1:-0}
 node --test deploy/replay-baseline.test.mjs
+node --test deploy/job-index-codex-connector.test.mjs
 
 # Each group uses its own process state and fixture directories. Check every
 # child exit status; launching a background job alone never establishes success.
