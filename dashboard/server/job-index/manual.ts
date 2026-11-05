@@ -1,12 +1,15 @@
 import {randomUUID} from 'node:crypto';
 import {existsSync,mkdirSync,statSync,writeFileSync,unlinkSync} from 'node:fs';
+import {resolve,sep} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import type {JobIndexStore} from './store.js';
 
 export type SearchProvider='brave'|'codex';
-export const signalPath=(provider:SearchProvider)=>new URL(`../../../output/job-index-${provider}.pending`,import.meta.url);
+const signalRoot=()=>process.env.JOB_INDEX_SIGNAL_DIR?pathToFileURL(resolve(process.env.JOB_INDEX_SIGNAL_DIR)+sep):new URL('../../../output/',import.meta.url);
+export const signalPath=(provider:SearchProvider)=>new URL(`job-index-${provider}.pending`,signalRoot());
 export const readyPath=new URL('../../../output/job-index-codex.ready',import.meta.url);
 export function codexConnected():boolean{try{return Date.now()-statSync(readyPath).mtimeMs<45_000;}catch{return false;}}
-export function signal(provider:SearchProvider):void{mkdirSync(new URL('../../../output/',import.meta.url),{recursive:true});writeFileSync(signalPath(provider),'pending\n',{mode:0o600});}
+export function signal(provider:SearchProvider):void{mkdirSync(signalRoot(),{recursive:true});writeFileSync(signalPath(provider),'pending\n',{mode:0o600});}
 export function clearSignal(provider:SearchProvider):void{try{unlinkSync(signalPath(provider));}catch{/* already claimed */}}
 export function waiting(provider:SearchProvider):boolean{return existsSync(signalPath(provider));}
 export class ManualSearchError extends Error{readonly status:number;constructor(message:string,status=409){super(message);this.status=status;}}

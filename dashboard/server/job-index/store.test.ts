@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {before,beforeEach,after,test} from 'node:test';
 import {randomUUID} from 'node:crypto';
+import {resolve} from 'node:path';
+import {rmdirSync} from 'node:fs';
 import pg from 'pg';
 import {readEnv} from '../runner.js';
 import {JobIndexStore} from './store.js';
@@ -13,6 +15,8 @@ import type {SearchProfile} from './types.js';
 import {discoveryQueries} from './discovery.js';
 import {requestSearch,claimSearch,finishSearch,clearSignal} from './manual.js';
 const schema=`job_index_test_${randomUUID().replaceAll('-','')}`;
+// Test wake-up files must never clear or activate a live manual request.
+process.env.JOB_INDEX_SIGNAL_DIR=resolve(import.meta.dirname,'../../../output',schema);
 const connectionString=process.env.JOB_INDEX_TEST_URL??process.env.DATABASE_URL??readEnv().DATABASE_URL;
 if(!connectionString)throw Error('A local PostgreSQL test connection is required.');
 const pool=new pg.Pool({connectionString,max:4,options:`-c search_path=${schema}`}),store=new JobIndexStore(pool);
@@ -36,7 +40,7 @@ beforeEach(async()=>{await pool.query(`TRUNCATE manual_searches,search_profiles,
  INSERT INTO application_credit_grants VALUES(1,1,now()+interval '1 day'),(2,2,now()-interval '1 day'),(3,3,now()+interval '1 day');
  INSERT INTO settings VALUES(1,'KEYWORDS','Data engineer'),(1,'WORK_ARRANGEMENTS','remote'),(2,'KEYWORDS','Never read this owner');
  INSERT INTO profiles VALUES(1,'Python, SQL','Data engineer');`);});
-after(async()=>{await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await pool.end();});
+after(async()=>{await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await pool.end();try{rmdirSync(process.env.JOB_INDEX_SIGNAL_DIR!);}catch{/* no signals created */}});
 
 test('only current AI-approved owners can atomically retain jobs and content versions',async()=>{
  await store.migrate();assert.equal(await store.save(job,[]),false);
