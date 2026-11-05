@@ -2,12 +2,30 @@ import pg from 'pg';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { fingerprint, matchJob } from './extract.js';
+import {AUSTRALIA_POLICY,australianEligibility} from './geography.js';
 import {MATCH_POLICY,type IndexedJob,type SearchProfile,type MatchResult} from './types.js';
 
 export interface CrawlTask { key: string; kind: 'page'|'feed'|'search'; payload: Record<string, any>; lease: string; attempts: number }
 export class JobIndexStore {
   readonly pool:pg.Pool;constructor(pool: pg.Pool) {this.pool=pool;}
-  async migrate(): Promise<void> { await this.pool.query(readFileSync(new URL('./schema.sql',import.meta.url),'utf8')); }
+  async migrate(): Promise<void> {
+    const c=await this.pool.connect();try{
+      await c.query('BEGIN');await c.query('SELECT pg_advisory_xact_lock(830711,3)');
+      await c.query(readFileSync(new URL('./schema.sql',import.meta.url),'utf8'));
+      // Quarantine is enforced in reads too. Validate legacy catalog facts with
+      // the very same policy as new writes; never promote an AI score alone.
+      await c.query('LOCK TABLE indexed_jobs IN SHARE ROW EXCLUSIVE MODE');
+      for(;;){
+        const rows=(await c.query<{id:string;payload:IndexedJob}>('SELECT id,payload FROM indexed_jobs WHERE country_policy IS DISTINCT FROM $1 LIMIT 500',[AUSTRALIA_POLICY])).rows;
+        if(!rows.length)break;
+        const eligible=rows.filter(r=>australianEligibility(r.payload).status==='eligible').map(r=>r.id);
+        const rejected=rows.filter(r=>!eligible.includes(r.id)).map(r=>r.id);
+        if(eligible.length)await c.query('UPDATE indexed_jobs SET country_policy=$1 WHERE id=ANY($2::text[])',[AUSTRALIA_POLICY,eligible]);
+        if(rejected.length)await c.query('DELETE FROM indexed_jobs WHERE id=ANY($1::text[])',[rejected]);
+      }
+      await c.query('COMMIT');
+    }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
+  }
   async enabled(): Promise<boolean> { return (await this.pool.query('SELECT enabled FROM job_index_config WHERE singleton')).rows[0]?.enabled===true; }
   async purgeInactive(ids:string[]):Promise<void> {const c=await this.pool.connect();try{await c.query('BEGIN');await c.query('DELETE FROM search_profiles WHERE NOT(user_id=ANY($1::bigint[]))',[ids]);await this.prune(c);await c.query('COMMIT');}catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}}
   async cachedProfiles():Promise<SearchProfile[]> {return (await this.pool.query<{payload:SearchProfile}>('SELECT payload FROM search_profiles')).rows.map(r=>r.payload);}
@@ -26,6 +44,7 @@ export class JobIndexStore {
     } catch(e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
   }
   async save(job: IndexedJob,approvals:Array<{profile:SearchProfile;match:MatchResult}>): Promise<boolean> {
+    if(australianEligibility(job).status!=='eligible')return false;
     if(!approvals.length)return false;
     if(approvals.some(a=>a.match.status!=='matched'||a.match.review?.policy!==MATCH_POLICY||!Number.isFinite(a.match.review.score)||a.match.review.score<(a.profile.criteria?.minScore??60)||!matchJob(job,a.profile)))throw Error('Only reviewed matching jobs can enter the catalog.');
     const c=await this.pool.connect(), hash=fingerprint(job);
@@ -38,11 +57,11 @@ export class JobIndexStore {
       // the ID and URL have unique constraints; an upsert alone cannot arbitrate
       // two simultaneous inserts conflicting on both indexes.
       await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,8321))',[job.url]);
-      await c.query(`INSERT INTO indexed_jobs(id,canonical_url,title,company,description,source,source_id,payload,payload_hash,arrangement,pay_status,posted_at,expires_at)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(id) DO UPDATE SET
+      await c.query(`INSERT INTO indexed_jobs(id,canonical_url,title,company,description,source,source_id,payload,payload_hash,arrangement,pay_status,posted_at,expires_at,country_policy)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT(id) DO UPDATE SET
         title=excluded.title,company=excluded.company,description=excluded.description,source=excluded.source,source_id=excluded.source_id,
         payload=excluded.payload,payload_hash=excluded.payload_hash,arrangement=excluded.arrangement,pay_status=excluded.pay_status,
-        posted_at=excluded.posted_at,expires_at=excluded.expires_at,verified_at=now(),closed_at=NULL`,[job.id,job.url,job.title,job.company,job.description,job.source,job.sourceId,JSON.stringify(job),hash,job.workArrangement,job.pay.status,job.postedAt,job.expiresAt]);
+        posted_at=excluded.posted_at,expires_at=excluded.expires_at,country_policy=excluded.country_policy,verified_at=now(),closed_at=NULL`,[job.id,job.url,job.title,job.company,job.description,job.source,job.sourceId,JSON.stringify(job),hash,job.workArrangement,job.pay.status,job.postedAt,job.expiresAt,AUSTRALIA_POLICY]);
       await c.query('INSERT INTO job_versions(job_id,payload_hash,payload) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',[job.id,hash,JSON.stringify(job)]);
       await c.query('DELETE FROM candidate_job_matches WHERE job_id=$1 AND job_fingerprint<>$2',[job.id,hash]);
       for(const a of approvals)await c.query(`INSERT INTO candidate_job_matches(user_id,job_id,profile_fingerprint,job_fingerprint,payload) VALUES($1,$2,$3,$4,$5) ON CONFLICT(user_id,job_id) DO UPDATE SET profile_fingerprint=excluded.profile_fingerprint,job_fingerprint=excluded.job_fingerprint,payload=excluded.payload,matched_at=now()`,[a.profile.userId,job.id,a.profile.fingerprint,hash,JSON.stringify(a.match)]);
@@ -51,6 +70,7 @@ export class JobIndexStore {
   }
   async close(url: string): Promise<void> { await this.pool.query('UPDATE indexed_jobs SET closed_at=now() WHERE canonical_url=$1',[url]); }
   private async prune(c:pg.PoolClient):Promise<void> {
+    await c.query('DELETE FROM indexed_jobs WHERE country_policy IS DISTINCT FROM $1',[AUSTRALIA_POLICY]);
     await c.query(`DELETE FROM candidate_job_matches m WHERE NOT EXISTS(SELECT 1 FROM search_profiles p JOIN indexed_jobs j ON j.id=m.job_id WHERE p.user_id=m.user_id AND p.fingerprint=m.profile_fingerprint AND j.closed_at IS NULL AND (j.expires_at IS NULL OR j.expires_at>now()) AND (j.posted_at IS NULL OR coalesce((p.payload#>>'{criteria,maxAgeDays}')::float8,0)=0 OR j.posted_at>=now()-coalesce((p.payload#>>'{criteria,maxAgeDays}')::float8,0)*interval '1 day'))`);
     await c.query(`DELETE FROM indexed_jobs j WHERE NOT EXISTS(SELECT 1 FROM candidate_job_matches m WHERE m.job_id=j.id AND m.job_fingerprint=j.payload_hash AND m.payload#>>'{review,policy}'=$1)`,[MATCH_POLICY]);
     await c.query('DELETE FROM fit_decisions WHERE expires_at<now()');
@@ -105,14 +125,14 @@ export class JobIndexStore {
     const user=params.get('user');if(user&&!/^\d+$/.test(user))throw Error('Choose a valid account.');
     const arrangement=params.get('arrangement'),pay=params.get('pay'),q=(params.get('q')??'').slice(0,150);
     const page=Math.max(0,Math.min(10_000,Math.floor(Number(params.get('page'))||0)));
-    const filters:unknown[]=[q,user,arrangement,pay,page*50];
+    const filters:unknown[]=[q,user,arrangement,pay,page*50,AUSTRALIA_POLICY,MATCH_POLICY];
     const result=await this.pool.query(`SELECT j.payload,j.first_seen_at,j.verified_at,j.payload_hash,
       coalesce((SELECT jsonb_agg(jsonb_build_object('userId',cm.user_id::text,'matchedAt',cm.matched_at,'match',cm.payload) ORDER BY cm.user_id)
         FROM candidate_job_matches cm JOIN search_profiles owner ON owner.user_id=cm.user_id AND owner.fingerprint=cm.profile_fingerprint
         WHERE cm.job_id=j.id AND cm.job_fingerprint=j.payload_hash), '[]'::jsonb) AS matches,
       ${user?'m.payload':'NULL'} AS candidate_match
       FROM indexed_jobs j ${user?'JOIN candidate_job_matches m ON m.job_id=j.id AND m.user_id=$2::bigint':'LEFT JOIN candidate_job_matches m ON false'}
-      WHERE EXISTS(SELECT 1 FROM candidate_job_matches approved WHERE approved.job_id=j.id AND approved.job_fingerprint=j.payload_hash AND approved.payload#>>'{review,policy}'='resume-fit-v1') AND j.closed_at IS NULL AND (j.expires_at IS NULL OR j.expires_at>now()) AND j.verified_at>now()-interval '14 days'
+      WHERE j.country_policy=$6 AND EXISTS(SELECT 1 FROM candidate_job_matches approved WHERE approved.job_id=j.id AND approved.job_fingerprint=j.payload_hash AND approved.payload#>>'{review,policy}'=$7) AND j.closed_at IS NULL AND (j.expires_at IS NULL OR j.expires_at>now()) AND j.verified_at>now()-interval '14 days'
        AND ($1='' OR j.search@@websearch_to_tsquery('english',$1)) AND ($3::text IS NULL OR j.arrangement=$3) AND ($4::text IS NULL OR j.pay_status=$4)
        AND ($2::text IS NULL OR m.user_id=$2::bigint) ORDER BY j.verified_at DESC,j.id LIMIT 51 OFFSET $5`,filters);
     return {jobs:result.rows.slice(0,50),hasMore:result.rows.length>50,page};

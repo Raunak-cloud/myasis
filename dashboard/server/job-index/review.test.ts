@@ -8,7 +8,7 @@ import {CrawlDeferred} from './network.js';
 import {professionalEvidence} from './accounts.js';
 const p={userId:'1',fingerprint:'one',keywords:['Data engineer'],skills:['Python','SQL'],location:'Sydney',arrangements:['remote'],excludedCompanies:[],sources:{}};
 const e={resume:'Data engineer with Python and SQL experience.',instructions:'No senior roles.'};
-const j=normaliseJob({title:'Data engineer',hiringOrganization:{name:'Fixture'},description:'Build reliable data pipelines using Python and SQL. Fully remote role.'},'https://careers.fixture.org/jobs/1')!;
+const j=normaliseJob({jobLocation:{address:{addressCountry:'AU'}},title:'Data engineer',hiringOrganization:{name:'Fixture'},description:'Build reliable data pipelines using Python and SQL. Fully remote role.'},'https://careers.fixture.org/jobs/1')!;
 const d={decision:'match' as const,score:90,reason:'Relevant work.',employerEvidence:'Build reliable data pipelines',candidateEvidence:'Python and SQL experience',constraints:'satisfied' as const};
 test('admission requires a valid score, satisfied constraints and independently grounded evidence',()=>{
   assert.equal(confirmedMatch(d,j,p,e,matchJob(j,p)!)?.status,'matched');

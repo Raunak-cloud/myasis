@@ -10,12 +10,13 @@ import type { JobListing } from '../../../seek-bot/src/types.js';
 import type {IndexedJob} from './types.js';
 import {confirmedMatch,type FitReviewer} from './review.js';
 import {discoveryQueries} from './discovery.js';
+import {australianEligibility} from './geography.js';
 interface Feed { search:(keyword:string,page:number)=>Promise<JobListing[]>;detail:(job:JobListing)=>Promise<JobListing> }
 type FeedConstructor=new(source:Exclude<EmployerSourceId,'smartrecruiters'>,raw:string,options:Record<string,unknown>)=>Feed;
 type SmartConstructor=new(raw:string,options:Record<string,unknown>)=>Feed;
 
-function fromFeed(job:JobListing) {
-  return normaliseJob({title:job.title,hiringOrganization:{name:job.company},description:job.description,url:job.url,identifier:job.id,datePosted:job.listedAt,jobLocation:{name:job.location},workArrangement:job.workArrangement},job.url,job.platform);
+export function fromFeed(job:JobListing) {
+  return normaliseJob({title:job.title,hiringOrganization:{name:job.company},description:job.description,url:job.url,identifier:job.id,datePosted:job.listedAt,jobLocation:{name:job.location,...(job.locationCountry?{address:{addressCountry:job.locationCountry}}:{})},workArrangement:job.workArrangement},job.url,job.platform);
 }
 /** New employers observed on the web join the same validated public-feed queue. */
 export function discoveredFeed(raw:string):{source:EmployerSourceId;target:string}|null {
@@ -33,7 +34,7 @@ const errorText=(e:unknown):string=>e instanceof Error?e.message.split('\n')[0].
 export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{scheduled?:boolean;braveKey?:string;reviewer?:FitReviewer;maxReviews?:number;maxTasks?:number;crawler?:PublicCrawler;searchFetch?:typeof fetch;signal?:AbortSignal}={}):Promise<Record<string,unknown>> {
   const lock=await store.pool.connect();let cycleId:string|undefined;
   let nextCrawlAt:Date|undefined;
-  const stats={profiles:0,tasks:0,jobsSaved:0,matchesUpdated:0,fitCalls:0,filtered:0,blocked:0,failed:0,deferred:0,searchConfigured:!!options.braveKey,warnings:[] as string[]};
+  const stats={profiles:0,tasks:0,jobsSaved:0,matchesUpdated:0,fitCalls:0,filtered:0,locationExcluded:0,locationUnknown:0,blocked:0,failed:0,deferred:0,searchConfigured:!!options.braveKey,warnings:[] as string[]};
   try {
     if(!(await lock.query('SELECT pg_try_advisory_lock(830711,1) AS locked')).rows[0].locked)return {status:'busy'};
     await store.purgeInactive((await reader.query<{id:string}>(PAID_ACCOUNTS_SQL)).rows.map(u=>u.id));
@@ -53,7 +54,10 @@ export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{sch
     const reviewsByOwner=new Map<string,number>();
     const ownerAllowance=Math.max(1,Math.ceil((options.maxReviews??8)/Math.max(1,profiles.length)));
     const admit=async(job:IndexedJob)=>{
-      await store.invalidate(job);let saved=false,pendingWait=0;
+      await store.invalidate(job);
+      const eligibility=australianEligibility(job);
+      if(eligibility.status!=='eligible'){stats.filtered++;if(eligibility.status==='excluded')stats.locationExcluded++;else stats.locationUnknown++;return;}
+      let saved=false,pendingWait=0;
       for(const profile of profiles){
         const pre=matchJob(job,profile);if(!pre)continue;
         let match=await store.cachedDecision(profile,job);

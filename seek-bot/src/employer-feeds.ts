@@ -144,6 +144,7 @@ export class EmployerFeedDiscovery {
     if (!title || !location) return null;
     const namespace = this.source === 'pageup' || this.source === 'workday' ? careerTarget(this.source, target).url.href : target;
     return { id: key(this.source, namespace, id), title, company, location, url, applicationUrl: url,
+      ...(this.source==='workday' && typeof raw.country?.descriptor==='string' ? {locationCountry:clean(raw.country.descriptor,100)} : {}),
       platform: this.source, applicationMode: 'external', source: 'search', ...dates(at, this.now()),
       ...(this.source === 'workday' && parseAgeDays(raw.postedOn) !== undefined ? { ageDays: parseAgeDays(raw.postedOn), listedAt: clean(raw.postedOn) } : {}),
       ...(description ? { description, teaser: description.slice(0, 1000) } : {}), ...(arrangement ? { workArrangement: arrangement } : {}),

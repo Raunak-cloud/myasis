@@ -17,7 +17,7 @@ if(!connectionString)throw Error('A local PostgreSQL test connection is required
 const pool=new pg.Pool({connectionString,max:4,options:`-c search_path=${schema}`}),store=new JobIndexStore(pool);
 const profile:SearchProfile={userId:'1',fingerprint:'one',keywords:['Data engineer'],skills:['Python','SQL'],location:'Sydney',arrangements:['remote'],excludedCompanies:[],sources:{}};
 const facts={resume:'Data engineer using Python and SQL.',instructions:''};
-const job=normaliseJob({title:'Data engineer',hiringOrganization:{name:'Fictional publisher'},description:'Use Python and SQL to build reliable data engineering systems. Fully remote work.'},'https://careers.fixture.org/jobs/123')!;
+const job=normaliseJob({jobLocation:{address:{addressCountry:'AU'}},title:'Data engineer',hiringOrganization:{name:'Fictional publisher'},description:'Use Python and SQL to build reliable data engineering systems. Fully remote work.'},'https://careers.fixture.org/jobs/123')!;
 const pass:FitReviewer=async j=>({decision:'match',score:90,reason:'Relevant engineering duties and evidence.',employerEvidence:j.description.slice(0,40),candidateEvidence:'Data engineer',constraints:'satisfied'});
 const approval=async(p=profile,j=job)=>({profile:p,match:confirmedMatch(await pass(j,p,facts),j,p,facts,matchJob(j,p)!)!});
 before(async()=>{await pool.query(`CREATE SCHEMA ${schema}`);await store.migrate();await pool.query(`
@@ -67,6 +67,27 @@ test('legacy unreviewed catalog entries are removed by an idempotent catalog-onl
  assert.equal((await pool.query('SELECT count(*) FROM application_credit_grants')).rows[0].count,'3');
 });
 
+test('country gate rejects even AI-approved foreign jobs and safely removes legacy Vietnam records',async()=>{
+ await store.profiles([profile]);const a=await approval();await store.save(job,[a]);
+ const foreign={...job,id:'b'.repeat(64),url:job.url+'-vietnam',locations:[],locationCountries:[],applicantLocations:['Vietnam'],applicantLocationCountries:['Vietnam']};
+ assert.equal(await store.save(foreign,[a]),false);
+ const unknown={...foreign,applicantLocations:[],applicantLocationCountries:[]};assert.equal(await store.save(unknown,[a]),false);
+ // Simulate an existing pre-policy approved row, without modifying any app data.
+ await pool.query(`INSERT INTO indexed_jobs(id,canonical_url,title,company,description,source,source_id,payload,payload_hash,arrangement,pay_status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'old','remote','not-mentioned')`,[foreign.id,foreign.url,foreign.title,foreign.company,foreign.description,foreign.source,foreign.sourceId,JSON.stringify(foreign)]);
+ await pool.query(`INSERT INTO job_versions(job_id,payload_hash,payload) VALUES($1,'old',$2)`,[foreign.id,JSON.stringify(foreign)]);
+ await pool.query(`INSERT INTO candidate_job_matches(user_id,job_id,profile_fingerprint,job_fingerprint,payload) VALUES(1,$1,'one','old',$2)`,[foreign.id,JSON.stringify(a.match)]);
+ await pool.query('UPDATE indexed_jobs SET country_policy=NULL');
+ assert.equal((await store.search(new URLSearchParams()) as any).jobs.length,0,'unvalidated legacy rows are quarantined immediately');
+ await pool.query("INSERT INTO crawl_cycles(id,status) VALUES($1,'finished')",[randomUUID()]);const started=(await pool.query('SELECT started_at FROM crawl_cycles')).rows[0].started_at;
+ await store.migrate();await store.migrate();
+ assert.deepEqual((await pool.query('SELECT id FROM indexed_jobs')).rows,[{id:job.id}]);
+ assert.equal((await pool.query('SELECT count(*) FROM job_versions WHERE job_id=$1',[foreign.id])).rows[0].count,'0');
+ assert.equal((await store.search(new URLSearchParams()) as any).jobs.length,1);
+ assert.equal(+(await pool.query('SELECT started_at FROM crawl_cycles')).rows[0].started_at,+started);
+ assert.equal((await pool.query('SELECT count(*) FROM application_credit_grants')).rows[0].count,'3');
+ assert.equal((await pool.query('SELECT count(*) FROM applications')).rows[0].count,'0');
+});
+
 test('negative review cache stores hashes only; requests and leases enforce shared budgets and ownership',async()=>{
  await store.profiles([profile]);await store.cacheDecision(profile,job,null);
  assert.equal(await store.cachedDecision(profile,job),null);assert.equal(await store.cachedDecision({...profile,fingerprint:'new'},job),undefined);
@@ -89,7 +110,17 @@ test('only active paid evidence is read, redacted and cached; changed criteria i
 });
 
 function crawlerFor(jobs:any[]){return new PublicCrawler(async address=>({url:address,status:200,type:'text/html',retryAfter:null,text:address.endsWith('/robots.txt')?'User-agent: *\nAllow: /':`<script type="application/ld+json">${JSON.stringify(jobs)}</script>`}));}
-const raw=(title:string,url:string)=>({'@type':'JobPosting',title,hiringOrganization:{name:'Fictional publisher'},description:job.description,url});
+const raw=(title:string,url:string)=>({'@type':'JobPosting',title,hiringOrganization:{name:'Fictional publisher'},jobLocation:{address:{addressCountry:'AU'}},description:job.description,url});
+test('mixed public discovery reviews only Australian jobs and reports unknown geography separately',async()=>{
+ await store.enqueue('page',{url:job.url});let reviews=0;
+ const stats=await crawlCycle(store,pool,{maxTasks:1,reviewer:async(...args)=>{reviews++;return pass(...args);},crawler:crawlerFor([
+ raw('Data engineer',job.url),
+ {...raw('Data engineer',job.url+'-vietnam'),jobLocation:undefined,jobLocationType:'TELECOMMUTE',applicantLocationRequirements:{'@type':'Country',name:'Vietnam'}},
+ {...raw('Data engineer',job.url+'-unknown'),jobLocation:undefined}
+ ])});
+ assert.equal(reviews,1);assert.equal(stats.jobsSaved,1);assert.equal(stats.locationExcluded,1);assert.equal(stats.locationUnknown,1);
+ assert.equal((await pool.query('SELECT count(*) FROM indexed_jobs')).rows[0].count,'1');
+});
 test('full discovery admits matching jobs only; uncertainty and failures never become matches',async()=>{
  const url=job.url;await store.enqueue('page',{url,depth:0});let reviews=0;
  const reviewer:FitReviewer=async(j,p,e)=>{reviews++;return {...await pass(j,p,e),decision:j.title==='Uncertain engineer'?'uncertain':j.title==='Retail assistant'?'no_match':'match'};};

@@ -11,7 +11,7 @@ export function discoveryQueries(profiles:SearchProfile[],day=new Date().toISOSt
     return terms.flatMap((role,i)=>{
       const base=`"${role}"`;
       const skill=skills.length?` "${skills[(turn+i)%skills.length]}"`:'';
-      return [`${base} careers jobs Australia`,`${base}${skill} careers Australia -site:seek.com.au -site:indeed.com`,`${base} Australia site:${sites[(turn+i)%sites.length]}`];
+      return [`${base} careers jobs "Australia"`,`${base}${skill} careers "Australia" -site:seek.com.au -site:indeed.com`,`${base} "Australia" site:${sites[(turn+i)%sites.length]}`];
     });
   });
   const queries=new Set<string>();
