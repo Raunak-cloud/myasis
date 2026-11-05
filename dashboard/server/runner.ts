@@ -17,6 +17,7 @@ import { applicationModelLabel } from '../../seek-bot/src/application-model-cata
 import {priorRunRepairMessage} from '../src/priorRunRepair.js';
 import { applicationModelCredentials, applicationModelForAccount } from './application-model-policy.js';
 import { assignedApplicationModel } from './application-model-assignments.js';
+import { validOperatorApplicationBudget } from './operator-application-budget.js';
 import { applicationAgentModeForAccount, applicationScreenshotsForAccount } from './application-agent-policy.js';
 import { accountUnavailable, AccountDeletionError } from './account-lifecycle.js';
 import { finishApplicationReviews } from './application-reviews.js';
@@ -46,6 +47,21 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
   const admin = isAdmin(owner.email);
   const selectedSettings = settings ?? await loadUserSettings(userId);
   let operatorReviewLimit = '', operatorTimeout = '';
+  let applicationBudget: Record<string,string> = {};
+  if (selectedSettings.OPERATOR_APPLICATION_BASE_USD !== undefined || selectedSettings.OPERATOR_APPLICATION_MAXIMUM_USD !== undefined) {
+    if (!runStartId) throw new Error('This run has no valid administrator application budget authorization.');
+    const [grant] = await query<{email:string;operator_options:{applicationBudget?:unknown}}>(
+      `SELECT actor.email,run.operator_options FROM run_starts run JOIN users actor ON actor.id=run.started_by
+       WHERE run.id=$1 AND run.user_id=$2 AND run.trigger='admin' AND run.mode='live'
+         AND run.finished_at IS NULL AND actor.blocked_at IS NULL`, [runStartId,userId]);
+    const budget = grant?.operator_options?.applicationBudget;
+    if (!isAdmin(grant?.email) || !validOperatorApplicationBudget(budget)
+      || String(budget.baseUsd) !== selectedSettings.OPERATOR_APPLICATION_BASE_USD
+      || String(budget.maximumUsd) !== selectedSettings.OPERATOR_APPLICATION_MAXIMUM_USD) {
+      throw new Error('This run has no valid administrator application budget authorization.');
+    }
+    applicationBudget = { AGENT_BUDGET_USD:String(budget.baseUsd), AGENT_PROGRESS_BUDGET_USD:String(budget.maximumUsd) };
+  }
   if (selectedSettings.OPERATOR_PLAN) {
     if (!runStartId) throw new Error('A sponsored plan requires its recorded administrator run.');
     const authorization = await query<{email:string;operator_options:{plan?:string;complimentary?:boolean;maxEvaluations?:number;timeoutMinutes?:number}}>(
@@ -72,7 +88,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
   const credentials = applicationModelCredentials(selected, serverEnv);
   const queuePolicy = Object.fromEntries(['CELERIS_WORKSPACE_ID', 'CELERIS_QUEUE_FILE', 'CELERIS_MAX_CONCURRENT_REQUESTS', 'CELERIS_MIN_INTERVAL_MS']
     .flatMap(key => serverEnv[key]?.trim() ? [[key, serverEnv[key]!]] : []));
-  return { ...queuePolicy, OPERATOR_MAX_EVALUATIONS:operatorReviewLimit, OPERATOR_RUN_TIMEOUT_MINUTES:operatorTimeout, DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
+  return { ...queuePolicy, ...applicationBudget, OPERATOR_MAX_EVALUATIONS:operatorReviewLimit, OPERATOR_RUN_TIMEOUT_MINUTES:operatorTimeout, DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
     APPLICATION_AGENT_MODE: agentMode,
     APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: applicationScreenshotsForAccount(selectedSettings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, admin, selected),
     // Only the authorized provider credential enters the account's run context.

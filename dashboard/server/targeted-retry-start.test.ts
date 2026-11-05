@@ -63,7 +63,7 @@ export const gmailAccess=async()=>({connected:false}),scheduledStart=async()=>{t
       ['../../seek-bot/src/job-board-url.js', '../../seek-bot/src/repair-safety.js', './run-diagnostics.js']);
     compile('./start-run.ts', 'start.mjs', { './targeted-retry-jobs.js': url('targeted.mjs') },
       ['../../seek-bot/src/application-model-catalog.js', '../../seek-bot/src/employer-source-config.js', '../src/salary.js',
-        '../../seek-bot/src/job-board-url.js', '../../seek-bot/src/cover-letter-policy.js', '../../seek-bot/src/run-limits.js', '../../seek-bot/src/discovery-seeds.js', './employer-site-access.js', './operator-run-plan.js']);
+        '../../seek-bot/src/job-board-url.js', '../../seek-bot/src/cover-letter-policy.js', '../../seek-bot/src/run-limits.js', '../../seek-bot/src/discovery-seeds.js', './employer-site-access.js', './operator-run-plan.js', './operator-application-budget.js']);
     const { startRun } = await import(url('start.mjs')) as typeof import('./start-run.js');
     const { state } = await import(url('boundary.mjs'));
     const request = { userId: '183', email: 'candidate@fixture.invalid', trigger: 'admin' as const, startedBy: '1', mode: 'live' as const,
@@ -83,6 +83,19 @@ export const gmailAccess=async()=>({connected:false}),scheduledStart=async()=>{t
     assert.deepEqual(await startRun({ ...request, oneTime: { applicationModel: 'minimax' } }), { ok: true, mode: 'live' });
     assert.equal(state.starts.at(-1)[1].ADMIN_APPLICATION_MODEL, 'minimax', 'the authenticated operator choice reaches the worker authorization boundary');
     assert.equal(state.starts.at(-1)[1].APPLICATION_REVIEW_MODE, 'prepare', 'changing provider never grants final submission approval');
+    const applicationBudget={baseUsd:2,maximumUsd:4};
+    assert.deepEqual(await startRun({...request,oneTime:{applicationBudget}}),{ok:true,mode:'live'});
+    assert.equal(state.starts.at(-1)[1].OPERATOR_APPLICATION_BASE_USD,'2');
+    assert.equal(state.starts.at(-1)[1].OPERATOR_APPLICATION_MAXIMUM_USD,'4');
+    assert.equal(state.starts.at(-1)[1].APPLICATION_REVIEW_MODE,'prepare','spending authorization cannot authorize submission');
+    const budgetAudit=state.queries.findLast((entry:{sql:string;params:unknown[]})=>entry.sql.includes('UPDATE run_starts SET operator_options'));
+    assert.deepEqual(JSON.parse(budgetAudit.params[2] as string),{applicationBudget});
+    for(const applicationBudget of [{baseUsd:0,maximumUsd:4},{baseUsd:4,maximumUsd:2},{baseUsd:2,maximumUsd:11},{baseUsd:NaN,maximumUsd:4}]) {
+      assert.equal((await startRun({...request,oneTime:{applicationBudget}}) as {status:number}).status,400);
+    }
+    assert.equal((await startRun({...request,trigger:'manual',oneTime:{applicationBudget}}) as {status:number}).status,403);
+    assert.deepEqual(await startRun(request),{ok:true,mode:'live'});
+    assert.equal(state.starts.at(-1)[1].OPERATOR_APPLICATION_BASE_USD,undefined,'the next ordinary run has no spending override');
     const starts = state.starts.length;
     assert.equal((await startRun({ ...request, oneTime: { includeSavedChoices: 'false' as unknown as boolean } }) as { status: number }).status, 400);
     assert.equal((await startRun({ ...request, trigger: 'manual', oneTime: { includeSavedChoices: false } }) as { status: number }).status, 403);

@@ -6,6 +6,14 @@ restarts and applies to future manual, admin-started and scheduled runs. The
 whole worker uses that provider for job review, applying and recovery review.
 A worker already running retains the environment it started with.
 
+An admin can give a single retry a larger application spending allowance through
+`oneTime.applicationBudget`, for example `{ "baseUsd": 2, "maximumUsd": 4 }` on
+the admin start endpoint. These are USD per application, shared with recovery.
+The maximum must be between the base and $10; the base must be at least $0.10.
+The choice is recorded in that run's `operator_options` and verified again against
+its active owner-bound administrator start before the worker receives it. It
+does not change account settings, later-run budgets or submission approval.
+
 Choices are stored in the append-only `application_model_assignments` table,
 including administrator attribution. Only the authenticated admin endpoint can
 write them; ordinary account settings and posted run settings cannot override

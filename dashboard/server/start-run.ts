@@ -1,4 +1,5 @@
 import { type ApplicationModel } from '../../seek-bot/src/application-model-catalog.js';
+import { validOperatorApplicationBudget, type OperatorApplicationBudget } from './operator-application-budget.js';
 import { EMPLOYER_SOURCES, isEmployerSource } from '../../seek-bot/src/employer-source-config.js';
 import { runner, type RunMode } from './runner.js';
 import { runSettingsSnapshotForUser, USER_SETTABLE_SETTINGS_KEYS, DAILY_APPLICATION_CAP_CHOSEN } from './settings.js';
@@ -101,7 +102,7 @@ interface StartRunRequest {
   /** One exact employer job page supplied by an administrator. */
   externalUrl?: unknown;
   /** Explicit operator exception, resolved for this run only; never saved as account settings. */
-  oneTime?: { plan?: 'intensive-pass'; seedSeekJobs?: unknown; allowMissingSalary?: boolean; maxApplications?: number; maxEvaluations?: number; applicationModel?: ApplicationModel; includeSavedChoices?: boolean };
+  oneTime?: { plan?: 'intensive-pass'; seedSeekJobs?: unknown; allowMissingSalary?: boolean; maxApplications?: number; maxEvaluations?: number; applicationModel?: ApplicationModel; applicationBudget?: OperatorApplicationBudget; includeSavedChoices?: boolean };
 }
 
 type Refusal = Extract<StartRunOutcome, { ok: false }>;
@@ -217,6 +218,9 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     const actor = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [request.startedBy]);
     if (!isAdmin(actor[0]?.email)) return { ok: false, status: 403, error: 'One-time run exceptions require an administrator.' };
     const oneTime = request.oneTime;
+    if (oneTime?.applicationBudget !== undefined && !validOperatorApplicationBudget(oneTime.applicationBudget)) {
+      return { ok: false, status: 400, error: 'Use a base application budget of at least $0.10 and a maximum between the base and $10.00.' };
+    }
     if (!oneTime || typeof oneTime !== 'object' || Array.isArray(oneTime)
       || (oneTime.plan !== undefined && oneTime.plan !== VIP_RUN_PLAN.plan)
       || (oneTime.allowMissingSalary !== undefined && typeof oneTime.allowMissingSalary !== 'boolean')
@@ -303,6 +307,10 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   // choices. Keep those durable choices and explicit prepared approvals intact.
   overrides.INCLUDE_SAVED_CHOICES = request.oneTime?.includeSavedChoices === false ? 'false' : 'true';
   if (request.oneTime?.applicationModel) overrides.ADMIN_APPLICATION_MODEL = request.oneTime.applicationModel;
+  if (request.oneTime?.applicationBudget) {
+    overrides.OPERATOR_APPLICATION_BASE_USD = String(request.oneTime.applicationBudget.baseUsd);
+    overrides.OPERATOR_APPLICATION_MAXIMUM_USD = String(request.oneTime.applicationBudget.maximumUsd);
+  }
   overrides.PENDING_APPLICATION_KEYS_JSON = JSON.stringify(await pendingReviewKeys(userId));
   let selections;
   try { selections = request.approvals === undefined ? null : reviewSelection(request.approvals); }
@@ -576,6 +584,8 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
         [runStartId,userId,JSON.stringify({plan:VIP_RUN_PLAN.plan,complimentary:true,maxEvaluations:Number(overrides.MAX_EVALUATIONS),maxApplications:Number(overrides.MAX_APPS_PER_RUN),timeoutMinutes:VIP_RUN_PLAN.timeoutMinutes,
           keywords:overrides.KEYWORDS,seedSeekJobIds:seeds.map(job=>job.id)})]);
       if (request.repairCaseId) await query('UPDATE run_starts SET repair_case_id=$2 WHERE id=$1 AND user_id=1',[runStartId,request.repairCaseId]);
+      if (request.oneTime?.applicationBudget) await query("UPDATE run_starts SET operator_options=COALESCE(operator_options,'{}'::jsonb)||$3::jsonb WHERE id=$1 AND user_id=$2",
+        [runStartId,userId,JSON.stringify({applicationBudget:request.oneTime.applicationBudget})]);
       if(priorRunRepair)await query("UPDATE run_starts SET operator_options=COALESCE(operator_options,'{}'::jsonb)||$3::jsonb WHERE id=$1 AND user_id=$2",[runStartId,userId,JSON.stringify({priorRunRepair})]);
       const result = await runner.start(
         mode,
