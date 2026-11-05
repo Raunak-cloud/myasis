@@ -80,6 +80,9 @@ export const gmailAccess=async()=>({connected:false}),scheduledStart=async()=>{t
     assert.deepEqual(await startRun({ ...request, oneTime: { includeSavedChoices: false } }), { ok: true, mode: 'live' });
     assert.equal(state.starts.at(-1)[1].INCLUDE_SAVED_CHOICES, 'false', 'authenticated operator can scope only this run to preference-based discovery');
     assert.equal(state.starts.at(-1)[1].APPLICATION_REVIEW_MODE, 'prepare', 'selection scope does not grant sending authority');
+    assert.deepEqual(await startRun({ ...request, oneTime: { applicationModel: 'minimax' } }), { ok: true, mode: 'live' });
+    assert.equal(state.starts.at(-1)[1].ADMIN_APPLICATION_MODEL, 'minimax', 'the authenticated operator choice reaches the worker authorization boundary');
+    assert.equal(state.starts.at(-1)[1].APPLICATION_REVIEW_MODE, 'prepare', 'changing provider never grants final submission approval');
     const starts = state.starts.length;
     assert.equal((await startRun({ ...request, oneTime: { includeSavedChoices: 'false' as unknown as boolean } }) as { status: number }).status, 400);
     assert.equal((await startRun({ ...request, trigger: 'manual', oneTime: { includeSavedChoices: false } }) as { status: number }).status, 403);

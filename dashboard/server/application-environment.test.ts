@@ -45,14 +45,22 @@ test('owner authorization selects one whole-run provider and server-owned creden
       assert.equal(env.APPLICATION_AGENT_MODE,'agent-only');
       assert.equal(settings.APPLICATION_AI_MODEL,selected,'no saved preference mutation');
     }
-    await assert.rejects(accountApplicationEnvironment('customer',{ADMIN_APPLICATION_MODEL:'minimax'},'authorized'),/no valid administrator/);
+    const overrideSettings={APPLICATION_AI_MODEL:'celeris',ADMIN_APPLICATION_MODEL:'minimax'};
+    const override=await accountApplicationEnvironment('customer',overrideSettings,'authorized');
+    assert.equal(override.APPLICATION_AI_MODEL,'minimax','a verified admin can select MiniMax for this customer run');
+    assert.equal(override.OPENROUTER_API_KEY,'server-apply-key');
+    assert.equal(override.CELERIS_API_KEY,'','the unused provider credential never enters the worker');
+    assert.equal(override.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN,'false');
+    assert.deepEqual(overrideSettings,{APPLICATION_AI_MODEL:'celeris',ADMIN_APPLICATION_MODEL:'minimax'},'one-time routing does not mutate saved settings');
+    await assert.rejects(accountApplicationEnvironment('customer',{ADMIN_APPLICATION_MODEL:'minimax'}),/no valid administrator/);
     await assert.rejects(accountApplicationEnvironment('customer',{ADMIN_APPLICATION_MODEL:'minimax'},'unverified'),/no valid administrator/);
-    assert.equal((await accountApplicationEnvironment('customer',{ADMIN_APPLICATION_MODEL:'celeris'},'authorized')).APPLICATION_AI_MODEL,'celeris');
+    await assert.rejects(accountApplicationEnvironment('customer',{ADMIN_APPLICATION_MODEL:'celeris'},'authorized'),/no valid administrator/);
     process.env.CELERIS_API_KEY='';
     await assert.rejects(accountApplicationEnvironment('customer',{}),/Magnus job review is not configured/);
     assert.equal((await accountApplicationEnvironment('admin',{APPLICATION_AI_MODEL:'minimax'})).APPLICATION_AI_MODEL,'minimax','MiniMax does not require a Celeris key');
     process.env.CELERIS_API_KEY='server-review-key';process.env.OPENROUTER_API_KEY='';
     await assert.rejects(accountApplicationEnvironment('admin',{APPLICATION_AI_MODEL:'minimax'}),/OPENROUTER_API_KEY/);
+    await assert.rejects(accountApplicationEnvironment('customer',{ADMIN_APPLICATION_MODEL:'minimax'},'authorized'),/OPENROUTER_API_KEY/);
     assert.equal((await accountApplicationEnvironment('customer',{})).APPLICATION_AI_MODEL,'celeris','Magnus must not require an unused OpenRouter key');
     await assert.rejects(accountApplicationEnvironment('../customer',{}),/account is not available/);
     pool.query=(async()=>({rows:[]})) as unknown as typeof originalQuery;

@@ -57,12 +57,15 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
       || grant.operator_options.timeoutMinutes !== 120) throw new Error('This run has no valid administrator plan authorization.');
     operatorReviewLimit='400';operatorTimeout='120';
   }
-  const selected = applicationModelForAccount(selectedSettings.APPLICATION_AI_MODEL, admin);
-  if (runStartId && selectedSettings.ADMIN_APPLICATION_MODEL) {
+  let selected = applicationModelForAccount(selectedSettings.APPLICATION_AI_MODEL, admin);
+  if (selectedSettings.ADMIN_APPLICATION_MODEL) {
+    if (!runStartId) throw new Error('This run has no valid administrator model authorization.');
     const operators = await query<{ email: string }>(
       `SELECT actor.email FROM run_starts run JOIN users actor ON actor.id=run.started_by
-       WHERE run.id=$1 AND run.user_id=$2 AND run.trigger='admin' AND actor.blocked_at IS NULL`, [runStartId,userId]);
-    if (!isAdmin(operators[0]?.email) || selectedSettings.ADMIN_APPLICATION_MODEL !== 'celeris') throw new Error('This run has no valid administrator model authorization.');
+       WHERE run.id=$1 AND run.user_id=$2 AND run.trigger='admin' AND run.mode='live'
+         AND run.finished_at IS NULL AND actor.blocked_at IS NULL`, [runStartId,userId]);
+    if (!isAdmin(operators[0]?.email) || selectedSettings.ADMIN_APPLICATION_MODEL !== 'minimax') throw new Error('This run has no valid administrator model authorization.');
+    selected = 'minimax';
   }
   const agentMode = applicationAgentModeForAccount(selectedSettings.APPLICATION_AGENT_MODE, admin);
   const credentials = applicationModelCredentials(selected, serverEnv);
