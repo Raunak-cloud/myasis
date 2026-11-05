@@ -2,6 +2,8 @@ import { existsSync } from 'node:fs';
 import type pg from 'pg';
 import type {JobIndexStore} from '../server/job-index/store.js';
 import { indexConfig, indexStore, appReader } from '../server/job-index/config.js';
+import {minimaxReviewer} from '../server/job-index/review.js';
+import {readEnv} from '../server/runner.js';
 import { crawlCycle } from '../server/job-index/engine.js';
 
 const controller=new AbortController(),once=process.argv.includes('--once'),migrate=process.argv.includes('--migrate');
@@ -18,7 +20,7 @@ try {
           if(config.indexUrl!==connectedUrl) {await store.migrate();connectedUrl=config.indexUrl;}
           if(migrate)break;
           if(!reader||readerUrl!==config.appReadUrl){await reader?.end();reader=appReader(config);readerUrl=config.appReadUrl;}
-          const stats=await crawlCycle(store,reader,{braveKey:config.braveKey,signal:AbortSignal.any([controller.signal,AbortSignal.timeout(4*60_000)])});
+          const stats=await crawlCycle(store,reader,{braveKey:config.braveKey,reviewer:minimaxReviewer(store,(process.env.OPENROUTER_API_KEY??readEnv().OPENROUTER_API_KEY??'').trim()),signal:AbortSignal.any([controller.signal,AbortSignal.timeout(4*60_000)])});
           console.log('[job-index]',JSON.stringify(stats));
         }
       }catch{if(!controller.signal.aborted)console.warn('[job-index] connection or cycle failed; check the configured connection and stored cycle status');if(once||migrate)process.exitCode=1;}

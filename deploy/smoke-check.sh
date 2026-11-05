@@ -16,7 +16,7 @@ check_dashboard() (
   trap - EXIT
   set -euo pipefail
 cd "$APP/dashboard"
-../seek-bot/node_modules/.bin/tsx --test server/job-index/config.test.ts server/job-index/extract.test.ts server/job-index/network.test.ts server/job-index/store.test.ts
+../seek-bot/node_modules/.bin/tsx --test server/job-index/config.test.ts server/job-index/extract.test.ts server/job-index/network.test.ts server/job-index/review.test.ts server/job-index/store.test.ts
 npm run test:statuses
 node --test server/form-lab/engine.test.mjs
 ../seek-bot/node_modules/.bin/tsx server/form-lab-access.test.ts

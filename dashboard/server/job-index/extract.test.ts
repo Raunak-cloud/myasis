@@ -55,3 +55,10 @@ test('transient search URLs are not stored as implicit job identities',()=>{
   assert.equal(extractPage(`<link rel="canonical" href="${publisher}">${markup}`,url,true).jobs[0].url,publisher);
   assert.equal(extractPage(`<script type="application/ld+json">${JSON.stringify({'@type':'JobPosting',...raw,url:publisher})}</script>`,url,true).jobs[0].url,publisher);
 });
+
+test('publisher links discover ATS vacancies whose titles and paths do not say job',()=>{
+  const lever='https://jobs.lever.co/fixture/12345678-abcd-1234-abcd-123456789abc';
+  const smart='https://jobs.smartrecruiters.com/Fixture/12345-data-engineer';
+  const result=extractPage(`<a href="${lever}">Data engineer</a><a href="${smart}">Analyst</a><a href="${lever}/apply">Apply</a>`,url);
+  assert.deepEqual(result.links,[lever,smart]);
+});

@@ -7,7 +7,7 @@ import { parseHTML } from 'linkedom';
 
 export const AGENT = 'OwtomateJobIndex/1.0 (+https://owtomate.com)';
 export class CrawlBlocked extends Error {}
-export class CrawlDeferred extends Error { readonly waitMs:number; constructor(waitMs: number) { super('Host rate limit or crawl delay; queued for later.');this.waitMs=waitMs; } }
+export class CrawlDeferred extends Error { readonly waitMs:number; constructor(waitMs: number,message='Host rate limit or crawl delay; queued for later.') { super(message);this.waitMs=waitMs; } }
 interface Robots { isAllowed:(url:string,agent:string)=>boolean|undefined;getCrawlDelay:(agent:string)=>number|undefined }
 const robotsParser=createRequire(import.meta.url)('robots-parser') as (url:string,text:string)=>Robots;
 export function publicIPv4(ip: string): boolean {

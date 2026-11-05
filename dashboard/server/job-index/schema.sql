@@ -48,3 +48,19 @@ CREATE TABLE IF NOT EXISTS job_index_actions (
  id bigserial PRIMARY KEY, actor_id bigint NOT NULL, action text NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS search_usage (day date PRIMARY KEY,calls integer NOT NULL CHECK(calls>=0 AND calls<=20));
+-- Rejected/uncertain reviews retain only hashes and a verdict, never vacancies or CVs.
+CREATE TABLE IF NOT EXISTS fit_decisions (
+ user_id bigint NOT NULL REFERENCES search_profiles(user_id) ON DELETE CASCADE,
+ profile_fingerprint text NOT NULL,job_fingerprint text NOT NULL,policy text NOT NULL,
+ decision text NOT NULL CHECK(decision IN ('match','no_match','uncertain')),match jsonb,expires_at timestamptz NOT NULL,
+ PRIMARY KEY(user_id,profile_fingerprint,job_fingerprint,policy)
+);
+CREATE TABLE IF NOT EXISTS fit_review_requests (
+ id uuid PRIMARY KEY,created_at timestamptz NOT NULL DEFAULT now(),reserved_usd numeric NOT NULL CHECK(reserved_usd>0),
+ amount_usd numeric,basis text NOT NULL DEFAULT 'unknown',status text NOT NULL DEFAULT 'requested'
+);
+-- Catalog-only migration: remove legacy unreviewed entries and their public
+-- versions. Customer applications, credentials and activity are in another DB.
+DELETE FROM candidate_job_matches WHERE payload#>>'{review,policy}' IS DISTINCT FROM 'resume-fit-v1';
+DELETE FROM indexed_jobs j WHERE NOT EXISTS(SELECT 1 FROM candidate_job_matches m WHERE m.job_id=j.id AND m.job_fingerprint=j.payload_hash);
+UPDATE crawl_tasks SET payload=jsonb_set(payload,'{job}',jsonb_strip_nulls(jsonb_build_object('id',payload#>'{job,id}','url',payload#>'{job,url}','platform',payload#>'{job,platform}','source',payload#>'{job,source}'))) WHERE payload ? 'job' AND payload#>'{job}' IS NOT NULL;

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { parseHTML } from 'linkedom';
-import type { EvidenceTag, IndexedJob, MatchResult, SearchProfile } from './types.js';
+import type { EvidenceTag, IndexedJob, PreliminaryMatch, SearchProfile } from './types.js';
 
 export const fingerprint = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v : [v]).filter((s): s is string => typeof s === 'string' && !!s.trim()).map(s => s.trim());
@@ -103,14 +103,22 @@ export function extractPage(html: string, sourceUrl: string, requireDeclaredUrl=
   for (const script of [...document.querySelectorAll('script[type="application/ld+json"]')].slice(0, 50)) { try { walk(JSON.parse(script.textContent ?? ''), 0); } catch { /* malformed markup isn't a vacancy */ } }
   const links: string[] = [];
   for (const a of [...document.querySelectorAll('a[href]')].slice(0, 500)) {
-    try { const url = canonicalUrl(new URL(a.getAttribute('href')!, sourceUrl).href); if (/\b(career|careers|jobs?|vacanc|opportunit)/i.test(`${new URL(url).pathname} ${a.textContent}`) && !/\/(?:login|sign[-_]?in|register|apply|application)(?:[/?]|$)/i.test(new URL(url).pathname)) links.push(url); } catch { /* non-public/invalid link */ }
+    try {
+      const url = canonicalUrl(new URL(a.getAttribute('href')!, sourceUrl).href),u=new URL(url);
+      const atsVacancy=(['jobs.lever.co','jobs.ashbyhq.com'].includes(u.hostname)&&/^\/[^/]+\/[a-f0-9-]{32,36}$/i.test(u.pathname))||(u.hostname==='jobs.smartrecruiters.com'&&/^\/[^/]+\/\d+-[^/]+$/.test(u.pathname));
+      if((atsVacancy||/\b(career|careers|jobs?|vacanc|opportunit)/i.test(`${u.pathname} ${a.textContent}`))&&!/\/(?:login|sign[-_]?in|register|apply|application)(?:[/?]|$)/i.test(u.pathname))links.push(url);
+    } catch { /* non-public/invalid link */ }
   }
   return { jobs: [...jobs.values()].slice(0, 300), links: [...new Set(links)].slice(0, 30), closedUrls:[...new Set(closedUrls)] };
 }
-export function matchJob(job: IndexedJob, p: SearchProfile): MatchResult | null {
+export function matchJob(job: IndexedJob, p: SearchProfile): PreliminaryMatch | null {
   if (p.excludedCompanies.some(v => v.trim().toLowerCase() === job.company.toLowerCase())) return null;
   const keywords = p.keywords.filter(v => { const words = v.match(/[\p{L}\p{N}+#.]+/gu) ?? []; return words.length > 0 && words.every(w => contains(`${job.title}\n${job.description}`, w)); });
   const skills = p.skills.filter(v => contains(`${job.title}\n${job.description}`, v));
-  if (p.keywords.length ? !keywords.length : skills.length < 2) return null;
+  // Skills can shortlist equivalent titles; the AI review still enforces the
+  // user's requested job function, so incidental shared tools cannot admit jobs.
+  if (!keywords.length && skills.length < 2) return null;
+  if(p.arrangements.length&&job.workArrangement!=='not-mentioned'&&!p.arrangements.includes(job.workArrangement))return null;
+  if(job.postedAt&&p.criteria?.maxAgeDays&&Date.parse(job.postedAt)<Date.now()-p.criteria.maxAgeDays*86400_000)return null;
   return { status: 'potential', keywords, skills, reasons: [...keywords.map(v => `Keyword: ${v}`), ...skills.map(v => `Resume/profile skill: ${v}`)], preferences: { arrangement: !p.arrangements.length ? 'compatible' : job.workArrangement === 'not-mentioned' ? 'unknown' : p.arrangements.includes(job.workArrangement) ? 'compatible' : 'different', location: p.location && job.locations.some(v => v.toLowerCase().includes(p.location.toLowerCase())) ? 'mentioned' : 'unknown' } };
 }

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "job-index:once": "node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/job-index-worker.mts --once",
-    "test:job-index": "node ../seek-bot/node_modules/tsx/dist/cli.mjs --test server/job-index/config.test.ts server/job-index/extract.test.ts server/job-index/network.test.ts",
+    "test:job-index": "node ../seek-bot/node_modules/tsx/dist/cli.mjs --test server/job-index/config.test.ts server/job-index/extract.test.ts server/job-index/network.test.ts server/job-index/review.test.ts",
     "dev": "vite",
     "build": "tsc -b && vite build && node scripts/prerender.mts",
     "lint": "oxlint --deny-warnings",

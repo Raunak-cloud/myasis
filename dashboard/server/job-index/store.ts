@@ -2,14 +2,14 @@ import pg from 'pg';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { fingerprint, matchJob } from './extract.js';
-import type { IndexedJob, SearchProfile } from './types.js';
+import {MATCH_POLICY,type IndexedJob,type SearchProfile,type MatchResult} from './types.js';
 
 export interface CrawlTask { key: string; kind: 'page'|'feed'|'search'; payload: Record<string, any>; lease: string; attempts: number }
 export class JobIndexStore {
   readonly pool:pg.Pool;constructor(pool: pg.Pool) {this.pool=pool;}
   async migrate(): Promise<void> { await this.pool.query(readFileSync(new URL('./schema.sql',import.meta.url),'utf8')); }
   async enabled(): Promise<boolean> { return (await this.pool.query('SELECT enabled FROM job_index_config WHERE singleton')).rows[0]?.enabled===true; }
-  async purgeInactive(ids:string[]):Promise<void> {await this.pool.query('DELETE FROM search_profiles WHERE NOT(user_id=ANY($1::bigint[]))',[ids]);}
+  async purgeInactive(ids:string[]):Promise<void> {const c=await this.pool.connect();try{await c.query('BEGIN');await c.query('DELETE FROM search_profiles WHERE NOT(user_id=ANY($1::bigint[]))',[ids]);await this.prune(c);await c.query('COMMIT');}catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}}
   async cachedProfiles():Promise<SearchProfile[]> {return (await this.pool.query<{payload:SearchProfile}>('SELECT payload FROM search_profiles')).rows.map(r=>r.payload);}
   async profiles(profiles: SearchProfile[]): Promise<void> {
     const c=await this.pool.connect();
@@ -21,13 +21,19 @@ export class JobIndexStore {
         await c.query('DELETE FROM candidate_job_matches WHERE user_id=$1 AND profile_fingerprint<>$2',[p.userId,p.fingerprint]);
         await c.query(`INSERT INTO search_profiles(user_id,fingerprint,payload) VALUES($1,$2,$3) ON CONFLICT(user_id) DO UPDATE SET fingerprint=excluded.fingerprint,payload=excluded.payload,updated_at=now()`,[p.userId,p.fingerprint,JSON.stringify(p)]);
       }
+      await this.prune(c);
       await c.query('COMMIT');
     } catch(e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
   }
-  async save(job: IndexedJob): Promise<void> {
+  async save(job: IndexedJob,approvals:Array<{profile:SearchProfile;match:MatchResult}>): Promise<boolean> {
+    if(!approvals.length)return false;
+    if(approvals.some(a=>a.match.status!=='matched'||a.match.review?.policy!==MATCH_POLICY||!Number.isFinite(a.match.review.score)||a.match.review.score<(a.profile.criteria?.minScore??60)||!matchJob(job,a.profile)))throw Error('Only reviewed matching jobs can enter the catalog.');
     const c=await this.pool.connect(), hash=fingerprint(job);
     try {
       await c.query('BEGIN');
+      const owners=(await c.query<{user_id:string;fingerprint:string}>('SELECT user_id::text,fingerprint FROM search_profiles WHERE user_id=ANY($1::bigint[]) FOR SHARE',[approvals.map(a=>a.profile.userId)])).rows;
+      approvals=approvals.filter(a=>owners.some(o=>o.user_id===a.profile.userId&&o.fingerprint===a.profile.fingerprint));
+      if(!approvals.length){await c.query('ROLLBACK');return false;}
       // Serialize one canonical vacancy across independent index writers. Both
       // the ID and URL have unique constraints; an upsert alone cannot arbitrate
       // two simultaneous inserts conflicting on both indexes.
@@ -38,35 +44,41 @@ export class JobIndexStore {
         payload=excluded.payload,payload_hash=excluded.payload_hash,arrangement=excluded.arrangement,pay_status=excluded.pay_status,
         posted_at=excluded.posted_at,expires_at=excluded.expires_at,verified_at=now(),closed_at=NULL`,[job.id,job.url,job.title,job.company,job.description,job.source,job.sourceId,JSON.stringify(job),hash,job.workArrangement,job.pay.status,job.postedAt,job.expiresAt]);
       await c.query('INSERT INTO job_versions(job_id,payload_hash,payload) VALUES($1,$2,$3) ON CONFLICT DO NOTHING',[job.id,hash,JSON.stringify(job)]);
-      await c.query('COMMIT');
+      await c.query('DELETE FROM candidate_job_matches WHERE job_id=$1 AND job_fingerprint<>$2',[job.id,hash]);
+      for(const a of approvals)await c.query(`INSERT INTO candidate_job_matches(user_id,job_id,profile_fingerprint,job_fingerprint,payload) VALUES($1,$2,$3,$4,$5) ON CONFLICT(user_id,job_id) DO UPDATE SET profile_fingerprint=excluded.profile_fingerprint,job_fingerprint=excluded.job_fingerprint,payload=excluded.payload,matched_at=now()`,[a.profile.userId,job.id,a.profile.fingerprint,hash,JSON.stringify(a.match)]);
+      await c.query('COMMIT');return true;
     } catch(e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
   }
   async close(url: string): Promise<void> { await this.pool.query('UPDATE indexed_jobs SET closed_at=now() WHERE canonical_url=$1',[url]); }
-  async rematch(profiles: SearchProfile[]): Promise<number> {
-    let matched=0;
-    // Full-text prefilter uses the database index. Only changed jobs/profiles
-    // need new private match writes; do not scan every job for every customer.
-    for(const p of profiles) {
-      await this.pool.query(`DELETE FROM candidate_job_matches m WHERE m.user_id=$1 AND (m.profile_fingerprint<>$2 OR NOT EXISTS(SELECT 1 FROM indexed_jobs j WHERE j.id=m.job_id AND j.payload_hash=m.job_fingerprint AND j.closed_at IS NULL AND (j.expires_at IS NULL OR j.expires_at>now()) AND j.verified_at>now()-interval '14 days'))`,[p.userId,p.fingerprint]);
-      const query=(p.keywords.length?p.keywords:p.skills).map(v=>v.replace(/\b(?:OR|NOT)\b|["()]/gi,' ')).join(' OR ');let after='';
-      if(!query)continue;
-      for(;;) {
-        const rows=(await this.pool.query<{id:string;payload:IndexedJob;payload_hash:string}>(`SELECT j.id,j.payload,j.payload_hash FROM indexed_jobs j WHERE j.id>$1 AND j.closed_at IS NULL AND (j.expires_at IS NULL OR j.expires_at>now()) AND j.verified_at>now()-interval '14 days'
-          AND j.search@@websearch_to_tsquery('english',$2) AND NOT EXISTS(SELECT 1 FROM candidate_job_matches m WHERE m.job_id=j.id AND m.user_id=$3 AND m.profile_fingerprint=$4 AND m.job_fingerprint=j.payload_hash) ORDER BY j.id LIMIT 300`,[after,query,p.userId,p.fingerprint])).rows;
-        if(!rows.length)break;
-        for(const row of rows) {
-        const match=matchJob(row.payload,p);
-        if(match) { await this.pool.query(`INSERT INTO candidate_job_matches(user_id,job_id,profile_fingerprint,job_fingerprint,payload) SELECT $1,$2,$3,$4,$5 WHERE EXISTS(SELECT 1 FROM search_profiles WHERE user_id=$1 AND fingerprint=$3)
-          ON CONFLICT(user_id,job_id) DO UPDATE SET profile_fingerprint=excluded.profile_fingerprint,job_fingerprint=excluded.job_fingerprint,payload=excluded.payload,matched_at=now()`,[p.userId,row.id,p.fingerprint,row.payload_hash,JSON.stringify(match)]);matched++; }
-        else await this.pool.query('DELETE FROM candidate_job_matches WHERE user_id=$1 AND job_id=$2',[p.userId,row.id]);
-        }
-        after=rows.at(-1)!.id;
-      }
-    }
-    return matched;
+  private async prune(c:pg.PoolClient):Promise<void> {
+    await c.query(`DELETE FROM candidate_job_matches m WHERE NOT EXISTS(SELECT 1 FROM search_profiles p JOIN indexed_jobs j ON j.id=m.job_id WHERE p.user_id=m.user_id AND p.fingerprint=m.profile_fingerprint AND j.closed_at IS NULL AND (j.expires_at IS NULL OR j.expires_at>now()) AND (j.posted_at IS NULL OR coalesce((p.payload#>>'{criteria,maxAgeDays}')::float8,0)=0 OR j.posted_at>=now()-coalesce((p.payload#>>'{criteria,maxAgeDays}')::float8,0)*interval '1 day'))`);
+    await c.query(`DELETE FROM indexed_jobs j WHERE NOT EXISTS(SELECT 1 FROM candidate_job_matches m WHERE m.job_id=j.id AND m.job_fingerprint=j.payload_hash AND m.payload#>>'{review,policy}'=$1)`,[MATCH_POLICY]);
+    await c.query('DELETE FROM fit_decisions WHERE expires_at<now()');
   }
+  async cachedDecision(p:SearchProfile,job:IndexedJob):Promise<MatchResult|null|undefined> {
+    const rows=(await this.pool.query('SELECT decision,match FROM fit_decisions WHERE user_id=$1 AND profile_fingerprint=$2 AND job_fingerprint=$3 AND policy=$4 AND expires_at>now()',[p.userId,p.fingerprint,fingerprint(job),MATCH_POLICY])).rows;
+    return !rows.length?undefined:rows[0].decision==='match'?rows[0].match:null;
+  }
+  async cacheDecision(p:SearchProfile,job:IndexedJob,match:MatchResult|null,uncertain=false):Promise<void> {
+    await this.pool.query(`INSERT INTO fit_decisions(user_id,profile_fingerprint,job_fingerprint,policy,decision,match,expires_at) SELECT $1,$2,$3,$4,$5,$6,now()+$7*interval '1 hour' WHERE EXISTS(SELECT 1 FROM search_profiles WHERE user_id=$1 AND fingerprint=$2)
+      ON CONFLICT(user_id,profile_fingerprint,job_fingerprint,policy) DO UPDATE SET decision=excluded.decision,match=excluded.match,expires_at=excluded.expires_at`,[p.userId,p.fingerprint,fingerprint(job),MATCH_POLICY,match?'match':uncertain?'uncertain':'no_match',match?JSON.stringify(match):null,uncertain?1:168]);
+  }
+  async invalidate(job:IndexedJob):Promise<void>{
+    // A changed public description cannot retain approvals of its old content.
+    await this.pool.query('DELETE FROM indexed_jobs WHERE id=$1 AND payload_hash<>$2',[job.id,fingerprint(job)]);
+  }
+  async reserveReview(reserved:number):Promise<string|null>{
+    if(!Number.isFinite(reserved)||reserved<=0||reserved>1)return null;
+    const c=await this.pool.connect();try{await c.query('BEGIN');await c.query('SELECT pg_advisory_xact_lock(830711,2)');
+      const used=(await c.query("SELECT count(*)::int AS calls,coalesce(sum(greatest(reserved_usd,coalesce(amount_usd,0))),0)::float8 AS amount FROM fit_review_requests WHERE created_at>=date_trunc('day',now())")).rows[0];
+      if(used.calls>=100||used.amount+reserved>1){await c.query('ROLLBACK');return null;}
+      const id=randomUUID();await c.query('INSERT INTO fit_review_requests(id,reserved_usd) VALUES($1,$2)',[id,reserved]);await c.query('COMMIT');return id;
+    }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
+  }
+  async completeReview(id:string,amount:number|null,basis:string,status:string):Promise<void>{await this.pool.query('UPDATE fit_review_requests SET amount_usd=$2,basis=$3,status=$4 WHERE id=$1',[id,amount,basis,status]);}
   async enqueue(kind:CrawlTask['kind'],payload:Record<string,unknown>,priority=0):Promise<void> {
-    const job=payload.job as {id?:string}|undefined;
+    const job=payload.job as {id?:string;url?:string;platform?:string;source?:string}|undefined;
+    if(job)payload={...payload,job:{id:job.id,url:job.url,platform:job.platform,source:job.source}};
     const identity=kind==='page'?{kind,url:payload.url}:kind==='feed'&&job?{kind,source:payload.source,target:payload.target,jobId:job.id}:{kind,payload};
     const key=fingerprint(identity);
     await this.pool.query(`INSERT INTO crawl_tasks(key,kind,payload,priority) SELECT $1,$2,$3,$4 WHERE (SELECT count(*) FROM crawl_tasks WHERE state IN ('queued','running'))<5000
@@ -96,7 +108,7 @@ export class JobIndexStore {
     const filters:unknown[]=[q,user,arrangement,pay,page*50];
     const result=await this.pool.query(`SELECT j.payload,j.first_seen_at,j.verified_at,${user?'m.payload':'NULL'} AS candidate_match
       FROM indexed_jobs j ${user?'JOIN candidate_job_matches m ON m.job_id=j.id AND m.user_id=$2::bigint':'LEFT JOIN candidate_job_matches m ON false'}
-      WHERE j.closed_at IS NULL AND (j.expires_at IS NULL OR j.expires_at>now()) AND j.verified_at>now()-interval '14 days'
+      WHERE EXISTS(SELECT 1 FROM candidate_job_matches approved WHERE approved.job_id=j.id AND approved.job_fingerprint=j.payload_hash AND approved.payload#>>'{review,policy}'='resume-fit-v1') AND j.closed_at IS NULL AND (j.expires_at IS NULL OR j.expires_at>now()) AND j.verified_at>now()-interval '14 days'
        AND ($1='' OR j.search@@websearch_to_tsquery('english',$1)) AND ($3::text IS NULL OR j.arrangement=$3) AND ($4::text IS NULL OR j.pay_status=$4)
        AND ($2::text IS NULL OR m.user_id=$2::bigint) ORDER BY j.verified_at DESC,j.id LIMIT 51 OFFSET $5`,filters);
     return {jobs:result.rows.slice(0,50),hasMore:result.rows.length>50,page};
