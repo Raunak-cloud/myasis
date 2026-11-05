@@ -96,7 +96,7 @@ test('Workday uses its public careers search operation, stable job path, exact d
   const jobs = await api.search('software', 2); assert.equal(jobs[0].company, 'Fixture Company'); assert.equal(jobs[0].ageDays, undefined);
   assert.equal(calls[0].method, 'POST'); assert.deepEqual(JSON.parse(calls[0].body!), { limit: 20, offset: 20, searchText: 'software', appliedFacets: {} });
   assert.match(calls[0].url, /\/wday\/cxs\/fixture\/External\/jobs$/);
-  const detail = await api.detail(jobs[0]); assert.equal(detail.ageDays, 2); assert.equal(detail.description, 'Build products');
+  const detail = await api.detail(jobs[0]); assert.equal(detail.ageDays, 2); assert.equal(detail.description, 'Build products'); assert.equal(detail.locationCountry, 'Australia');
   country = 'United States'; await assert.rejects(api.detail(jobs[0]), /not in Australia/);
 });
 

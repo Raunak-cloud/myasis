@@ -4,6 +4,8 @@ export interface EvidenceTag { value: string; evidence: string; basis: 'source' 
 export interface IndexedJob {
   id: string; url: string; source: string; sourceId: string; title: string; company: string;
   description: string; locations: string[]; applicantLocations: string[];
+  /** Publisher-declared countries, retained independently of display labels. */
+  locationCountries?: string[]; applicantLocationCountries?: string[];
   postedAt: string | null; expiresAt: string | null;
   workArrangement: 'remote' | 'hybrid' | 'onsite' | 'not-mentioned';
   pay: { status: 'disclosed' | 'unpaid' | 'not-mentioned'; min: number | null; max: number | null; currency: string | null; period: string | null; text: string };

@@ -57,6 +57,8 @@ export interface JobListing {
   title: string;
   company: string;
   location: string;
+  /** Explicit publisher country, not inferred from the employer or search. */
+  locationCountry?: string;
   workArrangement?: string;
   salary?: string;
   listedAt?: string;

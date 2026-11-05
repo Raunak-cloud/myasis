@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { parseHTML } from 'linkedom';
+import {australianEligibility,declaredCountries} from './geography.js';
 import type { EvidenceTag, IndexedJob, PreliminaryMatch, SearchProfile } from './types.js';
 
 export const fingerprint = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -83,7 +84,7 @@ export function normaliseJob(raw: any, sourceUrl: string, source = 'structured-d
   for (const field of ['educationRequirements','experienceRequirements','qualifications','eligibilityToWorkRequirement','securityClearanceRequirement']) {
     for (const v of list(raw[field])) { const text = plain(typeof v === 'string' ? v : v?.description ?? v?.credentialCategory, 500); if (text) tags.requirements.push(tag(field, text)); }
   }
-  return { id: fingerprint(url), url, source, sourceId, title, company, description, locations: [...new Set(list(raw.jobLocation).map(location).filter(Boolean))], applicantLocations: [...new Set(list(raw.applicantLocationRequirements).map(location).filter(Boolean))], postedAt: date(raw.datePosted), expiresAt, workArrangement, pay, tags, evidence };
+  return { id: fingerprint(url), url, source, sourceId, title, company, description, locations: [...new Set(list(raw.jobLocation).map(location).filter(Boolean))], applicantLocations: [...new Set(list(raw.applicantLocationRequirements).map(location).filter(Boolean))], locationCountries:declaredCountries(raw.jobLocation),applicantLocationCountries:declaredCountries(raw.applicantLocationRequirements), postedAt: date(raw.datePosted), expiresAt, workArrangement, pay, tags, evidence };
 }
 
 /** Bounded JSON-LD graphs, not snippets or guessed listing titles. */
@@ -112,6 +113,7 @@ export function extractPage(html: string, sourceUrl: string, requireDeclaredUrl=
   return { jobs: [...jobs.values()].slice(0, 300), links: [...new Set(links)].slice(0, 30), closedUrls:[...new Set(closedUrls)] };
 }
 export function matchJob(job: IndexedJob, p: SearchProfile): PreliminaryMatch | null {
+  if(australianEligibility(job).status!=='eligible')return null;
   if (p.excludedCompanies.some(v => v.trim().toLowerCase() === job.company.toLowerCase())) return null;
   const keywords = p.keywords.filter(v => { const words = v.match(/[\p{L}\p{N}+#.]+/gu) ?? []; return words.length > 0 && words.every(w => contains(`${job.title}\n${job.description}`, w)); });
   const skills = p.skills.filter(v => contains(`${job.title}\n${job.description}`, v));

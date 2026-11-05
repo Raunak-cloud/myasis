@@ -70,3 +70,6 @@ UPDATE job_index_config SET match_policy='resume-fit-v1' WHERE singleton;
 DELETE FROM candidate_job_matches WHERE payload#>>'{review,policy}' IS DISTINCT FROM 'resume-fit-v1';
 DELETE FROM indexed_jobs j WHERE NOT EXISTS(SELECT 1 FROM candidate_job_matches m WHERE m.job_id=j.id AND m.job_fingerprint=j.payload_hash);
 UPDATE crawl_tasks SET payload=jsonb_set(payload,'{job}',jsonb_strip_nulls(jsonb_build_object('id',payload#>'{job,id}','url',payload#>'{job,url}','platform',payload#>'{job,platform}','source',payload#>'{job,source}'))) WHERE payload ? 'job' AND payload#>'{job}' IS NOT NULL;
+
+-- Legacy/unverified geography is quarantined until the shared admission policy checks it.
+ALTER TABLE indexed_jobs ADD COLUMN IF NOT EXISTS country_policy text;
