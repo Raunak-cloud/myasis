@@ -19,8 +19,10 @@ export function publisherJob(html:string,url:string,lead:CodexLead){
  const parsed=extracted.jobs.find(j=>j.url===canonical);
  if(parsed)return parsed;
  const {document}=parseHTML(html);
- document.querySelectorAll('script,style,nav,header,footer,form,noscript,template,[hidden]').forEach(n=>n.remove());
- const root=document.querySelector('#job-content,main,[role="main"],article')??document.body??document;
+ // ASP.NET career pages may wrap the entire advert in a form. Remove controls,
+ // not that container, and prefer the job scope over outer search/breadcrumb UI.
+ document.querySelectorAll('script,style,nav,header,footer,input,select,textarea,button,noscript,template,[hidden]').forEach(n=>n.remove());
+ const root=document.querySelector('#job-content')??document.querySelector('main')??document.querySelector('[role="main"]')??document.querySelector('article')??document.body??document;
  const source=plain(root.innerHTML??root.textContent??'');
  if(/\b(?:this (?:job|position|vacancy|job ad) (?:has (?:now )?(?:expired|closed)|is no longer available)|applications are no longer (?:being )?accepted|position has been filled)\b/i.test(source))return null;
  const heading=plain(root.querySelector('h1,h2')?.textContent??'');
