@@ -893,14 +893,14 @@ const SECRET_KEYS = new Set([
   'GOOGLE_CLIENT_SECRET',
   'SITE_AUTH_SECRET',
   'DATABASE_URL', // embeds the Postgres password
+  'JOB_INDEX_DATABASE_URL', // external catalog URL also embeds its password
   // Posts conversions to the ad account. REDDIT_PIXEL_ID is deliberately not
   // here: it ships to every browser anyway, and the settings panel should show it.
   'REDDIT_CONVERSION_TOKEN',
 ]);
 
 /** Masks secrets — the dashboard should never render an API key. */
-export function readEnvSafe(): Record<string, string> {
-  const env = readEnv();
+export function readEnvSafe(env:Record<string,string> = readEnv()): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(env)) {
     out[k] = SECRET_KEYS.has(k) || /(?:_KEY|SECRET|PASSWORD|PASSWD|TOKEN)$/.test(k) ? (v ? `set (${v.length} chars)` : '') : v ?? '';
