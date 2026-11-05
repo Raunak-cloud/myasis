@@ -5,7 +5,7 @@ import type { JobListing } from './types.js';
 import { cleanCoverLetter } from './cover-letter-policy.js';
 
 const normal = (text: string) => text.replace(/\s+/g, ' ').trim();
-export function applicationContent(application: Pick<PreparedApplication, 'job' | 'formUrl' | 'answers' | 'coverLetter' | 'documents' | 'resumeHash' | 'resume' | 'email'>): string {
+export function applicationContent(application: Pick<PreparedApplication, 'job' | 'formUrl' | 'answers' | 'coverLetter' | 'documents' | 'resumeHash' | 'resume' | 'email' | 'preparation'>): string {
   const answers = application.answers.map(item => [normal(item.question), normal(item.answer)]).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
   const posting = Object.fromEntries(['title', 'company', 'location', 'description', 'salary'].map(key => [key, normal(String(application.job[key as keyof JobListing] ?? ''))]));
   const opaqueDocuments = application.documents?.filter(document => document.role !== 'cover-letter' || document.provenance !== 'text' || document.text !== application.coverLetter);
@@ -16,7 +16,8 @@ export function applicationContent(application: Pick<PreparedApplication, 'job' 
         name: document.name, sha256: document.sha256, bytes: document.bytes, text: document.text ?? '',
       })),
     } : {}),
-    ...(application.email ? { email: application.email } : {}) });
+    ...(application.email ? { email: application.email } : {}),
+    ...('preparation' in application && application.preparation ? { preparation: application.preparation } : {}) });
 }
 
 export const applicationRevision = (application: Parameters<typeof applicationContent>[0]) => createHash('sha256').update(applicationContent(application)).digest('hex');

@@ -33,6 +33,8 @@ export interface ApplicationDocumentRestoration {
 }
 
 export interface PreparedApplication {
+  /** Job/letter preparation precedes form filling; legacy drafts are completed forms. */
+  preparation?: { version: 1; stage: 'job-and-letter'; access: 'no-login-required' | 'signed-in'; checkedAt: string; checkedUrl: string };
   id: string;
   revision: string;
   job: JobListing;

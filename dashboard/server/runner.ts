@@ -511,7 +511,7 @@ class Run {
       .join('  ');
     if (shown) this.push('sys', `  overrides: ${shown}`);
     if (mode === 'live') this.push('sys', overrides.APPLICATION_REVIEW_MODE === 'prepare'
-      ? '  Semi auto: forms will be filled and saved for your confirmation. Nothing will be submitted.'
+      ? '  Semi auto: matching jobs, cover letters and application access will be prepared for your review. Forms are filled only after you choose Apply. Nothing will be submitted during preparation.'
       : '  Auto apply: this user-started run will submit applications.');
 
     const timeoutMs = runTimeoutMs(env.OPERATOR_RUN_TIMEOUT_MINUTES || process.env.RUN_TIMEOUT_MINUTES || readEnv().RUN_TIMEOUT_MINUTES);

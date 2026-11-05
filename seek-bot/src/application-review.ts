@@ -12,6 +12,7 @@ import { observedApprovedCoverLetter, typedCoverLetterControls } from './applica
 import type { ToolContext, ToolResult } from './agent/context.js';
 import type { JobListing } from './types.js';
 import type { PreparedApplication } from './application-review-types.js';
+import { applicationFormKey } from './application-identity.js';
 
 export const preparingApplications = () => process.env.APPLICATION_REVIEW_MODE === 'prepare';
 export const reviewingApplications = () => preparingApplications() || process.env.APPLICATION_REVIEW_MODE === 'approved';
@@ -91,6 +92,8 @@ export async function applicationApprovalGate(ctx: ToolContext, _sendControl?: L
   const resumePath = ctx.resumeUsed ? agentOnlyResumePath(ctx.resumeUsed) : null;
   const resumeHash = resumePath ? createHash('sha256').update(readFileSync(resumePath)).digest('hex') : undefined;
   if (!preparingApplications() && approved) {
+    if(!approved.preparation && applicationFormKey(approved.job,approved.formUrl)!==applicationFormKey(ctx.job,form.url))
+      return {kind:'ok',disposition:'failed',message:'The saved form belongs to a different vacancy or employer account. Reopen the approved job before sending.'};
     if (approved.resumeId && approved.resumeId !== ctx.resumeUsed || approved.resumeHash && approved.resumeHash !== resumeHash)
       return { kind: 'ok', disposition: 'failed', message: 'Restore the candidate-approved resume and inspect its actual selected bytes before sending. The job remains approved; do not prepare it again.' };
     // Retained answers are joined by their original question. Additional DOM

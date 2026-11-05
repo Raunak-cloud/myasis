@@ -60,6 +60,7 @@ import { approvedApplications, approvedApplication, pendingApplicationKeys, prep
 import { applicationKeys } from './application-identity.js';
 import { waitingForCurrentAnswers } from './answer-eligibility.js';
 import { runDeadline } from './run-deadline.js';
+import { prepareMatchedJob } from './prepare-job.js';
 
 const searchOnly = process.argv.includes('--search-only');
 const doSync = process.argv.includes('--sync');
@@ -1277,7 +1278,7 @@ async function main() {
             await showLiveActivity({ phase: 'applying', detail: `${job.title} at ${job.company}` }, applicationPage);
             if (limitReached()) break;
             try {
-              const apply = () => measured('application', () => approvedApplication(job)?.email
+              const apply = () => measured('application', () => preparingApplications() ? prepareMatchedJob(applicationPage,job,profile) : approvedApplication(job)?.email
                 ? submitApprovedEmail(approvedApplication(job)!)
                 : adapter.apply(applicationPage, job, profile, { onFriction: () => {} }), { jobId: job.id, platform: platformId });
               outcome = await withApplicationAllowance(slot.beforeSubmit, apply);

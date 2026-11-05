@@ -43,6 +43,10 @@ try {
   writeFileSync(join(directory, 'resumes', 'CV.txt'), 'Changed candidate CV');
   assert.notEqual(await applicationApprovalGate(ctx), null, 'changed CV bytes still require confirmation');
   writeFileSync(join(directory, 'resumes', 'CV.txt'), 'Original candidate CV');
+  const staged={...draft,answers:[],formUrl:job.url,preparation:{version:1 as const,stage:'job-and-letter' as const,access:'no-login-required' as const,checkedAt:new Date().toISOString(),checkedUrl:job.url}};
+  writeFileSync(join(directory,'approved-applications.json'),JSON.stringify([staged]));
+  await page.goto(url.replace('first','staged'));
+  assert.equal(await applicationApprovalGate(ctx),null,'job-and-letter approval permits the completed form after filling, without claiming it was prefilled');
   const workdayUrl = 'https://fixture.wd3.myworkdayjobs.com/en-US/External/job/Sydney/Developer_R123/apply/applyManually?tenant=one';
   process.env.APPLICATION_REVIEW_MODE = 'prepare';
   await page.goto(workdayUrl);

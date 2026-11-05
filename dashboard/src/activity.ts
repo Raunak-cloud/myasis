@@ -419,7 +419,7 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       if (application) {
         application.event.title = `Ready for confirmation: ${match[1]}`;
         application.event.tone = 'done';
-        application.event.detail = `${match[2]} · ${confirming ? 'The application changed after confirmation. Review the updated version in Prepared Applications before confirming again.' : 'The form is filled. Choose it in Prepared applications to confirm submission.'}`;
+        application.event.detail = `${match[2]} · ${confirming ? 'The application changed after confirmation. Review the updated version in Prepared Applications before confirming again.' : 'Prepared work is saved. Review it in Prepared applications and choose Apply when ready.'}`;
         recordOutcome(application.event, 'prepared');
         finishApplication(line);
       } else recordOutcome(add(line, `Ready for confirmation: ${match[1]}`, 'done', match[2]), 'prepared');

@@ -732,7 +732,7 @@ export function RunPanel({
             <p className="job-meta">{modelSaving ? 'Saving…' : 'Used for the whole next run.'}</p>
             {modelError && <p className="field-error" role="alert">{modelError}</p>}
           </div>}
-          <p className="job-meta">{applicationMode === 'auto' ? 'Owtomate finds suitable jobs, fills their forms and submits applications.' : 'Owtomate curates jobs and fills their forms. You choose which prepared applications to confirm.'} {adminMode ? 'Start a single run now.' : 'Press Start to enable scheduled runs. Pause anytime to stop the current run and all future runs.'}</p>
+          <p className="job-meta">{applicationMode === 'auto' ? 'Owtomate finds suitable jobs, fills their forms and submits applications.' : 'Owtomate finds matching jobs, prepares cover letters and checks application access. You choose which jobs to apply to, then Owtomate fills their forms.'} {adminMode ? 'Start a single run now.' : 'Press Start to enable scheduled runs. Pause anytime to stop the current run and all future runs.'}</p>
           {applicationMode === 'semi-auto' && <p className="job-meta">Review and confirm jobs in <a href="/?tab=prepared">Prepared Applications</a>.</p>}
           {entitlements && !isAdmin && <p className="job-meta">{entitlements.autoRunsUsedToday} of {entitlements.autoRunsPerDay} runs started in the last 24 hours. You can confirm prepared applications while the schedule is paused.</p>}
         </div>}
@@ -1127,7 +1127,7 @@ export function RunPanel({
 
             <div className="run-review-body">
               <div className="banner banner-bad run-review-warning">
-                {applicationMode === 'semi-auto' ? 'This run fills applications and saves them for your review. Owtomate submits only the jobs you later confirm from the prepared list.' : isAdmin && platforms.some(isEmployerSource)
+                {applicationMode === 'semi-auto' ? 'This run prepares matching jobs and cover letters, and checks application access. Forms are filled only after you choose Apply from the prepared list.' : isAdmin && platforms.some(isEmployerSource)
                   ? 'Save and apply submits applications to employers. Test without applying only searches and reviews jobs. Submitted applications cannot be withdrawn here.'
                   : 'This run submits applications to employers. Submitted applications cannot be withdrawn here.'}
               </div>

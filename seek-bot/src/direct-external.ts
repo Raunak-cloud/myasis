@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Page } from 'patchright';
+import { preparingApplications } from './application-review.js';
+import { prepareMatchedJob } from './prepare-job.js';
 import { runApplicationAgent } from './agent/loop.js';
 import { waitForApplicationSurface } from './agent/observe.js';
 import { outcomeFromRun } from './agent/outcome.js';
@@ -151,10 +153,13 @@ export async function runDirectExternalApplication(
   console.log(`Direct website job: ${job.title} @ ${job.company}`);
   let outcome: ApplyOutcome | undefined;
   try {
+    if(preparingApplications())outcome=await prepareMatchedJob(page,job,profile);
+    else{
     const apply = () => (test?.runAgent ?? runApplicationAgent)({ page, job, profile, log: (line: string) => console.log(line) });
     const run = await apply();
     console.log(`  agent: ${run.steps} steps · ${run.usage}`);
     outcome = outcomeFromRun(run, job.id, page.url());
+    }
   } catch (error) {
     outcome = { status: 'error', jobId: job.id, error: (error as Error).message,
       submitPressed: applicationFailureContext(error)?.submitPressed === true };
@@ -184,6 +189,8 @@ export async function runDirectExternalApplication(
       submittedByMyasis: true,
     });
     console.log('  ✅ submitted [external] (1/1)');
+  } else if (outcome.status === 'prepared') {
+    console.log(`  Ready for confirmation: ${job.title} @ ${job.company}`);
   } else if (outcome.status === 'needs-human') {
     console.log(`  ⏸ needs your answer: ${outcome.reason}`);
   } else if (outcome.status === 'already-applied') {
@@ -195,5 +202,5 @@ export async function runDirectExternalApplication(
   } else {
     console.log(`  – ${outcome.status}`);
   }
-  console.log(`\n=== Run complete: ${outcome.status === 'applied' ? 1 : 0} new application(s) ===`);
+  console.log(preparingApplications()?`\n=== Semi auto complete: ${outcome.status==='prepared'?1:0} application(s) ready for confirmation ===`:`\n=== Run complete: ${outcome.status === 'applied' ? 1 : 0} new application(s) ===`);
 }
