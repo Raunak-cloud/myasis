@@ -220,7 +220,7 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
     if (/starting (live|search) run/i.test(text)) {
       add(line, 'Run started', 'done');
     } else if (/stop requested/i.test(text)) {
-      stopNotice = add(line, 'Stopping run', 'neutral', 'Your stop request was received. Applications already submitted stay submitted.');
+      stopNotice = add(line, 'Stopping run', 'neutral', 'This run is stopping. Applications already submitted stay submitted.');
       explained = true;
     } else if (/Run reached its .+ time limit; stopping the worker/i.test(text)) {
       stopNotice = add(line, 'Run time limit reached', 'warn', 'This run is stopping because it reached its time limit. Applications already submitted stay submitted.');
