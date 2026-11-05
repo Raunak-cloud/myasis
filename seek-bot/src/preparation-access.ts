@@ -1,5 +1,5 @@
 import type { Page, Route } from 'patchright';
-import { observe, type Observation } from './agent/observe.js';
+import { observe, waitForApplicationSurface, type Observation } from './agent/observe.js';
 import { browserTarget } from './agent/browser-target.js';
 import { applicationChat } from './agent/application-chat.js';
 import { CostMeter, type ToolSchema, type ChatMessage } from './agent/celeris.js';
@@ -17,6 +17,25 @@ import { jobBoardForHost } from './job-board-url.js';
 const APPLY = /^(?:quick\s*)?apply(?:\s+(?:now|for\b.*|on\b.*|with\b.*|to\b.*))?$|^start (?:your )?application$/i;
 const LOGIN = /^(?:sign\s*in|log\s*in|continue|next|verify(?:\s+code)?|send(?:\s+me)?(?:\s+a)?\s+code)(?:\s+.*)?$/i;
 const clean = (s: string) => s.replace(/[\u200b-\u200d\u2060\ufeff]/g,'').replace(/\s+/g,' ').trim();
+const seekOpenedDocument='mutation TrackJobApplicationStarted($input: TrackJobApplicationStartedInput!) { trackJobApplicationStarted(input: $input) { eventId __typename } }'.replace(/\s+/g,'');
+/** Batches must be entirely read-only, except SEEK's exact, job-bound opened
+ * analytics event. This does not save answers, documents or an application. */
+export function preparationGraphqlAllowed(body:unknown,url:string,jobId?:string):boolean{
+  const items=Array.isArray(body)?body:[body];
+  return items.length>0&&items.length<=30&&items.every(item=>{
+    if(!item||typeof item!=='object')return false;
+    const p=item as Record<string,unknown>,q=p.query;
+    if(typeof q!=='string')return false;
+    if(/^\s*(?:query\b|\{)/.test(q)&&! /\b(?:mutation|subscription)\b/.test(q))return true;
+    const u=new URL(url),variables=p.variables as Record<string,unknown>|undefined,input=variables?.input as Record<string,unknown>|undefined;
+    return jobBoardForHost(u.hostname)==='seek'&&u.pathname==='/graphql'&&Boolean(jobId)
+      &&p.operationName==='TrackJobApplicationStarted'&&q.replace(/\s+/g,'')===seekOpenedDocument
+      &&Boolean(variables)&&Object.keys(variables!).every(k=>k==='input')&&Boolean(input)
+      &&String(input!.jobId)===jobId&&Object.keys(input!).every(k=>['jobId','sessionId','applicationCorrelationId','isProfileApply'].includes(k))
+      &&['sessionId','applicationCorrelationId'].every(k=>input![k]===undefined||typeof input![k]==='string'&&String(input![k]).length<=300)
+      &&(input!.isProfileApply===undefined||typeof input!.isProfileApply==='boolean');
+  });
+}
 export type PreparationAccess = { ok: true; access: 'no-login-required' | 'signed-in'; checkedUrl: string } | { ok: false; reason: string };
 export function preparationSurface(o: Observation): 'blocked' | 'login' | 'application' | 'unknown' {
   if (o.inspectionError || /job (?:is no longer|has expired|has been filled)|position (?:has been filled|is closed)|no longer accepting applications|access denied|verify (?:that )?you are human/i.test(o.text)) return 'blocked';
@@ -26,8 +45,11 @@ export function preparationSurface(o: Observation): 'blocked' | 'login' | 'appli
       && fields.some(f=>f.inputType==='email'||/^(?:email(?: address)?|username|user name)$/i.test(f.label.trim()))
       && !fields.some(f=>f.inputType==='file'||/resume|curriculum vitae|cover letter|first name|given name|last name|surname|work rights|qualification/i.test(f.label))) return 'login';
   const application=fields.filter(f=>!f.sensitive&&!/search|newsletter|subscribe|location search/i.test(f.label));
-  const applicationCopy=/application|apply for|apply now|personal (?:details|information)|contact information|upload (?:your )?resume|review your/i.test(o.title+' '+o.text);
-  if (applicationCopy && (application.some(f=>f.inputType==='file'||/resume|cover letter|first name|given name|last name|surname|mobile|phone|work rights|work authori|eligib|experience|qualification/i.test(f.label))
+  const applicationCopy=/application|apply for|apply now|personal (?:details|information)|contact information|upload (?:your )?resum[eé]|review your|choose documents|answer employer questions|review and submit/i.test(o.title+' '+o.text);
+  // Some boards expose native hidden file inputs as upload actions rather than
+  // visible fields. Their document step is already accessible; do not upload.
+  const documentAction=o.actions.some(a=>!a.disabled&&/(?:resum[eé]|curriculum vitae|cover letter).*\b(?:upload|attach)\b|\b(?:upload|attach)\b.*(?:resum[eé]|curriculum vitae|cover letter)/i.test(clean(a.text)));
+  if (applicationCopy && (documentAction||application.some(f=>f.inputType==='file'||/resum[eé]|cover letter|first name|given name|last name|surname|mobile|phone|work rights|work authori|eligib|experience|qualification/i.test(f.label))
     || application.length>=3) || o.actions.some(a=>/^submit (?:your )?application$/i.test(clean(a.text)))) return 'application';
   return 'unknown';
 }
@@ -37,7 +59,7 @@ const decision: ToolSchema={name:'choose_access_action',description:'Check appli
 
 /** No application mutations are allowed, including one-click Apply requests.
  * Private authentication is the only write window; GraphQL reads remain reads. */
-export async function preparationTransport(page: Page,fixture=false): Promise<{ authentication: (allowed: boolean,active?:Page) => void; stop: () => Promise<void> }> {
+export async function preparationTransport(page: Page,fixture=false,jobId?:string): Promise<{ authentication: (allowed: boolean,active?:Page) => void; stop: () => Promise<void> }> {
   let authOrigin: string | undefined,authPath: string | undefined;
   const handler=async(route:Route)=>{
     const r=route.request();
@@ -50,7 +72,7 @@ export async function preparationTransport(page: Page,fixture=false): Promise<{ 
     if (['GET','HEAD','OPTIONS'].includes(r.method())) return route.fallback();
     const body=r.postData()??'';
     let query=false;
-    try{const p=JSON.parse(body);query=typeof p.query==='string'&&/^\s*(?:query\b|\{)/.test(p.query)&&!/^\s*mutation\b/.test(p.query);}catch{/* Non-query writes require the private login window. */}
+    try{query=preparationGraphqlAllowed(JSON.parse(body),r.url(),jobId);}catch{/* Non-query writes require the private login window. */}
     if(query)return route.fallback();
     if (/submit.?application|send.?application|application.?submission|complete.?application/i.test(new URL(r.url()).pathname+' '+body)) return route.abort('blockedbyclient');
     const u=new URL(r.url());
@@ -64,7 +86,7 @@ export async function preparationTransport(page: Page,fixture=false): Promise<{ 
 }
 
 export async function checkPreparationAccess(page:Page,job:JobListing,profile:CandidateProfile,options:{chat?:typeof applicationChat;onStep?:(action:string,result:string)=>void;fixture?:boolean}={}):Promise<PreparationAccess>{
-  const transport=await preparationTransport(page,options.fixture);
+  const transport=await preparationTransport(page,options.fixture,job.id);
   const pagesBefore=new Set(page.context().pages());
   let current=page,entered=false,sawLogin=false,attemptedLogin=false,credentialUsed=false;
   const openedApply=new Set<string>();
@@ -72,14 +94,18 @@ export async function checkPreparationAccess(page:Page,job:JobListing,profile:Ca
   const ctx:ToolContext={page,job,profile,observation:{url:'',title:'',text:'',fields:[],actions:[]},captured:[],actions:[],log:()=>{}};
   const secrets=()=>privateAuthenticationValues(ctx.page);
   try{
-    await current.goto(job.applicationUrl??job.url,{waitUntil:'domcontentloaded',timeout:30_000});
-    // A live, discovered direct application URL is already the Apply handoff.
-    entered=Boolean(job.applicationUrl && job.applicationUrl!==job.url);
+    // Board application URLs can depend on state initialized by the listing's
+    // Apply control. Start at the matched listing rather than deep-linking a wizard.
+    await current.goto(job.url,{waitUntil:'domcontentloaded',timeout:30_000});
     await current.waitForLoadState('domcontentloaded');
     for(let step=0;step<10&&!meter.exhausted;step++){
       const opened=page.context().pages().filter(p=>!pagesBefore.has(p));
       if(opened.length)current=opened[opened.length-1];
       ctx.page=current;ctx.observation=await observe(current);
+      if(!ctx.observation.fields.length&&!ctx.observation.actions.some(a=>APPLY.test(clean(a.text)))){
+        await waitForApplicationSurface(current,6000).catch(()=>false);
+        ctx.observation=await observe(current);
+      }
       const o=ctx.observation,state=preparationSurface(o);
       options.onStep?.('access_state',JSON.stringify({surface:state,origin:new URL(o.url).origin,path:new URL(o.url).pathname}));
       if(state==='blocked')return {ok:false,reason:'The application is unavailable or blocked; access was not verified.'};

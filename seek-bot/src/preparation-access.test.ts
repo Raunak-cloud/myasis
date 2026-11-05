@@ -4,11 +4,12 @@ import { chromium, type Browser } from 'patchright';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkPreparationAccess, preparationTransport } from './preparation-access.js';
+import { checkPreparationAccess, preparationTransport, preparationGraphqlAllowed, preparationSurface } from './preparation-access.js';
 import { withApplicationModel } from './application-model.js';
 import { stagePendingCredential, acceptPendingCredential } from './site-credentials.js';
 import type { CandidateProfile,JobListing } from './types.js';
 import type { CelerisRequest } from './agent/celeris.js';
+import type { Observation } from './agent/observe.js';
 
 const profile={name:'Fixture Candidate',email:'candidate@fixture.invalid'} as CandidateProfile;
 const job={id:'fixture',title:'Analyst',company:'Fixture employer',location:'Sydney',url:'https://employer.fixture.invalid/job'} as JobListing;
@@ -24,6 +25,30 @@ const choose=async(r:CelerisRequest)=>{
  return {text:'',toolCalls:[{id:'fixture',name:'choose_access_action',args}],message:{role:'assistant' as const,content:null}};
 };
 async function browser():Promise<Browser>{return chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});}
+
+test('SEEK batched reads and the exact job-opened tracking event are allowed; mixed sends and altered trackers are rejected',()=>{
+ const url='https://www.seek.com.au/graphql',read={operationName:'GetUser',query:'query GetUser { viewer { _id } }',variables:{}};
+ const tracker={operationName:'TrackJobApplicationStarted',query:'mutation TrackJobApplicationStarted($input: TrackJobApplicationStartedInput!) { trackJobApplicationStarted(input: $input) { eventId __typename } }',variables:{input:{jobId:12345678,sessionId:'fixture',applicationCorrelationId:'fixture',isProfileApply:false}}};
+ assert.equal(preparationGraphqlAllowed([read],url,'12345678'),true);
+ assert.equal(preparationGraphqlAllowed([read,tracker],url,'12345678'),true);
+ assert.equal(preparationGraphqlAllowed([read,{query:'mutation { submitApplication }'}],url,'12345678'),false);
+ assert.equal(preparationGraphqlAllowed([read,tracker],url,'87654321'),false);
+ assert.equal(preparationGraphqlAllowed([read,tracker],'https://employer.fixture.invalid/graphql','12345678'),false);
+ assert.equal(preparationGraphqlAllowed({...tracker,query:tracker.query.replace('eventId','eventId submitApplication')},url,'12345678'),false);
+ assert.equal(preparationGraphqlAllowed({...tracker,variables:{input:{...tracker.variables.input,answers:['not allowed']}}},url,'12345678'),false);
+});
+
+test('a delayed application shell is observed after hydration instead of being prematurely skipped',async()=>{
+ const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage();
+ await ctx.route('**/*',r=>r.fulfill({contentType:'text/html',body:`<main><h1>Loading</h1></main><script>setTimeout(()=>{document.querySelector('main').outerHTML=${JSON.stringify(application)}},400)</script>`}));
+ try{const result=await checkPreparationAccess(page,job,profile,{fixture:true,chat:async()=>{throw Error('Hydration is not an AI decision');}});assert.equal(result.ok,true,JSON.stringify(result));assert.equal(await page.locator('#name').inputValue(),'');}finally{await b.close();}
+});
+
+test('document-step upload actions prove access without uploading or advancing the wizard',()=>{
+ const observation:Observation={url:'https://au.seek.com/job/12345678/apply',title:'Group Dog Walker',text:'Choose documents Answer employer questions Update SEEK Profile Review and submit',fields:[],actions:[{ref:'a1',text:'Resumé Upload (accepts .doc,application/pdf)',role:'button',disabled:false},{ref:'a2',text:'Cover letter Upload (accepts .doc,application/pdf)',role:'button',disabled:false},{ref:'a3',text:'Continue',role:'button',disabled:false}]};
+ assert.equal(preparationSurface(observation), 'application');
+ assert.equal(preparationSurface({...observation,text:'Job listing',actions:[{ref:'a1',text:'Avatar file input',role:'button',disabled:false}]}),'unknown');
+});
 
 test('Apply precedes optional Sign in; accessible forms remain completely unfilled',async()=>{
  const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage();const visits:string[]=[];
