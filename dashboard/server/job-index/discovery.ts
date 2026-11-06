@@ -9,9 +9,10 @@ export function discoveryQueries(profiles:SearchProfile[],day=new Date().toISOSt
     const roles=safeKeywords(p.keywords.join(',')),skills=safeKeywords(p.skills.join(','));
     const terms=roles.length?roles:skills.slice(0,3);
     return terms.flatMap((role,i)=>{
-      const base=`"${role}"`;
+      const city=safeKeywords(p.location).slice(0,2).map(v=>`"${v}"`).join(' ')||'"Australia"';
+      const base=`"${role}" ${city}`;
       const skill=skills.length?` "${skills[(turn+i)%skills.length]}"`:'';
-      return [`${base} careers jobs "Australia"`,`${base}${skill} careers "Australia" -site:seek.com.au -site:indeed.com`,`${base} "Australia" site:${sites[(turn+i)%sites.length]}`];
+      return [`${base} careers jobs`,`${base}${skill} careers -site:seek.com.au -site:indeed.com`,`${base} site:${sites[(turn+i)%sites.length]}`];
     });
   });
   const queries=new Set<string>();

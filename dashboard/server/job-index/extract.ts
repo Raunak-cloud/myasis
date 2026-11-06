@@ -40,6 +40,25 @@ export const SKILLS = ['Python','JavaScript','TypeScript','Java','C++','C#','SQL
 export const contains = (text: string, term: string): boolean => new RegExp(`(?<![\\p{L}\\p{N}])${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}])`, 'iu').test(text);
 export function recognisedSkills(text: string): string[] { return SKILLS.filter(s => contains(text, s)); }
 
+/** Parse the JSON value of a publisher assignment, never execute its script. */
+function ashbyLinks(document:any,sourceUrl:string):string[]{
+  const u=new URL(sourceUrl);if(u.hostname!=='jobs.ashbyhq.com')return [];
+  for(const script of [...document.querySelectorAll('script:not([src])')] as any[]){
+    const text=script.textContent??'',marker=text.indexOf('window.__appData =');if(marker<0)continue;
+    const start=text.indexOf('{',marker);if(start<0)continue;
+    let depth=0,quoted=false,escaped=false,end=-1;
+    for(let i=start;i<text.length;i++){const c=text[i];if(quoted){if(escaped)escaped=false;else if(c==='\\')escaped=true;else if(c==='"')quoted=false;}else if(c==='"')quoted=true;else if(c==='{')depth++;else if(c==='}'&&--depth===0){end=i+1;break;}}
+    if(end<0)continue;
+    try{
+      const data=JSON.parse(text.slice(start,end)),org=data.organization,slug=org?.hostedJobsPageSlug;
+      if(org?.allowJobPostIndexing!==true||typeof slug!=='string'||slug.length>150||/[/?#]/.test(slug)||decodeURIComponent(u.pathname.split('/')[1]??'').toLowerCase()!==slug.toLowerCase())continue;
+      if(!Array.isArray(data.jobBoard?.jobPostings))continue;
+      return data.jobBoard.jobPostings.slice(0,1000).flatMap((j:any)=>typeof j?.title==='string'&&typeof j.id==='string'&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(j.id)?[canonicalUrl(`${u.origin}/${encodeURIComponent(slug)}/${j.id}`)]:[]);
+    }catch{/* Invalid embedded data is not a source of vacancies. */}
+  }
+  return [];
+}
+
 /** A missing fact stays unknown. Taxonomy inferred from a title is marked inferred. */
 export function normaliseJob(raw: any, sourceUrl: string, source = 'structured-data', now = Date.now()): IndexedJob | null {
   const title = plain(raw?.title ?? raw?.name, 300), company = plain(typeof raw?.hiringOrganization === 'string' ? raw.hiringOrganization : raw?.hiringOrganization?.name, 300);
@@ -130,6 +149,7 @@ export function extractPage(html: string, sourceUrl: string, requireDeclaredUrl=
     if(job&&!jobs.has(job.id))jobs.set(job.id,job);
     else if(typeof raw.validThrough==='string'&&Date.parse(raw.validThrough)<=Date.now())try{closedUrls.push(canonicalUrl(ownUrl));}catch{/* malformed publisher URL */}
   }
+  const publisherLinks=ashbyLinks(document,sourceUrl);
   const links: string[] = [];
   for (const a of [...document.querySelectorAll('a[href]')].slice(0, 500)) {
     try {
@@ -138,7 +158,7 @@ export function extractPage(html: string, sourceUrl: string, requireDeclaredUrl=
       if((atsVacancy||/\b(career|careers|jobs?|vacanc|opportunit)/i.test(`${u.pathname} ${a.textContent}`))&&!/\/(?:login|sign[-_]?in|register|apply|application)(?:[/?]|$)/i.test(u.pathname))links.push(url);
     } catch { /* non-public/invalid link */ }
   }
-  return { jobs: [...jobs.values()].slice(0, 300), links: [...new Set(links)].slice(0, 30), closedUrls:[...new Set(closedUrls)] };
+  return { jobs: [...jobs.values()].slice(0, 300), links: [...new Set([...publisherLinks,...links.slice(0,30)])].slice(0,1000), closedUrls:[...new Set(closedUrls)] };
 }
 export function matchJob(job: IndexedJob, p: SearchProfile): PreliminaryMatch | null {
   if(australianEligibility(job).status!=='eligible')return null;

@@ -7,6 +7,18 @@ import type { SearchProfile } from './types.js';
 const url='https://careers.fixture.org/jobs/123';
 const raw={title:'Graduate Data Analyst',hiringOrganization:{name:'Fixture employer'},description:'Graduate role. Students welcome. Use Python, SQL and Power BI to analyse customer data.',jobLocation:{address:{addressLocality:'Sydney',addressRegion:'NSW',addressCountry:'AU'}}};
 
+test('Ashby board links come from public publisher IDs without executing embedded scripts or using its private API',()=>{
+ const id='516a2eb6-db64-4019-961d-eae58524831a',board='https://jobs.ashbyhq.com/fixture';
+ const data={organization:{hostedJobsPageSlug:'fixture',allowJobPostIndexing:true},jobBoard:{jobPostings:[{id,title:'Data Analyst with "quoted {text}"'},{id:'javascript:alert(1)',title:'Invalid'}]}};
+ const html=`<script>window.__appData = ${JSON.stringify(data)}; throw new Error('Never execute this');</script>`;
+ assert.deepEqual(extractPage(html,board).links,[`${board}/${id}`]);assert.equal(extractPage(html,board).jobs.length,0,'a board summary is only a lead until the full publisher posting is fetched');
+ for(const other of ['https://jobs.ashbyhq.com/another','https://fake.fixture.org/fixture'])assert.deepEqual(extractPage(html,other).links,[]);
+ assert.deepEqual(extractPage(html.replace('"allowJobPostIndexing":true','"allowJobPostIndexing":false'),board).links,[]);
+ assert.deepEqual(extractPage('<script>window.__appData = {bad JSON}</script>',board).links,[]);
+ const many={...data,jobBoard:{jobPostings:Array.from({length:80},(_,i)=>({id:`516a2eb6-db64-4019-961d-${String(i).padStart(12,'0')}`,title:'Data Analyst'}))}};
+ assert.equal(extractPage(`<script>window.__appData = ${JSON.stringify(many)};</script>`,board).links.length,80,'publisher vacancy IDs must not be truncated by the generic navigation-link limit');
+});
+
 test('publisher microdata admits actual role facts without borrowing employer HQ or unrelated page data',()=>{
   const html=`<link rel="canonical" href="${url}"><section itemscope itemtype="http://schema.org/JobPosting"><meta itemprop="hiringOrganization" content="Fixture employer"><h1 itemprop="title">Senior Data Analyst</h1><div itemprop="description">Use Python and SQL to build trusted business intelligence, reporting and analytics. Hybrid working.</div><meta itemprop="datePosted" content="2026-11-01"><div itemprop="jobLocation" itemscope itemtype="https://schema.org/Place"><span itemprop="address" itemscope itemtype="https://schema.org/PostalAddress"><meta itemprop="addressLocality" content="Sydney"><meta itemprop="addressRegion" content="NSW"><meta itemprop="addressCountry" content="AU"></span><span itemprop="address" itemscope itemtype="https://schema.org/PostalAddress"><meta itemprop="addressLocality" content="Melbourne"><meta itemprop="addressCountry" content="AU"></span></div></section><footer><span itemprop="addressCountry">CA</span></footer>`;
   const j=extractPage(html,url,true).jobs[0];assert.ok(j);assert.equal(j.title,'Senior Data Analyst');assert.equal(j.company,'Fixture employer');assert.deepEqual(j.locations,['Sydney, NSW, AU','Melbourne, AU']);assert.deepEqual(j.locationCountries,['AU']);assert.equal(j.postedAt,'2026-11-01T00:00:00.000Z');assert.equal(j.workArrangement,'hybrid');

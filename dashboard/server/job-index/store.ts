@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { fingerprint, matchJob } from './extract.js';
 import {AUSTRALIA_POLICY,australianEligibility} from './geography.js';
-import {MATCH_POLICY,type IndexedJob,type SearchProfile,type MatchResult} from './types.js';
+import {MATCH_POLICY,FIT_CACHE_POLICY,type IndexedJob,type SearchProfile,type MatchResult} from './types.js';
 
 export interface CrawlTask { key: string; kind: 'page'|'feed'|'search'; payload: Record<string, any>; lease: string; attempts: number }
 export class JobIndexStore {
@@ -76,12 +76,12 @@ export class JobIndexStore {
     await c.query('DELETE FROM fit_decisions WHERE expires_at<now()');
   }
   async cachedDecision(p:SearchProfile,job:IndexedJob):Promise<MatchResult|null|'uncertain'|undefined> {
-    const rows=(await this.pool.query('SELECT decision,match FROM fit_decisions WHERE user_id=$1 AND profile_fingerprint=$2 AND job_fingerprint=$3 AND policy=$4 AND expires_at>now()',[p.userId,p.fingerprint,fingerprint(job),MATCH_POLICY])).rows;
+    const rows=(await this.pool.query('SELECT decision,match FROM fit_decisions WHERE user_id=$1 AND profile_fingerprint=$2 AND job_fingerprint=$3 AND policy=$4 AND expires_at>now()',[p.userId,p.fingerprint,fingerprint(job),FIT_CACHE_POLICY])).rows;
     return !rows.length?undefined:rows[0].decision==='match'?rows[0].match:rows[0].decision==='uncertain'?'uncertain':null;
   }
   async cacheDecision(p:SearchProfile,job:IndexedJob,match:MatchResult|null,uncertain=false):Promise<void> {
     await this.pool.query(`INSERT INTO fit_decisions(user_id,profile_fingerprint,job_fingerprint,policy,decision,match,expires_at) SELECT $1,$2,$3,$4,$5,$6,now()+$7*interval '1 hour' WHERE EXISTS(SELECT 1 FROM search_profiles WHERE user_id=$1 AND fingerprint=$2)
-      ON CONFLICT(user_id,profile_fingerprint,job_fingerprint,policy) DO UPDATE SET decision=excluded.decision,match=excluded.match,expires_at=excluded.expires_at`,[p.userId,p.fingerprint,fingerprint(job),MATCH_POLICY,match?'match':uncertain?'uncertain':'no_match',match?JSON.stringify(match):null,uncertain?1:168]);
+      ON CONFLICT(user_id,profile_fingerprint,job_fingerprint,policy) DO UPDATE SET decision=excluded.decision,match=excluded.match,expires_at=excluded.expires_at`,[p.userId,p.fingerprint,fingerprint(job),FIT_CACHE_POLICY,match?'match':uncertain?'uncertain':'no_match',match?JSON.stringify(match):null,uncertain?1:168]);
   }
   async invalidate(job:IndexedJob):Promise<void>{
     // A changed public description cannot retain approvals of its old content.

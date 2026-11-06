@@ -7,13 +7,14 @@ import pg from 'pg';
 import {readEnv} from '../runner.js';
 import {JobIndexStore} from './store.js';
 import {paidProfiles} from './accounts.js';
-import {normaliseJob,matchJob} from './extract.js';
+import {normaliseJob,matchJob,fingerprint} from './extract.js';
 import {crawlCycle,discoveredFeed} from './engine.js';
 import {PublicCrawler,CrawlDeferred} from './network.js';
 import {confirmedMatch,type FitReviewer} from './review.js';
 import type {SearchProfile} from './types.js';
 import {discoveryQueries} from './discovery.js';
 import {requestSearch,claimSearch,finishSearch,clearSignal} from './manual.js';
+import {importCodexJobs} from './codex-discovery.js';
 const schema=`job_index_test_${randomUUID().replaceAll('-','')}`;
 // Test wake-up files must never clear or activate a live manual request.
 process.env.JOB_INDEX_SIGNAL_DIR=resolve(import.meta.dirname,'../../../output',schema);
@@ -94,7 +95,10 @@ test('country gate rejects even AI-approved foreign jobs and safely removes lega
 });
 
 test('negative review cache stores hashes only; requests and leases enforce shared budgets and ownership',async()=>{
- await store.profiles([profile]);await store.cacheDecision(profile,job,null);
+ await store.profiles([profile]);
+ await pool.query("INSERT INTO fit_decisions(user_id,profile_fingerprint,job_fingerprint,policy,decision,expires_at) VALUES($1,$2,$3,'resume-fit-v1','no_match',now()+interval '7 days')",[profile.userId,profile.fingerprint,fingerprint(job)]);
+ assert.equal(await store.cachedDecision(profile,job),undefined,'old metadata mistakes must not remain cached after the reviewer revision');
+ await store.cacheDecision(profile,job,null);
  assert.equal(await store.cachedDecision(profile,job),null);assert.equal(await store.cachedDecision({...profile,fingerprint:'new'},job),undefined);
  assert.doesNotMatch(JSON.stringify((await pool.query('SELECT * FROM fit_decisions')).rows),/Fictional publisher|data engineering systems|using Python and SQL/);
  const reservations=await Promise.all(Array.from({length:105},()=>store.reserveReview(0.001)));assert.equal(reservations.filter(Boolean).length,100);
@@ -116,6 +120,15 @@ test('only active paid evidence is read, redacted and cached; changed criteria i
 
 function crawlerFor(jobs:any[]){return new PublicCrawler(async address=>({url:address,status:200,type:'text/html',retryAfter:null,text:address.endsWith('/robots.txt')?'User-agent: *\nAllow: /':`<script type="application/ld+json">${JSON.stringify(jobs)}</script>`}));}
 const raw=(title:string,url:string)=>({'@type':'JobPosting',title,hiringOrganization:{name:'Fictional publisher'},jobLocation:{address:{addressCountry:'AU'}},description:job.description,url});
+
+test('Codex review allowance queues verified remaining vacancies instead of losing them',async()=>{
+ const leads=Array.from({length:25},(_,i)=>({url:`https://careers.fixture.org/jobs/import-${i}`,title:'Data engineer',company:'Fictional publisher',descriptionQuote:'',locationQuote:'',countryQuote:'',workArrangement:'not-mentioned',postedQuote:'',postedAt:null}));
+ const stats=await importCodexJobs(store,pool,leads,pass,crawlerFor(leads.map(l=>raw(l.title,l.url))));
+ assert.equal(stats.newJobs,24);assert.equal(stats.fitCalls,24);assert.equal(stats.fitDeferred,1);
+ const pending=(await pool.query("SELECT payload FROM crawl_tasks WHERE kind='page'")).rows;
+ assert.deepEqual(pending,[{payload:{url:leads[24].url,depth:0}}]);
+ assert.equal((await pool.query('SELECT count(*)::int AS count FROM indexed_jobs')).rows[0].count,24);
+});
 test('mixed public discovery reviews only Australian jobs and reports unknown geography separately',async()=>{
  await store.enqueue('page',{url:job.url});let reviews=0;
  const stats=await crawlCycle(store,pool,{maxTasks:1,reviewer:async(...args)=>{reviews++;return pass(...args);},crawler:crawlerFor([

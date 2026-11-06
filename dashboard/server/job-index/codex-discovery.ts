@@ -62,13 +62,16 @@ export async function importCodexJobs(store:JobIndexStore,reader:pg.Pool,leads:C
    else job=publisherJob(page.text,page.url,lead);
   }catch{stats.blocked++;continue;}
   if(!job||australianEligibility(job).status!=='eligible'){stats.notVerified++;continue;}stats.verified++;
-  await store.invalidate(job);let saved=false;
+  await store.invalidate(job);let saved=false,deferred=false;
   for(const profile of profiles){
    const pre=matchJob(job,profile),facts=evidence.get(profile.userId);if(!pre||!facts?.resume)continue;
-   let match=await store.cachedDecision(profile,job);if(match==='uncertain'){stats.fitDeferred++;continue;}
-   if(match===undefined){if(stats.fitCalls>=24){stats.fitDeferred++;continue;}stats.fitCalls++;try{const d=await reviewer(job,profile,facts,signal);match=confirmedMatch(d,job,profile,facts,pre);await store.cacheDecision(profile,job,match,d.decision==='uncertain');if(d.decision==='uncertain')stats.fitDeferred++;}catch{stats.fitUnavailable++;continue;}}
+   let match=await store.cachedDecision(profile,job);if(match==='uncertain'){stats.fitDeferred++;deferred=true;continue;}
+   if(match===undefined){if(stats.fitCalls>=24){stats.fitDeferred++;deferred=true;continue;}stats.fitCalls++;try{const d=await reviewer(job,profile,facts,signal);match=confirmedMatch(d,job,profile,facts,pre);await store.cacheDecision(profile,job,match,d.decision==='uncertain');if(d.decision==='uncertain'){stats.fitDeferred++;deferred=true;}}catch{stats.fitUnavailable++;deferred=true;continue;}}
    if(match&&(await reader.query<{id:string}>(PAID_ACCOUNTS_SQL)).rows.some(r=>r.id===profile.userId)&&await store.save(job,[{profile,match}])){stats.matchesUpdated++;saved=true;}
   }
+  // Persist only the independently observed public vacancy URL. A later manual
+  // cycle can finish reviews without losing leads or storing rejected CV data.
+  if(deferred)await store.enqueue('page',{url:job.url,depth:0},2);
   if(saved&&!before.has(job.id)){stats.newJobs++;before.add(job.id);}
  }
  return stats;
