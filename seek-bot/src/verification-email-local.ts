@@ -1,4 +1,5 @@
 import type { VerificationEmail } from './llm.js';
+import {isIP} from 'node:net';
 
 // Shared authentication language cannot establish which employer sent a
 // message. In particular, "for" in a company name must not match every
@@ -72,7 +73,7 @@ function linkPurpose(link: { text: string; url: string }): { reset: boolean; act
     explicit: /verif|confirm|activat|sign.in|log.?in|reset|magic|authenticat/i.test(text) };
 }
 
-type VerificationRequest = { hint?: string; site?: string; purpose?: VerificationPurpose };
+export type VerificationRequest = { hint?: string; site?: string; purpose?: VerificationPurpose };
 
 /** Retain the observed employer tenant, never session tokens or account data. */
 export function verificationSiteUrl(value: string): string {
@@ -83,7 +84,7 @@ export function verificationSiteUrl(value: string): string {
 
 function successFactorsTenant(url: URL): string | undefined {
   if (url.protocol !== 'https:' || url.username || url.password || url.port
-    || !/^career\d+\.successfactors\.(?:com|eu)$/.test(url.hostname)) return;
+    || !/^career\d+\.(?:successfactors|sapsf)\.(?:com|eu)$/.test(url.hostname)) return;
   const companies = url.searchParams.getAll('company');
   return companies.length === 1 && /^[a-z0-9_-]{1,100}$/i.test(companies[0]) ? companies[0] : undefined;
 }
@@ -101,7 +102,7 @@ function tenantDestination(url: URL, ask: VerificationRequest): boolean {
  * Display names, arbitrary query values and a provider hostname alone cannot
  * establish this fallback. */
 function matchesTenantRealm(email: LocalVerificationEmail, ask: VerificationRequest): boolean {
-  const sender = (email.sender || '').trim().match(/(?:^|<)[^<>\s@]+@((?:[a-z0-9-]+\.)*successfactors\.(?:com|eu))>?$/i)?.[1].toLowerCase();
+  const sender = (email.sender || '').trim().match(/(?:^|<)[^<>\s@]+@((?:[a-z0-9-]+\.)*(?:successfactors|sapsf)\.(?:com|eu))>?$/i)?.[1].toLowerCase();
   if (!sender) return false;
   return email.links.some(link => {
     try {
@@ -203,6 +204,39 @@ export function isRequestedVerificationEmail(email: LocalVerificationEmail, ask:
   return verificationEmailMatchDecision(email, ask).matched;
 }
 
+/** Shared hard vetoes. Model interpretation can never override these. */
+function verificationLinkSafe(link: LocalVerificationEmail['links'][number], ask: VerificationRequest): boolean {
+  try {
+    const url = new URL(link.url);
+    let tenantScoped = false;
+    try { tenantScoped = Boolean(successFactorsTenant(new URL(ask.site?.includes('://') ? ask.site : `https://${ask.site || ''}`))); } catch { /* no tenant context */ }
+    if (tenantScoped && !tenantDestination(url, ask)) return false;
+    const purpose = linkPurpose(link);
+    if (ask.purpose) {
+      if (ask.purpose === 'reset_password' && (purpose.activation && !purpose.reset || purpose.signIn && !purpose.reset)) return false;
+      if (ask.purpose !== 'reset_password' && purpose.reset) return false;
+      if (ask.purpose === 'sign_in' && purpose.activation) return false;
+    }
+    return url.protocol === 'https:' && !url.username && !url.password
+      && !/unsubscribe|privacy|terms|help|support|tracking/i.test(`${link.text} ${url.pathname}`);
+  } catch { return false; }
+}
+
+/** AI may interpret unusual labels, but only on a matching authentication
+ * message and an observed employer/provider destination. Never send URLs to AI. */
+export function verificationFallbackLinks(email: LocalVerificationEmail, ask: VerificationRequest) {
+  if (!isRequestedVerificationEmail(email, ask)) return [];
+  const links = email.links.filter(link => {
+    if (!verificationLinkSafe(link, ask)) return false;
+    const url = new URL(link.url);
+    const action=[...url.searchParams].filter(([k])=>/^(?:action|type|mode|purpose|request)$/i.test(k)).map(([,v])=>v).join(' ');
+    const destructive=/\b(?:delete|remove|revoke|logout|signout|unsubscribe|billing|payment|preferences)\b/i.test(`${link.text} ${url.pathname.replace(/[_/.-]/g,' ')} ${action}`);
+    return !url.port && !isIP(url.hostname.replace(/^\[|\]$/g,'')) && url.hostname.includes('.')
+      && !/\.(?:local|internal)$/i.test(url.hostname) && !destructive && url.pathname !== '/' && trustedOpaqueDestination(url, email, ask);
+  });
+  return [...new Map(links.map(link => [link.url, link])).values()];
+}
+
 /** Parse untrusted mailbox text as data. No prompts or mailbox bodies go to an AI service. */
 export function readVerificationEmailsLocally(emails: LocalVerificationEmail[], ask: VerificationRequest & { want: 'code' | 'link' | 'either' }) {
   for (const email of emails) {
@@ -242,19 +276,8 @@ export function readVerificationEmailsLocally(emails: LocalVerificationEmail[], 
       const candidates = email.links.flatMap(link => {
         try {
           const url = new URL(link.url);
-          // When a tenant was observed, never open a different employer's
-          // action, including a second link in an otherwise matching email.
-          let tenantScoped = false;
-          try { tenantScoped = Boolean(successFactorsTenant(new URL(ask.site?.includes('://') ? ask.site : `https://${ask.site || ''}`))); } catch { /* no tenant context */ }
-          if (tenantScoped && !tenantDestination(url, ask)) return [];
+          if (!verificationLinkSafe(link, ask)) return [];
           const purpose = linkPurpose(link);
-          if (ask.purpose) {
-            if (ask.purpose === 'reset_password' && (purpose.activation && !purpose.reset || purpose.signIn && !purpose.reset)) return [];
-            if (ask.purpose !== 'reset_password' && purpose.reset) return [];
-            if (ask.purpose === 'sign_in' && purpose.activation) return [];
-          }
-          if (url.protocol !== 'https:' || url.username || url.password
-            || /unsubscribe|privacy|terms|help|support|tracking/i.test(`${link.text} ${url.pathname}`)) return [];
           return purpose.explicit || opaqueInstruction && trustedOpaqueDestination(url, email, ask)
             ? [{ link, explicit: purpose.explicit }] : [];
         } catch { return []; }

@@ -356,7 +356,7 @@ export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, 
   ctx.log('  ✉ waiting for the emailed verification code');
 
   const site = verificationSiteUrl(credentialUrl(ctx));
-  const found = await findVerificationInGmail({ hint, site, purpose: args.purpose as VerificationPurpose, want: 'code', allowAlternative: true, requestedAt: freshness.requestedAt, timeoutMs: EMAIL_WAIT_MS, log: ctx.log });
+  const found = await findVerificationInGmail({ hint, site, purpose: args.purpose as VerificationPurpose, want: 'code', allowAlternative: true, requestedAt: freshness.requestedAt, timeoutMs: EMAIL_WAIT_MS, log: ctx.log, fallback:ctx.verificationExtractor });
   assertLive();
   if (!('error' in found) && found.kind !== 'code') return ok(`The site's email ("${found.subject.slice(0, 60)}") carries a link, not a code. Call open_emailed_link instead.`);
   if ('error' in found) {
@@ -397,7 +397,7 @@ export async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, u
   if (freshness.error !== undefined) return ok(freshness.error, 'invalid-arguments');
   const hint = verificationSenderHint(ctx.job.company, ctx.job.url, args.sender_hint);
   ctx.log('  ✉ waiting for the emailed verification link');
-  const found = await findVerificationInGmail({ hint, site: verificationSiteUrl(credentialUrl(ctx)), purpose: args.purpose as VerificationPurpose, want: 'link', allowAlternative: true, requestedAt: freshness.requestedAt, timeoutMs: EMAIL_WAIT_MS, log: ctx.log });
+  const found = await findVerificationInGmail({ hint, site: verificationSiteUrl(credentialUrl(ctx)), purpose: args.purpose as VerificationPurpose, want: 'link', allowAlternative: true, requestedAt: freshness.requestedAt, timeoutMs: EMAIL_WAIT_MS, log: ctx.log, fallback:ctx.verificationExtractor });
   assertLive();
   if ('error' in found) {
     ctx.log(`  ✉ ${found.error}`);

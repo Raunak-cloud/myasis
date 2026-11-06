@@ -6,6 +6,7 @@ import type { ApplyOutcome } from './types.js';
 import { config } from './config.js';
 import { applicationAllowance } from './application-allowance.js';
 import { verificationMailboxMessageAllowed } from './gmail-verification-policy.js';
+import type {VerificationFallback,VerificationValue} from './verification-email-ai.js';
 
 export const gmailAvailable = () => Boolean(process.env.GMAIL_MCP_URL && process.env.GMAIL_MCP_TOKEN && process.env.GMAIL_MCP_ACCOUNT);
 export const gmailAccount = () => process.env.GMAIL_MCP_ACCOUNT || '';
@@ -61,7 +62,7 @@ export interface VerificationMessageChecks {
   examinedMessages: number; matchedMessages: number; extractionUnavailableMessages: number;
   rejections: Partial<Record<Exclude<VerificationEmailMatchReason, 'matched'>, number>>;
 }
-export async function findVerificationInGmail(options: { hint?: string; site?: string; want?: 'code' | 'link' | 'either'; purpose?: VerificationPurpose; allowAlternative?: boolean; timeoutMs?: number; requestTimeoutMs?: number; requestedAt?: number; signal?: AbortSignal; log?: (message: string) => void } = {}) {
+export async function findVerificationInGmail(options: { hint?: string; site?: string; want?: 'code' | 'link' | 'either'; purpose?: VerificationPurpose; allowAlternative?: boolean; timeoutMs?: number; requestTimeoutMs?: number; requestedAt?: number; signal?: AbortSignal; log?: (message: string) => void; fallback?:VerificationFallback } = {}) {
   const timeoutMs = Math.floor(options.timeoutMs ?? 90_000), startedAt = Date.now(), deadline = startedAt + timeoutMs;
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647) return { error: 'The verification email wait expired.' };
   if (options.signal?.aborted) return { error: 'The verification email wait was cancelled.' };
@@ -132,12 +133,24 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
     Number.isFinite(options.requestedAt) ? options.requestedAt! - VERIFICATION_CLOCK_SKEW_MS : 0);
   const query = (options.purpose === 'reset_password' ? '(password OR reset OR recovery)' : '(code OR verify OR verification OR confirm OR confirmation OR activate OR activation OR password OR passcode OR OTP OR "sign in")')
     + (context.length ? ` (${context.map(word => `"${word}"`).join(' OR ')})` : '');
-  const read = (emails: Array<{ id: string; email: LocalVerificationEmail }>) => {
-    for (const { id, email } of emails) {
+  const fallbackExamined = new Set<string>();
+  const fallbackResults = new Map<string,VerificationValue|null>();
+  const read = async (emails: Array<{ id: string; email: LocalVerificationEmail; message:GmailMessage }>) => {
+    for (const { id, email, message } of emails) {
       const decision = verificationEmailMatchDecision(email, options);
       if (decision.matched) matchingEmailSeen = true;
-      const found = readVerificationEmailsLocally([email], { hint: options.hint || '', site: options.site || '', purpose: options.purpose, want: options.want || 'either' })
+      let found = readVerificationEmailsLocally([email], { hint: options.hint || '', site: options.site || '', purpose: options.purpose, want: options.want || 'either' })
         ?? (options.allowAlternative ? readVerificationEmailsLocally([email], { hint: options.hint || '', site: options.site || '', purpose: options.purpose, want: 'either' }) : null);
+      if (!found && decision.matched && options.fallback && !fallbackExamined.has(id) && fallbackExamined.size<2) {
+        checkLifetime(); fallbackExamined.add(id);
+        diagnostic({operation:'ai-extraction',phase:'started'});
+        const candidate=await options.fallback(email,{hint:options.hint,site:options.site,purpose:options.purpose,
+          want:options.allowAlternative?'either':options.want??'either'},{deadline,signal:lifetime}).catch(()=>null);
+        checkLifetime();
+        fallbackResults.set(id,verificationMessageIsFresh(message,earliest,Date.now(),orderedBrowserResults)?candidate:null);
+        diagnostic({operation:'ai-extraction',phase:'completed',accepted:Boolean(fallbackResults.get(id))});
+      }
+      if (!found && decision.matched && verificationMessageIsFresh(message,earliest,Date.now(),orderedBrowserResults)) found=fallbackResults.get(id)??null;
       const previous = messageDecisions.get(id), current = { reason: decision.reason, extractionAvailable: Boolean(found) };
       messageDecisions.set(id, current);
       if (!previous || previous.reason !== current.reason || previous.extractionAvailable !== current.extractionAvailable) {
@@ -150,7 +163,7 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
     }
     return null;
   };
-  const report = (found: NonNullable<ReturnType<typeof readVerificationEmailsLocally>>) => {
+  const report = (found: NonNullable<Awaited<ReturnType<typeof read>>>) => {
     checkLifetime();
     diagnostic({ operation: 'lookup', phase: 'finished', classification: 'matched', completedSearches, completedReads, completedPolls });
     options.log?.(`  Read the verification ${found.kind} through Gmail MCP.`); return { ...found, poll: summary('matched') };
@@ -175,7 +188,7 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
         });
         const fresh = messages.filter(message => !examined.has(message.id) && verificationMessageIsFresh(message, earliest, Date.now(), orderedBrowserResults)).slice(0, 10);
         for (const message of fresh) {
-          const found = read([{ id: message.id, email: verificationMessage(message, 0) }]);
+          const found = await read([{ id: message.id, email: verificationMessage(message, 0), message }]);
           if (!found) continue;
           const foundAt = Date.parse(message.date || ''), batchDates = batch.map(item => Date.parse(item.date || ''));
           // Search is newest-thread first. Stop only when this match reaches
@@ -190,7 +203,7 @@ export async function findVerificationInGmail(options: { hint?: string; site?: s
       }
       const fresh = messages.filter(message => !examined.has(message.id) && verificationMessageIsFresh(message, earliest, Date.now(), orderedBrowserResults)).slice(0, 10);
       if (fresh.length) {
-        const found = read(fresh.map((message, index) => ({ id: message.id, email: verificationMessage(message, index) })));
+        const found = await read(fresh.map((message, index) => ({ id: message.id, email: verificationMessage(message, index), message })));
         for (const message of fresh) examined.add(message.id);
         if (found) return report(found);
       }

@@ -29,6 +29,7 @@ export type ToolDisposition = 'completed' | 'reobserve' | 'uncertain' | 'failed'
 export type ToolResult = { kind: 'ok'; message: string; disposition?: ToolDisposition } | { kind: 'terminal'; outcome: AgentTermination };
 
 export interface ToolContext {
+  verificationExtractor?: import('../verification-email-ai.js').VerificationFallback;
   /** Parent-owned state. Specialists receive read-only projections, no browser lease. */
   recoveryRecord?: RecoveryRecord;
   page: Page;

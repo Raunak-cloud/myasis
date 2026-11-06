@@ -24,6 +24,7 @@ import { reviewCurrentDuplicate } from '../duplicate-review.js';
 import { agentOnlyTranscript, latestObservationScreenshotOnly, generationRecoveryTranscript } from './agent-only-transcript.js';
 import { ApplicationBudgetExhaustedError, type ChatMessage, type ToolSchema } from './celeris.js';
 import { applicationChat } from './application-chat.js';
+import { createVerificationAiFallback } from '../verification-email-ai.js';
 import { ProgressBudget } from './progress-budget.js';
 import { consultationToolSchema, newConsultationState } from './consultation.js';
 import {reviewApplicationRecovery} from './recovery-review.js';
@@ -286,6 +287,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
   if(options.continuation && !retained) throw new RecoveryRecordError('Continuation has no retained work in its shared recovery record.');
   if(retained) { files.witnessApprovedLetter(retained.letterWitness ?? []); files.restore(retained.files); files.restoreUploads(retained.uploads); }
   const ctx: ToolContext = { page: options.page, job: options.job, profile: options.profile, recoveryRecord: shared,
+    verificationExtractor: createVerificationAiFallback(meter),
     observation: { url: options.page.url(), title: '', actions: [], fields: [], text: '' },
     captured: retained?.captured ?? approved?.answers.map(answer => ({ ...answer })) ?? [], actions: retained?.actions ?? [], log,
     uploadedDocuments: files.checkpointUploads().flatMap(upload => upload.files.map(file => ({ fileId: file.id, sha256: file.sha256, coverLetterDigest: file.coverLetterDigest }))),

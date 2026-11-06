@@ -57,6 +57,7 @@ check_bot() (
 if [ "$REPLAY_REQUIRED" = 1 ]; then
   cd "$APP/seek-bot"
   node dist/company-match.test.js
+  node --test dist/verification-email-ai.test.js dist/gmail-ai-fallback.test.js
   node --test dist/run-deadline.test.js
   node --test dist/cover-letter-policy.test.js dist/cover-letter-length.test.js
   node --test dist/prepare-job.test.js dist/application-review-session.test.js
