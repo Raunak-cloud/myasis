@@ -75,7 +75,10 @@ export function plainReason(reason: string): string {
   if (/\b(?:[A-Z][A-Z_]+_(?:KEY|TOKEN|URL)|[A-Za-z]+Error|HTTP\s*\d{3}|status(?: code)?[\s:=]+[45]\d{2})\b|\b(?:token|prompt|completion)\s*(?:count|budget|limit|[:=]\s*\d)|https?:\/\/|\bat .+\.(?:ts|js):\d+|\b(?:locator|page|browser|context)\.[a-z]+|Call log:|\b(?:selector|stack trace)\b/i.test(plain)) {
     return 'This step could not be completed. Please try again later.';
   }
-  if (/\b(?:Celeris|Patchright|Playwright|ECONNREFUSED|ENOENT|EACCES)\b|(?:[A-Z]:\\|\/home\/|\/var\/)|^\s*[{[]/i.test(plain)) {
+  if (/\b(?:Celeris|Magnus|MiniMax|MiMo|Gemini|Claude|Anthropic|OpenAI|GPT(?:-[a-z0-9.]+)?|Patchright|Playwright|ECONNREFUSED|ENOENT|EACCES)\b|(?:[A-Z]:\\|\/home\/|\/var\/)|^\s*[{[]/i.test(plain)) {
+    return 'This step could not be completed. Please try again later.';
+  }
+  if (/\b(?:model|LLM|inference|provider|token(?:s)?|DOM|CDP|VNC|WebSocket|proxy|stack|stderr|stdout)\b/i.test(plain)) {
     return 'This step could not be completed. Please try again later.';
   }
   return plain || 'This step could not be completed. Please try again later.';

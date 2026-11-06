@@ -356,7 +356,7 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
         {showAdvanced && (
           <div className="step-body">
             {canFineTune && <label className="field">
-              <FieldLabel label="Run instructions" optional help="Tell Owtomate which otherwise suitable jobs to avoid or prefer. The model checks these instructions for every job before applying." />
+              <FieldLabel label="Run instructions" optional help="Tell Owtomate which otherwise suitable jobs to avoid or prefer. These instructions are checked for every job before applying." />
               <textarea
                 className="input run-instructions-input"
                 rows={6}

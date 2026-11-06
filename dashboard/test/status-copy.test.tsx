@@ -63,3 +63,18 @@ test('an existing employer account is a clear sign-in task without a password an
   assert.match(html,/Sign-in needed/);assert.match(html,/no saved login/);assert.match(html,/Owtomate browser/);
   assert.doesNotMatch(html,/<input|<textarea|Save answers|original question/);
 });
+
+test('model and infrastructure diagnostics stay out of customer error messages', () => {
+  for (const reason of [
+    'MiniMax M3.1 request rejected',
+    'MiMo inference failed',
+    'Gemini quota exceeded',
+    'Claude is unavailable',
+    'The model returned an empty response',
+    'Connection failed through the residential proxy',
+    'Unexpected response: 8192 tokens remaining',
+  ]) {
+    assert.equal(plainReason(reason), 'This step could not be completed. Please try again later.');
+  }
+  assert.equal(plainReason('The employer requires a current driving licence.'), 'The employer requires a current driving licence.');
+});
