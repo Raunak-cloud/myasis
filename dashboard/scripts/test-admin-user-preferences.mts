@@ -96,7 +96,9 @@ try {
   assert.equal(await picker.inputValue(),'celeris');
   await picker.selectOption('minimax');await drawer.getByRole('button',{name:'Save model',exact:true}).click();
   await drawer.getByText('Future run model saved.',{exact:true}).waitFor();
-  await drawer.getByRole('button',{name:'Save model',exact:true}).isDisabled().then(value=>assert.equal(value,true));
+  // The success notice renders before the asynchronous account reload returns.
+  await drawer.locator('button:disabled').filter({hasText:/^Save model$/}).waitFor();
+  assert.equal(await drawer.getByRole('button',{name:'Save model',exact:true}).isDisabled(),true);
   await drawer.getByRole('button',{name:'Close',exact:true}).click();
   await page.getByText('candidate2@example.test',{exact:true}).click();
   await picker.waitFor();assert.equal(await picker.inputValue(),'minimax','saved choice reloads from the server');
