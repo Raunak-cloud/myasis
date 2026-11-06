@@ -4,7 +4,7 @@ import { chromium, type Browser } from 'patchright';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkPreparationAccess, preparationTransport, preparationGraphqlAllowed, preparationSurface } from './preparation-access.js';
+import { checkPreparationAccess, preparationSurface } from './preparation-access.js';
 import { withApplicationModel } from './application-model.js';
 import { stagePendingCredential, acceptPendingCredential } from './site-credentials.js';
 import type { CandidateProfile,JobListing } from './types.js';
@@ -26,22 +26,56 @@ const choose=async(r:CelerisRequest)=>{
 };
 async function browser():Promise<Browser>{return chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});}
 
-test('SEEK batched reads and the exact job-opened tracking event are allowed; mixed sends and altered trackers are rejected',()=>{
- const url='https://www.seek.com.au/graphql',read={operationName:'GetUser',query:'query GetUser { viewer { _id } }',variables:{}};
- const tracker={operationName:'TrackJobApplicationStarted',query:'mutation TrackJobApplicationStarted($input: TrackJobApplicationStartedInput!) { trackJobApplicationStarted(input: $input) { eventId __typename } }',variables:{input:{jobId:12345678,sessionId:'fixture',applicationCorrelationId:'fixture',isProfileApply:false}}};
- assert.equal(preparationGraphqlAllowed([read],url,'12345678'),true);
- assert.equal(preparationGraphqlAllowed([read,tracker],url,'12345678'),true);
- assert.equal(preparationGraphqlAllowed([read,{query:'mutation { submitApplication }'}],url,'12345678'),false);
- assert.equal(preparationGraphqlAllowed([read,tracker],url,'87654321'),false);
- assert.equal(preparationGraphqlAllowed([read,tracker],'https://employer.fixture.invalid/graphql','12345678'),false);
- assert.equal(preparationGraphqlAllowed({...tracker,query:tracker.query.replace('eventId','eventId submitApplication')},url,'12345678'),false);
- assert.equal(preparationGraphqlAllowed({...tracker,variables:{input:{...tracker.variables.input,answers:['not allowed']}}},url,'12345678'),false);
+test('normal POST and GraphQL portal handoffs run without preparation request interception; employer form stays untouched',async()=>{
+ const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage(),posts:string[]=[];
+ const handoff={operationName:'createApplyLinkout',query:'mutation createApplyLinkout($jobId: ID!) { createLinkoutApplication(input: { jobId: $jobId }) { applicationUrl linkoutApplicationCorrelationId __typename } }',variables:{jobId:'12345678'}};
+ const destination='https://employer.fixture.invalid/application';
+ await ctx.route('**/*',r=>{
+  const u=new URL(r.request().url());
+  if(r.request().method()==='POST')posts.push(u.pathname);
+  if(u.pathname==='/graphql'){assert.deepEqual(r.request().postDataJSON(),handoff);return r.fulfill({json:{data:{createLinkoutApplication:{applicationUrl:destination}}}});}
+  if(u.pathname==='/navigation-session')return r.fulfill({json:{ok:true}});
+  if(u.hostname==='employer.fixture.invalid')return r.fulfill({contentType:'text/html',body:application});
+  return r.fulfill({contentType:'text/html',body:u.pathname.endsWith('/apply')?`<main><h1>Opening employer application</h1></main><script>fetch('/navigation-session',{method:'POST',body:'navigation'}).then(()=>fetch('/graphql',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(${JSON.stringify(handoff)})})).then(r=>r.json()).then(r=>location.href=r.data.createLinkoutApplication.applicationUrl)</script>`:'<main><h1>Analyst</h1><a href="/job/12345678/apply">Apply now</a></main>'});
+ });
+ // Fixture routes supply pages; production preparation must add no routing layer.
+ const contextRoute=ctx.route,pageRoute=page.route;
+ ctx.route=async()=>{throw Error('Preparation must not intercept context requests');};
+ page.route=async()=>{throw Error('Preparation must not intercept page requests');};
+ try{
+  const result=await checkPreparationAccess(page,{...job,id:'12345678',url:'https://au.seek.com/job/12345678'},profile,{fixture:true,chat:async()=>{throw Error('Observed access needs no model');}});
+  assert.equal(result.ok,true,JSON.stringify(result));assert.equal(page.url(),destination);
+  assert.deepEqual(posts,['/navigation-session','/graphql']);
+  assert.equal(await page.locator('#name').inputValue(),'');assert.equal(await page.locator('#resume').inputValue(),'');assert.equal(await page.evaluate(()=>Boolean((window as any).sent)),false);
+ }finally{ctx.route=contextRoute;page.route=pageRoute;await b.close();}
 });
 
-test('an unverified employer-linkout mutation stays blocked even when it only accepts the matched job ID',()=>{
- const handoff={operationName:'createApplyLinkout',query:'mutation createApplyLinkout($jobId: ID!) { createLinkoutApplication(input: { jobId: $jobId }) { applicationUrl linkoutApplicationCorrelationId __typename } }',variables:{jobId:'12345678'}};
- assert.equal(preparationGraphqlAllowed(handoff,'https://au.seek.com/graphql','12345678'),false);
- assert.equal(preparationGraphqlAllowed([{query:'query GetUser { viewer { _id } }'},handoff],'https://au.seek.com/graphql','12345678'),false);
+test('preparation rejects a final-send tool decision without clicking Submit',async()=>{
+ const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage();
+ await ctx.route('**/*',r=>r.fulfill({contentType:'text/html',body:'<main><h1>Review</h1><button onclick="window.sent=true">Send now</button></main>'}));
+ try{
+  const result=await checkPreparationAccess(page,job,profile,{fixture:true,chat:async()=>({text:'',toolCalls:[{id:'fixture',name:'choose_access_action',args:{action:'submit',reason:'Attempt unsupported send'}}],message:{role:'assistant',content:null}})});
+  assert.equal(result.ok,false);assert.equal(await page.evaluate(()=>Boolean((window as any).sent)),false);
+ }finally{await b.close();}
+});
+
+test('a native Apply form button cannot be used as a one-click submit during preparation',async()=>{
+ const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage();
+ await ctx.route('**/*',r=>r.fulfill({contentType:'text/html',body:'<main><h1>Analyst</h1><form onsubmit="event.preventDefault();window.sent=true"><button>Apply now</button></form></main>'}));
+ try{
+  const result=await checkPreparationAccess(page,job,profile,{fixture:true,chat:async()=>{throw Error('Observed Apply is checked natively');}});
+  assert.equal(result.ok,false);assert.equal(await page.evaluate(()=>Boolean((window as any).sent)),false);
+ }finally{await b.close();}
+});
+
+test('Apply can open an employer form in a new tab without changing application fields',async()=>{
+ const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage();let extra:any;
+ ctx.on('page',p=>{if(p!==page)extra=p;});
+ await ctx.route('**/*',r=>r.fulfill({contentType:'text/html',body:new URL(r.request().url()).pathname==='/job'?'<main><h1>Analyst</h1><a href="/application" target="_blank">Apply now</a></main>':application}));
+ try{
+  const result=await checkPreparationAccess(page,job,profile,{fixture:true,chat:async()=>{throw Error('Observed application needs no model');}});
+  assert.equal(result.ok,true,JSON.stringify(result));assert.ok(extra?.isClosed(),'Only the access-check popup is cleaned up');assert.equal(ctx.pages().length,1);
+ }finally{await b.close();}
 });
 
 test('a delayed application shell is observed after hydration instead of being prematurely skipped',async()=>{
@@ -87,16 +121,4 @@ test('accepted owner credential signs in and stops at an untouched application f
   assert.equal(result.ok,true,JSON.stringify(result));if(result.ok)assert.equal(result.access,'signed-in');
   assert.equal(await page.locator('#name').inputValue(),'');assert.equal(await page.locator('#resume').inputValue(),'');assert.equal(await page.evaluate(()=>Boolean((window as any).sent)),false);
  });}finally{if(old===undefined)delete process.env.SITE_AUTH_SECRET;else process.env.SITE_AUTH_SECRET=old;await b.close();rmSync(dir,{recursive:true,force:true});}
-});
-
-test('preparation transport blocks application submissions even inside the private login window',async()=>{
- const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage();const sent:string[]=[];
- await ctx.route('**/*',r=>{if(r.request().method()==='POST')sent.push(new URL(r.request().url()).pathname);return r.fulfill({contentType:'text/html',body:'<main>Fixture</main>'});});
- await page.goto(job.url);const guard=await preparationTransport(page,true);
- try{
-  const blocked=await page.evaluate(async()=>{try{await fetch('/submitApplication',{method:'POST',body:'{}'});return false;}catch{return true;}});
-  assert.equal(blocked,true);guard.authentication(true);
-  const blockedAuth=await page.evaluate(async()=>{try{await fetch('/graphql',{method:'POST',body:JSON.stringify({query:'mutation { submitApplication }'})});return false;}catch{return true;}});
-  assert.equal(blockedAuth,true);assert.deepEqual(sent,[]);
- }finally{await guard.stop();await b.close();}
 });

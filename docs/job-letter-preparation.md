@@ -11,17 +11,13 @@ waiting for every board-hosted listing to be reviewed. Auto apply retains its
 existing preference for completing board-hosted applications first.
 
 The preparation stage has no application-field fill, file upload, arbitrary
-script, final-submit or application-answer tools. Its browser transport rejects
-application submissions and non-authentication writes, allowing read-only
-GraphQL queries. Private sign-in writes use only the observed login page.
-External navigation retains public-address and payment-page checks.
-
-Known access limitation: some SEEK employer-site listings need a
-`createLinkoutApplication` mutation before exposing the employer portal URL.
-Preparation currently blocks that operation. These listings are skipped when
-access cannot be verified, rather than marked Prepared from the listing alone.
-Support needs to account for SEEK's application-tracking effects before adding
-an exception; a generated portal link is not proof of an employer submission.
+script, final-submit or application-answer tools. It installs no network request
+interceptor or GraphQL allowlist. Normal page requests, including SEEK's
+`createLinkoutApplication` employer-portal handoff and sign-in requests, run
+normally. Observed navigation destinations retain public-address and
+payment-page checks, and native action checks restrict sign-in to authentication
+fields and reject Apply buttons that submit forms. Portal navigation is not
+proof of an employer submission.
 
 After access is verified, the existing evidence-checked cover-letter writer
 uses the account's saved profile, documents and instructions. The draft binds
@@ -41,7 +37,8 @@ candidate. Previously prepared complete forms remain supported. Changing an
 old saved form's employer tenant or vacancy cannot reuse its approval.
 
 Tests use native browser fixtures for Apply-before-Sign-in, untouched fields and
-file inputs, unknown credentials, accepted owner-scoped login and submission
-blocking. Draft tests check empty answers, selected resume bytes, stage-bound
+file inputs, normal POST/GraphQL handoffs without request interception, popup
+navigation, unknown credentials, accepted owner-scoped login and rejected
+final-send decisions/form buttons. Draft tests check empty answers, selected resume bytes, stage-bound
 revision hashes, letter edits and skipped-access behavior. Existing approved
 form/session and user-status checks remain covered.

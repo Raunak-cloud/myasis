@@ -1,4 +1,4 @@
-import type { Page, Route } from 'patchright';
+import type { Page } from 'patchright';
 import { observe, waitForApplicationSurface, type Observation } from './agent/observe.js';
 import { browserTarget } from './agent/browser-target.js';
 import { applicationChat } from './agent/application-chat.js';
@@ -17,25 +17,6 @@ import { jobBoardForHost } from './job-board-url.js';
 const APPLY = /^(?:quick\s*)?apply(?:\s+(?:now|for\b.*|on\b.*|with\b.*|to\b.*))?$|^start (?:your )?application$/i;
 const LOGIN = /^(?:sign\s*in|log\s*in|continue|next|verify(?:\s+code)?|send(?:\s+me)?(?:\s+a)?\s+code)(?:\s+.*)?$/i;
 const clean = (s: string) => s.replace(/[\u200b-\u200d\u2060\ufeff]/g,'').replace(/\s+/g,' ').trim();
-const seekOpenedDocument='mutation TrackJobApplicationStarted($input: TrackJobApplicationStartedInput!) { trackJobApplicationStarted(input: $input) { eventId __typename } }'.replace(/\s+/g,'');
-/** Batches must be entirely read-only, except SEEK's exact, job-bound opened
- * analytics event. This does not save answers, documents or an application. */
-export function preparationGraphqlAllowed(body:unknown,url:string,jobId?:string):boolean{
-  const items=Array.isArray(body)?body:[body];
-  return items.length>0&&items.length<=30&&items.every(item=>{
-    if(!item||typeof item!=='object')return false;
-    const p=item as Record<string,unknown>,q=p.query;
-    if(typeof q!=='string')return false;
-    if(/^\s*(?:query\b|\{)/.test(q)&&! /\b(?:mutation|subscription)\b/.test(q))return true;
-    const u=new URL(url),variables=p.variables as Record<string,unknown>|undefined,input=variables?.input as Record<string,unknown>|undefined;
-    return jobBoardForHost(u.hostname)==='seek'&&u.pathname==='/graphql'&&Boolean(jobId)
-      &&p.operationName==='TrackJobApplicationStarted'&&q.replace(/\s+/g,'')===seekOpenedDocument
-      &&Boolean(variables)&&Object.keys(variables!).every(k=>k==='input')&&Boolean(input)
-      &&String(input!.jobId)===jobId&&Object.keys(input!).every(k=>['jobId','sessionId','applicationCorrelationId','isProfileApply'].includes(k))
-      &&['sessionId','applicationCorrelationId'].every(k=>input![k]===undefined||typeof input![k]==='string'&&String(input![k]).length<=300)
-      &&(input!.isProfileApply===undefined||typeof input!.isProfileApply==='boolean');
-  });
-}
 export type PreparationAccess = { ok: true; access: 'no-login-required' | 'signed-in'; checkedUrl: string } | { ok: false; reason: string };
 export function preparationSurface(o: Observation): 'blocked' | 'login' | 'application' | 'unknown' {
   if (o.inspectionError || /job (?:is no longer|has expired|has been filled)|position (?:has been filled|is closed)|no longer accepting applications|access denied|verify (?:that )?you are human/i.test(o.text)) return 'blocked';
@@ -57,36 +38,14 @@ export function preparationSurface(o: Observation): 'blocked' | 'login' | 'appli
 const decision: ToolSchema={name:'choose_access_action',description:'Check application access only. Apply comes before optional header Sign in. Stop as soon as the application is accessible. Never fill a job form, attach documents, register, reset a password or submit an application.',parameters:{type:'object',additionalProperties:false,properties:{
  action:{type:'string',enum:['apply','login','credentials','email_code','wait','skip']},ref:{type:'string'},refs:{type:'array',items:{type:'string'},maxItems:3},reason:{type:'string',minLength:1,maxLength:500}},required:['action','reason']}};
 
-/** No application mutations are allowed, including one-click Apply requests.
- * Private authentication is the only write window; GraphQL reads remain reads. */
-export async function preparationTransport(page: Page,fixture=false,jobId?:string): Promise<{ authentication: (allowed: boolean,active?:Page) => void; stop: () => Promise<void> }> {
-  let authOrigin: string | undefined,authPath: string | undefined;
-  const handler=async(route:Route)=>{
-    const r=route.request();
-    if(/\/(?:submit(?:[-_]?application)?|send[-_]?application)(?:\/|$)/i.test(new URL(r.url()).pathname))return route.abort('blockedbyclient');
-    if(r.resourceType()==='document'){
-      try{const url=new URL(r.url());if(isForbiddenDestination(url.href))return route.abort('blockedbyclient');
-        if(!jobBoardForHost(url.hostname)&&!(fixture&&url.hostname.endsWith('.invalid')))await assertExternalJobUrl(url.href);
-      }catch{return route.abort('blockedbyclient');}
-    }
-    if (['GET','HEAD','OPTIONS'].includes(r.method())) return route.fallback();
-    const body=r.postData()??'';
-    let query=false;
-    try{query=preparationGraphqlAllowed(JSON.parse(body),r.url(),jobId);}catch{/* Non-query writes require the private login window. */}
-    if(query)return route.fallback();
-    if (/submit.?application|send.?application|application.?submission|complete.?application/i.test(new URL(r.url()).pathname+' '+body)) return route.abort('blockedbyclient');
-    const u=new URL(r.url());
-    const authenticationWrite=authOrigin===u.origin && (/sign[-_.]?in|log[-_.]?in|auth|session|token|identity|verify[-_/]?(?:code|email)|saml/i.test(u.pathname)
-      || u.pathname===authPath&&/password|credential|SAMLResponse/i.test(body));
-    if(authenticationWrite) return route.fallback();
-    return route.abort('blockedbyclient');
-  };
-  await page.context().route('**/*',handler);
-  return {authentication:(allowed,active=page)=>{const u=new URL(active.url());authOrigin=allowed?u.origin:undefined;authPath=allowed?u.pathname:undefined;},stop:()=>page.context().unroute('**/*',handler)};
+/** Validate an observed navigation destination without intercepting requests. */
+async function validatePreparationDestination(url:string,fixture=false):Promise<void>{
+  if(isForbiddenDestination(url))throw Error('Payment access is not part of preparation.');
+  const u=new URL(url);
+  if(!jobBoardForHost(u.hostname)&&!(fixture&&u.hostname.endsWith('.invalid')))await assertExternalJobUrl(url);
 }
 
 export async function checkPreparationAccess(page:Page,job:JobListing,profile:CandidateProfile,options:{chat?:typeof applicationChat;onStep?:(action:string,result:string)=>void;fixture?:boolean}={}):Promise<PreparationAccess>{
-  const transport=await preparationTransport(page,options.fixture,job.id);
   const pagesBefore=new Set(page.context().pages());
   let current=page,entered=false,sawLogin=false,attemptedLogin=false,credentialUsed=false;
   const openedApply=new Set<string>();
@@ -96,11 +55,14 @@ export async function checkPreparationAccess(page:Page,job:JobListing,profile:Ca
   try{
     // Board application URLs can depend on state initialized by the listing's
     // Apply control. Start at the matched listing rather than deep-linking a wizard.
+    await validatePreparationDestination(job.url,options.fixture);
     await current.goto(job.url,{waitUntil:'domcontentloaded',timeout:30_000});
     await current.waitForLoadState('domcontentloaded');
     for(let step=0;step<10&&!meter.exhausted;step++){
       const opened=page.context().pages().filter(p=>!pagesBefore.has(p));
       if(opened.length)current=opened[opened.length-1];
+      if(current.url()==='about:blank')await current.waitForURL(url=>['http:','https:'].includes(url.protocol),{timeout:6000});
+      await validatePreparationDestination(current.url(),options.fixture);
       ctx.page=current;ctx.observation=await observe(current);
       if(!ctx.observation.fields.length&&!ctx.observation.actions.some(a=>APPLY.test(clean(a.text)))){
         await waitForApplicationSurface(current,6000).catch(()=>false);
@@ -149,8 +111,7 @@ export async function checkPreparationAccess(page:Page,job:JobListing,profile:Ca
         credentialUsed=true;result='Private sign-in fields filled. Application fields were not changed.';
       }else if(action==='email_code'){
         if(state!=='login'||!o.fields.some(f=>f.ref===ref&&f.privateKind==='verification-code'))return {ok:false,reason:'No observed email sign-in code field.'};
-        transport.authentication(true,current);
-        try{const code=await doEnterEmailedCode(ctx,{ref});if(code.kind!=='ok'||code.disposition==='failed')return {ok:false,reason:'Email sign-in verification was unavailable.'};result='Private email sign-in code entered.';}finally{transport.authentication(false);}
+        const code=await doEnterEmailedCode(ctx,{ref});if(code.kind!=='ok'||code.disposition==='failed')return {ok:false,reason:'Email sign-in verification was unavailable.'};result='Private email sign-in code entered.';
       }else if(action==='apply'||action==='login'){
         if(!target)return {ok:false,reason:'The selected access control is no longer available.'};
         if(action==='apply'&&!APPLY.test(clean(target.text)))return {ok:false,reason:'Only an observed Apply navigation control can be opened during preparation.'};
@@ -172,12 +133,11 @@ export async function checkPreparationAccess(page:Page,job:JobListing,profile:Ca
         },action);
         if(!safe)return {ok:false,reason:'The access control could modify an application form.'};
         if(openLogin&&await locator.evaluate(node=>Boolean((node as HTMLButtonElement).form??node.closest('form'))))return {ok:false,reason:'Only sign-in navigation is allowed before an authentication form is observed.'};
-        const href=await locator.getAttribute('href');if(href&&isForbiddenDestination(new URL(href,current.url()).href))return {ok:false,reason:'Payment access is not part of preparation.'};
+        const href=await locator.getAttribute('href');if(href){const destination=new URL(href,current.url());if(isForbiddenDestination(destination.href))return {ok:false,reason:'Payment access is not part of preparation.'};if(['http:','https:'].includes(destination.protocol))await validatePreparationDestination(destination.href,options.fixture);}
         const applyKey=JSON.stringify([current.url(),target.text,href]);
         if(action==='apply'&&openedApply.has(applyKey))return {ok:false,reason:'The Apply navigation did not expose application access.'};
         if(action==='login'&&!credentialUsed&&o.fields.some(isAuthenticationPasswordField))return {ok:false,reason:'No verified saved sign-in was entered.'};
-        transport.authentication(action==='login',current);
-        try{await locator.click({timeout:6000});if(action==='apply'){entered=true;openedApply.add(applyKey);}await current.waitForTimeout(600);}finally{transport.authentication(false);}
+        await locator.click({timeout:6000});if(action==='apply'){entered=true;openedApply.add(applyKey);}await current.waitForTimeout(600);
         result=action==='apply'?'Opened Apply without filling application fields.':'Used the observed sign-in control.';
       }else return {ok:false,reason:'Unsupported preparation access action.'};
       options.onStep?.(action,result);
@@ -185,5 +145,5 @@ export async function checkPreparationAccess(page:Page,job:JobListing,profile:Ca
     }
     return {ok:false,reason:'Application access could not be verified within the preparation allowance.'};
   }catch{ return {ok:false,reason:'Application access check failed; no application was prepared or submitted.'}; }
-  finally{await transport.stop();for(const p of page.context().pages())if(!pagesBefore.has(p)&&p!==page)await p.close().catch(()=>{});}
+  finally{for(const p of page.context().pages())if(!pagesBefore.has(p)&&p!==page)await p.close().catch(()=>{});}
 }
