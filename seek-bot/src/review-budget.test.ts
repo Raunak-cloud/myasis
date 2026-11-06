@@ -357,6 +357,17 @@ test('Semi auto prepares only its run cap without entering the form-filling adap
   assert.match(result.output, /Semi auto complete: 2 application/);
 });
 
+for(const prepare of [true,false])test(`${prepare?'Semi auto starts a ready employer-site draft':'Auto apply retains its hosted-first review policy'}`,()=>{
+  const external=job('ready-employer-site',{applicationMode:'external',reviewPriority:100});
+  const later=job('later-hosted-rejection',{applicationMode:'hosted',reviewPriority:80,fitReject:true});
+  const result=run([external,later],{apply:true,prepare,reviews:2,cap:1});
+  assert.deepEqual(result.events.filter(event=>event.stage==='apply').map(event=>event.id),[external.id]);
+  assert.equal(result.events.some(event=>event.stage==='detail'&&event.id===later.id),!prepare,
+    'preparation must not exhaust other reviews before checking an already matched employer application');
+  assert.equal(result.events.some(event=>event.stage==='form-fill'),!prepare);
+  assert.equal(result.history.filter(record=>record.submittedByMyasis).length,prepare?0:1);
+});
+
 test('old rejected recommendations cannot consume the only review before a fresh search result', () => {
   const old = job('old-rejection', { source: 'recommended' });
   const fresh = job('unseen-search', { searchOnlyJob: true, source: 'search' });

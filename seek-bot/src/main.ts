@@ -1057,7 +1057,9 @@ async function main() {
     const bestCandidate = (accept: (job: JobListing) => boolean = () => true) => {
       const best = candidates.filter((c) => accept(c.job) && !stoppedPlatform(c.job.platform ?? 'seek')).sort(preference)[0];
       if (!best) return undefined;
-      if (hostedFirst(best.job) === 1 && active.some(adapter => !adapter.apiDiscovery) && !outsideScope('hosted') && !reviewExhausted()) return undefined;
+      // Preparation only checks access and drafts a letter. A ready employer
+      // match must not wait for every hosted listing to be reviewed first.
+      if (!preparingApplications() && hostedFirst(best.job) === 1 && active.some(adapter => !adapter.apiDiscovery) && !outsideScope('hosted') && !reviewExhausted()) return undefined;
       return best;
     };
     const takeCandidate = (accept: (job: JobListing) => boolean) => {

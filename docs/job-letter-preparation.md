@@ -6,6 +6,9 @@ For each matched job they open Apply before optional header Sign in and check
 whether the application can be accessed. Existing accepted employer credentials
 or an available email sign-in can be used. Missing login, new registration,
 password resets, blocked or ambiguous access are skipped for that run.
+An already matched employer-site job can enter preparation immediately, without
+waiting for every board-hosted listing to be reviewed. Auto apply retains its
+existing preference for completing board-hosted applications first.
 
 The preparation stage has no application-field fill, file upload, arbitrary
 script, final-submit or application-answer tools. Its browser transport rejects
