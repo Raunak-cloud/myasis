@@ -64,6 +64,10 @@ globalThis.fetch=(async(_url,init)=>{
  if(turn===0){
   const offered=body.tools.find((t:any)=>t.function.name==='browser_action');
   assert.match(offered.function.description,/take_snapshot/);
+  assert.doesNotMatch(offered.function.description,/"script"\s*:/,'the actual MiniMax schema must not advertise unavailable script parameters');
+  const batch=body.tools.find((t:any)=>t.function.name==='browser_batch');
+  assert.match(batch.function.description,/Native actions only; scripts are unavailable/);
+  assert.doesNotMatch(batch.function.description,/"script"\s*:|browser scripts and/);
   call={name:'browser_action',args:{action:'take_snapshot',target_mode:'page',screenshot:true}};
  }else if(turn===1){
   assert.ok(Array.isArray(latest)&&latest.some((p:any)=>p.type==='image_url'),'snapshot screenshot request reaches the next privacy-masked observation');

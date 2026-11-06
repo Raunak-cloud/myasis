@@ -29,7 +29,7 @@ test('wire IDs dereference untouched source bytes before the unchanged canonical
   assert.equal(JSON.stringify(raw), retained, 'transport normalization never mutates its source or historical record');
   assert.equal(normalizeFitAssessment(canonical, sources)?.decision, 'apply', 'old canonical quote-shaped records remain accepted');
   assert.equal(resolveFitProvenanceWire(canonical, current).value, undefined, 'fresh wire replies cannot fall back to copied quotation fields');
-  assert.equal(FIT_ASSESSMENT_VERSION, 'magnus-owned-fit-v27-current-preferences-required', 'new preference semantics invalidate prior reviews without deleting history');
+  assert.equal(FIT_ASSESSMENT_VERSION, 'magnus-owned-fit-v28-evidenced-employer-identity', 'employer-identity evidence invalidates prior reviews without deleting history');
 });
 
 test('wrong, foreign, stale and cross-source references fail closed without a semantic override', () => {
