@@ -33,6 +33,9 @@ test('existing-account recovery requires a matching inbox and a consumed employe
   await doCompleteAuthentication(ctx,{purpose:'sign_in',...fields});assert.equal(await page.locator('#password').inputValue(),'','never guess an existing password');
   await doCompleteAuthentication(ctx,{purpose:'reset_password',...fields});assert.equal(await page.locator('#password').inputValue(),'','a connected inbox alone cannot authorize a new password');
   await doOpenEmailedLink(ctx,{purpose:'reset_password',sender_hint:'SuccessFactors'});
+  await ctx.page.goto('https://career41.sapsf.com/career?company=otherTenant');
+  await doCompleteAuthentication(ctx,{purpose:'reset_password',...fields});assert.equal(await ctx.page.locator('#password').inputValue(),'','email proof cannot transfer across SAP tenants even with the same employer label');
+  await ctx.page.goto(destination);
   process.env.GMAIL_MCP_ACCOUNT='different@fixture.invalid';
   await doCompleteAuthentication(ctx,{purpose:'reset_password',...fields});assert.equal(await ctx.page.locator('#password').inputValue(),'','proof cannot survive an account mismatch');
   process.env.GMAIL_MCP_ACCOUNT=email;

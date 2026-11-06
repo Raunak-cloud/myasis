@@ -19,7 +19,12 @@ const authenticationStarted = new WeakMap<ToolContext, Map<string, number>>();
 // employer-scoped reset message actually consumed by the private mail tool
 // permits replacing a password for an account we have never managed.
 const resetMailboxProof = new WeakMap<ToolContext, Map<string, number>>();
-const recoveryKey = (ctx: ToolContext) => `${employerAccountSite(credentialUrl(ctx),ctx.job.company)}|${ctx.profile.email.trim().toLowerCase()}`;
+const recoveryKey = (ctx: ToolContext) => {
+  const url=credentialUrl(ctx);
+  // Keep reset authority tenant-specific even for legacy credentials whose
+  // derivation recipe predates SAP's explicit company realm handling.
+  return JSON.stringify([employerAccountSite(url,ctx.job.company),new URL(url).searchParams.get('company'),ctx.profile.email.trim().toLowerCase()]);
+};
 function connectedCandidateMailbox(ctx: ToolContext): boolean {
   return gmailAvailable() && Boolean(ctx.profile.email) && gmailAccount().trim().toLowerCase() === ctx.profile.email.trim().toLowerCase();
 }
