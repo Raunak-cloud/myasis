@@ -14,7 +14,7 @@ import { isForbiddenDestination } from './agent/browser-boundaries.js';
 import { assertExternalJobUrl } from './external-url.js';
 import { jobBoardForHost } from './job-board-url.js';
 
-const APPLY = /^(?:quick\s*)?apply(?:\s+(?:now|for\b.*|on\b.*|with\b.*|to\b.*))?$|^start (?:your )?application$/i;
+const APPLY = /^(?:quick\s*)?apply(?:\s+(?:now|for\b.*|on\b.*|with\b.*|to\b.*|without (?:an? )?account|as (?:a )?guest|manually))?$|^start (?:your )?application$/i;
 const LOGIN = /^(?:sign\s*in|log\s*in|continue|next|verify(?:\s+code)?|send(?:\s+me)?(?:\s+a)?\s+code)(?:\s+.*)?$/i;
 const clean = (s: string) => s.replace(/[\u200b-\u200d\u2060\ufeff]/g,'').replace(/\s+/g,' ').trim();
 export type PreparationAccess = { ok: true; access: 'no-login-required' | 'signed-in'; checkedUrl: string } | { ok: false; reason: string };

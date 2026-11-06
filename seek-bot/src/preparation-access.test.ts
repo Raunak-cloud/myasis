@@ -92,6 +92,12 @@ test('a unique employer Apply button is followed after the initial board Apply w
  try{const result=await checkPreparationAccess(page,job,profile,{fixture:true,chat:async()=>{throw Error('Unique navigation must not need a model guess');}});assert.equal(result.ok,true,JSON.stringify(result));assert.deepEqual(visits,['/job','/employer-job','/application']);assert.equal(await page.locator('#name').inputValue(),'');assert.equal(await page.locator('#resume').inputValue(),'');}finally{await b.close();}
 });
 
+test('an observed guest application route opens the form before optional employer sign-in',async()=>{
+ const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage(),visits:string[]=[];
+ await ctx.route('**/*',r=>{const path=new URL(r.request().url()).pathname;visits.push(path);return r.fulfill({contentType:'text/html',body:path==='/job'?'<main><h1>Analyst</h1><a href="/access">Apply now</a></main>':path==='/access'?'<main><h1>Choose how to apply</h1><a href="/application">Apply without an account</a><a href="/login">Sign in</a><a href="/register">Create one now.</a></main>':application});});
+ try{const result=await checkPreparationAccess(page,job,profile,{fixture:true,chat:async()=>{throw Error('Observed guest route needs no model or credentials');}});assert.equal(result.ok,true,JSON.stringify(result));assert.deepEqual(visits,['/job','/access','/application']);assert.equal(await page.locator('#name').inputValue(),'');assert.equal(await page.locator('#resume').inputValue(),'');assert.equal(await page.evaluate(()=>Boolean((window as any).sent)),false);}finally{await b.close();}
+});
+
 test('an invalid current button reference gets fresh observation and bounded feedback instead of discarding the job',async()=>{
  const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage();let calls=0;
  await ctx.route('**/*',r=>r.fulfill({contentType:'text/html',body:new URL(r.request().url()).pathname==='/job'?'<main><h1>Analyst</h1><a href="/application">Apply now</a><a href="/application">Apply now</a></main>':application}));
