@@ -38,6 +38,12 @@ test('SEEK batched reads and the exact job-opened tracking event are allowed; mi
  assert.equal(preparationGraphqlAllowed({...tracker,variables:{input:{...tracker.variables.input,answers:['not allowed']}}},url,'12345678'),false);
 });
 
+test('an unverified employer-linkout mutation stays blocked even when it only accepts the matched job ID',()=>{
+ const handoff={operationName:'createApplyLinkout',query:'mutation createApplyLinkout($jobId: ID!) { createLinkoutApplication(input: { jobId: $jobId }) { applicationUrl linkoutApplicationCorrelationId __typename } }',variables:{jobId:'12345678'}};
+ assert.equal(preparationGraphqlAllowed(handoff,'https://au.seek.com/graphql','12345678'),false);
+ assert.equal(preparationGraphqlAllowed([{query:'query GetUser { viewer { _id } }'},handoff],'https://au.seek.com/graphql','12345678'),false);
+});
+
 test('a delayed application shell is observed after hydration instead of being prematurely skipped',async()=>{
  const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage();
  await ctx.route('**/*',r=>r.fulfill({contentType:'text/html',body:`<main><h1>Loading</h1></main><script>setTimeout(()=>{document.querySelector('main').outerHTML=${JSON.stringify(application)}},400)</script>`}));

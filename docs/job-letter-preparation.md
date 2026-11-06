@@ -16,6 +16,13 @@ application submissions and non-authentication writes, allowing read-only
 GraphQL queries. Private sign-in writes use only the observed login page.
 External navigation retains public-address and payment-page checks.
 
+Known access limitation: some SEEK employer-site listings need a
+`createLinkoutApplication` mutation before exposing the employer portal URL.
+Preparation currently blocks that operation. These listings are skipped when
+access cannot be verified, rather than marked Prepared from the listing alone.
+Support needs to account for SEEK's application-tracking effects before adding
+an exception; a generated portal link is not proof of an employer submission.
+
 After access is verified, the existing evidence-checked cover-letter writer
 uses the account's saved profile, documents and instructions. The draft binds
 the selected account resume and its SHA-256, the job, letter and access result.
