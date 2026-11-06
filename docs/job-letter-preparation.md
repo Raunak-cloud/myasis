@@ -19,6 +19,10 @@ page summary. This detection does not fill or advance the form.
 An unknown-page Skip decision gets at most two fresh observations before it is
 accepted, so a portal that hydrates while the model reasons is not discarded
 from stale evidence. Reobservation never reloads the page or changes form data.
+Search, office and department filters on an employer vacancy index are not
+application access. The checker can follow a unique link whose exact job title
+and optional location match the reviewed vacancy, including inside an embedded
+job board, before checking the actual application surface.
 
 The preparation stage has no application-field fill, file upload, arbitrary
 script, final-submit or application-answer tools. It installs no network request

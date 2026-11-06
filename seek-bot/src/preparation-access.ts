@@ -17,6 +17,13 @@ import { jobBoardForHost } from './job-board-url.js';
 const APPLY = /^(?:quick\s*)?apply(?:\s+(?:now|for\b.*|on\b.*|with\b.*|to\b.*|without (?:an? )?account|as (?:a )?guest|manually))?$|^start (?:your )?application$/i;
 const LOGIN = /^(?:sign\s*in|log\s*in|continue|next|verify(?:\s+code)?|send(?:\s+me)?(?:\s+a)?\s+code)(?:\s+.*)?$/i;
 const clean = (s: string) => s.replace(/[\u200b-\u200d\u2060\ufeff]/g,'').replace(/\s+/g,' ').trim();
+const matchedVacancyLink=(a:Observation['actions'][number],job:JobListing):boolean=>{
+  if(a.disabled||a.role!=='link')return false;
+  const label=clean(a.text).toLowerCase(),title=clean(job.title).toLowerCase();
+  if(!title||!label.startsWith(title))return false;
+  const suffix=label.slice(title.length);
+  return !suffix||suffix.startsWith(' ')&&Boolean(job.location)&&clean(job.location).toLowerCase().includes(suffix.trim());
+};
 export type PreparationAccess = { ok: true; access: 'no-login-required' | 'signed-in'; checkedUrl: string } | { ok: false; reason: string };
 export function preparationSurface(o: Observation): 'blocked' | 'login' | 'application' | 'unknown' {
   if (o.inspectionError || /job (?:is no longer|has expired|has been filled)|position (?:has been filled|is closed)|no longer accepting applications|access denied|verify (?:that )?you are human/i.test(o.text)) return 'blocked';
@@ -34,8 +41,8 @@ export function preparationSurface(o: Observation): 'blocked' | 'login' | 'appli
   // the form. Named candidate fields plus a document control prove access
   // independently of that summary; cookie preferences alone do not.
   const namedCandidateFields=application.filter(f=>/\b(?:first name|given name|last name|surname|email|mobile|phone)\b/i.test(f.label));
-  if (documentAction && namedCandidateFields.length>=2 || applicationCopy && (documentAction||application.some(f=>f.inputType==='file'||/resum[eé]|cover letter|first name|given name|last name|surname|mobile|phone|work rights|work authori|eligib|experience|qualification/i.test(f.label))
-    || application.length>=3) || o.actions.some(a=>/^submit (?:your )?application$/i.test(clean(a.text)))) return 'application';
+  if (documentAction && namedCandidateFields.length>=2 || applicationCopy && (documentAction||application.some(f=>f.inputType==='file'||/resum[eé]|cover letter|first name|given name|last name|surname|mobile|phone|work rights|work authori|eligib|experience|qualification/i.test(f.label)))
+    || o.actions.some(a=>/^submit (?:your )?application$/i.test(clean(a.text)))) return 'application';
   return 'unknown';
 }
 
@@ -79,8 +86,12 @@ export async function checkPreparationAccess(page:Page,job:JobListing,profile:Ca
       if(state==='application')return {ok:true,access:sawLogin?'signed-in':'no-login-required',checkedUrl:new URL(o.url).origin+new URL(o.url).pathname};
       if(state==='login')sawLogin=true;
       const applies=o.actions.filter(a=>!a.disabled&&APPLY.test(clean(a.text)));
+      // Employer handoffs can land on an embedded vacancy index. Open only
+      // the exact matched title (optionally followed by its known location).
+      const vacancies=state==='unknown'&&!applies.length&&!jobBoardForHost(new URL(o.url).hostname)?o.actions.filter(a=>matchedVacancyLink(a,job)):[];
       let args:Record<string,unknown>;
       if(state!=='login'&&applies.length===1)args={action:'apply',ref:applies[0].ref,reason:entered?'Open the employer application using its unique observed Apply control.':'Open the matched job application before optional sign-in.'};
+      else if(vacancies.length===1)args={action:'apply',ref:vacancies[0].ref,reason:'Open the exact matched vacancy on the employer job list.'};
       else{
         const safe={url:new URL(o.url).origin+new URL(o.url).pathname,title:o.title,text:redactPrivateAuthenticationData(o.text,await secrets()).slice(0,4500),fields:o.fields.map(f=>({ref:f.ref,label:f.label,type:f.inputType,privateKind:f.privateKind})),actions:o.actions.filter(a=>!a.disabled).map(a=>({ref:a.ref,text:a.text}))};
         messages.push({role:'user',content:JSON.stringify({job:{title:job.title,company:job.company},entered,state,observation:safe})});
@@ -130,9 +141,9 @@ export async function checkPreparationAccess(page:Page,job:JobListing,profile:Ca
         const code=await doEnterEmailedCode(ctx,{ref});if(code.kind!=='ok'||code.disposition==='failed')return {ok:false,reason:'Email sign-in verification was unavailable.'};result='Private email sign-in code entered.';
       }else if(action==='apply'||action==='login'){
         if(!target){reobserve('The selected access control is not in the current observation.');continue;}
-        if(action==='apply'&&!APPLY.test(clean(target.text))){reobserve('The selected control is not Apply navigation. Choose only a current Apply control, or a supported sign-in action after Apply.');continue;}
+        if(action==='apply'&&!APPLY.test(clean(target.text))&&!vacancies.some(a=>a.ref===ref)){reobserve('The selected control is not Apply navigation or the exact matched employer vacancy. Choose only a current supported control.');continue;}
         const openLogin=entered&&state==='unknown'&&/^(?:sign\s*in|log\s*in)$/i.test(clean(target.text));
-        if(action==='login'&&(!LOGIN.test(clean(target.text))||state!=='login'&&!openLogin||applies.length&&state!=='login'))return {ok:false,reason:'Only an observed sign-in control may be used after Apply.'};
+        if(action==='login'&&(!LOGIN.test(clean(target.text))||state!=='login'&&!openLogin||applies.length&&state!=='login')){reobserve('This control is not supported sign-in at the current stage. Open the matched vacancy and Apply before optional header sign-in.');continue;}
         const locator=browserTarget(current,{ref});
         const safe=await locator.evaluate((node,kind)=>{
           const el=node as HTMLButtonElement;const form=el.form??node.closest('form');

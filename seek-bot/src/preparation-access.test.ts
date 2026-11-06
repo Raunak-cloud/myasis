@@ -98,6 +98,12 @@ test('an observed guest application route opens the form before optional employe
  try{const result=await checkPreparationAccess(page,job,profile,{fixture:true,chat:async()=>{throw Error('Observed guest route needs no model or credentials');}});assert.equal(result.ok,true,JSON.stringify(result));assert.deepEqual(visits,['/job','/access','/application']);assert.equal(await page.locator('#name').inputValue(),'');assert.equal(await page.locator('#resume').inputValue(),'');assert.equal(await page.evaluate(()=>Boolean((window as any).sent)),false);}finally{await b.close();}
 });
 
+test('an embedded employer vacancy index is not an application; only the exact matched title opens its form',async()=>{
+ const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage(),visits:string[]=[];
+ await ctx.route('**/*',r=>{const path=new URL(r.request().url()).pathname;visits.push(path);return r.fulfill({contentType:'text/html',body:path==='/job'?'<main><h1>Analyst</h1><a href="/open-positions">Apply now</a></main>':path==='/open-positions'?'<main><h1>We welcome role applications</h1><label>Email<input type=email></label><iframe src="/index-frame"></iframe></main>':path==='/index-frame'?'<main><label>Search<input></label><label>Office<input></label><label>Department<input></label><a href="/wrong">Analyst Intern Sydney</a><a href="/application" target="_top">Analyst Sydney</a></main>':application});});
+ try{const result=await checkPreparationAccess(page,job,profile,{fixture:true,chat:async()=>{throw Error('The exact observed matched vacancy needs no model guess');}});assert.equal(result.ok,true,JSON.stringify(result));assert.equal(page.url(),'https://employer.fixture.invalid/application');assert.equal(visits.includes('/wrong'),false);assert.equal(await page.locator('#name').inputValue(),'');assert.equal(await page.locator('#resume').inputValue(),'');assert.equal(await page.evaluate(()=>Boolean((window as any).sent)),false);}finally{await b.close();}
+});
+
 test('an invalid current button reference gets fresh observation and bounded feedback instead of discarding the job',async()=>{
  const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage();let calls=0;
  await ctx.route('**/*',r=>r.fulfill({contentType:'text/html',body:new URL(r.request().url()).pathname==='/job'?'<main><h1>Analyst</h1><a href="/application">Apply now</a><a href="/application">Apply now</a></main>':application}));
@@ -132,6 +138,15 @@ test('unknown-page skip rechecks remain bounded and do not turn a cookie page in
  try{
   const result=await checkPreparationAccess(page,job,profile,{fixture:true,chat:async()=>{calls++;return {text:'',toolCalls:[{id:'fixture',name:'choose_access_action',args:{action:'skip',reason:'No application access'}}],message:{role:'assistant',content:null}};}});
   assert.equal(result.ok,false);assert.equal(calls,3);assert.equal(await page.evaluate(()=>Boolean((window as any).changed)),false);
+ }finally{await b.close();}
+});
+
+test('premature header sign-in advice is rejected and reobserved instead of discarding a hydrating employer page',async()=>{
+ const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage();let calls=0;
+ await ctx.route('**/*',r=>r.fulfill({contentType:'text/html',body:'<main><h1>Analyst</h1><button onclick="window.signed=true">Sign in</button></main>'}));
+ try{
+  const result=await checkPreparationAccess(page,job,profile,{fixture:true,chat:async request=>{calls++;const user=[...request.messages].reverse().find(m=>m.role==='user'&&String(m.content).startsWith('{'))!;const o=JSON.parse(String(user.content)).observation;await page.locator('main').evaluate((node,html)=>{node.outerHTML=html;},application);return {text:'',toolCalls:[{id:'fixture',name:'choose_access_action',args:{action:'login',ref:o.actions[0].ref,reason:'Try the optional header sign-in'}}],message:{role:'assistant',content:null}};}});
+  assert.equal(result.ok,true,JSON.stringify(result));assert.equal(calls,1);assert.equal(await page.evaluate(()=>Boolean((window as any).signed)),false);assert.equal(await page.locator('#name').inputValue(),'');assert.equal(await page.locator('#resume').inputValue(),'');
  }finally{await b.close();}
 });
 
