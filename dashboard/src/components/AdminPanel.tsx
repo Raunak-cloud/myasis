@@ -377,9 +377,14 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
   const [externalJobUrl, setExternalJobUrl] = useState('');
   const [repairPriorRuns,setRepairPriorRuns]=useState(true);
   const [repairCount,setRepairCount]=useState<number|null>(null);
-  const [externalConfirmation, setExternalConfirmation] = useState<{ userId: string; email: string; url: string } | null>(null);
-  const externalDialog = useRef<HTMLDivElement>(null);
-  const externalCancel = useRef<HTMLButtonElement>(null);
+  const [runConfirmation, setRunConfirmation] = useState<{
+    userId: string; email: string; kind: 'run' | 'hosted-run' | 'external-run' | 'stop';
+    title: string; description: string; button: string; url?: string;
+    applicationMode?: 'auto' | 'semi-auto'; repairPriorRuns?: boolean;
+  } | null>(null);
+  const confirmingRun = useRef(false);
+  const runDialog = useRef<HTMLDivElement>(null);
+  const runCancel = useRef<HTMLButtonElement>(null);
   // The saved proxy's password never comes back from the server, so the field shows a stand-in and is only sent when edited.
   const [proxyInput, setProxyInput] = useState('');
   const savedProxy = user?.route.proxy ? `socks5://${user.route.proxy.username}:••••••@${user.route.proxy.address}` : '';
@@ -390,18 +395,18 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
   }, [userId]);
   useEffect(load, [load]);
   useEffect(() => {
-    if (!externalConfirmation) return;
+    if (!runConfirmation) return;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    externalCancel.current?.focus();
+    runCancel.current?.focus();
     const keepFocus = (event: FocusEvent) => {
-      if (event.target instanceof Node && !externalDialog.current?.contains(event.target)) externalCancel.current?.focus();
+      if (event.target instanceof Node && !runDialog.current?.contains(event.target)) runCancel.current?.focus();
     };
     document.addEventListener('focusin', keepFocus);
     return () => {
       document.removeEventListener('focusin', keepFocus);
       if (previous?.isConnected) previous.focus();
     };
-  }, [externalConfirmation]);
+  }, [runConfirmation]);
   // Reflects the server's own numbers, including after a save is clamped to
   // the platform ceiling — not just what was typed.
   const [formUser, setFormUser] = useState(user);
@@ -454,19 +459,37 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
       return;
     }
     if (!user || busy !== null || user.running) return;
-    setExternalConfirmation({ userId: user.id, email: user.email, url });
+    setRunConfirmation({ userId: user.id, email: user.email, url, kind: 'external-run',
+      title: 'Apply to this job?', description: `This can submit a real application as ${user.email}.`, button: 'Apply to URL' });
   }
 
-  function confirmExternalJob() {
-    if (!externalConfirmation || busy !== null || user?.running || externalConfirmation.userId !== userId) return;
-    const target = externalConfirmation;
-    setExternalConfirmation(null);
-    void act(
-      'external-run',
-      `/users/${target.userId}/run`,
-      { method: 'POST', json: { externalUrl: target.url } },
-      'Direct website application started.',
-    );
+  function requestRun(kind: 'run' | 'hosted-run' | 'stop') {
+    if (!user || busy !== null || confirmingRun.current || (kind === 'stop') !== user.running) return;
+    const applicationMode = user.autoApply.applicationMode ?? 'auto';
+    const prepares = applicationMode === 'semi-auto';
+    const description = kind === 'stop' ? `Stop the run for ${user.email}? Anything already submitted stays submitted.`
+      : kind === 'run' && repairPriorRuns ? `Start a run for ${user.email}? Eligible previously approved applications may be submitted; otherwise ${prepares ? 'new applications are prepared for confirmation' : 'real applications are submitted under their plan'}.`
+      : `Start a ${kind === 'hosted-run' ? 'job-board-only ' : ''}run for ${user.email}? ${prepares ? 'Applications are prepared for confirmation.' : 'This can submit real applications under their plan.'}${kind === 'hosted-run' ? ' Employer websites are skipped.' : ''}`;
+    setRunConfirmation({ userId: user.id, email: user.email, kind,
+      title: kind === 'stop' ? 'Stop this run?' : 'Start this run?', description,
+      button: kind === 'stop' ? 'Stop run' : 'Start run', applicationMode,
+      ...(kind === 'run' ? { repairPriorRuns } : {}) });
+  }
+
+  async function confirmRun() {
+    if (!runConfirmation || busy !== null || confirmingRun.current || !user || runConfirmation.userId !== userId
+      || (runConfirmation.kind === 'stop') !== user.running) return;
+    confirmingRun.current = true;
+    const target = runConfirmation;
+    setRunConfirmation(null);
+    try {
+      await act(target.kind, `/users/${target.userId}/${target.kind === 'stop' ? 'stop' : 'run'}`, {
+        method: 'POST', json: target.kind === 'stop' ? {}
+          : target.kind === 'external-run' ? { externalUrl: target.url }
+          : { applicationMode: target.applicationMode, ...(target.kind === 'hosted-run' ? { scope: 'hosted' } : { repairPriorRuns: target.repairPriorRuns }) },
+      }, target.kind === 'stop' ? 'Stop requested.' : target.kind === 'external-run' ? 'Direct website application started.'
+        : target.kind === 'hosted-run' ? 'Job-board-only run started.' : 'Run started.');
+    } finally { confirmingRun.current = false; }
   }
 
   async function act(label: string, path: string, init: RequestInit & { json?: unknown }, done: string) {
@@ -487,7 +510,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
 
   return (
     <div className="overlay" onClick={onClose}>
-      <aside className="drawer admin-drawer" inert={externalConfirmation !== null} onClick={(event) => event.stopPropagation()}>
+      <aside className="drawer admin-drawer" inert={runConfirmation !== null} onClick={(event) => event.stopPropagation()}>
         <div className="drawer-head">
           <div className="minw">
             <h2>{user?.name || user?.email || 'Account'}</h2>
@@ -598,8 +621,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
                       <button
                         className="btn btn-danger"
                         disabled={busy !== null}
-                        onClick={() => window.confirm(`Stop the run for ${user.email}? Anything already submitted stays submitted.`)
-                          && act('stop', `/users/${user.id}/stop`, { method: 'POST', json: {} }, 'Stop requested.')}
+                        onClick={() => requestRun('stop')}
                       >
                         Stop run
                       </button>
@@ -608,16 +630,14 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
                         <button
                           className="btn primary"
                           disabled={busy !== null}
-                          onClick={() => window.confirm(`Start a live run for ${user.email}? It submits real applications under their plan.`)
-                            && act('run', `/users/${user.id}/run`, { method: 'POST', json: {repairPriorRuns} }, 'Run started.')}
+                          onClick={() => requestRun('run')}
                         >
                           {busy === 'run' ? 'Starting…' : 'Start run'}
                         </button>
                         <button
                           className="btn"
                           disabled={busy !== null}
-                          onClick={() => window.confirm(`Start a job-board-only run for ${user.email}? It can submit real SEEK or Indeed applications, but skips employer websites.`)
-                            && act('hosted-run', `/users/${user.id}/run`, { method: 'POST', json: { scope: 'hosted' } }, 'Job-board-only run started.')}
+                          onClick={() => requestRun('hosted-run')}
                         >
                           {busy === 'hosted-run' ? 'Starting…' : 'Job boards only'}
                         </button>
@@ -864,32 +884,32 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
           )}
         </div>
       </aside>
-      {externalConfirmation && (
-        <div className="overlay center" onClick={(event) => { event.stopPropagation(); setExternalConfirmation(null); }}>
+      {runConfirmation && (
+        <div className="overlay center" onClick={(event) => { event.stopPropagation(); setRunConfirmation(null); }}>
           <div
-            ref={externalDialog}
+            ref={runDialog}
             className="card confirm"
             role="alertdialog"
             aria-modal="true"
-            aria-labelledby="external-run-title"
-            aria-describedby="external-run-description external-run-target"
+            aria-labelledby="admin-run-title"
+            aria-describedby="admin-run-description"
             onClick={(event) => event.stopPropagation()}
             onKeyDown={(event) => {
-              if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setExternalConfirmation(null); }
+              if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setRunConfirmation(null); }
               if (event.key === 'Tab') {
-                const buttons = externalDialog.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)');
+                const buttons = runDialog.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)');
                 const first = buttons?.[0], last = buttons?.[buttons.length - 1];
                 if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
                 else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
               }
             }}
           >
-            <h2 id="external-run-title">Apply to this job?</h2>
-            <p id="external-run-description" className="dim">This can submit a real application as {externalConfirmation.email}.</p>
-            <p id="external-run-target" className="job-meta" style={{ overflowWrap: 'anywhere' }}>{externalConfirmation.url}</p>
+            <h2 id="admin-run-title">{runConfirmation.title}</h2>
+            <p id="admin-run-description" className="dim">{runConfirmation.description}</p>
+            {runConfirmation.url && <p className="job-meta" style={{ overflowWrap: 'anywhere' }}>{runConfirmation.url}</p>}
             <div className="confirm-actions">
-              <button ref={externalCancel} type="button" className="btn" onClick={() => setExternalConfirmation(null)}>Cancel</button>
-              <button type="button" className="btn primary" onClick={confirmExternalJob}>Apply to URL</button>
+              <button ref={runCancel} type="button" className="btn" onClick={() => setRunConfirmation(null)}>Cancel</button>
+              <button type="button" className={`btn ${runConfirmation.kind === 'stop' ? 'btn-danger' : 'primary'}`} onClick={() => void confirmRun()}>{runConfirmation.button}</button>
             </div>
           </div>
         </div>
