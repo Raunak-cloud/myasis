@@ -28,6 +28,8 @@ uses the account's saved profile, documents and instructions. The draft binds
 the selected account resume and its SHA-256, the job, letter and access result.
 It records `preparation.stage=job-and-letter`, an empty answers list and no
 uploads. This metadata is included in the immutable approval revision.
+Its hash uses a fixed field order so PostgreSQL JSONB round trips preserve
+the worker's existing revision without changing the saved draft or consent.
 Skipped access never creates a Prepared row or spends a preparation credit.
 Existing per-prepared-job credit accounting is unchanged.
 

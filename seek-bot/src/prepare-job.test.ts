@@ -23,6 +23,14 @@ test('preparation saves only matched job, checked access, selected resume and gr
   const d=result.draft;
   assert.deepEqual(d.answers,[]);assert.equal(d.preparation?.stage,'job-and-letter');assert.equal(d.resumeId,'cv');assert.equal(d.resume,'CV.txt');assert.match(d.resumeHash!,/^[a-f0-9]{64}$/);
   assert.equal(d.formUrl,job.url);assert.equal(d.revision,applicationRevision(d));
+  const p=d.preparation!;
+  // JSONB preserves values, but not the worker's object key insertion order.
+  const databaseDraft={...d,preparation:{stage:p.stage,access:p.access,version:p.version,checkedAt:p.checkedAt,checkedUrl:p.checkedUrl}};
+  assert.equal(applicationRevision(databaseDraft),d.revision,'database key reordering must preserve candidate consent');
+  const reverseDraft={...d,preparation:Object.fromEntries(Object.entries(p).reverse()) as typeof p};
+  assert.equal(applicationRevision(reverseDraft),d.revision,'metadata order is not a content change');
+  assert.notEqual(applicationRevision({...databaseDraft,preparation:{...databaseDraft.preparation,access:'signed-in'}}),d.revision);
+  assert.notEqual(applicationRevision({...databaseDraft,preparation:{...databaseDraft.preparation,checkedUrl:'https://other.fixture.invalid/application'}}),d.revision);
   assert.notEqual(applicationRevision({...d,preparation:undefined}),d.revision,'letter-only approval cannot be confused with a completed-form draft');
   const edited=withCoverLetter(d,'A corrected truthful letter.');assert.equal(edited.preparation?.stage,'job-and-letter');assert.notEqual(edited.revision,d.revision);
   const skipped=await prepareMatchedJob({} as never,job,profile,{access:async()=>({ok:false,reason:'Login unavailable'}),letter:async()=>{throw Error('Must not draft a skipped job');}});
