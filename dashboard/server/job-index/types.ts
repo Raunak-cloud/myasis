@@ -18,6 +18,8 @@ export interface IndexedJob {
 export interface SearchProfile {
   userId: string; fingerprint: string; sourceRevision?: string; keywords: string[]; skills: string[]; location: string;
   arrangements: string[]; excludedCompanies: string[]; sources: Record<string, string>;
+  /** Derived from explicit allowed titles in standing instructions; not a saved-setting override. */
+  searchRoles?:string[];
   criteria?: {minScore:number;minSalary:number;minHourlyRate:number;maxAgeDays:number;radiusKm?:number;jobTypes:string[]};
 }
 export interface PreliminaryMatch {

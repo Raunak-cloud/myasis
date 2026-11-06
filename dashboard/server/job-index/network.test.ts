@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createServer,connect,type AddressInfo } from 'node:net';
 import { CrawlBlocked, CrawlDeferred, PublicCrawler, crawlUrl, publicIPv4, pinnedLookup, type PageResponse } from './network.js';
+import {canonicalUrl} from './extract.js';
 
 test('pinned DNS connects through the real Node transport with both lookup callback modes',async()=>{
   // The trusted lookup helper uses a loopback fixture here. publicRequest's
@@ -22,6 +23,14 @@ test('crawler excludes private, metadata, IP literal and credential form address
   for(const url of ['https://127.0.0.1/jobs','https://2130706433/jobs','https://[::1]/jobs','https://metadata.google.internal/jobs','https://host.local/jobs','https://user:password@public.org/jobs','http://public.org/jobs','https://public.org/apply','https://public.org/login'])assert.throws(()=>crawlUrl(url),url);
 });
 const response=(url:string,text:string,status=200,location?:string):PageResponse=>({url,text,status,type:'text/html',retryAfter:null,...(location?{location}:{})});
+test('publisher slash redirects preserve their transport URL while vacancy identities still deduplicate',async()=>{
+ const calls:string[]=[];const slash='https://public.org/jobs/123/?utm_source=public-board';
+ const c=new PublicCrawler(async url=>{calls.push(url);if(url.endsWith('/robots.txt'))return response(url,'User-agent: *\nAllow: /');if(url==='https://public.org/jobs/123')return response(url,'',301,slash);if(url===slash)return response(url,'<h1>Published vacancy</h1>');throw Error('Unexpected URL rewrite');});
+ const page=await c.get('https://public.org/jobs/123');assert.equal(page.url,slash);assert.match(page.text,/Published vacancy/);
+ assert.deepEqual(calls,['https://public.org/robots.txt','https://public.org/jobs/123',slash]);
+ assert.equal(canonicalUrl(page.url),canonicalUrl('https://public.org/jobs/123'));
+ assert.throws(()=>crawlUrl('https://public.org/apply/'));assert.throws(()=>crawlUrl('https://public.org/jobs/?token=secret'));
+});
 test('robots exclusions prevent page reads and access challenges are never bypassed',async()=>{
   const calls:string[]=[];const c=new PublicCrawler(async url=>{calls.push(url);return response(url,'User-agent: *\nDisallow: /private');});
   await assert.rejects(()=>c.get('https://public.org/private/jobs'),CrawlBlocked);assert.equal(calls.length,1);

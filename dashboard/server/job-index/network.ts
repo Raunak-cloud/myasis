@@ -16,7 +16,11 @@ export function publicIPv4(ip: string): boolean {
   return !(a===0 || a===10 || a===127 || a>=224 || a===169&&b===254 || a===172&&b>=16&&b<=31 || a===192&&(b===168||b===0||b===2) || a===100&&b>=64&&b<=127 || a===198&&(b===18||b===19||b===51&&c===100) || a===203&&b===0&&c===113);
 }
 export function crawlUrl(raw: string): URL {
-  const u = new URL(canonicalUrl(raw));
+  // Canonicalization is an identity rule, not a transport rewrite. WordPress
+  // and some ATS sites redirect /vacancy to /vacancy/; stripping that slash
+  // before every request creates a synthetic redirect loop.
+  canonicalUrl(raw);
+  const u = new URL(raw);u.hash='';
   if (isIP(u.hostname) || /(^|\.)(localhost|local|internal|test|invalid|example|onion)$|^(?:metadata|instance-data)\./i.test(u.hostname)) throw new CrawlBlocked('Private and non-public destinations are excluded.');
   if (/\/(?:login|sign[-_]?in|register|applications?|apply)(?:[/?]|$)/i.test(u.pathname)) throw new CrawlBlocked('Account and application forms are excluded from indexing.');
   return u;

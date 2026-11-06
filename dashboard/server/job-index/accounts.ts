@@ -5,6 +5,7 @@ import { userResumeDir } from '../userdata.js';
 import { fingerprint, recognisedSkills } from './extract.js';
 import type { SearchProfile,FitEvidence } from './types.js';
 import {RUN_SETTING_DEFAULTS} from '../settings.js';
+import {savedSearchRoles} from './search-terms.js';
 
 export const PAID_ACCOUNTS_SQL=`SELECT DISTINCT u.id::text FROM users u
  JOIN application_credit_grants g ON g.user_id=u.id
@@ -46,7 +47,8 @@ export async function paidProfiles(db:pg.Pool,readResume=resumeText,cached:Searc
     const targeting={keywords,skills,location:(settings.ONSITE_CITY??'').trim().slice(0,150),arrangements:(settings.WORK_ARRANGEMENTS??'').split(',').filter(v=>['onsite','hybrid','remote'].includes(v)),excludedCompanies:(settings.EXCLUDED_COMPANIES??'').split(/[,;\n]/).map(v=>v.trim()).filter(Boolean),sources:Object.fromEntries(Object.entries(settings).filter(([k])=>/^(SMARTRECRUITERS_COMPANIES|GREENHOUSE_BOARDS|PAGEUP_SITES|WORKDAY_SITES)$/.test(k)))};
     const number=(key:string)=>Number.isFinite(Number(settings[key]))?Math.max(0,Number(settings[key])):Number(RUN_SETTING_DEFAULTS[key]??0);
     const criteria={minScore:Math.min(100,number('MIN_SCORE')),minSalary:number('MIN_SALARY'),minHourlyRate:number('MIN_HOURLY_RATE'),maxAgeDays:number('MAX_AGE_DAYS'),radiusKm:number('SEARCH_RADIUS_KM'),jobTypes:settings.JOB_TYPES.split(',').filter(Boolean)};
-    profiles.push({userId:id,sourceRevision,fingerprint:fingerprint({targeting,criteria,resume:fingerprint(text),instructions:settings.AI_INSTRUCTIONS_B64}),...targeting,criteria});
+    const instructions=professionalEvidence(Buffer.from(settings.AI_INSTRUCTIONS_B64??'','base64').toString('utf8'));
+    profiles.push({userId:id,sourceRevision,fingerprint:fingerprint({targeting,criteria,resume:fingerprint(text),instructions:settings.AI_INSTRUCTIONS_B64}),...targeting,criteria,searchRoles:savedSearchRoles(keywords,instructions)});
     const facts={resume:professionalEvidence([profile?.headline,profile?.skills,text].filter(Boolean).join('\n')),instructions:professionalEvidence(Buffer.from(settings.AI_INSTRUCTIONS_B64??'','base64').toString('utf8'))};
     evidence.set(id,facts);if(evidenceCache.size>=100)evidenceCache.delete(evidenceCache.keys().next().value!);evidenceCache.set(id,{revision:sourceRevision,evidence:facts});
   }

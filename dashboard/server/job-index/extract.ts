@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { parseHTML } from 'linkedom';
 import {australianEligibility,declaredCountries} from './geography.js';
 import type { EvidenceTag, IndexedJob, PreliminaryMatch, SearchProfile } from './types.js';
+import {equivalentRole} from './search-terms.js';
 
 export const fingerprint = (value: unknown): string => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v : [v]).filter((s): s is string => typeof s === 'string' && !!s.trim()).map(s => s.trim());
@@ -163,7 +164,7 @@ export function extractPage(html: string, sourceUrl: string, requireDeclaredUrl=
 export function matchJob(job: IndexedJob, p: SearchProfile): PreliminaryMatch | null {
   if(australianEligibility(job).status!=='eligible')return null;
   if (p.excludedCompanies.some(v => v.trim().toLowerCase() === job.company.toLowerCase())) return null;
-  const keywords = p.keywords.filter(v => { const words = v.match(/[\p{L}\p{N}+#.]+/gu) ?? []; return words.length > 0 && words.every(w => contains(`${job.title}\n${job.description}`, w)); });
+  const keywords = [...new Set([...p.keywords,...(p.searchRoles??[])])].filter(v => { const words = v.match(/[\p{L}\p{N}+#.]+/gu) ?? []; return equivalentRole(v,job.title)||(words.length > 0 && words.every(w => contains(`${job.title}\n${job.description}`, w))); });
   const skills = p.skills.filter(v => contains(`${job.title}\n${job.description}`, v));
   // Skills can shortlist equivalent titles; the AI review still enforces the
   // user's requested job function, so incidental shared tools cannot admit jobs.

@@ -17,7 +17,7 @@ test('admission requires a valid score, satisfied constraints and independently 
 });
 test('discovery rotates ATS hosts and combines derived resume skills without leaking owner identity',()=>{
   const first=discoveryQueries([p],'2026-11-05'),next=discoveryQueries([p],'2026-11-06');assert.notDeepEqual(first,next);assert.ok(first.some(q=>/Python|SQL/.test(q)));assert.ok(first.some(q=>q.includes('site:')));assert.doesNotMatch(JSON.stringify(first),/userId|fingerprint/);
-  assert.ok(first.every(q=>q.includes('"Sydney"')),'search locally before spending reviews on vacancies elsewhere');
+  assert.ok(first.filter(q=>!q.includes('remote')).every(q=>q.includes('"Sydney"')),'office searches stay in the selected city');
 });
 test('contact redaction preserves employment date ranges and professional evidence',()=>{
   const redacted=professionalEvidence('Data engineer 2019 - 2024. Call +61 412 345 678 or 0412345678. person@example.org');

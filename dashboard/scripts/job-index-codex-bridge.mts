@@ -18,7 +18,7 @@ const timer=setInterval(()=>writeFileSync(readyPath,'online\n',{mode:0o600}),10_
 try{
  job=await claimSearch(store,'codex');if(!job){output({idle:true});}else{
   reader=appReader(config);const {profiles}=await paidProfiles(reader,undefined,await store.cachedProfiles());
-  const targets=profiles.map(p=>({keywords:p.keywords,skills:p.skills,location:p.location,arrangements:p.arrangements,criteria:p.criteria}));
+  const targets=profiles.map(p=>({keywords:p.searchRoles??p.keywords,skills:p.skills,location:p.location,arrangements:p.arrangements,criteria:p.criteria}));
   output({id:job.id,lease:job.lease,schema:leadSchema,targets});
   const rl=createInterface({input:process.stdin,crlfDelay:Infinity});
   const packet=await new Promise<any>((resolve,reject)=>{
