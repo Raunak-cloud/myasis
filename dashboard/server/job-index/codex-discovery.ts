@@ -6,6 +6,7 @@ import {PublicCrawler} from './network.js';
 import {confirmedMatch,type FitReviewer} from './review.js';
 import type {JobIndexStore} from './store.js';
 import type pg from 'pg';
+import {leverApiUrl,leverPublisherJob} from './lever.js';
 
 export const MAX_CODEX_PACKET_BYTES=2_000_000;
 const aggregatorDomains=['jora.com','adzuna.com','adzuna.com.au','jooble.org','careerjet.com.au','talent.com','jobrapido.com','simplyhired.com.au','joblum.com','jobsora.com','seek.com.au','seek.com','indeed.com','linkedin.com','glassdoor.com','glassdoor.com.au'];
@@ -55,7 +56,11 @@ export async function importCodexJobs(store:JobIndexStore,reader:pg.Pool,leads:C
  for(const [index,lead] of leads.entries()){
   if(signal?.aborted||crawler.requests>=crawler.maxRequests||!await store.enabled()){stats.unprocessed=leads.length-index;break;}
   if(aggregatorUrl(lead.url)){stats.notVerified++;continue;}
-  let job;try{const page=await crawler.get(lead.url,{signal});if(page.status!==200){stats.blocked++;continue;}job=publisherJob(page.text,page.url,lead);}catch{stats.blocked++;continue;}
+  let job;try{const page=await crawler.get(lead.url,{signal});if(page.status!==200){stats.blocked++;continue;}
+   const api=leverApiUrl(page.url);
+   if(api){const record=await crawler.get(api,{signal});job=record.status===200?leverPublisherJob(page.text,page.url,JSON.parse(record.text)):null;if(job)provenance(job,lead);}
+   else job=publisherJob(page.text,page.url,lead);
+  }catch{stats.blocked++;continue;}
   if(!job||australianEligibility(job).status!=='eligible'){stats.notVerified++;continue;}stats.verified++;
   await store.invalidate(job);let saved=false;
   for(const profile of profiles){

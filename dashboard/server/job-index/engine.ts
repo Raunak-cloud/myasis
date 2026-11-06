@@ -11,6 +11,7 @@ import type {IndexedJob} from './types.js';
 import {confirmedMatch,type FitReviewer} from './review.js';
 import {discoveryQueries} from './discovery.js';
 import {australianEligibility} from './geography.js';
+import {leverApiUrl,leverPublisherJob} from './lever.js';
 interface Feed { search:(keyword:string,page:number)=>Promise<JobListing[]>;detail:(job:JobListing)=>Promise<JobListing> }
 type FeedConstructor=new(source:Exclude<EmployerSourceId,'smartrecruiters'>,raw:string,options:Record<string,unknown>)=>Feed;
 type SmartConstructor=new(raw:string,options:Record<string,unknown>)=>Feed;
@@ -107,6 +108,8 @@ export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{sch
         for(const entry of (Array.isArray(entries)?entries:[entries]).slice(0,200))try{const url=crawlUrl(entry.loc).href;if(depth<2&&(/sitemap/i.test(url)||/career|jobs?|vacanc|opportunit/i.test(url)))await store.enqueue('page',{url,depth:depth+1},0);}catch{/* invalid publisher lead */}
       } else {
         const found=extractPage(page.text,page.url,transient);
+        const api=leverApiUrl(page.url);
+        if(api){const record=await crawler.get(api,{signal:options.signal});const job=record.status===200?leverPublisherJob(page.text,page.url,JSON.parse(record.text)):null;if(job)found.jobs=[job];}
         for(const closed of found.closedUrls)await store.close(closed);
         for(const job of found.jobs)try{await admit(job);}catch(e){if(e instanceof CrawlDeferred)await store.enqueue('page',{url:job.url,depth:0},1);throw e;}
         // Only links actually found on the fetched publisher page enter the queue.

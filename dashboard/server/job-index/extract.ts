@@ -102,6 +102,34 @@ export function extractPage(html: string, sourceUrl: string, requireDeclaredUrl=
     for (const [key, v] of Object.entries(value)) if (key !== '@context') walk(v, depth + 1);
   };
   for (const script of [...document.querySelectorAll('script[type="application/ld+json"]')].slice(0, 50)) { try { walk(JSON.parse(script.textContent ?? ''), 0); } catch { /* malformed markup isn't a vacancy */ } }
+  // SuccessFactors and other publishers expose schema.org microdata instead of
+  // JSON-LD. Read properties inside their owning scope so an employer's HQ or
+  // a related vacancy cannot supply this role's country, title or dates.
+  const scopes=[...document.querySelectorAll('[itemscope][itemtype]')].filter(n=>/(?:^|\s|\/)JobPosting(?:\s|$)/.test(n.getAttribute('itemtype')??'')).slice(0,100);
+  let properties=0;
+  const microdata=(scope:any,depth=0):any=>{
+    if(depth>8)return {};
+    const value:Record<string,any>={};
+    for(const node of [...scope.querySelectorAll('[itemprop]')] as any[]){
+      if(++properties>5000)break;
+      if(node.parentElement?.closest('[itemscope]')!==scope)continue;
+      const names=(node.getAttribute('itemprop')??'').split(/\s+/).filter(Boolean);
+      for(const name of names){
+        if(!/^[A-Za-z][A-Za-z0-9]*$/.test(name)||['constructor','prototype','__proto__'].includes(name))continue;
+        const item=node.hasAttribute('itemscope')?microdata(node,depth+1):node.getAttribute('content')??node.getAttribute('datetime')??(['A','LINK'].includes(node.tagName)?node.getAttribute('href'):null)??(name==='description'?node.innerHTML:node.textContent);
+        value[name]=value[name]===undefined?item:Array.isArray(value[name])?[...value[name],item]:[value[name],item];
+      }
+    }
+    return value;
+  };
+  for(const scope of scopes){
+    const raw=microdata(scope);
+    raw.jobLocation=list(raw.jobLocation).flatMap((place:any)=>Array.isArray(place?.address)?place.address.map((address:any)=>({...place,address})):place);
+    const ownUrl=typeof raw.url==='string'?raw.url:scopes.length===1?(requireDeclaredUrl?declaredUrl:sourceUrl):'';
+    const job=normaliseJob({...raw,url:ownUrl},ownUrl,'microdata');
+    if(job&&!jobs.has(job.id))jobs.set(job.id,job);
+    else if(typeof raw.validThrough==='string'&&Date.parse(raw.validThrough)<=Date.now())try{closedUrls.push(canonicalUrl(ownUrl));}catch{/* malformed publisher URL */}
+  }
   const links: string[] = [];
   for (const a of [...document.querySelectorAll('a[href]')].slice(0, 500)) {
     try {

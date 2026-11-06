@@ -6,6 +6,18 @@ import type { SearchProfile } from './types.js';
 
 const url='https://careers.fixture.org/jobs/123';
 const raw={title:'Graduate Data Analyst',hiringOrganization:{name:'Fixture employer'},description:'Graduate role. Students welcome. Use Python, SQL and Power BI to analyse customer data.',jobLocation:{address:{addressLocality:'Sydney',addressRegion:'NSW',addressCountry:'AU'}}};
+
+test('publisher microdata admits actual role facts without borrowing employer HQ or unrelated page data',()=>{
+  const html=`<link rel="canonical" href="${url}"><section itemscope itemtype="http://schema.org/JobPosting"><meta itemprop="hiringOrganization" content="Fixture employer"><h1 itemprop="title">Senior Data Analyst</h1><div itemprop="description">Use Python and SQL to build trusted business intelligence, reporting and analytics. Hybrid working.</div><meta itemprop="datePosted" content="2026-11-01"><div itemprop="jobLocation" itemscope itemtype="https://schema.org/Place"><span itemprop="address" itemscope itemtype="https://schema.org/PostalAddress"><meta itemprop="addressLocality" content="Sydney"><meta itemprop="addressRegion" content="NSW"><meta itemprop="addressCountry" content="AU"></span><span itemprop="address" itemscope itemtype="https://schema.org/PostalAddress"><meta itemprop="addressLocality" content="Melbourne"><meta itemprop="addressCountry" content="AU"></span></div></section><footer><span itemprop="addressCountry">CA</span></footer>`;
+  const j=extractPage(html,url,true).jobs[0];assert.ok(j);assert.equal(j.title,'Senior Data Analyst');assert.equal(j.company,'Fixture employer');assert.deepEqual(j.locations,['Sydney, NSW, AU','Melbourne, AU']);assert.deepEqual(j.locationCountries,['AU']);assert.equal(j.postedAt,'2026-11-01T00:00:00.000Z');assert.equal(j.workArrangement,'hybrid');
+  assert.equal(extractPage(html.replace(/<link[^>]+>/,''),url,true).jobs.length,0);
+  const expired=html.replace('itemprop="datePosted"','itemprop="validThrough"').replace('2026-11-01','2020-01-01');assert.deepEqual(extractPage(expired,url).closedUrls,[url]);
+  const hq=`<section itemscope itemtype="https://schema.org/JobPosting"><span itemprop="title">Data Analyst</span><div itemprop="description">Analyse SQL data and maintain accurate Power BI reporting for enterprise users.</div><div itemprop="hiringOrganization" itemscope itemtype="https://schema.org/Organization"><span itemprop="name">Fixture employer</span><div itemprop="address" itemscope><meta itemprop="addressCountry" content="AU"></div></div></section>`;
+  assert.deepEqual(extractPage(hq,url).jobs[0].locationCountries,[]);
+  const foreignJson=`<script type="application/ld+json">${JSON.stringify({'@type':'JobPosting',...raw,url,jobLocation:{address:{addressCountry:'CA'}}})}</script>`;
+  assert.deepEqual(extractPage(foreignJson+html,url).jobs[0].locationCountries,['CA']);
+  assert.equal(extractPage(html.replace(/<link[^>]+>/,'')+html.replace(/<link[^>]+>/,''),url).jobs.length,0);
+});
 test('public job schema preserves location, full salary, remote restrictions and evidence',()=>{
   const j=normaliseJob({...raw,jobLocationType:'TELECOMMUTE',applicantLocationRequirements:{'@type':'Country',name:'Australia'},baseSalary:{currency:'AUD',value:{minValue:70000,maxValue:90000,unitText:'YEAR'}},employmentType:['FULL_TIME','CONTRACTOR'],skills:['Python','SQL']},url)!;
   assert.equal(j.workArrangement,'remote');assert.deepEqual(j.locations,['Sydney, NSW, AU']);assert.deepEqual(j.applicantLocations,['Australia']);
