@@ -468,7 +468,8 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * same count the dashboard shows as "sent today".
    */
   if (consumes) {
-    const limit = dailyApplicationLimit(overrides.MAX_APPS_PER_DAY);
+    const limit = Math.min(dailyApplicationLimit(overrides.MAX_APPS_PER_DAY),entitlements.maxApplicationsPerDay??USER_RUN_LIMITS.MAX_APPS_PER_DAY);
+    overrides.MAX_APPS_PER_DAY=String(limit);
     const sent = await submittedToday(userId).catch(() => 0);
     if (Number.isFinite(limit) && sent >= limit) {
       return {

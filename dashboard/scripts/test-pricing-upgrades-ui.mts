@@ -50,14 +50,14 @@ try {
         return json({ error: 'Your plan or upgrade price has changed. Refresh pricing and try again.' }, 409);
       }
       if (url.pathname === '/api/billing/confirm') return json({ status: status(), fulfilled: true, planKey: 'job-search-pass', kind: 'upgrade',
-        applications: 75, amountPaidCents: 505, durationDays: 30, expiresAt: active.expiresAt });
+        applications: 75, amountPaidCents: 1005, durationDays: 30, expiresAt: active.expiresAt });
       throw new Error('Unexpected pricing request ' + url.pathname);
     });
     await page.goto(origin + '/pricing-fixture.html');
     const card = (name: string) => page.locator('article.pricing-card').filter({ has: page.getByRole('heading', { name, exact: true }) });
     await card('Essential Pass').getByRole('button', { name: 'Your pass is active' }).waitFor();
     assert.equal(await card('Essential Pass').getByRole('button').isDisabled(), true);
-    assert.match(await card('Active Search').innerText(), /A\$5\.05/);
+    assert.match(await card('Active Search').innerText(), /A\$10\.05/);
     assert.match(await card('Active Search').innerText(), /75 additional application credits/);
     assert.doesNotMatch(await card('Active Search').innerText(), /30 days of access/);
     assert.match(await card('Get Owtomated').innerText(), /upgrade/);
@@ -69,7 +69,7 @@ try {
       amountCents: offer.amountCents, expiresAt: offer.expiresAt }]);
     await page.waitForFunction(() => !document.querySelector('button:disabled')?.textContent?.includes('Opening'));
     assert.ok(loads >= 2, 'stale offer reloads the server price');
-    active.planKey = 'job-search-pass'; active.priceCents = 1999; active.applications = 200;
+    active.planKey = 'job-search-pass'; active.priceCents = 2999; active.applications = 200;
     await page.reload();
     await card('Essential Pass').getByRole('button', { name: 'Lower plan unavailable' }).waitFor();
     assert.equal(await card('Essential Pass').getByRole('button').isDisabled(), true);
@@ -79,7 +79,7 @@ try {
     await page.getByRole('status').filter({ hasText: 'Upgraded to Active Search. Access ends' }).waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'pricing fits mobile');
     await page.screenshot({ path: resolve(dashboard, '../output/pricing-upgrades-' + width + '.png'), fullPage: true });
-    active.planKey = 'intensive-pass'; active.priceCents = 5999; active.applications = 400;
+    active.planKey = 'intensive-pass'; active.priceCents = 8999; active.applications = 400;
     await page.goto(origin + '/pricing-fixture.html');
     await card('Get Owtomated').getByRole('button', { name: 'Your pass is active' }).waitFor();
     assert.equal(await page.locator('.pricing-card button:not(:disabled)').count(), 0);

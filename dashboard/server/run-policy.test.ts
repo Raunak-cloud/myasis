@@ -24,7 +24,7 @@ const saved = {
 
 const freePolicy = { tier: 'standard' as const, fineTune: false, advancedFilters: false, indeedApplications: false, evaluationsPerRun: PLAN_LIMITS.free.evaluationsPerRun, maxApplicationsPerRunOverride: null };
 const essentialPolicy = { tier: 'standard' as const, fineTune: false, advancedFilters: false, indeedApplications: false, evaluationsPerRun: PLAN_LIMITS['essential-pass'].evaluationsPerRun, maxApplicationsPerRunOverride: null };
-const jobSearchPolicy = { tier: 'standard' as const, fineTune: false, advancedFilters: true, indeedApplications: true, evaluationsPerRun: PLAN_LIMITS['job-search-pass'].evaluationsPerRun, maxApplicationsPerRunOverride: null };
+const jobSearchPolicy = { tier: 'standard' as const, fineTune: false, advancedFilters: true, indeedApplications: true, evaluationsPerRun: PLAN_LIMITS['job-search-pass'].evaluationsPerRun, maxApplicationsPerRunOverride: null, maxApplicationsPerDay:50 };
 const intensivePolicy = { tier: 'intensive' as const, employerSources: true, fineTune: true, advancedFilters: true, indeedApplications: true, evaluationsPerRun: PLAN_LIMITS['intensive-pass'].evaluationsPerRun, maxApplicationsPerRunOverride: null };
 const adminPolicy = { tier: 'admin' as const, employerSources: true, fineTune: true, advancedFilters: true, indeedApplications: true, evaluationsPerRun: null, maxApplicationsPerRunOverride: null };
 
@@ -94,6 +94,11 @@ const activeFiltered = applyRunPolicy({ ...saved, MIN_SCORE: '88' }, jobSearchPo
 check('Free runs stay on SEEK', scheduled.PLATFORMS === 'seek');
 check('Active Search runs use SEEK and Indeed', jobSearchAuto.PLATFORMS === 'seek,indeed');
 check('Active Search runs assess 70 jobs', jobSearchAuto.MAX_EVALUATIONS === '70');
+for(const trigger of ['manual','auto'] as const){
+  const limited=applyRunPolicy({...saved,MAX_APPS_PER_DAY:'999'},jobSearchPolicy,trigger);
+  check(`Active Search ${trigger} cannot exceed 50 daily applications`,limited.MAX_APPS_PER_DAY==='50'&&limited.MAX_APPS_PER_RUN==='50');
+}
+check('Active Search advertises its enforced daily cap',PLAN_PRESENTATION['job-search-pass'].features.includes('Daily limit: 50 applications'));
 check('Active Search keeps its advanced listing-age filter', jobSearchAuto.MAX_AGE_DAYS === '3');
 check('Active Search can raise its scheduled match threshold', activeFiltered.MIN_SCORE === '88');
 check('Active Search still cannot save Intensive standing instructions', jobSearchAuto.AI_INSTRUCTIONS_B64 === '');
@@ -136,6 +141,8 @@ const activeEntitlements = deriveEntitlements({ ...intensiveFacts,
   billing: { paid: { ...intensiveFacts.billing.paid, hasActiveIntensivePass: false, hasActiveJobSearchPass: true } },
 });
 check('editable plans expose a 60% minimum', activeEntitlements.scheduledMinScore === 60 && intensiveEntitlements.scheduledMinScore === 60);
+check('Active Search derives a 50-application daily cap',activeEntitlements.maxApplicationsPerDay===50);
+check('Get Owtomated derives a 100-application daily cap',intensiveEntitlements.maxApplicationsPerDay===100);
 check('Free and Essential expose the 60% minimum', freeEntitlements.scheduledMinScore === 60 && essentialEntitlements.scheduledMinScore === 60);
 check('Essential allows two runs and 50 reviews per day', essentialEntitlements.autoRunsPerDay === 2 && essentialEntitlements.scheduledJobsPerDay === 50);
 for (const plan of [freeEntitlements, essentialEntitlements, intensiveEntitlements]) {
@@ -215,7 +222,7 @@ check('no plan says each month', !Object.values(PLAN_PRESENTATION).some((plan) =
 for (const policy of [freePolicy, essentialPolicy, jobSearchPolicy, intensivePolicy, adminPolicy]) {
   for (const trigger of ['auto', 'manual'] as const) for (const oldCap of ['1', '2', '5', '10', 'none', '999']) {
     const actual = applyRunPolicy({ ...saved, MAX_APPS_PER_RUN: oldCap }, { ...policy, maxApplicationsPerRunOverride: 2 }, trigger);
-    check(`${policy.tier} ${trigger} ignores a legacy ${oldCap} application cap`, actual.MAX_APPS_PER_RUN === '100');
+    check(`${policy.tier} ${trigger} ignores a legacy ${oldCap} application cap`, actual.MAX_APPS_PER_RUN === String('maxApplicationsPerDay' in policy?policy.maxApplicationsPerDay:100));
   }
 }
 

@@ -19,6 +19,8 @@ check_dashboard() (
 cd "$APP/dashboard"
 ../seek-bot/node_modules/.bin/tsx --test server/job-index/codex-discovery.test.ts server/job-index/geography.test.ts server/job-index/config.test.ts server/job-index/extract.test.ts server/job-index/network.test.ts server/job-index/review.test.ts server/job-index/store.test.ts
 npm run test:statuses
+../seek-bot/node_modules/.bin/tsx --test server/billing-unlimited.test.ts server/billing-upgrades.test.ts server/application-email.test.ts
+../seek-bot/node_modules/.bin/tsx server/run-policy.test.ts
 node --test server/form-lab/engine.test.mjs
 ../seek-bot/node_modules/.bin/tsx server/form-lab-access.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/run-diagnostics.test.ts

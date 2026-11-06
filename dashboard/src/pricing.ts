@@ -11,13 +11,13 @@ export const PAID_PLANS = {
     description: 'Affordable automatic applications for a focused SEEK search.',
   },
   'job-search-pass': {
-    key: 'job-search-pass', kind: 'pass', name: 'Active Search', priceCents: 1999,
+    key: 'job-search-pass', kind: 'pass', name: 'Active Search', priceCents: 2999,
     applications: 200, durationDays: 30, employerSiteApplications: 0,
     description: 'A broader automatic search across SEEK and Indeed.',
   },
   // Legacy ledger units remain for historical purchases. unlimitedApplications controls usage.
   'intensive-pass': {
-    key: 'intensive-pass', kind: 'pass', name: 'Get Owtomated', priceCents: 5999,
+    key: 'intensive-pass', kind: 'pass', name: 'Get Owtomated', priceCents: 8999,
     applications: 400, durationDays: 30, employerSiteApplications: 30, unlimitedApplications: true,
     description: 'Unlimited application credits for 30 days, up to 100 applications per day.',
   },
@@ -34,9 +34,15 @@ export type PassPlanKey = typeof PASS_PLAN_KEYS[number];
 export const PLAN_LIMITS = {
   free: { autoRunsPerDay: 1, evaluationsPerRun: 30 },
   'essential-pass': { autoRunsPerDay: 2, evaluationsPerRun: 25 },
-  'job-search-pass': { autoRunsPerDay: 4, evaluationsPerRun: 70 },
+  'job-search-pass': { autoRunsPerDay: 4, evaluationsPerRun: 70, applicationsPerDay: 50 },
   'intensive-pass': { autoRunsPerDay: 4, evaluationsPerRun: 100, employerSitesPerDay: 5 },
 } as const;
+
+/** Highest active pass wins; the global admin/Intensive ceiling remains 100. */
+export function planDailyApplicationLimit(paid:{hasActiveJobSearchPass?:boolean;hasActiveIntensivePass?:boolean},admin=false):number {
+  return !admin && !paid.hasActiveIntensivePass && paid.hasActiveJobSearchPass
+    ? PLAN_LIMITS['job-search-pass'].applicationsPerDay : DAILY_APPLICATION_MAX;
+}
 
 export const SCHEDULED_MIN_SCORE = 60;
 export const CUSTOM_MIN_SCORE = 60;
@@ -79,7 +85,7 @@ export const PLAN_PRESENTATION = {
     description: PAID_PLANS['job-search-pass'].description,
     features: [
       `${PAID_PLANS['job-search-pass'].applications} application credits`,
-      `Daily limit: ${DAILY_APPLICATION_MAX} applications`,
+      `Daily limit: ${ACTIVE.applicationsPerDay} applications`,
       `${PAID_PLANS['job-search-pass'].durationDays} days of access`,
       `Up to ${plural(ACTIVE.autoRunsPerDay, 'scheduled run', 'scheduled runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${ACTIVE.evaluationsPerRun} jobs each run`,

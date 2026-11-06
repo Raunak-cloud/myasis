@@ -27,10 +27,12 @@ test('production email backend validates exact approvals and attachments; uncert
   const outbox = new Map<string, { status: string; message_id?: string; thread_id?: string }>();
   const outboxJobs = new Map<string, string>();
   const applied = new Set<string>(), delivered = new Map<string, { id: string; threadId: string }>();
+  let activeSearch=false,intensive=false;
   const rewritten = new Map<string, { id: string; threadId: string; marker: string }>();
   let attempts = 0, priorSubmissions = 0, mode: 'success' | 'uncertain-sent' | 'uncertain-unsent' | 'uncertain-rewritten' | 'rejected' = 'success';
   const sql = async (statement: string, params: any[] = []) => {
     if (statement.includes('SELECT count(*)::text AS n') && statement.includes('FROM applications')) return {rows:[{n:String(priorSubmissions+applied.size)}]};
+    if (statement.includes('AS active_search')) return {rows:[{email:'candidate@fixture.invalid',active_search:activeSearch,intensive}]};
     if (statement.startsWith('SELECT u.email,p.email')) return { rows: [{ email: 'candidate@fixture.invalid', profile_email: 'candidate@fixture.invalid' }] };
     if (statement.startsWith('SELECT key,value FROM settings')) return { rows: [] };
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(statement)) return { rows: [] };
@@ -139,6 +141,18 @@ test('production email backend validates exact approvals and attachments; uncert
     await assert.rejects(sendApprovedApplicationEmail(owner,aboveCap.id,aboveCap.revision),/daily limit of 100/);
     assert.equal((await sendApprovedApplicationEmail(owner,atCap.id,atCap.revision)).alreadySent,true,'receipt lookups still work at the daily maximum');
     assert.equal(attempts,7);
+    activeSearch=true;priorSubmissions=50-applied.size;
+    const activeAtCap=create();
+    await assert.rejects(sendApprovedApplicationEmail(owner,activeAtCap.id,activeAtCap.revision),/daily limit of 50/);
+    assert.equal(attempts,7,'Active Search cannot send the fifty-first application');
+    priorSubmissions--;
+    await sendApprovedApplicationEmail(owner,activeAtCap.id,activeAtCap.revision);
+    assert.equal(attempts,8,'Active Search may send its fiftieth application');
+    const activeAboveCap=create();
+    await assert.rejects(sendApprovedApplicationEmail(owner,activeAboveCap.id,activeAboveCap.revision),/daily limit of 50/);
+    intensive=true;
+    await sendApprovedApplicationEmail(owner,activeAboveCap.id,activeAboveCap.revision);
+    assert.equal(attempts,9,'Get Owtomated takes precedence over an overlapping Active Search pass');
     assert.equal(readFileSync(join(directory, 'resumes', 'CV.txt')).equals(resume), true);
   } finally {
     pool.query = originals.query; pool.connect = originals.connect; OAuth2Client.prototype.request = originals.request;

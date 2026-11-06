@@ -2,7 +2,7 @@ import { one, query } from './db/index.js';
 import { upsertSettingRow } from './db/records.js';
 import { billingStatus, isAdmin, type BillingStatus } from './billing.js';
 import { KEEP_SETTINGS_KEYS, OPTIONAL_LIMIT_KEYS, RUN_LIMITS, RUN_SETTING_DEFAULTS } from './settings.js';
-import { PLAN_LIMITS, SCHEDULED_MIN_SCORE, CUSTOM_MIN_SCORE, MAX_MATCH_SCORE } from '../src/pricing.js';
+import { PLAN_LIMITS, SCHEDULED_MIN_SCORE, CUSTOM_MIN_SCORE, MAX_MATCH_SCORE, planDailyApplicationLimit } from '../src/pricing.js';
 import type { RunDevice } from '../src/run-device.js';
 import { countedRunSql, RUN_TIME_ZONE } from './run-accounting.js';
 import { limitSearchTerms } from '../src/search-limits.js';
@@ -179,7 +179,7 @@ export function applyRunPolicy(
   entitlement: Pick<
     Entitlements,
     'tier' | 'fineTune' | 'advancedFilters' | 'indeedApplications' | 'evaluationsPerRun' | 'maxApplicationsPerRunOverride'
-  > & Partial<Pick<Entitlements, 'employerSources'>>,
+  > & Partial<Pick<Entitlements, 'employerSources' | 'maxApplicationsPerDay'>>,
   trigger: 'manual' | 'auto',
   /** Whether the account picked its boards itself (see effectivePlatforms). */
   boardsChosen = false,
@@ -205,7 +205,8 @@ export function applyRunPolicy(
   }
   // Ignore old per-run defaults and operator overrides. The shared daily
   // allowance and available credits are the application boundaries.
-  resolved.MAX_APPS_PER_RUN = String(USER_RUN_LIMITS.MAX_APPS_PER_DAY);
+  const planDailyCap = entitlement.maxApplicationsPerDay ?? USER_RUN_LIMITS.MAX_APPS_PER_DAY;
+  resolved.MAX_APPS_PER_RUN = String(Math.min(USER_RUN_LIMITS.MAX_APPS_PER_DAY,planDailyCap));
   if (entitlement.tier !== 'admin' && (trigger === 'auto' || entitlement.advancedFilters)) {
     const requestedScore = Number(resolved.MIN_SCORE);
     resolved.MIN_SCORE = String(entitlement.advancedFilters && Number.isFinite(requestedScore)
@@ -221,13 +222,14 @@ export function applyRunPolicy(
   }
   for (const key of Object.keys(USER_RUN_LIMITS) as Array<keyof typeof USER_RUN_LIMITS>) {
     if (key === 'MAX_APPS_PER_DAY') {
-      resolved[key] = String(dailyApplicationLimit(resolved[key]));
+      resolved[key] = String(Math.min(dailyApplicationLimit(resolved[key]),planDailyCap));
     } else resolved[key] = String(boundedUserRunLimit(key, resolved[key], Number(RUN_SETTING_DEFAULTS[key])));
   }
   return resolved;
 }
 
 export interface Entitlements {
+  maxApplicationsPerDay: number;
   tier: Tier;
   /** Every account starts its own runs within its plan allowance. */
   manualRuns: boolean;
@@ -429,6 +431,7 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
 
   return {
     tier,
+    maxApplicationsPerDay: planDailyApplicationLimit(billing.paid,facts.admin),
     manualRuns,
     firstRunRequired,
     autoRunsPerDay,

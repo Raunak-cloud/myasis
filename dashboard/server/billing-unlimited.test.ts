@@ -22,14 +22,14 @@ before(async () => {
   }
 });
 
-test('Stripe products charge AUD19.99 and AUD59.99 once for 30 days', () => {
+test('Stripe products charge AUD29.99 and AUD89.99 once for 30 days', () => {
   const active = checkoutPriceData('job-search-pass');
-  assert.equal(active.currency, 'aud'); assert.equal(active.unit_amount, 1999);
+  assert.equal(active.currency, 'aud'); assert.equal(active.unit_amount, 2999);
   assert.equal(active.tax_behavior, 'inclusive');
   assert.equal(PAID_PLANS['job-search-pass'].durationDays, 30);
   assert.match(active.product_data.description, /200 application credits.*30 days.*no automatic renewal/);
   const price = checkoutPriceData('intensive-pass');
-  assert.equal(price.currency, 'aud'); assert.equal(price.unit_amount, 5999);
+  assert.equal(price.currency, 'aud'); assert.equal(price.unit_amount, 8999);
   assert.equal(price.tax_behavior, 'inclusive', 'tax must not increase the advertised checkout amount');
   assert.equal(price.product_data.name, 'Get Owtomated');
   assert.equal(PAID_PLANS['intensive-pass'].durationDays, 30);
@@ -63,7 +63,7 @@ test('new checkout requests carry the advertised amount and snapshot 30 days for
     requests.push(params);
     return { id: `cs_test_${params.metadata?.checkoutIntentId}`, url: 'https://checkout.stripe.com/offline-fixture' };
   });
-  for (const [key, amount] of [['job-search-pass', 1999], ['intensive-pass', 5999]] as const) {
+  for (const [key, amount] of [['job-search-pass', 2999], ['intensive-pass', 8999]] as const) {
     await createCheckout({ id: key === 'job-search-pass' ? '3' : '4', email: 'checkout@fixture.invalid' } as Parameters<typeof createCheckout>[0], key);
     const request = requests.at(-1)!;
     assert.equal(request.mode, 'payment');

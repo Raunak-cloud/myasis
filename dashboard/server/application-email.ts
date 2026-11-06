@@ -11,7 +11,7 @@ import type { EmailReceipt } from '../../seek-bot/src/gmail-mcp-client.js';
 import { gmailAccess } from './gmail-access.js';
 import { withGmailBrowser, sendBrowserApplication } from '../../seek-bot/src/gmail-browser.js';
 import { submittedToday } from './today.js';
-import { USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
+import { accountDailyApplicationLimit } from './billing.js';
 
 interface SendRow { status: string; message_id: string | null; thread_id: string | null }
 async function recordReceipt(userId: string, draft: PreparedApplication, receipt: EmailReceipt): Promise<EmailReceipt> {
@@ -92,8 +92,9 @@ export async function sendApprovedApplicationEmail(userId: string, reviewId: str
     throw new GmailServiceError('uncertain', 'A prior email send is still uncertain. Check Sent before retrying.');
   }
   try {
-    if (await submittedToday(userId) >= USER_RUN_LIMITS.MAX_APPS_PER_DAY) {
-      throw new GmailServiceError('unapproved', `The daily limit of ${USER_RUN_LIMITS.MAX_APPS_PER_DAY} applications is reached. Try again tomorrow.`);
+    const dailyLimit=await accountDailyApplicationLimit(userId);
+    if (await submittedToday(userId) >= dailyLimit) {
+      throw new GmailServiceError('unapproved', `The daily limit of ${dailyLimit} applications is reached. Try again tomorrow.`);
     }
     const sent: { id: string; threadId?: string } = connection.provider === 'browser'
       ? await withGmailBrowser(userId, page => sendBrowserApplication(page, draft, connection.account!, resume, stored.fileName))
