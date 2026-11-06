@@ -1,4 +1,7 @@
 export const COVER_LETTER_INSTRUCTION_WORD_LIMIT = 50;
+export const COVER_LETTER_TARGET_WORDS = 250;
+export const COVER_LETTER_MIN_TARGET_WORDS = COVER_LETTER_TARGET_WORDS * 0.5;
+export const COVER_LETTER_MAX_WORDS = COVER_LETTER_TARGET_WORDS * 1.5;
 export const instructionWordCount = (text: string) => text.trim() ? text.trim().split(/\s+/u).length : 0;
 
 export function validateCoverLetterInstructions(value: unknown): string {

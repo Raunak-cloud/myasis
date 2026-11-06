@@ -36,7 +36,12 @@ Links and explicit non-submit buttons remain navigation even when a site wraps
 its layout in a form; actual form-submit controls remain excluded.
 
 After access is verified, the existing evidence-checked cover-letter writer
-uses the account's saved profile, documents and instructions. The draft binds
+uses the account's saved profile, documents and instructions.
+The writer targets 250 words with 50% flexibility (125–375 words), including
+the greeting and sign-off. A letter above 250 but at or below 375 words does
+not trigger shortening or a preparation failure. Factual checks still apply;
+explicit employer limits remain instructions for drafting and form fitting.
+The draft binds
 the selected account resume and its SHA-256, the job, letter and access result.
 It records `preparation.stage=job-and-letter`, an empty answers list and no
 uploads. This metadata is included in the immutable approval revision.
