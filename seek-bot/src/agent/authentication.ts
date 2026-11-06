@@ -15,13 +15,37 @@ import { GMAIL_IO_TIMEOUT_MS } from '../gmail-mcp-client.js';
 
 // Private credential transport. Magnus chooses controls; native fill emits normal input events.
 const authenticationStarted = new WeakMap<ToolContext, Map<string, number>>();
+// A connected address is not itself a reset credential. Only a fresh,
+// employer-scoped reset message actually consumed by the private mail tool
+// permits replacing a password for an account we have never managed.
+const resetMailboxProof = new WeakMap<ToolContext, Map<string, number>>();
+const recoveryKey = (ctx: ToolContext) => `${employerAccountSite(credentialUrl(ctx),ctx.job.company)}|${ctx.profile.email.trim().toLowerCase()}`;
+function connectedCandidateMailbox(ctx: ToolContext): boolean {
+  return gmailAvailable() && Boolean(ctx.profile.email) && gmailAccount().trim().toLowerCase() === ctx.profile.email.trim().toLowerCase();
+}
+function mailboxResetProven(ctx: ToolContext): boolean {
+  const at = resetMailboxProof.get(ctx)?.get(recoveryKey(ctx));
+  return connectedCandidateMailbox(ctx) && at !== undefined && Date.now() - at < 15 * 60_000;
+}
+function rememberResetMailboxProof(ctx: ToolContext): void {
+  if (!connectedCandidateMailbox(ctx)) return;
+  let proofs = resetMailboxProof.get(ctx);
+  if (!proofs) resetMailboxProof.set(ctx, proofs = new Map());
+  proofs.set(recoveryKey(ctx), Date.now());
+}
 function credentialUrl(ctx:ToolContext):string {
   const current=ctx.page.url(),site=employerAccountSite(current,ctx.job.company);
   if(site.includes('/?company='))ctx.authenticationRealm=`https://${site}`;
+  // SAP's sapsf hostname also uses company during entry and drops it on
+  // recovery pages. Keep that observed tenant for email matching, while
+  // retaining the existing employer-scoped credential derivation identity.
+  const parsed=new URL(current);
+  if(/(?:^|\.)sapsf\.com$/.test(parsed.hostname)&&parsed.searchParams.get('company'))ctx.authenticationRealm=`${parsed.origin}/?company=${encodeURIComponent(parsed.searchParams.get('company')!)}`;
   return ctx.authenticationRealm&&hostOf(ctx.authenticationRealm)===hostOf(current)?ctx.authenticationRealm:current;
 }
 function accountHandoff(ctx:ToolContext):ToolResult {
   if(ctx.submissionAttempted)return ok('An application send may already have occurred. Preserve the send and investigate its receipt; an account-access task cannot authorize a retry.','uncertain');
+  if(connectedCandidateMailbox(ctx))return ok('An existing employer account is recorded without a verified saved password. The candidate has a matching connected inbox. Use the employer\'s visible password-recovery control, request a fresh reset email, and use open_emailed_link or enter_emailed_code with purpose=reset_password. Only that private, employer-scoped email proof can unlock setting a new password. Do not register again, guess a password, or claim login success. If recovery is unavailable, record the actual account-access blocker.','reobserve');
   return {kind:'terminal',outcome:{status:'needs-human',reason:accountAccessMessage,accountAccess:{version:1,kind:'existing-account',site:employerCredentialState(credentialUrl(ctx),ctx.profile.email,ctx.job.company).site}}};
 }
 async function retirePrivateCredential(ctx:ToolContext,expected?:string):Promise<void>{
@@ -39,7 +63,7 @@ async function retirePrivateCredential(ctx:ToolContext,expected?:string):Promise
 /** The account-first lookup reads only this candidate's employer-scoped metadata. */
 export function authenticationAccountSummary(ctx:ToolContext):string {
   const state=employerCredentialState(credentialUrl(ctx),ctx.profile.email,ctx.job.company);
-  return `EMPLOYER ACCOUNT CHECK (private values withheld): ${JSON.stringify(state)}. Accepted means reuse the saved login; rejected means recover only the account Owtomate previously managed; pending means preserve and resume that registration/activation. Missing means no saved login, NOT proof that no employer account exists. Before registration use the employer's normal email/account discovery when available. If it confirms an existing account with no Owtomate credential, call check_employer_account outcome=existing with its complete message; stop this job for account access, without password resets or guessing. Do not request a password as an application question.`;
+  return `EMPLOYER ACCOUNT CHECK (private values withheld): ${JSON.stringify(state)}. Accepted means reuse the saved login; rejected means recover the same account; pending means preserve and inspect that registration/activation. Missing means no saved login, NOT proof that no employer account exists. Before registration use the employer's normal email/account discovery when available. If it confirms an existing account with no Owtomate credential, call check_employer_account outcome=existing with its complete noneditable message. ${connectedCandidateMailbox(ctx) ? 'The matching candidate inbox is connected: normal employer email recovery is available, but a genuine reset message must be consumed before setting a new password.' : 'Without a matching connected inbox, stop for private-browser account access.'} Never guess a password or request it as a screening answer.`;
 }
 export async function doCheckEmployerAccount(ctx:ToolContext,args:Record<string,unknown>):Promise<ToolResult>{
   assertLive();
@@ -102,9 +126,7 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
   if (!['sign_in', 'create_account', 'reset_password'].includes(purpose)) return ok('Choose sign_in, create_account or reset_password from the observed form.', 'invalid-arguments');
   if(![args.refs,args.targets].some(value=>Array.isArray(value)&&value.length))return ok('Supply current authentication refs or targets. Nothing was filled.','invalid-arguments');
   const account=employerCredentialState(credentialUrl(ctx),ctx.profile.email,ctx.job.company);
-  if(account.state==='external')return accountHandoff(ctx);
   if(purpose==='create_account'&&['accepted','rejected'].includes(account.state))return ok('An Owtomate account already exists for this employer. Reuse its accepted credential or recover that same managed account; do not create another account.','reobserve');
-  if(purpose==='reset_password'&&account.state==='missing')return ok('No Owtomate-managed account is saved for this employer. Do not reset a previously existing personal account. Check the employer account first; when it confirms an existing account, use check_employer_account outcome=existing to request private-browser sign-in.','reobserve');
   const refs = Array.isArray(args.refs) ? args.refs.map(String) : [];
   const fields = ctx.observation.fields.filter((field) => refs.includes(field.ref));
   const selected = new Map<string, Locator>();
@@ -122,6 +144,11 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
   }
   if (!fields.length) {
     return ok('None of those refs are authentication fields on this page. Supply targets or refs from the current FIELDS list before retrying. Nothing was filled.', 'invalid-arguments');
+  }
+  const hasPassword = fields.some(isAuthenticationPasswordField);
+  if(account.state==='external'&&(purpose==='create_account'||purpose==='sign_in'&&hasPassword))return accountHandoff(ctx);
+  if(purpose==='reset_password'&&hasPassword&&!['accepted','rejected'].includes(account.state)&&!mailboxResetProven(ctx)) {
+    return ok('No verified reset access is established for this employer. Use its offered recovery flow and consume a fresh employer reset link/code through the matching candidate inbox before setting a new password. No password was generated or filled.','reobserve');
   }
 
   /**
@@ -237,7 +264,7 @@ export async function doRecordAuthenticationResult(ctx: ToolContext, args: Recor
   }
   if(outcome==='uncertain')return uncertainAuthentication(ctx,purpose,'The agent could not establish the authentication outcome. No acceptance or rejection was recorded.');
   const evidence = await employerMessageEvidence(ctx.page, String(args.evidence ?? ''));
-  if (!evidence) return uncertainAuthentication(ctx,purpose,'Copy the complete current employer message as evidence. Typed values, button labels and a narrative summary cannot establish authentication. Nothing has been recorded.');
+  if (!evidence) return uncertainAuthentication(ctx,purpose,'Copy one complete current noneditable employer paragraph or sentence as evidence, excluding separate headings and button labels. A combined dialog including its controls cannot match the employer message. Typed values and a narrative summary cannot establish authentication. Nothing has been recorded.');
   // Password reset/registration acceptance and an authenticated session are
   // separate outcomes. The agent judges the fresh employer message for each.
   if (outcome === 'accepted' && purpose === 'sign_in') {
@@ -281,6 +308,7 @@ export async function doRecordAuthenticationResult(ctx: ToolContext, args: Recor
     const proposal = ctx.pendingCredentials?.get(site);
     if (acceptPendingCredential(credentialUrl(ctx), email, ctx.job.company, purpose as CredentialPurpose, proposal?.purpose === purpose ? proposal : undefined)) {
       ctx.pendingCredentials?.delete(site);
+      if(purpose==='reset_password')resetMailboxProof.get(ctx)?.delete(recoveryKey(ctx));
     }
   }
   ctx.actions.push(accepted);
@@ -373,6 +401,7 @@ export async function doEnterEmailedCode(ctx: ToolContext, args: Record<string, 
     return ok('The code inputs changed or could not be filled. Inspect the fresh page: it may have advanced automatically; otherwise select the current code fields and retry.');
   }
   ctx.log('  ✉ entered the emailed verification code');
+  if(args.purpose==='reset_password')rememberResetMailboxProof(ctx);
   {
     const site = hostOf(ctx.page.url());
     noteAction(ctx, {
@@ -415,6 +444,10 @@ export async function doOpenEmailedLink(ctx: ToolContext, args: Record<string, u
     await tab.close().catch(() => {});
     return ok('The emailed link could not be opened. The application remains in its original tab. Inspect the browser connection before retrying.', 'failed');
   }
+  // Redirects on a shared ATS must retain the exact observed employer realm.
+  // An unrelated-domain email cannot unlock another employer's credential.
+  const realm=credentialUrl(ctx),expectedTenant=new URL(realm).searchParams.get('company'),linkTenant=new URL(found.value).searchParams.get('company');
+  if(args.purpose==='reset_password'&&hostOf(found.value)===hostOf(realm)&&(!expectedTenant||!linkTenant||expectedTenant===linkTenant))rememberResetMailboxProof(ctx);
   ctx.page = tab;
   const site = hostOf(found.value);
   noteAction(ctx, { kind: 'email-code', site, detail: `Opened the verification link ${siteName(site)} emailed you ("${found.subject.slice(0, 60)}").` });

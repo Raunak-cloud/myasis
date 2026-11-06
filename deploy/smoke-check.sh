@@ -71,6 +71,7 @@ if [ "$REPLAY_REQUIRED" = 1 ]; then
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/question-robustness-browser.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/question-evidence.test.js
   node --test dist/agent/live-repair.test.js
+  CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/authentication-reset-mailbox.test.js dist/agent/custom-select-browser.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/live-repair-browser.test.js
   node --test dist/agent/investigation.test.js
   node --test dist/unconfirmed-history.test.js dist/agent/outcome.test.js

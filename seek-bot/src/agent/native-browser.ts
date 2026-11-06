@@ -71,8 +71,50 @@ function describeNativeTargets(targets: Element | Element[]) {
       placeholder: input.placeholder, invalid: node.getAttribute('aria-invalid'),
       validation: input.validationMessage || '', description: described,
       expanded: node.getAttribute('aria-expanded'), controls: node.getAttribute('aria-controls'),
+      // React-style comboboxes clear their search input after selection. The
+      // nearby rendered value is evidence; input.value alone is not selection.
+      widgetText: node.getAttribute('role') === 'combobox' ? (() => {
+        for (let parent = node.parentElement, depth = 0; parent && depth < 4; parent = parent.parentElement, depth++) {
+          if (parent.querySelectorAll('[role="combobox"]').length !== 1) break;
+          const text = caption(parent.innerText);
+          if (text) return text.slice(0, 600);
+        }
+        return undefined;
+      })() : undefined,
     };
   }) };
+}
+
+/** Transport an agent-chosen exact option. Never choose a fallback or answer.
+ * Opening before typing matters for async controls that ignore closed searches. */
+export async function nativeSelect(target: Locator, value: string): Promise<void> {
+  const tag = await target.evaluate(node => node.tagName);
+  if (tag === 'SELECT') {
+    await target.selectOption({ label: value }, { timeout: 4000 }).catch(() => target.selectOption(value, { timeout: 4000 }));
+    return;
+  }
+  if (await target.getAttribute('role') !== 'combobox') throw Error('select requires a native select or an observed combobox.');
+  await target.click({ timeout: 8000 });
+  if (tag === 'INPUT') {
+    await target.fill('', { timeout: 4000 });
+    await target.pressSequentially(value, { timeout: 4000 });
+  }
+  // Menus can be portalled elsewhere in the same frame. Scope with the
+  // control's own ARIA relationship, never an unrelated open dropdown.
+  const controls = (await target.getAttribute('aria-controls') || await target.getAttribute('aria-owns') || '').split(/\s+/).filter(Boolean);
+  if (!controls.length) throw Error('Combobox has no current menu relationship. Inspect its suggestions and select an observed option directly.');
+  const frame = await target.elementHandle().then(async handle => {
+    try { return await handle?.ownerFrame(); } finally { await handle?.dispose(); }
+  });
+  if (!frame) throw Error('Combobox frame changed. Inspect the fresh page.');
+  const menu = frame.locator(controls.map(id => `[id=${JSON.stringify(id)}]`).join(','));
+  const option = menu.getByRole('option', { name: value, exact: true });
+  await option.click({ timeout: 8000 });
+  await target.press('Tab', { timeout: 4000 });
+  const readback = await nativeReadback(target) as { widgetText?: string; invalid?: string; expanded?: string };
+  if (readback.invalid === 'true' || readback.expanded === 'true' || readback.widgetText !== value) {
+    throw Error('The chosen option was clicked, but a committed selection is not yet established. Inspect the current field and validation before repeating anything.');
+  }
 }
 
 /** Mutation readback remains strict: exactly the target the action addressed. */
