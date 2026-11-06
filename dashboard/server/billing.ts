@@ -6,7 +6,6 @@ import {
   FREE_APPLICATIONS,
   PAID_PLANS,
   PASS_PLAN_KEYS,
-  planDailyApplicationLimit,
   type PaidPlanKey,
 } from '../src/pricing.js';
 import type { SessionUser } from './auth.js';
@@ -21,18 +20,6 @@ export { BillingPolicyError } from './billing-policy.js';
 
 /** Large but finite so JSON/arithmetic (e.g. Math.min with a run cap) stays well-behaved — Infinity serialises to null. */
 const ADMIN_UNLIMITED = 1_000_000;
-
-/** Check the live pass at the send boundary, including prepaid confirmations. */
-export async function accountDailyApplicationLimit(userId:string):Promise<number> {
-  const row=await one<{email:string;active_search:boolean;intensive:boolean}>(`SELECT u.email,
-    EXISTS(SELECT 1 FROM application_credit_grants g JOIN billing_purchases p ON p.id=g.purchase_id AND p.user_id=g.user_id
-      WHERE g.user_id=u.id AND p.plan_key='job-search-pass' AND (g.expires_at IS NULL OR g.expires_at>now())) AS active_search,
-    EXISTS(SELECT 1 FROM application_credit_grants g JOIN billing_purchases p ON p.id=g.purchase_id AND p.user_id=g.user_id
-      WHERE g.user_id=u.id AND p.plan_key='intensive-pass' AND (g.expires_at IS NULL OR g.expires_at>now())) AS intensive
-    FROM users u WHERE u.id=$1`,[userId]);
-  if(!row)throw new Error('Account is unavailable.');
-  return planDailyApplicationLimit({hasActiveJobSearchPass:row.active_search,hasActiveIntensivePass:row.intensive},isAdmin(row.email));
-}
 
 type StripeMode = 'live' | 'test';
 

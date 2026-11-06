@@ -7,7 +7,8 @@ import { getPool } from './db/index.js';
 import { activeBillingPass, managedCheckout } from './billing-checkouts.js';
 import { fulfillPayment } from './billing-fulfillment.js';
 import { quoteCheckout, billingOffers, DAY_MS, type ActivePass } from './billing-policy.js';
-import { billingStatus, accountDailyApplicationLimit } from './billing.js';
+import { billingStatus } from './billing.js';
+import { accountDailyApplicationLimit } from './application-daily-limit.js';
 import { PAID_PLANS, planDailyApplicationLimit, type PassPlanKey } from '../src/pricing.js';
 
 // The deployment host has real analytics credentials. Fixture payments must

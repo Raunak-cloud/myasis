@@ -11,7 +11,7 @@ import type { EmailReceipt } from '../../seek-bot/src/gmail-mcp-client.js';
 import { gmailAccess } from './gmail-access.js';
 import { withGmailBrowser, sendBrowserApplication } from '../../seek-bot/src/gmail-browser.js';
 import { submittedToday } from './today.js';
-import { accountDailyApplicationLimit } from './billing.js';
+import { accountDailyApplicationLimit } from './application-daily-limit.js';
 
 interface SendRow { status: string; message_id: string | null; thread_id: string | null }
 async function recordReceipt(userId: string, draft: PreparedApplication, receipt: EmailReceipt): Promise<EmailReceipt> {
