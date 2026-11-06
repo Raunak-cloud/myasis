@@ -19,7 +19,7 @@ try {
   const page = await browser.newPage(), errors: string[] = [], posts: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   const draft = (id: string, held = false, status = 'ready') => ({ id, status, operator_hold: held ? { reason: 'A required candidate fact needs verification.' } : null,
-    application: { revision: 'a'.repeat(64), job: { title: id, company: 'Synthetic employer', location: 'Sydney', url: 'https://fixture.invalid' }, answers: [], coverLetter: 'Synthetic letter' } });
+    application: { revision: 'a'.repeat(64), job: { title: id, company: 'Synthetic employer', location: 'Sydney', url: 'https://fixture.invalid' }, preparation:{version:2,stage:'job-and-letter',access:'not-checked',listingUrl:'https://fixture.invalid'}, answers: [], coverLetter: 'Synthetic letter' } });
   let applications = [draft('Ready'), draft('Held', true), draft('Failed held', true, 'failed')];
   await page.route('**/api/**', async route => {
     if (route.request().method() !== 'GET') posts.push(route.request().url());
@@ -39,6 +39,8 @@ try {
   assert.equal(await page.getByRole('button', { name: 'Apply to 1 job', exact: true }).count(), 0, 'a polled hold revokes stale selection');
   assert.equal(await page.getByLabel('Select Ready at Synthetic employer', { exact: true }).isChecked(), false);
   await page.locator('summary').filter({ hasText: 'Review application' }).first().click();
+  assert.equal(await page.getByText(/Job matched and cover letter prepared from the listing/).first().isVisible(),true);
+  assert.equal(await page.getByText(/Application access checked/).count(),0);
   assert.equal(await page.getByRole('button', { name: 'Edit cover letter', exact: true }).count(), 0);
   assert.deepEqual(posts, []); assert.deepEqual(errors, []);
   console.log('PASS: held ready/failed drafts cannot be selected, retried or edited; ready count excludes holds; refresh clears stale selection without a write.');

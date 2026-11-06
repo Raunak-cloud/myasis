@@ -35,7 +35,7 @@ export function approvedApplication(job: JobListing): PreparedApplication | unde
 export function approvedSeekReviewUrl(job: JobListing): string | undefined {
   if ((job.platform ?? 'seek') !== 'seek' || job.applicationMode === 'external' || !/^\d{6,12}$/.test(job.id)) return;
   const saved = approvedApplication(job);
-  if (!saved) return;
+  if (!saved || saved.preparation?.stage==='job-and-letter') return;
   try {
     const url = new URL(saved.formUrl);
     if (url.protocol === 'https:' && /^(?:www\.|au\.)?seek\.com(?:\.au)?$/.test(url.hostname)

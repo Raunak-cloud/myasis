@@ -1273,14 +1273,16 @@ async function main() {
              */
             let outcome: ApplyOutcome;
             // Applying opens the board's listing again: a search just made there still has its gap to run out.
-            await showLiveActivity({ phase: 'waiting', detail: 'Pausing before opening this application.' });
-            await sitePacer.ready(platformId);
+            if(!preparingApplications()){
+              await showLiveActivity({ phase: 'waiting', detail: 'Pausing before opening this application.' });
+              await sitePacer.ready(platformId);
+            }
             if (limitReached()) break;
             console.log(`\n→ ${preparingApplications() ? 'Preparing' : 'Applying'}: ${job.title} @ ${job.company}`);
-            await showLiveActivity({ phase: 'applying', detail: `${job.title} at ${job.company}` }, applicationPage);
+            await showLiveActivity({ phase: preparingApplications()?'reviewing':'applying', detail: preparingApplications()?`Preparing the cover letter for ${job.title} at ${job.company}`:`${job.title} at ${job.company}` }, applicationPage);
             if (limitReached()) break;
             try {
-              const apply = () => measured('application', () => preparingApplications() ? prepareMatchedJob(applicationPage,job,profile) : approvedApplication(job)?.email
+              const apply = () => measured('application', () => preparingApplications() ? prepareMatchedJob(job,profile) : approvedApplication(job)?.email
                 ? submitApprovedEmail(approvedApplication(job)!)
                 : adapter.apply(applicationPage, job, profile, { onFriction: () => {} }), { jobId: job.id, platform: platformId });
               outcome = await withApplicationAllowance(slot.beforeSubmit, apply);
@@ -1405,9 +1407,11 @@ async function main() {
              * but never confirmed — that one may well have been sent, and used to get
              * only the short gap meant for attempts that transmitted nothing.
              */
-            await showLiveActivity({ phase: 'cooldown', detail: outcome.status === 'applied'
-              ? 'Application submitted. Pausing before the next job.' : 'Pausing before the next job.' });
-            await cooldown(outcome.status === 'applied' || Boolean(outcome.submitPressed), applicationPage, accept);
+            if(!preparingApplications()){
+              await showLiveActivity({ phase: 'cooldown', detail: outcome.status === 'applied'
+                ? 'Application submitted. Pausing before the next job.' : 'Pausing before the next job.' });
+              await cooldown(outcome.status === 'applied' || Boolean(outcome.submitPressed), applicationPage, accept);
+            }
           } finally {
             finalize();
           }

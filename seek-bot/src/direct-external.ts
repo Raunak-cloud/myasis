@@ -112,7 +112,7 @@ export async function runDirectExternalApplication(
     throw new Error(blocked ? `Direct website navigation was blocked: ${blocked}` : `Could not open the direct job URL: ${(error as Error).message}`);
   }
   await page.waitForFunction(() => Boolean(document.body?.innerText.trim()), undefined, { timeout: 15_000 }).catch(() => {});
-  await waitForApplicationSurface(page, 5_000).catch(() => false);
+  if(!preparingApplications())await waitForApplicationSurface(page, 5_000).catch(() => false);
   const identity = await identifyDirectJob(page);
   let job: JobListing = {
     id,
@@ -153,7 +153,7 @@ export async function runDirectExternalApplication(
   console.log(`Direct website job: ${job.title} @ ${job.company}`);
   let outcome: ApplyOutcome | undefined;
   try {
-    if(preparingApplications())outcome=await prepareMatchedJob(page,job,profile);
+    if(preparingApplications())outcome=await prepareMatchedJob(job,profile);
     else{
     const apply = () => (test?.runAgent ?? runApplicationAgent)({ page, job, profile, log: (line: string) => console.log(line) });
     const run = await apply();

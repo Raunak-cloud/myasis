@@ -185,7 +185,7 @@ export function PreparedApplications({ running, onStarted, onCountChange, canCha
         disabled={running || busy || Boolean(editing)} onRetry={() => void decide('submit', item)} />}
       <details><summary>Review application</summary>
         <div className="prepared-content">
-        {item.application.preparation?.stage==='job-and-letter' && <p className="job-meta">Job matched and cover letter prepared. Application access checked{item.application.preparation.access==='signed-in' ? ' with sign-in' : ''}. The form will be filled after you choose Apply.</p>}
+        {item.application.preparation?.stage==='job-and-letter' && <p className="job-meta">Job matched and cover letter prepared from the listing. When you choose Apply, the agent will open the application, handle any required sign-in and fill the form.</p>}
         {item.application.email && <p className="job-meta">Email application<br/>To: {item.application.email.to}<br/>Subject: {item.application.email.subject}<br/>Attachments: resume{item.application.email.attachCoverLetter ? ' and cover letter' : ''}</p>}
         <p className="job-meta">Resume: {item.application.resume || 'No resume recorded'}</p>
         {/^https?:\/\//i.test(item.application.job.url) && <p><a href={item.application.job.url} target="_blank" rel="noreferrer">View job listing ↗</a></p>}

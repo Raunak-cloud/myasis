@@ -130,7 +130,7 @@ const performFixtureWork = async (_page,job) => {
     : {status:'applied',jobId:job.id,at:new Date().toISOString()};
 };
 export const applyToJobWithAgent = async (...args) => {record('form-fill',args[1].id);return performFixtureWork(...args);};
-export const prepareMatchedJob = async (...args) => {record('prepare-only',args[1].id);return performFixtureWork(...args);};
+export const prepareMatchedJob = async (job) => {record('prepare-only',job.id);return performFixtureWork(undefined,job);};
 export const applyToIndeedJob = applyToJobWithAgent;
 `);
     writeFileSync(join(directory, 'blocker.mjs'), "export const WALL_STATES = new Set(['captcha','login','identity']); export const judgePage = async () => ({state:'loading',reason:'Fixture delayed listing'});");

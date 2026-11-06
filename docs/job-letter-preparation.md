@@ -1,65 +1,41 @@
 # Semi auto preparation
 
-New Semi auto runs keep matching, listing age, company exclusions, salary,
-duplicate checks and candidate instructions in the existing review pipeline.
-For each matched job they open Apply before optional header Sign in and check
-whether the application can be accessed. Existing accepted employer credentials
-or an available email sign-in can be used. Missing login, new registration,
-password resets, blocked or ambiguous access are skipped for that run.
-An already matched employer-site job can enter preparation immediately, without
-waiting for every board-hosted listing to be reviewed. Auto apply retains its
-existing preference for completing board-hosted applications first.
-Unique Apply navigation controls on later employer pages are also followed
-natively. Model-selected controls use refs from the latest observation;
-invalid refs get a fresh observation and bounded feedback, rather than an
-immediate job skip. Existing step and model-cost limits still apply.
-Named candidate fields together with a resume/CV upload control also prove
-application access when long listing text or dropdown options truncate the
-page summary. This detection does not fill or advance the form.
-An unknown-page Skip decision gets at most two fresh observations before it is
-accepted, so a portal that hydrates while the model reasons is not discarded
-from stale evidence. Reobservation never reloads the page or changes form data.
-Search, office and department filters on an employer vacancy index are not
-application access. The checker can follow a unique link whose exact job title
-and optional location match the reviewed vacancy, including inside an embedded
-job board, before checking the actual application surface.
+Preparation reads a job listing, checks the match against the saved profile and
+preferences, writes an evidence-checked cover letter and saves it for review.
+The matching coordinator already opens and reads the listing. The preparation
+writer uses that captured description and has no browser controller.
 
-The preparation stage has no application-field fill, file upload, arbitrary
-script, final-submit or application-answer tools. It installs no network request
-interceptor or GraphQL allowlist. Normal page requests, including SEEK's
-`createLinkoutApplication` employer-portal handoff and sign-in requests, run
-normally. Observed navigation destinations retain public-address and
-payment-page checks, and native action checks restrict sign-in to authentication
-fields and reject Apply buttons that submit forms. Portal navigation is not
-proof of an employer submission.
-Links and explicit non-submit buttons remain navigation even when a site wraps
-its layout in a form; actual form-submit controls remain excluded.
+Preparation does not click Apply, follow employer redirects, check application
+forms, sign in, register accounts, upload documents or submit applications.
+Portal loading, login availability and access-check action budgets cannot block
+a letter. There is no preparation access reviewer or network interceptor.
 
-After access is verified, the existing evidence-checked cover-letter writer
-uses the account's saved profile, documents and instructions.
-The writer targets 250 words with 50% flexibility (125–375 words), including
-the greeting and sign-off. A letter above 250 but at or below 375 words does
-not trigger shortening or a preparation failure. Factual checks still apply;
-explicit employer limits remain instructions for drafting and form fitting.
-The draft binds
-the selected account resume and its SHA-256, the job, letter and access result.
-It records `preparation.stage=job-and-letter`, an empty answers list and no
-uploads. This metadata is included in the immutable approval revision.
-Its hash uses a fixed field order so PostgreSQL JSONB round trips preserve
-the worker's existing revision without changing the saved draft or consent.
-Skipped access never creates a Prepared row or spends a preparation credit.
-Existing per-prepared-job credit accounting is unchanged.
+Matching, salary, listing age, excluded companies, duplicate protection, selected
+resume binding, run limits and existing preparation credit accounting remain
+in their existing stages. A readable description and candidate evidence are
+required for a truthful letter. An employer-site match can be prepared without
+waiting for every board-hosted listing to be reviewed.
 
-Prepared Applications explains that the form is not filled yet. Selecting Apply
-authorizes the existing applying agent to fill the form using current candidate
-evidence, the approved resume and exact letter, then run the normal final
-accuracy and receipt checks. Missing required personal facts still require the
-candidate. Previously prepared complete forms remain supported. Changing an
-old saved form's employer tenant or vacancy cannot reuse its approval.
+The writer targets 250 words with 50% flexibility (125–375 words). Letters
+above 250 and at or below 375 do not trigger shortening or a preparation
+failure. Factual checks and explicit employer constraints still apply.
 
-Tests use native browser fixtures for Apply-before-Sign-in, untouched fields and
-file inputs, normal POST/GraphQL handoffs without request interception, popup
-navigation, unknown credentials, accepted owner-scoped login and rejected
-final-send decisions/form buttons. Draft tests check empty answers, selected resume bytes, stage-bound
-revision hashes, letter edits and skipped-access behavior. Existing approved
-form/session and user-status checks remain covered.
+New drafts record `preparation.version=2`, `stage=job-and-letter`,
+`access=not-checked` and the original listing URL. They bind the reviewed job,
+exact letter and selected resume SHA-256, with empty answers and no uploads.
+These values are included in the approval revision in a stable field order.
+Version 1 access-checked drafts and older completed-form drafts keep their
+existing hashes and approval semantics.
+
+Prepared Applications explains that selecting Apply opens the application and
+handles any required sign-in and form filling then. The existing applying
+agent uses current candidate evidence, the approved resume and exact letter,
+followed by normal accuracy and submission-receipt checks. Required missing
+personal facts still go to the candidate. Preparation never authorizes a send.
+
+Tests exercise preparation from a matched listing with a login-gated destination
+and a submission-allowance callback that throws if called. They check no browser
+dependency, empty answers, no-send trace, selected resume bytes, versioned
+revision stability, letter edits and missing-description handling. Coordinator
+fixtures continue to cover match criteria, duplicates, caps and preparation
+without form filling; normal applying and historical form replay checks remain.
