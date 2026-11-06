@@ -43,3 +43,21 @@ test('invalid model output gets one budgeted contract correction, never an autom
   await assert.rejects(()=>minimaxReviewer(store,'fictional',async()=>{calls++;return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify({...d,candidateEvidence:'fabricated qualification'})}}]});})(j,p,e),CrawlDeferred);
   assert.equal(calls,2);assert.equal(reserved,2);
 });
+
+test('employer identity shares catalog provider and charge accounting without sending candidate evidence',async()=>{
+ let calls=0,charges=0;
+ const store={reserveReview:async()=>String(calls),completeReview:async()=>{charges++;}} as unknown as JobIndexStore;
+ const read:typeof fetch=async(_url,init)=>{
+  const body=JSON.parse(String(init?.body));calls++;assert.equal(body.model,REVIEW_MODEL);
+  const identity=body.response_format.json_schema.schema.properties.research;
+  if(identity)assert.doesNotMatch(JSON.stringify(body.messages),/Data engineer with Python and SQL experience|No senior roles|candidateProfessionalEvidence/);
+  return Response.json({usage:{cost:0.001},choices:[{finish_reason:'stop',message:{content:JSON.stringify(identity?{decision:'clear',exclusionId:'',reason:'Different named employer.',evidenceIds:[],research:[]}:d)}}]});
+ };
+ const profile={...p,excludedCompanies:['Westpac Group']};
+ assert.equal((await minimaxReviewer(store,'fictional',read,async()=>[])(j,profile,e)).decision,'match');
+ assert.equal(calls,2);assert.equal(charges,2);
+ calls=0;charges=0;
+ assert.equal((await minimaxReviewer(store,'fictional',read,async()=>[])(j,{...p,excludedCompanies:['Fixture Pty Ltd']},e)).decision,'no_match');
+ assert.equal(calls,0);assert.equal(charges,0);
+ await assert.rejects(()=>minimaxReviewer(store,'fictional',async()=>Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify({decision:'uncertain',exclusionId:'exclusion-0',reason:'Identity unknown.',evidenceIds:[],research:[]})}}]}),async()=>[])(j,profile,e),CrawlDeferred);
+});

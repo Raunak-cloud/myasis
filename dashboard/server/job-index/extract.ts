@@ -1,3 +1,4 @@
+import {matchingExcludedCompany} from '../../../seek-bot/src/company-match.js';
 import { createHash } from 'node:crypto';
 import { parseHTML } from 'linkedom';
 import {australianEligibility,declaredCountries} from './geography.js';
@@ -163,7 +164,7 @@ export function extractPage(html: string, sourceUrl: string, requireDeclaredUrl=
 }
 export function matchJob(job: IndexedJob, p: SearchProfile): PreliminaryMatch | null {
   if(australianEligibility(job).status!=='eligible')return null;
-  if (p.excludedCompanies.some(v => v.trim().toLowerCase() === job.company.toLowerCase())) return null;
+  if (matchingExcludedCompany(job.company,p.excludedCompanies)) return null;
   const keywords = [...new Set([...p.keywords,...(p.searchRoles??[])])].filter(v => { const words = v.match(/[\p{L}\p{N}+#.]+/gu) ?? []; return equivalentRole(v,job.title)||(words.length > 0 && words.every(w => contains(`${job.title}\n${job.description}`, w))); });
   const skills = p.skills.filter(v => contains(`${job.title}\n${job.description}`, v));
   // Skills can shortlist equivalent titles; the AI review still enforces the

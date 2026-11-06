@@ -1,10 +1,9 @@
 const COMPANY_SUFFIXES = new Set([
   'company', 'co', 'corp', 'corporation',
-  'inc', 'incorporated', 'limited', 'ltd', 'llc', 'plc', 'pty', 'holdings', 'group',
+  'inc', 'incorporated', 'limited', 'ltd', 'llc', 'plc', 'pty',
 ]);
-const CONNECTORS = new Set(['and', 'of', 'the']);
 
-/** Normalised words used for literal and typo-tolerant company comparison. */
+/** Normalised words used for full-name equality and nonbinding research proposals. */
 function companyTokens(value: string): string[] {
   const words = value
     .normalize('NFKD')
@@ -14,11 +13,11 @@ function companyTokens(value: string): string[] {
     .match(/[a-z0-9]+/g) ?? [];
 
   while (words.length && COMPANY_SUFFIXES.has(words[words.length - 1])) words.pop();
-  return words.filter((word) => !CONNECTORS.has(word) && !COMPANY_SUFFIXES.has(word));
+  return words;
 }
 
 function acronym(tokens: readonly string[]): string {
-  return tokens.map((token) => token[0] ?? '').join('');
+  return tokens.filter(token=>!['and','of','the'].includes(token)).map((token) => token[0] ?? '').join('');
 }
 
 /** Jaro-Winkler is well suited to short names and transposed letters. */
@@ -78,35 +77,25 @@ function tokenSimilar(left: string, right: string): boolean {
   return jaroWinkler(left, right) >= 0.93;
 }
 
-function companyNamesMatch(excluded: readonly string[], advertised: readonly string[]): boolean {
-  if (!excluded.length || !advertised.length) return false;
-  // Spacing alone must not change an employer's full canonical identity.
-  // Keep this exact: compact substring/fuzzy matching can hide unrelated jobs.
-  if (excluded.join('') === advertised.join('')) return true;
-  if (tokensAppearTogether(excluded, advertised) || tokensAppearTogether(advertised, excluded)) return true;
-
-  const excludedAcronym = acronym(excluded);
-  const advertisedAcronym = acronym(advertised);
-  if (excludedAcronym.length >= 3 && excludedAcronym === advertised.join('')) return true;
-  if (advertisedAcronym.length >= 3 && advertisedAcronym === excluded.join('')) return true;
-
-  // Every word the user supplied must have a close counterpart. This accepts
-  // "Commonweath Bank" but not a generic one-word overlap such as "Bank".
-  const used = new Set<number>();
-  for (const wanted of excluded) {
-    const index = advertised.findIndex((actual, candidate) => !used.has(candidate) && tokenSimilar(wanted, actual));
-    if (index === -1) return false;
-    used.add(index);
-  }
-  return true;
+/** Only full canonical equality can exclude before reasoning. A substring,
+ * acronym, parent brand or typo is an identity question, never a match. */
+export function matchingExcludedCompany(company: string, exclusions: readonly string[]): string | null {
+  const advertised = companyTokens(company).join('');
+  if (!advertised) return null;
+  return exclusions.find(raw => companyTokens(raw).join('') === advertised) ?? null;
 }
 
-/** Returns the user's entry that matched the advertised employer, or null. */
-export function matchingExcludedCompany(company: string, exclusions: readonly string[]): string | null {
+/** Search proposals only. Every decision about these pairs belongs to the
+ * evidence-grounded reviewer; similarity never authorizes an exclusion. */
+export function possibleExcludedCompanies(company: string, exclusions: readonly string[]): string[] {
   const advertised = companyTokens(company);
-  for (const raw of exclusions) {
+  return exclusions.filter(raw => {
     const excluded = companyTokens(raw);
-    if (companyNamesMatch(excluded, advertised)) return raw;
-  }
-  return null;
+    if (!excluded.length || !advertised.length) return false;
+    return (excluded.length===1&&advertised.length===1&&Math.max(excluded[0].length,advertised[0].length)<=4)
+      || tokensAppearTogether(excluded, advertised) || tokensAppearTogether(advertised, excluded)
+      || acronym(excluded) === advertised.join('') || acronym(advertised) === excluded.join('')
+      || jaroWinkler(excluded.join(''), advertised.join('')) >= 0.8
+      || excluded.some(word => advertised.some(other => tokenSimilar(word, other)));
+  });
 }

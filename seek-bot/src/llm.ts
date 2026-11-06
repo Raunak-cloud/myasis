@@ -1,3 +1,4 @@
+import {CompanyIdentityResolver, COMPANY_IDENTITY_POLICY, type CompanyIdentityDecision} from './company-identity.js';
 import { config, expectedSalaryAnswer } from './config.js';
 import { CostMeter, ReplyUnusableError, type CelerisModel, type ChatMessage } from './agent/celeris.js';
 import { applicationChat, reviewChat, rankingChat } from './agent/application-chat.js';
@@ -23,6 +24,8 @@ import { loadReviewVerdicts, verdictContext } from './review-verdicts.js';
  * cover letter mid-application would strand a half-filled form.
  */
 const llmMeter = new CostMeter(Number.MAX_SAFE_INTEGER);
+const companyIdentity = new CompanyIdentityResolver((prompt,schema) =>
+  json(prompt,schema,FIT_CLASSIFIER_MODEL,1024,'low',Date.now()+25_000,llmMeter,COMPANY_IDENTITY_POLICY,'job-review'));
 
 /**
  * The schemas below are written in the uppercase dialect (`OBJECT`,
@@ -399,6 +402,7 @@ export interface FitInstructionCheck {
 }
 
 export interface FitAssessment {
+  companyExclusionCheck?: CompanyIdentityDecision;
   roleFitCheck?: RoleFitCheck;
   /** Duplicate decisions are not suitability rejections and must not enter the fit cache. */
   duplicateReview?: DuplicateReview;
@@ -632,6 +636,16 @@ async function assessFitScoped(job: JobListing, profile: CandidateProfile): Prom
     duplicateReview, decision: 'skip', shouldApply: false, matchScore: 0,
     reason: duplicateReview.reason, evidence: [JSON.stringify(duplicateReview.evidence)], injectionSuspected: false,
   };
+  if (config.excludedCompanies.length) {
+    const identity = await companyIdentity.resolve({scope:JSON.stringify([config.dataDir,applicationModelIdentity()]),
+      company:job.company,exclusions:config.excludedCompanies,
+      employerEvidence:relevantEvidence(job.description ?? job.teaser ?? '', `employer company hiring on behalf client ABN ${config.excludedCompanies.join(' ')}`,6000)});
+    metric('employer-identity',0,{jobId:job.id,decision:identity.decision,method:identity.method,matchedExclusion:identity.matchedExclusion,reason:identity.reason,evidence:identity.evidence});
+    if(identity.decision!=='clear')return {companyExclusionCheck:identity,
+      decision:identity.decision==='excluded'?'skip':'uncertain',shouldApply:false,matchScore:0,
+      reason:identity.decision==='excluded'?`excluded company: ${identity.matchedExclusion}; ${identity.reason}`:`Employer identity unresolved: ${identity.reason}`,
+      evidence:identity.evidence.map(row=>`${row.name}; ABN ${row.abn}; ${row.sourceUrl}`),injectionSuspected:false};
+  }
   const knowledge = await buildKnowledgeContext(`${job.title} ${job.description ?? ''}`, 60_000);
   const savedAnswers = JSON.stringify(candidateSavedAnswers());
   // Keep policy above historical evidence in the message hierarchy. Saved

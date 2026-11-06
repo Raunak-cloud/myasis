@@ -221,6 +221,12 @@ async function build() {
       if (fit.injectionSuspected) console.warn(`  ! injection-shaped text in ${job.company} — ignored`);
       if (!fit.shouldApply) {
         console.log(`  ✗ ${fit.matchScore} · ${job.title} @ ${job.company} — ${fit.reason.slice(0, 90)}`);
+        if (fit.companyExclusionCheck) {
+          bump(fit.decision === 'uncertain' ? 'employer identity unresolved' : 'excluded company');
+          if (fit.decision === 'uncertain') logOutcome({status:'error',jobId:job.id,title:job.title,company:job.company,error:fit.reason});
+          else logOutcome({status:'skipped',jobId:job.id,title:job.title,company:job.company,reason:fit.reason});
+          continue;
+        }
         bump('not a fit');
         if (fit.decision === 'skip') logOutcome({ status: 'skipped', jobId: job.id, title: job.title, company: job.company, url: job.url,
           reason: `Fit check (skip): ${fit.reason}`, reviewCache: reviewCacheMetadata(job, 'fit-mismatch', reviewContext, REVIEW_TTL.fit) });

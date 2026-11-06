@@ -808,12 +808,12 @@ test('joined employer exclusions block preparation before consuming a review slo
   assert.equal(result.history.filter(record => record.submittedByMyasis).length, 0);
 });
 
-for (const maximum of [20, 30]) test(`company and ${maximum}-day age filters exclude jobs before AI review without hiding an eligible listing`, () => {
+for (const maximum of [20, 30]) test(`exact company and ${maximum}-day age filters exclude jobs before AI review without hiding an eligible listing`, () => {
   const result = run([
     job('excluded-company', { company: 'Commonwealth Bank of Australia' }),
     job('too-old', { ageDays: maximum + 1 }),
     job('eligible', { ageDays: maximum }),
-  ], { apply: true, maxAgeDays: maximum, excludedCompanies: ['Commonweath Bank'], reviews: 1 });
+  ], { apply: true, maxAgeDays: maximum, excludedCompanies: ['Commonwealth Bank of Australia'], reviews: 1 });
   assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['eligible']);
   assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['eligible']);
   assert.equal(result.history.length, 1);

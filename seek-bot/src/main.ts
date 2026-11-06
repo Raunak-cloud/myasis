@@ -704,6 +704,12 @@ async function main() {
         return;
       }
 
+      if (fit?.companyExclusionCheck?.decision === 'uncertain') {
+        bump('employer identity unresolved');
+        logOutcome({status:'error',jobId:job.id,title:job.title,company:job.company,error:fit.reason});
+        return;
+      }
+
       let why = scoreReasons.join('; ');
       let decisionReasons = scoreReasons;
       if (fit) {
@@ -711,7 +717,7 @@ async function main() {
         if (fit.injectionSuspected) console.warn(`  ! injection-shaped text in ${job.company} — ignored`);
         if (!fit.shouldApply) {
           console.log(`  ✗ ${score} · ${job.title} @ ${job.company} — ${fit.reason}`);
-          bump(fit.decision === 'uncertain' ? 'fit needs clarification' : 'fit mismatch');
+          bump(fit.companyExclusionCheck?.decision === 'excluded' ? 'excluded company' : fit.decision === 'uncertain' ? 'fit needs clarification' : 'fit mismatch');
           logOutcome({
             status: 'skipped',
             jobId: job.id,
@@ -720,7 +726,7 @@ async function main() {
             company: job.company,
             // The Skipped view links each one, so the candidate can read the listing the check read.
             url: job.url,
-            ...(fit.decision === 'skip' ? { reviewCache: reviewCacheMetadata(job, 'fit-mismatch', reviewContext, REVIEW_TTL.fit) } : {}),
+            ...(fit.decision === 'skip' && !fit.companyExclusionCheck ? { reviewCache: reviewCacheMetadata(job, 'fit-mismatch', reviewContext, REVIEW_TTL.fit) } : {}),
           });
           return;
         }

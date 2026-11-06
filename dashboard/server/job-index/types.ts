@@ -2,7 +2,7 @@
 export const MATCH_POLICY='resume-fit-v1';
 // Reconsider cached decisions made before discovery metadata was distinguished
 // from mandatory candidate qualifications. Existing valid matches stay valid.
-export const FIT_CACHE_POLICY=`${MATCH_POLICY}:discovery-metadata-v2`;
+export const FIT_CACHE_POLICY=`${MATCH_POLICY}:discovery-metadata-v3-employer-identity`;
 export interface EvidenceTag { value: string; evidence: string; basis: 'source' | 'inferred' }
 export interface IndexedJob {
   id: string; url: string; source: string; sourceId: string; title: string; company: string;
