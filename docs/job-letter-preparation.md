@@ -9,6 +9,10 @@ password resets, blocked or ambiguous access are skipped for that run.
 An already matched employer-site job can enter preparation immediately, without
 waiting for every board-hosted listing to be reviewed. Auto apply retains its
 existing preference for completing board-hosted applications first.
+Unique Apply navigation controls on later employer pages are also followed
+natively. Model-selected controls use refs from the latest observation;
+invalid refs get a fresh observation and bounded feedback, rather than an
+immediate job skip. Existing step and model-cost limits still apply.
 
 The preparation stage has no application-field fill, file upload, arbitrary
 script, final-submit or application-answer tools. It installs no network request
@@ -18,6 +22,8 @@ normally. Observed navigation destinations retain public-address and
 payment-page checks, and native action checks restrict sign-in to authentication
 fields and reject Apply buttons that submit forms. Portal navigation is not
 proof of an employer submission.
+Links and explicit non-submit buttons remain navigation even when a site wraps
+its layout in a form; actual form-submit controls remain excluded.
 
 After access is verified, the existing evidence-checked cover-letter writer
 uses the account's saved profile, documents and instructions. The draft binds

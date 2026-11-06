@@ -68,6 +68,14 @@ test('a native Apply form button cannot be used as a one-click submit during pre
  }finally{await b.close();}
 });
 
+test('navigation links and explicit non-submit Apply buttons inside a layout form remain usable',async()=>{
+ for(const control of ['<a href="/application">Apply now</a>','<button type="button" onclick="location.href=\'/application\'">Apply now</button>']){
+  const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage();
+  await ctx.route('**/*',r=>r.fulfill({contentType:'text/html',body:new URL(r.request().url()).pathname==='/job'?`<main><h1>Analyst</h1><form onsubmit="event.preventDefault();window.sent=true">${control}</form></main>`:application}));
+  try{const result=await checkPreparationAccess(page,job,profile,{fixture:true,chat:async()=>{throw Error('Unique native navigation needs no model');}});assert.equal(result.ok,true,JSON.stringify(result));assert.equal(await page.locator('#name').inputValue(),'');assert.equal(await page.locator('#resume').inputValue(),'');}finally{await b.close();}
+ }
+});
+
 test('Apply can open an employer form in a new tab without changing application fields',async()=>{
  const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage();let extra:any;
  ctx.on('page',p=>{if(p!==page)extra=p;});
@@ -75,6 +83,25 @@ test('Apply can open an employer form in a new tab without changing application 
  try{
   const result=await checkPreparationAccess(page,job,profile,{fixture:true,chat:async()=>{throw Error('Observed application needs no model');}});
   assert.equal(result.ok,true,JSON.stringify(result));assert.ok(extra?.isClosed(),'Only the access-check popup is cleaned up');assert.equal(ctx.pages().length,1);
+ }finally{await b.close();}
+});
+
+test('a unique employer Apply button is followed after the initial board Apply without a model guess',async()=>{
+ const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage();const visits:string[]=[];
+ await ctx.route('**/*',r=>{const path=new URL(r.request().url()).pathname;visits.push(path);return r.fulfill({contentType:'text/html',body:path==='/job'?'<main><h1>Analyst</h1><a href="/employer-job">Apply now</a></main>':path==='/employer-job'?'<main><h1>Analyst at employer</h1><a href="/application">Apply now</a></main>':application});});
+ try{const result=await checkPreparationAccess(page,job,profile,{fixture:true,chat:async()=>{throw Error('Unique navigation must not need a model guess');}});assert.equal(result.ok,true,JSON.stringify(result));assert.deepEqual(visits,['/job','/employer-job','/application']);assert.equal(await page.locator('#name').inputValue(),'');assert.equal(await page.locator('#resume').inputValue(),'');}finally{await b.close();}
+});
+
+test('an invalid current button reference gets fresh observation and bounded feedback instead of discarding the job',async()=>{
+ const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage();let calls=0;
+ await ctx.route('**/*',r=>r.fulfill({contentType:'text/html',body:new URL(r.request().url()).pathname==='/job'?'<main><h1>Analyst</h1><a href="/application">Apply now</a><a href="/application">Apply now</a></main>':application}));
+ try{
+  const result=await checkPreparationAccess(page,job,profile,{fixture:true,chat:async request=>{
+   const user=[...request.messages].reverse().find(m=>m.role==='user'&&String(m.content).startsWith('{'))!;
+   const o=JSON.parse(String(user.content)).observation;calls++;
+   return {text:'',toolCalls:[{id:'fixture',name:'choose_access_action',args:{action:'apply',ref:calls===1?'expired-reference':o.actions.find((a:{text:string})=>/apply now/i.test(a.text)).ref,reason:'Open the observed matched application'}}],message:{role:'assistant',content:null}};
+  }});
+  assert.equal(result.ok,true,JSON.stringify(result));assert.equal(calls,2);assert.equal(await page.locator('#name').inputValue(),'');assert.equal(await page.locator('#resume').inputValue(),'');assert.equal(await page.evaluate(()=>Boolean((window as any).sent)),false);
  }finally{await b.close();}
 });
 
