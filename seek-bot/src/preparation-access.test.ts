@@ -117,6 +117,24 @@ test('a delayed application shell is observed after hydration instead of being p
  try{const result=await checkPreparationAccess(page,job,profile,{fixture:true,chat:async()=>{throw Error('Hydration is not an AI decision');}});assert.equal(result.ok,true,JSON.stringify(result));assert.equal(await page.locator('#name').inputValue(),'');}finally{await b.close();}
 });
 
+test('a skip based on a loading portal is reobserved without reloading or touching the hydrated form',async()=>{
+ const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage();let visits=0,calls=0;
+ await ctx.route('**/*',r=>{visits++;return r.fulfill({contentType:'text/html',body:'<main><h1>Warehouse assistant</h1><button>Cookie settings</button></main>'});});
+ try{
+  const result=await checkPreparationAccess(page,job,profile,{fixture:true,chat:async()=>{calls++;await page.locator('main').evaluate((node,html)=>{node.outerHTML=html;},application);return {text:'',toolCalls:[{id:'fixture',name:'choose_access_action',args:{action:'skip',reason:'The previous observation had no form'}}],message:{role:'assistant',content:null}};}});
+  assert.equal(result.ok,true,JSON.stringify(result));assert.equal(calls,1);assert.equal(visits,1,'Reobservation must not reload the page');assert.equal(await page.locator('#name').inputValue(),'');assert.equal(await page.locator('#resume').inputValue(),'');assert.equal(await page.evaluate(()=>Boolean((window as any).sent)),false);
+ }finally{await b.close();}
+});
+
+test('unknown-page skip rechecks remain bounded and do not turn a cookie page into a prepared application',async()=>{
+ const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage();let calls=0;
+ await ctx.route('**/*',r=>r.fulfill({contentType:'text/html',body:'<main><h1>Warehouse assistant</h1><button onclick="window.changed=true">Cookie settings</button></main>'}));
+ try{
+  const result=await checkPreparationAccess(page,job,profile,{fixture:true,chat:async()=>{calls++;return {text:'',toolCalls:[{id:'fixture',name:'choose_access_action',args:{action:'skip',reason:'No application access'}}],message:{role:'assistant',content:null}};}});
+  assert.equal(result.ok,false);assert.equal(calls,3);assert.equal(await page.evaluate(()=>Boolean((window as any).changed)),false);
+ }finally{await b.close();}
+});
+
 test('document-step upload actions prove access without uploading or advancing the wizard',()=>{
  const observation:Observation={url:'https://au.seek.com/job/12345678/apply',title:'Group Dog Walker',text:'Choose documents Answer employer questions Update SEEK Profile Review and submit',fields:[],actions:[{ref:'a1',text:'Resumé Upload (accepts .doc,application/pdf)',role:'button',disabled:false},{ref:'a2',text:'Cover letter Upload (accepts .doc,application/pdf)',role:'button',disabled:false},{ref:'a3',text:'Continue',role:'button',disabled:false}]};
  assert.equal(preparationSurface(observation), 'application');

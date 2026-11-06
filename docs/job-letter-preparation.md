@@ -16,6 +16,9 @@ immediate job skip. Existing step and model-cost limits still apply.
 Named candidate fields together with a resume/CV upload control also prove
 application access when long listing text or dropdown options truncate the
 page summary. This detection does not fill or advance the form.
+An unknown-page Skip decision gets at most two fresh observations before it is
+accepted, so a portal that hydrates while the model reasons is not discarded
+from stale evidence. Reobservation never reloads the page or changes form data.
 
 The preparation stage has no application-field fill, file upload, arbitrary
 script, final-submit or application-answer tools. It installs no network request
