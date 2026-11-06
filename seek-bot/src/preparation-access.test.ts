@@ -117,6 +117,19 @@ test('document-step upload actions prove access without uploading or advancing t
  assert.equal(preparationSurface({...observation,text:'Job listing',actions:[{ref:'a1',text:'Avatar file input',role:'button',disabled:false}]}),'unknown');
 });
 
+test('candidate fields and CV upload prove employer access when long listing text hides the form summary',async()=>{
+ const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage();
+ await ctx.route('**/*',r=>r.fulfill({contentType:'text/html',body:`<main><h1>Warehouse assistant</h1><p>${'Warehouse responsibilities. '.repeat(1100)}</p><form onsubmit="event.preventDefault();window.sent=true"><label>First name<input id=first></label><label>Last name<input id=last></label><label for=cv>Upload CV</label><input id=cv type=file><button>Apply for this position</button></form></main>`}));
+ try{
+  const result=await checkPreparationAccess(page,job,profile,{fixture:true,chat:async()=>{throw Error('Observed candidate and document controls prove access');}});
+  assert.equal(result.ok,true,JSON.stringify(result));
+  assert.equal(await page.locator('#first').inputValue(),'');assert.equal(await page.locator('#last').inputValue(),'');assert.equal(await page.locator('#cv').inputValue(),'');assert.equal(await page.evaluate(()=>Boolean((window as any).sent)),false);
+  const observed=await (await import('./agent/observe.js')).observe(page);
+  assert.equal(preparationSurface({...observed,fields:observed.fields.filter(f=>/first name/i.test(f.label))}),'unknown','A generic document control and one field are insufficient without application copy');
+  assert.equal(preparationSurface({...observed,fields:[],actions:[{ref:'cookie',text:'Cookie settings',role:'button',disabled:false}]}),'unknown');
+ }finally{await b.close();}
+});
+
 test('Apply precedes optional Sign in; accessible forms remain completely unfilled',async()=>{
  const b=await browser(),ctx=await b.newContext(),page=await ctx.newPage();const visits:string[]=[];
  await ctx.route('**/*',async r=>{const path=new URL(r.request().url()).pathname;visits.push(path);await r.fulfill({contentType:'text/html',body:path==='/job'?'<main><h1>Analyst</h1><a href="/login">Sign in</a><a href="/application">Apply now</a></main>':application});});

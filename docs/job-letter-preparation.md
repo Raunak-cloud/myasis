@@ -13,6 +13,9 @@ Unique Apply navigation controls on later employer pages are also followed
 natively. Model-selected controls use refs from the latest observation;
 invalid refs get a fresh observation and bounded feedback, rather than an
 immediate job skip. Existing step and model-cost limits still apply.
+Named candidate fields together with a resume/CV upload control also prove
+application access when long listing text or dropdown options truncate the
+page summary. This detection does not fill or advance the form.
 
 The preparation stage has no application-field fill, file upload, arbitrary
 script, final-submit or application-answer tools. It installs no network request

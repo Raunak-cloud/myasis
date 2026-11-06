@@ -29,8 +29,12 @@ export function preparationSurface(o: Observation): 'blocked' | 'login' | 'appli
   const applicationCopy=/application|apply for|apply now|personal (?:details|information)|contact information|upload (?:your )?resum[eé]|review your|choose documents|answer employer questions|review and submit/i.test(o.title+' '+o.text);
   // Some boards expose native hidden file inputs as upload actions rather than
   // visible fields. Their document step is already accessible; do not upload.
-  const documentAction=o.actions.some(a=>!a.disabled&&/(?:resum[eé]|curriculum vitae|cover letter).*\b(?:upload|attach)\b|\b(?:upload|attach)\b.*(?:resum[eé]|curriculum vitae|cover letter)/i.test(clean(a.text)));
-  if (applicationCopy && (documentAction||application.some(f=>f.inputType==='file'||/resum[eé]|cover letter|first name|given name|last name|surname|mobile|phone|work rights|work authori|eligib|experience|qualification/i.test(f.label))
+  const documentAction=o.actions.some(a=>!a.disabled&&/(?:resum[eé]|curriculum vitae|\bcv\b|cover letter).*\b(?:upload|attach)\b|\b(?:upload|attach)\b.*(?:resum[eé]|curriculum vitae|\bcv\b|cover letter)/i.test(clean(a.text)));
+  // Listing text and large select menus can exhaust the text summary before
+  // the form. Named candidate fields plus a document control prove access
+  // independently of that summary; cookie preferences alone do not.
+  const namedCandidateFields=application.filter(f=>/\b(?:first name|given name|last name|surname|email|mobile|phone)\b/i.test(f.label));
+  if (documentAction && namedCandidateFields.length>=2 || applicationCopy && (documentAction||application.some(f=>f.inputType==='file'||/resum[eé]|cover letter|first name|given name|last name|surname|mobile|phone|work rights|work authori|eligib|experience|qualification/i.test(f.label))
     || application.length>=3) || o.actions.some(a=>/^submit (?:your )?application$/i.test(clean(a.text)))) return 'application';
   return 'unknown';
 }
