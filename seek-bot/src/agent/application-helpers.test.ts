@@ -7,14 +7,17 @@ import {chromium} from 'patchright';
 import {ApplicationHelpers,helperRecipeExample,type HelperDefinition} from './application-helpers.js';
 import {createReadinessFixtureReply} from './readiness-fixture.js';
 import {ok} from './context.js';
+import {withApplicationModel} from '../application-model.js';
+import {fixtureToolArguments,isSpecialistFixtureRequest} from './specialist-fixture.js';
+import {closeCelerisQueues} from '../../../shared/celeris-queue.mjs';
 
 const directory=mkdtempSync(join(tmpdir(),'helper-integration-'));
-Object.assign(process.env,{DATA_DIR:directory,APPLICATION_AI_MODEL:'minimax',OPENROUTER_API_KEY:'fictional-fixture-key',CELERIS_API_KEY:'fixture-only',ALLOW_EXTERNAL_APPLY:'true',DRY_RUN:'false',COST_TRACKING:'false',APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN:'false',FORM_CORPUS_DIR:join(directory,'corpus')});
+Object.assign(process.env,{DATA_DIR:directory,APPLICATION_AI_MODEL:'minimax',OPENROUTER_API_KEY:'fictional-fixture-key',CELERIS_API_KEY:'fixture-only',ALLOW_EXTERNAL_APPLY:'true',DRY_RUN:'false',COST_TRACKING:'false',CELERIS_QUEUE_FILE:join(directory,'queue.sqlite'),CELERIS_MIN_INTERVAL_MS:'0',OWTOMATE_LIVE_REPAIR:'',APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN:'false',FORM_CORPUS_DIR:join(directory,'corpus')});
 mkdirSync(join(directory,'resumes'));writeFileSync(join(directory,'resumes','cv.txt'),'Fictional candidate resume');writeFileSync(join(directory,'resumes.json'),JSON.stringify([{id:'cv',label:'Fixture',fileName:'cv.txt'}]));
 const {agentOnlyTools,runAgentOnlyApplication}=await import('./agent-only.js');
 const {config}=await import('../config.js');config.dryRun=false;config.allowExternalApply=true;
 const fetchBefore=globalThis.fetch;
-after(()=>{globalThis.fetch=fetchBefore;rmSync(directory,{recursive:true,force:true});});
+after(()=>{globalThis.fetch=fetchBefore;closeCelerisQueues();rmSync(directory,{recursive:true,force:true});});
 const str={type:'string',maxLength:200};
 const parameters={type:'object',additionalProperties:false,properties:{target:str,value:str},required:['target','value']};
 const filler:HelperDefinition={name:'fill_and_verify',description:'Fill one current uniquely scoped field and inspect its saved value.',parameters,
@@ -36,7 +39,7 @@ test('helpers publish only after actual native fixture assertions; bad contracts
  assert.equal(helpers.schemas().length,1);
 });
 
-test('specialist shorthand inputs become bounded closed schemas without extra model repair turns',async()=>{
+test('agent shorthand inputs become bounded closed schemas without extra model repair turns',async()=>{
  const helpers=new ApplicationHelpers(agentOnlyTools),short=structuredClone(filler);
  short.parameters={target:{type:'string'},value:{type:'string'}};
  const published=await helpers.test(short),schema=helpers.schemas()[0].parameters;
@@ -88,37 +91,52 @@ test('helper continuation resumes after completed operations, reroutes each prim
  assert.equal(JSON.parse(denied.kind==='ok'?denied.message:'').continuation,undefined,'uncertain failed actions never get an automatic retry token');
 });
 
-test('the specialist tests and hands a named helper to MiniMax; the applier uses it and records a real fixture receipt',async()=>{
- const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{channel:'chrome'})});
- try{
-  const context=await browser.newContext(),page=await context.newPage(),url='https://employer.helper.invalid/apply';
-  await context.route('**/*',route=>new URL(route.request().url()).hostname==='employer.helper.invalid'?route.fulfill({contentType:'text/html',body:'<main><label>Name<input id=name oninput="window.edits=(window.edits||0)+1"></label><button id=send onclick="window.sends=(window.sends||0)+1;document.querySelector(\'main\').innerHTML=\'Application received: HELPER-FIXTURE\'">Submit application</button></main>'}):route.abort());
-  await page.goto(url);let parent=0,child=0,helperName='';const readiness=createReadinessFixtureReply();
-  globalThis.fetch=(async(_url,init)=>{
-   const body=JSON.parse(String(init?.body));const review=readiness(body);if(review)return review;
-   let call: {name:string;args:unknown}|undefined;
-   if(body.tools?.some((t:any)=>t.function.name==='test_application_helper')){
-    child++;assert.equal(body.model,'minimax/minimax-m3.1-flash');
-    if(child===1){assert.deepEqual(body.tools[0].function.parameters.required,['definition_json']);assert.equal(await page.locator('#name').inputValue(),'','specialist has not touched the parent');call={name:'test_application_helper',args:{definition_json:JSON.stringify(filler)}};}
-    else{
-     const result=JSON.parse(body.messages.filter((m:any)=>m.role==='tool').at(-1).content);assert.equal(result.status,'fixture-tested');helperName=result.name;
-     assert.equal(await page.locator('#name').inputValue(),'','test ran only in a separate synthetic browser');
-     return Response.json({choices:[{message:{content:JSON.stringify({advice:'Use '+helperName+' with the current target.',evidence:[{source:'page',detail:'The name input is blank.'}],unknowns:[],nextSteps:['Use the tested helper, inspect the actual result, then finish the application.']})}}],usage:{prompt_tokens:100,completion_tokens:30,cost:.001}});
-    }
-   }else{
-    if(parent===0)call={name:'consult_application_specialist',args:{question:'Please create and test a small helper to fill and inspect one current field.'}};
-    else if(parent===1){assert.ok(body.tools.some((t:any)=>t.function.name===helperName),'tested helper is in the actual next model tool list');call={name:helperName,args:{input:{target:'#name',value:'Fictional Candidate'}}};}
-    else if(parent===2){assert.equal(await page.locator('#name').inputValue(),'Fictional Candidate');call={name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}};}
-    else if(parent===3){call={name:'finish',args:{status:'applied',reason:'Fixture receipt observed.',evidence:'Application received: HELPER-FIXTURE',receipt:{quote:'Application received: HELPER-FIXTURE'}}};}
-    else throw Error('Unexpected extra parent turn');parent++;
-   }
-   const offered=body.tools.find((tool:any)=>tool.function.name===call!.name)?.function;
-   const wire=offered?.parameters?.properties?.arguments_json?{arguments_json:JSON.stringify(call!.args)}:call!.args;
-   return Response.json({choices:[{message:{content:null,tool_calls:[{id:'helper-call-'+parent+'-'+child,type:'function',function:{name:call!.name,arguments:JSON.stringify(wire)}}]}}],usage:{prompt_tokens:100,completion_tokens:30,cost:.001}});
-  }) as typeof fetch;
-  const result=await runAgentOnlyApplication({page,job:{id:'helper-native-integration',title:'Fictional developer',company:'Fixture',location:'Sydney',platform:'workday',url},profile:{name:'Fictional Candidate',email:'fictional@example.invalid',skills:[]} as never,log:()=>{}});
-  assert.equal(result.outcome.status,'applied');assert.equal(result.submitPressed,true);assert.equal(child,2);assert.equal(parent,4);
-  assert.equal(await page.evaluate('window.sends',undefined,undefined,false),1,'only the applying agent sent, exactly once');
-  assert.equal(await page.evaluate('window.edits',undefined,undefined,false),1,'testing never duplicated a live input event');
- }finally{globalThis.fetch=fetchBefore;await browser.close();}
-});
+for(const provider of ['celeris','minimax'])for(const mode of ['auto','prepare']){
+ test(`the applying agent builds and uses its own helper: ${provider}, ${mode}`,async()=>{
+  process.env.APPLICATION_REVIEW_MODE=mode==='prepare'?'prepare':'';
+  const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{channel:'chrome'})});
+  try{
+   const context=await browser.newContext(),page=await context.newPage(),url='https://employer.helper.invalid/apply';
+   await context.route('**/*',route=>new URL(route.request().url()).hostname==='employer.helper.invalid'?route.fulfill({contentType:'text/html',body:'<main><label>Name<input id=name oninput="localStorage.setItem(\'edits\',String(Number(localStorage.getItem(\'edits\')||0)+1))"></label><button id=send onclick="localStorage.setItem(\'sends\',String(Number(localStorage.getItem(\'sends\')||0)+1));document.querySelector(\'main\').innerHTML=\'Application received: HELPER-FIXTURE\'">Submit application</button></main>'}):route.abort());
+   await page.goto(url);let parent=0,helperName='';const readiness=createReadinessFixtureReply();
+   const bad=structuredClone(filler);bad.tests[0].assertions[0].equals='Incorrect expected value';
+   globalThis.fetch=(async(_url,init)=>{
+    const body=JSON.parse(String(init?.body));
+    assert.equal(isSpecialistFixtureRequest(body),false,'no specialist model request');
+    assert.ok(!body.tools.some((t:any)=>/consult_application_specialist|return_application_advice/.test(t.function.name)));
+    const review=readiness(body);if(review)return review;
+    let call:{name:string;args:Record<string,unknown>};
+    const last=body.messages.filter((m:any)=>m.role==='tool').at(-1)?.content;
+    if(parent===0){
+     assert.ok(body.tools.some((t:any)=>t.function.name==='test_application_helper'));
+     assert.ok(!body.tools.some((t:any)=>t.function.name.startsWith('helper_')),'previous applications do not leak helpers');
+     call={name:'test_application_helper',args:{definition_json:JSON.stringify(bad)}};
+    }else if(parent===1){
+     const feedback=JSON.parse(last);assert.equal(feedback.status,'test-failed');assert.equal(feedback.published,false);
+     assert.ok(!body.tools.some((t:any)=>t.function.name.startsWith('helper_')));
+     assert.equal(await page.locator('#name').inputValue(),'','failed tests never edit the employer form');
+     call={name:'test_application_helper',args:{definition_json:JSON.stringify(filler)}};
+    }else if(parent===2){
+     const published=JSON.parse(last);assert.equal(published.status,'fixture-tested');helperName=published.name;
+     assert.ok(body.tools.some((t:any)=>t.function.name===helperName),'the new tool is available on the next turn');
+     assert.equal(await page.locator('#name').inputValue(),'','successful tests also leave the employer form alone');
+     call={name:helperName,args:{input:{target:'#name',value:'Fictional Candidate'}}};
+    }else if(parent===3){
+     assert.equal(await page.locator('#name').inputValue(),'Fictional Candidate');
+     assert.equal(await page.evaluate(() => Number(localStorage.getItem('edits')||0)),1,'only live execution emits an input event');
+     call=mode==='prepare'?{name:'prepare_application',args:{answers:[{question:'Name',answer:'Fictional Candidate'}],resume_id:'cv',submit_selector:'#send'}}
+       :{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}};
+    }else if(parent===4&&mode==='auto'){
+     call={name:'finish',args:{status:'applied',reason:'Fixture receipt observed.',evidence:'Application received: HELPER-FIXTURE',receipt:{quote:'Application received: HELPER-FIXTURE'}}};
+    }else throw Error('Unexpected extra applying-agent turn');
+    parent++;
+    return Response.json({choices:[{message:{role:'assistant',content:null,tool_calls:[{id:'helper-call-'+parent,type:'function',function:{name:call.name,arguments:fixtureToolArguments(body,call.name,call.args)}}]}}],usage:{prompt_tokens:100,completion_tokens:30,cost:.001}});
+   }) as typeof fetch;
+   const result=await withApplicationModel({...process.env,APPLICATION_AI_MODEL:provider,APPLICATION_REVIEW_MODE:mode==='prepare'?'prepare':''},()=>runAgentOnlyApplication({page,job:{id:`helper-${provider}-${mode}`,title:'Fictional developer',company:'Fixture',location:'Sydney',platform:'workday',url},profile:{name:'Fictional Candidate',email:'fictional@example.invalid',skills:[]} as never,log:()=>{}}));
+   assert.equal(result.outcome.status,mode==='prepare'?'prepared':'applied');
+   assert.equal(result.submitPressed,mode==='auto');assert.equal(parent,mode==='prepare'?4:5);
+   assert.equal(await page.evaluate(() => Number(localStorage.getItem('sends')||0)),mode==='prepare'?0:1);
+   assert.equal(await page.evaluate(() => Number(localStorage.getItem('edits')||0)),1);
+  }finally{globalThis.fetch=fetchBefore;await browser.close();}
+ });
+}

@@ -63,7 +63,7 @@ import {isSnapshotOperation} from './browser-snapshot-command.js';
 import { RecoveryRecord, RecoveryRecordError, recoveryContextHash, type RecoveryWork } from './recovery-record.js';
 import { currentApplicationWorker } from '../application-workers.js';
 import { investigationTool, investigateApplicationState } from './investigation.js';
-import {ApplicationHelpers} from './application-helpers.js';
+import {ApplicationHelpers, helperBuilderTool, helperRecipeExample} from './application-helpers.js';
 
 const string = { type: 'string' };
 const batchActions = ['click', 'fill', 'type', 'select', 'check', 'press', 'hover', 'wait', 'inspect', 'set_input_files', 'script'];
@@ -88,6 +88,7 @@ const schema = (name: string, description: string, properties: Record<string, un
 
 /** The sole application tool surface. The agent owns answers and receipt decisions. */
 export const agentOnlyTools: ToolSchema[] = [
+  helperBuilderTool,
   applicationReviewTool,
   schema('add_cover_letter', 'Indeed fast path: supply your complete truthful tailored letter. Opens the known Supporting documents → Add → Write a cover letter flow, fills with normal input events, saves locally and reads back. Does not draft or submit the application. Use once when the application offers a letter channel. On fallback, inspect the live page and finish with normal browser tools; preserve completed work and do not call this shortcut repeatedly. Approved submissions always use the exact approved letter.', { text: { type: 'string', minLength: 1 } }, ['text']),
   schema('prepare_application', 'After filling and inspecting the final application review, save the actual completed form for confirmation, or check an approved reconstruction. Nothing is submitted. Captured browser answers are retained; pass an empty answers array when no additions are needed. Use actual saved values and selected option labels, not profile shorthand. Correct the form and inspect its readback before preparing; use save_progress for verified wizard answers absent from captured state. Supply the selected account resume ID. Declare the attached cover letter with cover_letter_file_id and other attached non-resume files with supporting_file_ids; exact uploaded bytes and readable source text are retained. Never infer document roles from filenames. For a text-only letter supply cover_letter; omitting it preserves known letter text.', {
@@ -428,6 +429,19 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     submitPressed:Boolean(ctx.submissionAttempted),steps,usage:meter.summary(),...(repairCheckpoint?{repair:repairCheckpoint}:{})});
 
   const act = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
+    if(name===helperBuilderTool.name){
+      try {
+        const published=await helpers.test(args);
+        recordDiagnostic({severity:'info',category:'helper_test_passed',stage:'recovery',tool:name,message:JSON.stringify(published)});
+        return ok(JSON.stringify(published),'reobserve');
+      } catch(error) {
+        const message=(error as Error).message;
+        recordDiagnostic({severity:'warning',category:'helper_test_failed',stage:'recovery',tool:name,message});
+        return ok(JSON.stringify({status:'test-failed',published:false,error:message,
+          workingExample:{definition_json:JSON.stringify(helperRecipeExample)},
+          instruction:'Revise definition_json and test again, or continue with existing tools. No live application action ran.'}),'failed');
+      }
+    }
     if(helpers.has(name))return helpers.execute(name,args,async(primitive,input)=>{
       if(await hasHcaptchaChallenge(ctx.page))return {kind:'terminal',outcome:{status:'skipped',reason:HCAPTCHA_SKIP_REASON}};
       recordDiagnostic({severity:'info',category:'helper_operation',stage:'tool',tool:primitive,message:`Executing ${name} using the normal ${primitive} executor.`});

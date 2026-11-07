@@ -83,7 +83,7 @@ const helperDefinitionTool:ToolSchema={name:'test_application_helper',descriptio
  * JSON text preserves heterogeneous arrays and literal values; the parsed
  * definition still passes the exact same local schema and capability checks. */
 export const helperBuilderTool:ToolSchema={...helperDefinitionTool,
- description:'Send ONE definition_json string containing the complete serialized JSON helper definition. Do not send nested definition fields as tool arguments. Preserve arrays and literal strings inside that JSON text. '+helperDefinitionTool.description,
+ description:'When an existing tool cannot express the needed operation, design and test a temporary helper yourself. After success, call the returned helper name with input on the next turn; it is available only for this application. Send ONE definition_json string containing the complete serialized JSON helper definition. Do not send nested definition fields as tool arguments. Preserve arrays and literal strings inside that JSON text. '+helperDefinitionTool.description,
  parameters:{type:'object',additionalProperties:false,properties:{definition_json:{type:'string',minLength:2,maxLength:100000,
   description:'JSON.stringify of the complete definition (name, description, parameters, steps, tests). JSON data only, never host code. The documented complete example is the content to serialize.'}},required:['definition_json']}};
 
