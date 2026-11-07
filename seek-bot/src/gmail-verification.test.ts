@@ -49,7 +49,10 @@ try {
   const alternative = await findVerificationInGmail({ hint: 'Fixture', want: 'code', allowAlternative: true, timeoutMs: 2000 });
   assert.ok(!('error' in alternative) && alternative.kind === 'link', 'a newer link-only authentication email wins over an older code and is reported immediately');
   messages = [message('old-link', 60 * 60_000, '111222')];
-  const old = await findVerificationInGmail({ hint: 'Fixture', want: 'code', timeoutMs: 100 });
+  // This asserts freshness after a completed loopback MCP poll, not latency.
+  // Parallel browser fixtures on the two-core deployment host can use 100ms
+  // before that poll completes; interruption has its own tests below.
+  const old = await findVerificationInGmail({ hint: 'Fixture', want: 'code', timeoutMs: 2000 });
   assert.ok('reason' in old && old.reason === 'not-found' && old.poll.completedPolls > 0);
   messages = [{ id: 'punctuation', subject: 'Fixture sign-in verification', date: new Date().toISOString(), plaintextBody: 'Your security code is:\n482913' }];
   const punctuation = await findVerificationInGmail({ hint: 'Fixture', purpose: 'sign_in', want: 'code', timeoutMs: 2000 });
