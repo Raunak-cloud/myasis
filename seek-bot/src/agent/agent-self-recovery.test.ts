@@ -18,6 +18,7 @@ Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only
   GMAIL_MCP_URL: 'https://mailbox.fixture.invalid', GMAIL_MCP_TOKEN: 'fixture-only', GMAIL_MCP_ACCOUNT: 'fixture@example.invalid', OWTOMATE_LIVE_REPAIR: '' });
 const { config } = await import('../config.js'); config.dryRun = true; config.allowExternalApply = true;
 const { runAgentOnlyApplication } = await import('./agent-only.js');
+const { buildApplicationSystemPrompt } = await import('./application-policy.js');
 mkdirSync(join(directory, 'resumes'));
 writeFileSync(join(directory, 'resumes/CV.txt'), 'Fictional resume');
 writeFileSync(join(directory, 'resumes.json'), JSON.stringify([{ id: 'cv', label: 'Fixture CV', fileName: 'CV.txt' }]));
@@ -52,6 +53,10 @@ async function scenario(id: string, calls: Call[], options: { specialistFails?: 
     assert.ok(++providerRequests<80,'Fixture exceeded its bounded scripted decision count');
     if (String(_url).includes('mailbox.fixture.invalid')) return Response.json({ error: 'Fixture mailbox unavailable' }, { status: 401 });
     const body = JSON.parse(String(init?.body));
+    const system = body.messages.filter((message:any)=>message.role==='system');
+    assert.equal(system.length,1);
+    assert.equal(system[0].content,buildApplicationSystemPrompt(process.env.COVER_LETTER_INSTRUCTIONS),'only the owner-approved system text reaches either provider');
+    assert.ok(body.messages.some((message:any)=>message.role==='user'&&typeof message.content==='string'&&message.content.startsWith('APPLICATION MODE\n')),'mode remains explicit runtime context');
     if (options.model === 'minimax') assert.equal(body.model, MINIMAX_APPLICATION_MODEL);
     else assert.equal(body.model, 'celeris-1-magnus', 'applying and supervisory calls use Magnus');
     assert.ok(!isSpecialistFixtureRequest(body), 'recovery must never launch another agent');

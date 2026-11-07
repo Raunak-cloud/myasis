@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {AGENT_ONLY_PROMPT,applicationCompletionInstruction, applicationSuitabilityAuthority} from './application-policy.js';
+import {AGENT_ONLY_PROMPT,buildApplicationSystemPrompt,applicationCompletionInstruction, applicationSuitabilityAuthority} from './application-policy.js';
 test('selected and approved applications have one suitability authority; only unreviewed work gets matching policy',()=>{
  for(const args of [[true,false,false],[false,true,false],[false,false,true]] as const){
   const policy=applicationSuitabilityAuthority(args[0],args[1],args[2]);
@@ -25,17 +25,11 @@ test('MiniMax receives the completion goal while Semi auto and truthful answers 
 });
 
 
-test('the browser-owner prompt cannot reinstate a mandatory recovery report',()=>{
- assert.doesNotMatch(AGENT_ONLY_PROMPT,/required specialist recovery obligation/);
- assert.match(AGENT_ONLY_PROMPT,/structured recovery reports are optional/);
- assert.match(AGENT_ONLY_PROMPT,/finish error with the observed technical blocker/);
-});
-
-
-test('the applying agent owns recovery, supported inference and application consent',()=>{
- assert.doesNotMatch(AGENT_ONLY_PROMPT,/ask consult_application_specialist|may consult a read-only specialist/);
- assert.match(AGENT_ONLY_PROMPT,/Australian citizenship supports Australian nationality/);
- assert.match(AGENT_ONLY_PROMPT,/answer No unless other candidate evidence contradicts/);
- assert.match(AGENT_ONLY_PROMPT,/Accept all terms and conditions/);
- assert.match(AGENT_ONLY_PROMPT,/Only request user input for a genuinely required personal question/);
+test('saved instructions fill the approved prompt slot literally without appending policies',()=>{
+ const instructions='Keep paragraphs.\nUse "plain" words and literal $& ${example} text.';
+ const prompt=buildApplicationSystemPrompt(instructions);
+ assert.equal(prompt,AGENT_ONLY_PROMPT.replace('"[candidate saved instructions inserted here at runtime]"',()=>JSON.stringify(instructions)));
+ assert.ok(prompt.endsWith('Saved instructions: '+JSON.stringify(instructions)));
+ assert.equal(buildApplicationSystemPrompt(undefined),AGENT_ONLY_PROMPT.replace('"[candidate saved instructions inserted here at runtime]"','""'));
+ assert.doesNotMatch(prompt,/EMPLOYER ACCOUNT FIRST|CUSTOM SELECT RECOVERY|RECOVERY IS YOUR RESPONSIBILITY|DATE ACCURACY:/);
 });
