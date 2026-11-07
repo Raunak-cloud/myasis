@@ -42,10 +42,12 @@ export function specialistFixtureReply(body: any): Response | undefined {
   const last = controlled&&(!forced||forced==='finish')&&['resolved','blocked'].includes(task.phase)
     ? toolMessages.findLast(isStoppingReview) : toolMessages.at(-1);
   if (!isStoppingReview(last)) return;
+  const replayId = `${last.tool_call_id}-after-specialist`;
+  if (body.messages.some((message:any)=>message.role==='assistant'&&message.tool_calls?.some((call:any)=>call.id===replayId))) return;
   const calls = body.messages.flatMap((message: any) => message.role === 'assistant' ? message.tool_calls || [] : []);
   const held = calls.findLast((call: any) => call.id === last.tool_call_id)?.function;
   if (held?.name !== 'finish') throw new Error('Fixture could not correlate the stopping review with its held finish.');
   return Response.json({ usage: { prompt_tokens: 0, completion_tokens: 0 }, choices: [{ message: { role: 'assistant', content: null,
-    tool_calls: [{ id: `${last.tool_call_id}-after-specialist`, type: 'function', function: held }],
+    tool_calls: [{ id: replayId, type: 'function', function: held }],
   } }] });
 }

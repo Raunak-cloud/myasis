@@ -243,7 +243,7 @@ try {
   assert.ok(opaqueResult?.kind === 'terminal' && opaqueResult.outcome.status === 'prepared');
   assert.equal(opaqueResult.outcome.draft.coverLetter, originalLetter, 'original opaque source punctuation is not rewritten or permanently vetoed');
   const writtenResult = await applicationApprovalGate({ ...opaqueContext, documents: undefined });
-  assert.ok(writtenResult?.kind === 'ok' && writtenResult.disposition === 'failed', 'generated/text writing still follows punctuation validation');
+  assert.ok(writtenResult?.kind === 'terminal' && writtenResult.outcome.status === 'prepared', 'writing-style advice does not veto otherwise valid preparation');
   await opaquePage.close();
 
   // A local recovery/restart retains successful byte selections, including

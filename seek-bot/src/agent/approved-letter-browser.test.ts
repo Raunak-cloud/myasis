@@ -115,7 +115,9 @@ test('approved letter renders and uploads byte-exact without model transcription
   const optionalDraft={...draft,coverLetter:undefined,answers:[{question:'Additional context',answer:'Previously approved optional note.'}]};
   writeFileSync(join(dir,'approved-applications.json'),JSON.stringify([optionalDraft]));
   await page.setContent('<label>Additional context<input value=""></label><button>Submit</button>');
-  expectRepair(await gate({...ctx as any,captured:optionalDraft.answers,coverLetter:undefined,uploadedDocuments:[],letterWitness:undefined}));
+  const optionalContext={...ctx as any,captured:optionalDraft.answers,coverLetter:undefined,uploadedDocuments:[],letterWitness:undefined};
+  assert.equal(await gate(optionalContext),null,'an ordinary optional note mismatch is advisory');
+  assert.match(optionalContext.formAdvisories.join(' '),/Additional context/);
   writeFileSync(join(dir,'approved-applications.json'),JSON.stringify([draft]));
   const savedContext={...ctx as any,coverLetter:text,uploadedDocuments:[],letterWitness:undefined};
   await page.setContent('<form><input type="hidden" name="payload_3"><button>Submit</button></form>');

@@ -20,6 +20,7 @@ const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{
 const fetchBefore=globalThis.fetch;
 after(async()=>{globalThis.fetch=fetchBefore;await browser.close();rmSync(directory,{recursive:true,force:true});});
 type Body={tools?:Array<{function:{name:string}}>;tool_choice?:{function?:{name?:string}};messages:unknown[]};
+const reviewAdvice=(body:Body)=>String((body.messages.at(-1) as {content?:unknown})?.content??'').startsWith('APPLICATION REVIEW ADVICE:');
 type Call={name:string;args:Record<string,unknown>};
 const review=(assessment='ready'):Call=>({name:'record_application_review',args:{assessment,vacancy:'Fictional developer at Fictional Employer, Sydney',
  documents:'Fictional CV and the observed fictional form.',unresolved:assessment==='ready'?[]:['The fictional candidate answer needs correction or clarification.'],
@@ -27,7 +28,8 @@ const review=(assessment='ready'):Call=>({name:'record_application_review',args:
 const result=(assessment='progress'):Call=>({name:'record_recovery_result',args:{assessment,evidence:['A new fictional candidate answer is saved in the current form.'],next_action:'Continue with the observed form.'}});
 const finish=(status='skipped',extra:Record<string,unknown>={}):Call=>({name:'finish',args:{status,reason:'Controlled fixture outcome',evidence:'Current fictional employer state',...extra}});
 const plan:Call={name:'record_recovery_plan',args:{observed_issue:'The scripted locator was invalid.',evidence:['The browser tool rejected the invalid schema.'],previous_approaches:['Invalid extra property.'],next_action:'Use a current valid browser target.',verification:'A valid operation succeeds on the observed form.'}};
-const packet=(calls:Call[],cost=0)=>Response.json({choices:[{message:{role:'assistant',content:null,tool_calls:calls.map((call,i)=>({id:'fixture-'+i,type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}))}}],usage:{prompt_tokens:Math.round(cost*1_000_000/CELERIS_RATES.promptUncached),completion_tokens:0}});
+let packetSequence=0;
+const packet=(calls:Call[],cost=0)=>Response.json({choices:[{message:{role:'assistant',content:null,tool_calls:calls.map((call,i)=>({id:'fixture-'+ ++packetSequence+'-'+i,type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}))}}],usage:{prompt_tokens:Math.round(cost*1_000_000/CELERIS_RATES.promptUncached),completion_tokens:0}});
 let sequence=0;
 async function fixture(html:string){
  process.env.APPLICATION_REVIEW_MODE='';config.dryRun=false;config.allowExternalApply=true;
@@ -43,7 +45,7 @@ test('Auto apply returns from canonical correction to work without spending the 
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;const specialist=specialistFixtureReply(body);if(specialist)return specialist;calls++;
   if(calls===1)return packet([{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],.10);
   assert.equal(calls,2,'an unaffordable repair must not start another paid model turn');
-  assert.equal(body.tool_choice?.function?.name,'record_application_review');return packet([review('correct')],.13);
+  assert.equal(body.tool_choice?.function?.name,undefined,'a review report is never forced');return packet([review('correct')],.13);
  };
  try{const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'skipped');assert.match(JSON.stringify(r.outcome),/spending budget/);assert.equal(calls,2);assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),0);}finally{await f.context.close();}
 });
@@ -84,7 +86,7 @@ test('Culture Amp style empty search box plus specialist advice completes withou
   if(turns===1)return packet([{name:'browser_action',args:{action:'fill',selector:'#name',value:'Fictional Candidate'}}],.10);
   if(turns===2)return packet([{name:'browser_action',args:{action:'click',selector:'#country',undeclared:true}}],.02);
   if(turns===3){assert.equal(body.tool_choice?.function?.name,undefined);return packet([{name:'consult_application_specialist',args:{question:'Is this country selection committed?'}},{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],.03);}
-  if(turns===5){assert.equal(body.tool_choice?.function?.name,'record_application_review');return packet([review()],.03);}
+  if(turns===5){assert.equal(body.tool_choice?.function?.name,undefined,'a review report is never forced');return packet([review()],.03);}
   assert.ok([4,6].includes(turns));assert.ok(!['record_recovery_plan','record_recovery_result'].includes(body.tool_choice?.function?.name??''),'recovery reports cannot exclude the normal completion operation');
   return packet([prepare],.01);
  };
@@ -133,7 +135,7 @@ test('Semi auto preparation, exact approval and in-place answer repair keep thei
  const f=await fixture(form);process.env.APPLICATION_REVIEW_MODE='prepare';let turns=0;
  const prepare:Call={name:'prepare_application',args:{answers:[],resume_id:'cv',submit_selector:'#send'}};
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;turns++;
-  if(body.tool_choice?.function?.name==='record_application_review')return packet([review()]);
+  if(reviewAdvice(body))return packet([review()]);
   if(turns===1)return packet([{name:'browser_action',args:{action:'fill',selector:'#name',value:'Fictional Candidate'}}]);
   assert.ok(turns<=4);return packet([prepare]);
  };
@@ -142,7 +144,7 @@ test('Semi auto preparation, exact approval and in-place answer repair keep thei
   if(prepared.outcome.status!=='prepared')throw Error('Expected a candidate-review draft');
   writeFileSync(join(directory,'approved-applications.json'),JSON.stringify([prepared.outcome.draft]));process.env.APPLICATION_REVIEW_MODE='approved';turns=0;
   globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;turns++;
-   if(body.tool_choice?.function?.name==='record_application_review')return packet([review()]);
+   if(reviewAdvice(body))return packet([review()]);
    if(turns<=3)return packet([prepare]);
    if(turns===4)return packet([{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}]);
    assert.equal(turns,5);return packet([finish('applied',{receipt:{quote:'Application received: BUDGET-FIX'}})]);
@@ -154,15 +156,15 @@ test('Semi auto preparation, exact approval and in-place answer repair keep thei
   const approvalBefore=readFileSync(join(directory,'approved-applications.json'),'utf8');
   let repairPhase:'blocked'|'restored'|'receipt'|'done'='blocked';
   globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;turns++;assert.ok(turns<=10,'bounded correction must complete without a re-preparation loop');
-   if(body.tool_choice?.function?.name==='record_application_review')return packet([review()]);
+   if(reviewAdvice(body))return packet([review()]);
    const lastTool=(body.messages as Array<{role?:string;content?:unknown}>).filter(message=>message.role==='tool').at(-1);
    if(repairPhase==='blocked'){
-    if(!String(lastTool?.content).includes('Restore the approved answer'))return packet([prepare]);
+    if(!String(lastTool?.content).includes('differs from the approved text'))return packet([prepare]);
     assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),1,'changed content never transmits');
     repairPhase='restored';return packet([{name:'browser_action',args:{action:'fill',selector:'#name',value:'Fictional Candidate'}}]);
    }
    if(repairPhase==='restored'){
-    if(!String(lastTool?.content).includes('matches the version the candidate confirmed'))return packet([prepare]);
+    if(!String(lastTool?.content).includes('Candidate approval and document checks passed'))return packet([prepare]);
     repairPhase='receipt';return packet([{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}]);
    }
    assert.equal(repairPhase,'receipt','one repaired send is followed only by receipt verification');
@@ -207,7 +209,7 @@ test('email preparation retains an already-paid draft and changes to its recipie
  const draft=(to:string):Call=>({name:'prepare_email_application',args:{to,subject:'Fictional application',cover_letter:'Dear team,\n\nI am applying using my fictional candidate CV.\n\nFictional Candidate',resume_id:'cv'}});
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;turns++;
   assert.ok(turns<=5,'the exact local email draft must not be discarded or repeatedly regenerated');
-  if(body.tool_choice?.function?.name==='record_application_review'){reviews++;return packet([review()]);}
+  if(reviewAdvice(body)){reviews++;return packet([review()]);}
   return packet([draft(turns===1?'first@fixture.invalid':'second@fixture.invalid')],turns===5?.25:.01);
  };
  try{const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'prepared');assert.equal(reviews,2);assert.equal(turns,5);assert.equal(r.submitPressed,false);if(r.outcome.status==='prepared')assert.equal(r.outcome.draft.email?.to,'second@fixture.invalid');}finally{await f.context.close();}
@@ -242,18 +244,22 @@ test('malformed final review retries the same assessment once without pretending
  const prepare:Call={name:'prepare_application',args:{answers:[],resume_id:'cv',submit_selector:'#send'}};
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;turns++;
   if(turns===1)return packet([prepare]);
-  if(turns===2){assert.equal(body.tool_choice?.function?.name,'record_application_review');return packet([{name:'record_application_review',args:{assessment:'ready'}}],.08);}
-  if(turns===3){assert.equal(body.tool_choice?.function?.name,'record_application_review');return packet([review()],.15);}
+  if(turns===2){assert.equal(body.tool_choice?.function?.name,undefined,'a review report is never forced');return packet([{name:'record_application_review',args:{assessment:'ready'}}],.08);}
+  if(turns===3){assert.equal(body.tool_choice?.function?.name,undefined,'a review report is never forced');return packet([review()],.15);}
   assert.equal(turns,4,'only the completed local draft should follow the corrected review');return packet([prepare]);
  };
  try{const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'prepared');assert.equal(turns,4);assert.equal(r.submitPressed,false);}finally{process.env.APPLICATION_REVIEW_MODE='';await f.context.close();}
 });
 
-test('repeated malformed final review exits with its actual error instead of looping through send again',{timeout:10000},async()=>{
- const f=await fixture(form);let turns=0;
- globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;turns++;assert.ok(turns<=3,'no paid send/review loop is allowed after an unusable correction');
-  if(turns===1)return packet([{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}]);
-  assert.equal(body.tool_choice?.function?.name,'record_application_review');return packet([{name:'record_application_review',args:{assessment:'ready'}}]);
+test('repeated malformed optional reviews cannot force a skip or stop normal preparation',{timeout:10000},async()=>{
+ const f=await fixture(form);process.env.APPLICATION_REVIEW_MODE='prepare';let turns=0;
+ const prepare:Call={name:'prepare_application',args:{answers:[],resume_id:'cv',submit_selector:'#send'}};
+ globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;turns++;assert.ok(turns<=4,'no mandatory reporting loop');
+  assert.equal(body.tool_choice?.function?.name,undefined,'normal tools remain available after malformed optional reports');
+  if(turns===1||turns===4)return packet([prepare]);
+  return packet([{name:'record_application_review',args:{assessment:'ready'}}]);
  };
- try{const r=await runAgentOnlyApplication(f);assert.deepEqual(r.outcome,{status:'skipped',reason:'The application could not be completed.'});assert.equal(turns,3);assert.equal(r.submitPressed,false);assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),0);}finally{await f.context.close();}
+ try{const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'prepared');assert.equal(turns,4);assert.equal(r.submitPressed,false);assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),0);
+  const trace=JSON.parse(readFileSync(join(directory,'traces',f.job.id+'.json'),'utf8'));assert.equal(trace.steps.filter((step:any)=>step.tool==='record_application_review'&&step.disposition==='advisory').length,2);
+ }finally{process.env.APPLICATION_REVIEW_MODE='';await f.context.close();}
 });
