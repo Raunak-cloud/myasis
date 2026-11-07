@@ -111,6 +111,13 @@ function TraceContent({ jobId, questions, endpoint }: { jobId: string; questions
     };
   }, [jobId, endpoint]);
 
+  const captures = steps?.filter(step => step.screenshot) ?? [];
+  const captureIndex = enlarged ? captures.indexOf(enlarged) : -1;
+  function moveCapture(offset: number) {
+    const next = captures[captureIndex + offset];
+    if (next) setEnlarged(next);
+  }
+
   return (
     <div className="trace">
       {questions.length > 0 && (
@@ -143,15 +150,25 @@ function TraceContent({ jobId, questions, endpoint }: { jobId: string; questions
       ))}
 
       {enlarged && (
-        <div className="overlay center" onClick={() => setEnlarged(null)} role="dialog" aria-modal="true">
+        <div className="overlay center" onClick={() => setEnlarged(null)} role="dialog" aria-modal="true" aria-label="Application steps"
+          onKeyDown={event => {
+            if (event.key === 'Escape') setEnlarged(null);
+            else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+              event.preventDefault();
+              moveCapture(event.key === 'ArrowLeft' ? -1 : 1);
+            }
+          }}>
           <div className="card trace-zoom" onClick={(event) => event.stopPropagation()}>
             <div className="trace-zoom-bar">
               <span className="job-meta">
                 <strong>Step {enlarged.step}</strong> · {enlarged.label}
               </span>
-              <button className="btn btn-small" onClick={() => setEnlarged(null)}>
-                Close
-              </button>
+              <div className="trace-zoom-controls">
+                <button className="btn btn-small" disabled={captureIndex <= 0} onClick={() => moveCapture(-1)}>Previous</button>
+                <span className="job-meta" aria-live="polite">{captureIndex + 1} of {captures.length}</span>
+                <button className="btn btn-small" disabled={captureIndex >= captures.length - 1} onClick={() => moveCapture(1)}>Next</button>
+                <button className="btn btn-small" autoFocus onClick={() => setEnlarged(null)}>Close</button>
+              </div>
             </div>
             <img src={enlarged.screenshot} alt={`Step ${enlarged.step}`} />
           </div>

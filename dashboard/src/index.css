@@ -2002,10 +2002,11 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
   flex-direction: column;
 }
 .trace-zoom-bar {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
   padding: 9px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border);
   position: sticky; top: 0;
 }
+.trace-zoom-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .trace-zoom img { width: 100%; display: block; }
 .btn-small { padding: 4px 10px; font-size: 12px; }
 
