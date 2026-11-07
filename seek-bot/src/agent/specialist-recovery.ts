@@ -4,7 +4,7 @@ import type {ToolSchema} from './celeris.js';
 import {toolInputIssue} from './tool-input.js';
 
 interface Operation {name:string;args:Record<string,unknown>}
-interface Verification {kind:'field-value'|'visible-text'|'control-enabled'|'url-path';target:string;value:string}
+interface Verification {kind:'field-value'|'field-selection'|'visible-text'|'control-enabled'|'url-path';target:string;value:string}
 interface RecoveryAttempt { id:string; strategy:string; firstOperation:string; }
 interface Task {
   id:string;advice:string;adviceKey:string;phase:'decision'|'action'|'verification'|'resolved'|'blocked';
@@ -13,7 +13,7 @@ interface Task {
   actionObservation?:number;history:string[];verifiedEvidence:string[];visited:string[];checks:number;invalidChecks?:number;stopReason?:string; attempts?:RecoveryAttempt[]; attemptOpen?:boolean; resultVersion?:number;
 }
 const text={type:'string',minLength:1,maxLength:2000};
-export const specialistVerificationSchema={type:'object',additionalProperties:false,properties:{kind:{type:'string',enum:['field-value','visible-text','control-enabled','url-path']},target:{...text,description:'Exact field/action label or current ref (without annotations), exact visible text, or URL origin. Use the final blocker goal, not an intermediate navigation step.'},value:{type:'string',maxLength:4000,description:'Exact expected currentValue for a field (no explanatory prose), true/false for enabled controls, exact visible text, or exact URL pathname. Empty string is valid when clearing an unsupported field.'}},required:['kind','target','value']};
+export const specialistVerificationSchema={type:'object',additionalProperties:false,properties:{kind:{type:'string',enum:['field-value','field-selection','visible-text','control-enabled','url-path']},target:{...text,description:'Exact field/action label or current ref (without annotations), exact visible text, or URL origin. Use field-selection for an observed search-only dropdown: its query can differ from the committed option label.'},value:{type:'string',maxLength:4000,description:'For field-selection use selected: verify a committed value with no validation error, not candidate truth or send permission. For field-value use the exact expected currentValue; true/false for enabled controls, exact visible text, or exact URL pathname. Empty string is valid when clearing an unsupported field.'}},required:['kind','target','value']};
 export const specialistRecoveryTools:ToolSchema[]=[
  {name:'respond_to_specialist',description:'Optional agent decision: choose a materially different recovery approach or revise the current one. Up to three executed approaches per blocker; planning and reporting do not spend attempts. The main agent may instead continue directly from current evidence, inspect, prepare through the normal accuracy check, request a real missing answer or record a technical error. Specialist advice cannot force a stop.',parameters:{type:'object',additionalProperties:false,properties:{
   advice_id:text,decision:{type:'string',enum:['adopt','alternative','reject']},reason:text,
@@ -74,8 +74,9 @@ export const sameSpecialistObservation=(before:Observation,after:Observation)=>!
  &&before.url===after.url&&hash(surface(before))===hash(surface(after));
 function satisfies(v:Verification,o:Observation):boolean {
  if(o.inspectionError)return false;
- if(v.kind==='field-value') {
+ if(v.kind==='field-value'||v.kind==='field-selection') {
   const fields=safeFields(o).filter(f=>f.ref===v.target||fieldLabel(f.label)===fieldLabel(v.target));
+  if(v.kind==='field-selection')return v.value==='selected'&&fields.length===1&&fields[0].selectionState==='selected'&&Boolean(normal(fields[0].currentValue))&&!fields[0].validationError;
   return fields.length===1&&fields[0].currentValue!==undefined&&!fields[0].validationError&&normal(fields[0].currentValue)===normal(v.value);
  }
  if(v.kind==='control-enabled') {
@@ -87,9 +88,16 @@ function satisfies(v:Verification,o:Observation):boolean {
 }
 function bindGoal(v:Verification,o?:Observation):Verification {
  if(!v||!o)return v;
- if(v.kind==='field-value'){
+ if(v.kind==='field-value'||v.kind==='field-selection'){
   const matches=safeFields(o).filter(field=>field.ref===v.target||fieldLabel(field.label)===fieldLabel(v.target));
-  if(matches.length===1)return {...v,target:matches[0].label};
+  if(matches.length===1){
+   const field=matches[0];
+   // Dropdown recovery verifies mechanics. Candidate facts are reviewed by
+   // the independent canonical pre-send assessment. A query such as Sydney
+   // cannot be required to equal Sydney, New South Wales, Australia.
+   if(field.selectionState!==undefined)return {kind:'field-selection',target:field.label,value:'selected'};
+   return {...v,target:field.label};
+  }
  }
  if(v.kind==='control-enabled'){
   const action=o.actions.find(action=>action.ref===v.target);
@@ -140,9 +148,13 @@ export class SpecialistRecovery {
   if(!o.inspectionError){
    this.observationVersion++;
    const goal=this.checkpointGoal;
-   const named=goal?.kind==='field-value'?safeFields(o).filter(f=>fieldLabel(f.label)===fieldLabel(goal.target))
+   const named=goal&&(goal.kind==='field-value'||goal.kind==='field-selection')?safeFields(o).filter(f=>fieldLabel(f.label)===fieldLabel(goal.target))
     :goal?.kind==='control-enabled'?o.actions.filter(a=>normal(a.text)===normal(goal.target)):[];
    if(goal&&named.length===1){this.checkpointGoal=undefined;this.reviseGoal(goal);}
+   if(this.task?.verification&&this.task.phase!=='resolved'){
+    const bound=bindGoal(this.task.verification,o);
+    if(hash(bound)!==hash(this.task.verification))this.reviseGoal(bound);
+   }
    // Completion belongs to this blocker. Scrolling to another field or
    // opening its menu must not revive the previous blocker's spent budget.
    if(this.task&&this.task.phase!=='resolved'&&this.goalObserved){
@@ -175,6 +187,7 @@ export class SpecialistRecovery {
   if(this.pending){
    this.task!.advice=boundAdvice;this.task!.adviceKey=adviceKey;
    if(goalChanged)this.reviseGoal(goal);
+   if(this.goalObserved){this.task!.phase='resolved';this.task!.attemptOpen=false;}
    return;
   }
   this.task={id:randomUUID(),advice:boundAdvice,adviceKey,phase:'decision',verification:goal,history:[],verifiedEvidence:[],visited:this.observation?[hash(surface(this.observation))]:[],checks:0,attempts:[]};

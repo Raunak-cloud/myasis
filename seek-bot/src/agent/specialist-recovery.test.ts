@@ -40,6 +40,22 @@ test('required-marker normalization never treats two different school controls a
  assert.equal(r.pending,true,'ambiguous repeated entries still require a unique target');
 });
 
+test('a city query is not a dropdown answer; a valid committed full label resolves mechanical recovery without requiring the query text',()=>{
+ const city=(selected=false,invalid=false):Observation=>({...obs(),fields:[{ref:'f6',label:'Location (City) *',kind:'text',required:true,autocomplete:true,currentValue:selected?'Sydney, New South Wales, Australia':'',searchValue:selected?'':'Sydney',selectionState:selected?'selected':'searching',...(invalid?{validationError:'Location is required.'}:{})}]});
+ const r=new SpecialistRecovery();r.observe(city());
+ r.accept('READ-ONLY SPECIALIST ADVICE.\n'+JSON.stringify({advice:'Select the supported Sydney option, then check its accuracy in the pre-send review.',recovery_goal:{kind:'field-value',target:'Location (City) *',value:'Sydney'}}));
+ assert.equal(view(r).verification.kind,'field-selection');assert.equal(r.pending,true,'query text alone cannot resolve the repair');
+ for(const args of [{action:'click',ref:'f6'},{action:'fill',ref:'f6',value:'Sydney'},{action:'press',ref:'f6',value:'Enter'}]){
+  r.complete('browser_action',args,'Failed query approach',true,true);r.observe(city());
+ }
+ assert.equal(r.exhausted,true);
+ const legacy=structuredClone(r.checkpoint());legacy.task!.verification={kind:'field-value',target:'Location (City) *',value:'Sydney'};
+ const restored=new SpecialistRecovery(legacy);restored.observe(city(true,true));assert.equal(restored.pending,true,'employer validation remains authoritative');
+ restored.observe(city(true));assert.equal(restored.pending,false);assert.equal(view(restored).phase,'resolved');assert.equal(view(restored).attempts,3,'migration closes verified work without granting additional repair attempts');
+ assert.equal(restored.permit('browser_action',{action:'click',ref:'degree'}),undefined,'the completed City scope cannot block the next dropdown');
+ assert.match(restored.render(),/field-selection/);
+});
+
 test('Sony sequence: unchanged checkbox, malformed reports and delayed review never force a skip',()=>{
  const r=start();r.respond(plan(r),tools);act(r,{action:'click',ref:'a0'});
  assert.match(r.check(check(r)),/goal currently observed: false/,'unchanged DOM can still wait for a visual/async transition');
