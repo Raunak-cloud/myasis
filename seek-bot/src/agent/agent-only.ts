@@ -953,12 +953,13 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         else if (args.action === 'check') await element.setChecked(value !== 'false', { timeout: 8000 });
         else await nativeSelect(element, value);
         const waitNote = await waitAfterAction(ctx.page, args);
-        const readback = await nativeReadback(target(ctx, args)) as { private: boolean; controlIdentity?: string; value?: string; widgetText?: string; checked?: boolean; selected?: Array<{ label: string }> };
+        const readback = await nativeReadback(target(ctx, args)) as { private: boolean; controlIdentity?: string; value?: string; widgetText?: string; committedValue?:string; selectionState?:string; checked?: boolean; selected?: Array<{ label: string }> };
         // The actual native readback, never the requested fill text, can bind
         // approved-letter evidence just like a separate explicit inspection.
         files.witnessInspectedLetter(readback,ctx.observation.fields);ctx.letterWitness=files.checkpointLetterWitness();
         browserMutated = true; // retain successful writes even if a later command in the batch fails
         const saved = args.action === 'check' ? String(readback.checked)
+          : readback.selectionState ? readback.selectionState==='selected'?readback.committedValue:undefined
           : args.action === 'select' ? readback.selected?.map(option => option.label).join(', ') ?? readback.widgetText : readback.value;
         if (!readback.private && typeof saved === 'string' && actionLabel) {
           ctx.captured = [...ctx.captured.filter(answer => answer.question !== actionLabel), { question: actionLabel, answer: saved }];

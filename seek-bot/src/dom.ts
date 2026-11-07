@@ -1,6 +1,7 @@
 import type { Frame, Page } from 'patchright';
 import type { FormField } from './types.js';
 import { preparePrivateAuthenticationFields } from './private-auth-fields.js';
+import { readComboboxStates } from './combobox-state.js';
 
 /**
  * Extracts the interactive fields on the current step as a compact list.
@@ -9,7 +10,7 @@ import { preparePrivateAuthenticationFields } from './private-auth-fields.js';
  */
 export async function extractFields(page: Page | Frame): Promise<FormField[]> {
   await preparePrivateAuthenticationFields(page);
-  return page.evaluate(() => {
+  const fields:FormField[]=await page.evaluate(() => {
     const fields: any[] = [];
     let n = 0;
 
@@ -459,4 +460,15 @@ export async function extractFields(page: Page | Frame): Promise<FormField[]> {
 
     return fields;
   });
+  const selections=await page.locator('[role="combobox"]').evaluateAll(readComboboxStates);
+  for(const field of fields){
+    const selected=selections.find(state=>state.ref===field.ref&&state.controlIdentity===field.controlIdentity);
+    if(!selected||field.sensitive)continue;
+    field.currentValue=selected.committedValue;
+    field.searchValue=selected.searchValue;
+    field.selectionState=selected.selectionState;
+    field.options=selected.options;
+    field.optionStatusText=selected.optionStatusText;
+  }
+  return fields;
 }

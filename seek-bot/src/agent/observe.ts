@@ -606,12 +606,13 @@ export function renderObservation(observation: Observation): string {
     .map((f) => {
       const options = f.options?.length ? `  options=${JSON.stringify(f.options)}` : '';
       const value = f.currentValue !== undefined ? `  current=${JSON.stringify(f.sensitive ? '[private credential]' : f.currentValue)}` : '';
+      const selection=f.selectionState?`  selection=${f.selectionState} search_query=${JSON.stringify(f.searchValue??'')} (query is not a saved answer)${f.optionStatusText?` menu_status=${JSON.stringify(f.optionStatusText)}`:''}`:'';
       const error = f.validationError ? `  validation=${JSON.stringify(f.validationError)}` : '';
       const control = [f.inputType && `input=${f.inputType}`, f.readOnly && 'read-only', f.disabled && 'disabled', f.autocomplete && 'autocomplete: inspect the current widget before choosing an interaction',
         f.sensitive && 'private credential: use authentication tools'].filter(Boolean).join('; ');
       const description = f.description ? `  description=${JSON.stringify(f.description)}` : '';
       const hints = f.hints ? `  hints=${JSON.stringify(f.hints)}` : '';
-      return `  ${f.ref}  [${f.kind}]${f.required ? ' (required)' : ''}  ${f.section ? `${f.section} › ` : ''}${f.label}${control ? `  control=${JSON.stringify(control)}` : ''}${description}${hints}${options}${value}${error}`;
+      return `  ${f.ref}  [${f.kind}]${f.required ? ' (required)' : ''}  ${f.section ? `${f.section} › ` : ''}${f.label}${control ? `  control=${JSON.stringify(control)}` : ''}${description}${hints}${options}${value}${selection}${error}`;
     })
     .join('\n');
 

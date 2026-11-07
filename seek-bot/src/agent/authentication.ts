@@ -177,7 +177,9 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
       ?? { format: 'readable-v1', rules: normalizeRules(args.password_rules),derivationScope:site }
     : storedCredential(credentialUrl(ctx), ctx.profile.email,ctx.job.company);
   if (setsPassword && args.password_rules && !(purpose === 'create_account' && savedProposal?.phase === 'needs_verification')) {
-    credential = { format: 'readable-v1', rules: normalizeRules(args.password_rules),derivationScope:credential?.derivationScope??site };
+    // A later partial reading (e.g. only the minimum) cannot silently drop
+    // the maximum already observed on this same pending password form.
+    credential = { format: 'readable-v1', rules: normalizeRules({...credential?.rules,...normalizeRules(args.password_rules)}),derivationScope:credential?.derivationScope??site };
   }
   let values = fields.map((field) => ({ field, value: authenticationValue(field, ctx.profile, ctx.page.url(), credential) }));
   const unsupported = values.filter((entry) => entry.value === null);

@@ -91,6 +91,8 @@ test('parallel account consultations isolate full candidate evidence, preference
     assert.deepEqual(body.tools.map((tool: any) => tool.function.name), ['return_application_advice'], 'the only capability is returning typed advice, never a live action or recursive consultation');
     assert.ok(body.messages[1].content.includes('\\u003c/untrusted>'), 'page cannot escape its evidence wrapper');
     assert.match(body.messages[0].content, /cannot launch or delegate/);
+    assert.match(body.messages[0].content, /CUSTOM SELECT RECOVERY/);
+    assert.match(body.messages[0].content, /do not prescribe an exact option that has never been observed/);
   }
 });
 

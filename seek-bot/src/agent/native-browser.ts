@@ -2,6 +2,7 @@ import type { Frame, Locator, Page } from 'patchright';
 import { browserDeadline } from '../browser-deadline.js';
 import { browserTarget, browserTargetProperties, hasBrowserTarget, observedFrame } from './browser-target.js';
 import { privateAuthenticationValues, redactPrivateAuthenticationData } from '../private-auth-fields.js';
+import { readComboboxStates } from '../combobox-state.js';
 
 export const MAX_BROWSER_BATCH = 32;
 const waitState = { type: 'string', enum: ['visible', 'hidden', 'attached', 'detached'] };
@@ -124,7 +125,10 @@ export async function nativeReadback(target: Locator): Promise<unknown> {
 
 async function nativeReadbackNow(target: Locator): Promise<unknown> {
   const values = await privateAuthenticationValues(target.page());
-  return redactPrivateAuthenticationData((await target.evaluate(describeNativeTargets, undefined, { timeout: 5000 })).fields[0], values);
+  const field=(await target.evaluate(describeNativeTargets, undefined, { timeout: 5000 })).fields[0];
+  const selection=(await target.evaluate(readComboboxStates,undefined,{timeout:5000}))[0];
+  if(selection&&!field.private&&(!field.controlIdentity||field.controlIdentity===selection.controlIdentity))Object.assign(field,selection);
+  return redactPrivateAuthenticationData(field, values);
 }
 
 /** One evaluation reads the current matching nodes together, including privacy
@@ -136,6 +140,11 @@ export async function nativeInspect(target: Locator): Promise<unknown> {
 async function nativeInspectNow(target: Locator): Promise<unknown> {
   const values = await privateAuthenticationValues(target.page());
   const result = await target.evaluateAll(describeNativeTargets);
+  const selections=await target.evaluateAll(readComboboxStates);
+  for(const field of result.fields){
+    const selection=selections.find(state=>state.match_index===field.match_index&&(!field.controlIdentity||field.controlIdentity===state.controlIdentity));
+    if(selection&&!field.private)Object.assign(field,selection);
+  }
   return redactPrivateAuthenticationData(result.matched === 1 ? result.fields[0] : result, values);
 }
 

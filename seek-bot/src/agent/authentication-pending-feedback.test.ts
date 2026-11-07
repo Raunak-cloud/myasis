@@ -38,6 +38,11 @@ test('local registration preparation does not invent an employer activation requ
   assert.equal(storedCredential(page.url(),profile.email),null);
   assert.equal(pendingCredential(page.url(),profile.email,'Fixture','create_account')?.phase,'prepared');
   assert.ok(!prepared.message.includes(proposed));
+  await doCompleteAuthentication(creator,{purpose:'create_account',password_rules:{min_length:8,max_length:18},...inputs});
+  assert.ok((await page.locator('#password').inputValue()).length<=18);
+  await doCompleteAuthentication(creator,{purpose:'create_account',password_rules:{min_length:8},...inputs});
+  assert.equal(pendingCredential(page.url(),profile.email,'Fixture','create_account')?.rules?.max_length,18,'a partial later rules report preserves the observed maximum');
+  assert.ok((await page.locator('#password').inputValue()).length<=18,'the actual private fill retains the employer cap');
   const notice='Verify your email to activate your candidate account.';
   await page.setContent('<main><p>'+notice+'</p></main>');
   await doRecordAuthenticationResult(creator,{purpose:'create_account',outcome:'needs_verification',evidence:notice});

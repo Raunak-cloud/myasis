@@ -254,6 +254,10 @@ export interface FormField {
   required: boolean;
   options?: string[];
   currentValue?: string;
+  /** Search-only dropdown text is never a committed application answer. */
+  searchValue?: string;
+  selectionState?: 'selected'|'searching'|'empty';
+  optionStatusText?: string;
   /** Current browser/ARIA validation failure, observed rather than inferred. */
   validationError?: string;
   /** True for custom ATS inputs that require choosing a suggestion. */
