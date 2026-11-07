@@ -1,5 +1,5 @@
 import { createReadinessFixtureReply } from './readiness-fixture.js';
-const readinessFixtureReply = createReadinessFixtureReply();
+import { fixtureToolArguments } from './specialist-fixture.js';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,6 +24,7 @@ const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_P
 const originalFetch = globalThis.fetch;
 try {
   for (const setting of [undefined, false, true, 'minimax']) {
+    const readinessFixtureReply = createReadinessFixtureReply();
     const minimax = setting === 'minimax';
     const enabled = setting !== false && !minimax;
     const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
@@ -53,7 +54,7 @@ try {
       const observation = JSON.stringify(latest.content);
       let calls;
       const actualTurn = turn++;
-      if (minimax && actualTurn === 1) calls = [{ name: 'take_snapshot', args: { screenshot: true } }];
+      if (minimax && actualTurn === 1) calls = [{ name: 'browser_action', args: { action: 'take_snapshot', screenshot: true } }];
       else if (minimax && actualTurn === 2) calls = [{ name: 'browser_action', args: { action: 'script', script: 'throw new Error("fixture visual recovery")' } }];
       else switch (minimax && actualTurn >= 3 ? actualTurn - 2 : actualTurn) {
         case 0:
@@ -88,7 +89,7 @@ try {
         default: throw new Error('Unexpected extra decision turn');
       }
       return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: calls.map((call, index) => ({
-        id: `turn-${turn}-${index}`, type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) },
+        id: `turn-${turn}-${index}`, type: 'function', function: { name: call.name, arguments: fixtureToolArguments(body, call.name, call.args) },
       })) } }], usage: { prompt_tokens: 100, completion_tokens: 20 } });
     }) as typeof fetch;
     const env = { ...process.env };

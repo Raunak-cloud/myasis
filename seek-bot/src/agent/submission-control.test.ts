@@ -66,7 +66,7 @@ globalThis.fetch = (async (_url, init) => {
   const sharedTools = offered.filter(name => !['prepare_application', 'record_recovery_plan', 'record_recovery_result'].includes(name));
   normalTools ??= sharedTools;
   assert.deepEqual(sharedTools, normalTools, 'normal tools return after each checkpoint and remain available after a send');
-  for (const name of ['browser_action', 'browser_batch', 'take_snapshot', 'reason_through_problem', 'save_progress']) assert.ok(offered.includes(name), `${name} remains available after a send`);
+  for (const name of ['browser_action', 'browser_batch', 'reason_through_problem', 'save_progress']) assert.ok(offered.includes(name), `${name} remains available after a send`);
   assert.ok(!offered.includes('resume_after_rejected_submission'), 'there is no recovery-unlock tool');
   const call = calls.shift();
   assert.ok(call, `planned browser flow must complete without a workaround or human intervention; last result: ${body.messages.filter((item: { role: string }) => item.role === 'tool').at(-1)?.content?.slice(0, 1200)}`);

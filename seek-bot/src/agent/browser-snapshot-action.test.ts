@@ -21,15 +21,18 @@ writeFileSync(join(directory,'resumes.json'),JSON.stringify([{id:'cv-1',label:'F
 writeFileSync(join(directory,'answers.json'),'[]');
 const {agentOnlyTools}=await import('./agent-only.js');
 const action=agentOnlyTools.find(t=>t.name==='browser_action')!;
-const standalone=agentOnlyTools.find(t=>t.name==='take_snapshot')!;
+assert.ok(!agentOnlyTools.some(t=>t.name==='take_snapshot'),'the duplicate standalone tool is no longer offered');
+const names=agentOnlyTools.map(t=>t.name);
+const expected=['record_application_review','add_cover_letter','prepare_application','prepare_email_application','browser_batch','browser_action','create_file','render_approved_cover_letter','convert_file','combine_approved_documents','read_candidate_evidence','read_browser_experience','read_application_attempts','save_progress','reason_through_problem','record_recovery_plan','record_recovery_result','check_employer_account','complete_authentication','enter_emailed_code','open_emailed_link','record_authentication_result','wait_for_verification','investigate_application_state','wait_for_submission_result','finish'];
+const inboxTools=new Set(['enter_emailed_code','open_emailed_link']);
+assert.deepEqual([...names].sort(),expected.filter(name=>!inboxTools.has(name)||names.includes(name)).sort(),'all other tools remain available, subject only to the existing inbox connection');
+
 const examples=[{action:'take_snapshot',target_mode:'page'},
  {action:'take_snapshot',target_mode:'ref',ref:'f18',screenshot:true},
  {action:'take_snapshot',target_mode:'locator',locator:{by:'css',value:'input[name="question_36[]"]'}},
  {action:'take_snapshot',selector:'section',screenshot:false}];
 for(const args of examples){
  assert.equal(validToolInput(args,action.parameters),true);
- const {action:_,...snapshot}=args;
- assert.equal(validToolInput(snapshot,standalone.parameters),true);
  assert.equal(changesBrowserState(args),false);
  assert.equal(isSnapshotOperation('browser_action',args),true);
  const wire=minimaxToolSchema(action);assert.deepEqual(wire.parameters.required,['arguments_json']);
@@ -51,11 +54,13 @@ RecoveryRecord.prototype.begin=function(tool,action,mutating){operations.push({t
 let page:Awaited<ReturnType<import('patchright').BrowserContext['newPage']>>;
 const refFrom=(text:string)=>text.match(/button "Read-only marker" \[ref=([^\]]+)\]/)?.[1];
 globalThis.fetch=(async(_url,init)=>{
- const body=JSON.parse(String(init?.body));let call:{name:string;args:Record<string,unknown>};
+ const body=JSON.parse(String(init?.body));
+ assert.ok(!body.tools.some((t:any)=>t.function.name==='take_snapshot'),'provider only sees one snapshot operation');
+ let call:{name:string;args:Record<string,unknown>};
  const last=body.messages.filter((m:{role:string})=>m.role==='tool').at(-1)?.content;
  const latest=body.messages.filter((m:{role:string})=>m.role==='user').at(-1)?.content;
  if(turn){
-  assert.equal(captures-lastCaptureCount,1,'each spelling must execute exactly one canonical accessibility capture');
+  assert.equal(captures-lastCaptureCount,1,'each action must execute exactly one canonical accessibility capture');
   assert.doesNotMatch(String(last),/snapshot-private-fixture|Browser\/tool error/);
   const ref=refFrom(String(last));assert.ok(ref,'snapshot returns a usable accessibility reference');
   assert.equal(await locate(page,ref)!.count(),1,'returned refs still resolve to the freshly captured page');
@@ -74,7 +79,7 @@ globalThis.fetch=(async(_url,init)=>{
   call={name:'browser_action',args:{action:'take_snapshot',target_mode:'locator',locator:{by:'css',value:'section'}}};
  }else if(turn===2){
   assert.match(String(last),/Matched 2 snapshot targets/);
-  call={name:'take_snapshot',args:{target_mode:'locator',locator:{by:'css',value:'#first'}}};
+  call={name:'browser_action',args:{action:'take_snapshot',target_mode:'locator',locator:{by:'css',value:'#first'}}};
  }else if(turn===3){
   call={name:'browser_action',args:{action:'take_snapshot',target_mode:'ref',ref:refFrom(String(last))!}};
  }else if(turn===4){

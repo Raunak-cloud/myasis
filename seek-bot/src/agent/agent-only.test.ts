@@ -328,7 +328,7 @@ try {
   await page.setContent(`${progressForm}<label>Resume<input id=cv type=file accept='.txt'></label>`);
   await page.locator('#cv').setInputFiles(join(directory, 'resumes', 'CV.txt'));
   script = [
-    () => expensive([{ name: 'take_snapshot', args: {} }]),
+    () => expensive([{ name: 'browser_action', args: { action: 'take_snapshot' } }]),
     () => expensive([{ name: 'browser_action', args: { action: 'set_input_files', selector: '#cv', file_ids: ['cv-1'] } }]),
     () => expensive([{ name: 'browser_action', args: { action: 'fill', selector: '#q0', value: 'Must not execute' } }]),
   ];

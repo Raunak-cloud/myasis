@@ -1,4 +1,5 @@
 import type { ChatMessage } from './celeris.js';
+import { isSnapshotOperation } from './browser-snapshot-command.js';
 import { estimateTranscriptTokens, trimTranscript } from './loop/transcript.js';
 
 /** Checkpoint guidance describes the same freshly observed page. It is not a
@@ -30,7 +31,13 @@ export function agentOnlyTranscript(messages: ChatMessage[], maxTokens: number, 
   if (!force && estimateTranscriptTokens(messages) <= maxTokens) return messages;
   const snapshotCalls = new Set<string>();
   for (const message of messages) if (message.role === 'assistant') {
-    for (const call of message.tool_calls ?? []) if (call.function.name === 'take_snapshot') snapshotCalls.add(call.id);
+    for (const call of message.tool_calls ?? []) {
+      try {
+        const wire = JSON.parse(call.function.arguments);
+        const args = typeof wire.arguments_json === 'string' ? JSON.parse(wire.arguments_json) : wire;
+        if (isSnapshotOperation(call.function.name, args)) snapshotCalls.add(call.id);
+      } catch { /* Malformed tool arguments do not identify a valid snapshot. */ }
+    }
   }
   let latestUser = -1, latestObservation = -1, latestSnapshot = -1;
   messages.forEach((message, index) => {

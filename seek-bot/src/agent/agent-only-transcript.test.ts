@@ -128,3 +128,24 @@ test('generation recovery removes stale DOM while retaining sources, send histor
  assert.equal(recovered[0],messages[0]);assert.equal(recovered[1],messages[1]);
  assert.equal(JSON.stringify(messages),original,'retry cannot rewrite audit history');
 });
+
+
+test('consolidated snapshot actions compact old trees for direct and wrapped arguments',()=>{
+  for(const wrap of [false,true]){
+    const args=JSON.stringify({action:'take_snapshot',target_mode:'page'});
+    const argumentsText=wrap?JSON.stringify({arguments_json:args}):args;
+    const messages:ChatMessage[]=[
+      {role:'system',content:'Applying agent'},
+      {role:'user',content:'CANDIDATE_FACTS'},
+      {role:'assistant',content:null,tool_calls:[{id:'old',type:'function',function:{name:'browser_action',arguments:argumentsText}}]},
+      {role:'tool',tool_call_id:'old',content:'OLD_ACTION_SNAPSHOT_'+'old tree '.repeat(1000)},
+      {role:'assistant',content:null,tool_calls:[{id:'fresh',type:'function',function:{name:'browser_action',arguments:argumentsText}}]},
+      {role:'tool',tool_call_id:'fresh',content:'CURRENT_ACTION_SNAPSHOT_REFS'},
+      {role:'user',content:'URL: https://fixture.invalid/current\nCURRENT_OBSERVATION'},
+    ];
+    const compact=JSON.stringify(agentOnlyTranscript(messages,42000,true));
+    assert.doesNotMatch(compact,/OLD_ACTION_SNAPSHOT_/);
+    assert.match(compact,/CURRENT_ACTION_SNAPSHOT_REFS/);
+    assert.match(compact,/CANDIDATE_FACTS/);
+  }
+});

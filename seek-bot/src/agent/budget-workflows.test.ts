@@ -67,7 +67,7 @@ test('fresh progress verification can use its reserve and fund the next producti
  const f=await fixture(form);let calls=0;
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;const specialist=specialistFixtureReply(body);if(specialist)return specialist;calls++;
   if(calls===1)return packet([{name:'browser_action',args:{action:'fill',selector:'#name',value:'Fictional Candidate'}}],.19);
-  if(calls===2)return packet([{name:'take_snapshot',args:{}}],.08);
+  if(calls===2)return packet([{name:'browser_action',args:{action:'take_snapshot'}}],.08);
   if(calls===3){assert.equal(body.tool_choice?.function?.name,undefined,'progress review is advisory');return packet([result()],.04);}
   assert.equal(calls,4);return packet([finish()]);
  };
