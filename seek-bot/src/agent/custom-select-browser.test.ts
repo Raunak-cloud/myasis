@@ -34,7 +34,7 @@ test('async portalled combobox commits the exact chosen option, survives blur an
   await page.locator('#next').click();
   assert.equal((await nativeReadback(school) as any).invalid,'true','search text is not a school selection');
   const recovery=new SpecialistRecovery();recovery.observe(await observe(page));
-  const goal={kind:'field-value',target:search.label,value:'Other'};
+  const goal={kind:'field-value',target:search.label.replace(/\s*\*$/,' *'),value:'Other'};
   recovery.accept('READ-ONLY SPECIALIST ADVICE.\n'+JSON.stringify({advice:'Choose the observed Other option.',recovery_goal:goal}));
   let ticket=JSON.parse(recovery.render().match(/SPECIALIST RECOVERY OBLIGATION\n([^\n]+)/)![1]);
   recovery.respond({advice_id:ticket.advice_id,decision:'adopt',reason:'Other is the offered truthful fallback.',observation_id:ticket.observation_id,operation_tool:'browser_action',operation_action:'select',operation_purpose:'Commit the observed Other choice.',verification:goal},[{name:'browser_action',description:'Native select',parameters:{type:'object',properties:{action:{enum:['select']}}}}]);

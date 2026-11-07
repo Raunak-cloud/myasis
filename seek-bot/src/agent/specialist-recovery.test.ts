@@ -14,6 +14,32 @@ function plan(r:SpecialistRecovery,action='click',purpose='Use a different obser
 function act(r:SpecialistRecovery,args:Record<string,unknown>,failed=false,executed=true){assert.equal(r.permit('browser_action',args),undefined);r.complete('browser_action',args,'Actual native operation result',failed,executed);r.observe(obs());}
 function check(r:SpecialistRecovery,assessment='progress'){const v=view(r);return {advice_id:v.advice_id,observation_id:v.observation_id,result_id:v.result_id,assessment,reason:'Assess fresh actual browser state.'};}
 
+test('required-marker aliases resolve the completed school blocker and cannot block a different field after view changes or restart',()=>{
+ const school=(value=''):Observation=>({...obs(),fields:[{ref:'f7',label:'School*',kind:'text',required:true,currentValue:value,autocomplete:true,selectionState:value?'selected':'empty',searchValue:''}]});
+ const r=new SpecialistRecovery();r.observe(school());
+ r.accept('READ-ONLY SPECIALIST ADVICE.\n'+JSON.stringify({advice:'Choose the observed Other fallback.',recovery_goal:{kind:'field-value',target:'School *',value:'Other'}}));
+ assert.equal(view(r).verification.target,'School*','bind the AX caption to the unique canonical field');
+ for(const args of [{action:'click',ref:'f7'},{action:'fill',ref:'f7',value:'Other'},{action:'press',ref:'f7',value:'Enter'}]){
+  assert.equal(r.permit('browser_action',args),undefined);r.complete('browser_action',args,'Actual failed attempt',true,true);r.observe(school());
+ }
+ assert.equal(r.exhausted,true);
+ r.observe(school('Other'));assert.equal(r.pending,false);assert.equal(view(r).phase,'resolved');
+ const degree={...obs(),fields:[{ref:'f8',label:'Degree*',kind:'text' as const,required:true,currentValue:''}]};
+ r.observe(degree);assert.equal(r.pending,false,'opening Degree cannot resurrect the completed School budget');
+ assert.equal(r.permit('browser_action',{action:'select',ref:'f8',value:"Master's Degree"}),undefined);
+ assert.match(r.check(check(r,'no_progress')),/remains resolved/,'an obsolete report cannot reopen the old blocker');
+ r.reconsider();assert.equal(r.pending,false);
+ const restored=new SpecialistRecovery(structuredClone(r.checkpoint()));restored.observe(degree);assert.equal(restored.pending,false);
+ restored.complete('browser_action',{action:'select',ref:'f8',value:'Unsupported degree'},'No such option',true,true);
+ assert.equal(view(restored).attempts,0,'a new actual Degree failure receives its own recovery scope');
+});
+
+test('required-marker normalization never treats two different school controls as one',()=>{
+ const r=new SpecialistRecovery();r.observe({...obs(),fields:[{ref:'f1',label:'School*',kind:'text',required:true,currentValue:'Other'},{ref:'f2',label:'School *',kind:'text',required:true,currentValue:''}]});
+ r.accept('READ-ONLY SPECIALIST ADVICE.\n'+JSON.stringify({advice:'Inspect the correct school entry.',recovery_goal:{kind:'field-value',target:'School *',value:'Other'}}));
+ assert.equal(r.pending,true,'ambiguous repeated entries still require a unique target');
+});
+
 test('Sony sequence: unchanged checkbox, malformed reports and delayed review never force a skip',()=>{
  const r=start();r.respond(plan(r),tools);act(r,{action:'click',ref:'a0'});
  assert.match(r.check(check(r)),/goal currently observed: false/,'unchanged DOM can still wait for a visual/async transition');

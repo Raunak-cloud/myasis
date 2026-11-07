@@ -29,6 +29,9 @@ export const specialistRecoveryTools:ToolSchema[]=[
  },required:['advice_id','assessment','reason']}},
 ];
 const normal=(value:unknown)=>String(value??'').replace(/\s+/g,' ').trim();
+// The accessibility tree and labelled-input reader can space the required
+// marker differently. It is decoration, never a different employer question.
+const fieldLabel=(value:unknown)=>normal(value).replace(/\s*\*+\s*$/,'').trim();
 const canonical=(value:unknown):unknown=>Array.isArray(value)?value.map(canonical):value&&typeof value==='object'?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,canonical(v)])):value;
 const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
 /** Only documented transport defaults are equivalent. Target, value, scope,
@@ -72,7 +75,7 @@ export const sameSpecialistObservation=(before:Observation,after:Observation)=>!
 function satisfies(v:Verification,o:Observation):boolean {
  if(o.inspectionError)return false;
  if(v.kind==='field-value') {
-  const fields=safeFields(o).filter(f=>f.ref===v.target||normal(f.label)===normal(v.target));
+  const fields=safeFields(o).filter(f=>f.ref===v.target||fieldLabel(f.label)===fieldLabel(v.target));
   return fields.length===1&&fields[0].currentValue!==undefined&&!fields[0].validationError&&normal(fields[0].currentValue)===normal(v.value);
  }
  if(v.kind==='control-enabled') {
@@ -85,8 +88,8 @@ function satisfies(v:Verification,o:Observation):boolean {
 function bindGoal(v:Verification,o?:Observation):Verification {
  if(!v||!o)return v;
  if(v.kind==='field-value'){
-  const field=safeFields(o).find(field=>field.ref===v.target);
-  if(field)return {...v,target:field.label};
+  const matches=safeFields(o).filter(field=>field.ref===v.target||fieldLabel(field.label)===fieldLabel(v.target));
+  if(matches.length===1)return {...v,target:matches[0].label};
  }
  if(v.kind==='control-enabled'){
   const action=o.actions.find(action=>action.ref===v.target);
@@ -137,9 +140,15 @@ export class SpecialistRecovery {
   if(!o.inspectionError){
    this.observationVersion++;
    const goal=this.checkpointGoal;
-   const named=goal?.kind==='field-value'?safeFields(o).filter(f=>normal(f.label)===normal(goal.target))
+   const named=goal?.kind==='field-value'?safeFields(o).filter(f=>fieldLabel(f.label)===fieldLabel(goal.target))
     :goal?.kind==='control-enabled'?o.actions.filter(a=>normal(a.text)===normal(goal.target)):[];
    if(goal&&named.length===1){this.checkpointGoal=undefined;this.reviseGoal(goal);}
+   // Completion belongs to this blocker. Scrolling to another field or
+   // opening its menu must not revive the previous blocker's spent budget.
+   if(this.task&&this.task.phase!=='resolved'&&this.goalObserved){
+    this.task.phase='resolved';this.task.attemptOpen=false;
+    this.task.verifiedEvidence.push(`Recovery goal observed in ${this.observationId}`);
+   }
   }
  }
  private reviseGoal(goal:Verification):void {
@@ -169,6 +178,7 @@ export class SpecialistRecovery {
    return;
   }
   this.task={id:randomUUID(),advice:boundAdvice,adviceKey,phase:'decision',verification:goal,history:[],verifiedEvidence:[],visited:this.observation?[hash(surface(this.observation))]:[],checks:0,attempts:[]};
+  if(this.goalObserved){this.task.phase='resolved';this.task.attemptOpen=false;}
  }
  get pending(){return !!this.task&&this.task.phase!=='resolved'&&!this.goalObserved;}
  get unresolved(){return this.pending;}
@@ -191,6 +201,7 @@ export class SpecialistRecovery {
   const t=this.task,o=this.observation;
   if(!t||args.advice_id!==t.id||!o)throw Error('This recovery decision is stale. Inspect the current record.');
   this.checkObservation(args);
+  if(t.phase==='resolved')return 'This recovery goal is already verified and remains resolved. Choose the normal next action; no new repair approach or final application status was recorded.';
   const name=String(args.operation_tool),tool=tools.find(s=>s.name===name);
   if(!(workTools.has(name)||name.startsWith('helper_'))||!tool)throw Error('Choose one offered recovery tool. Preparation and final decisions use their own normal tools.');
   const action=name==='browser_action'&&typeof args.operation_action==='string'?args.operation_action:undefined;
@@ -259,7 +270,7 @@ export class SpecialistRecovery {
   this.task.invalidChecks=(this.task.invalidChecks??0)+1;
   this.task.stopReason='Reporting feedback only; no attempt or outcome changed: '+reason;
  }
- reconsider():void {if(this.task){this.task.phase='decision';this.task.attemptOpen=false;}}
+ reconsider():void {if(this.task&&this.task.phase!=='resolved'){this.task.phase='decision';this.task.attemptOpen=false;}}
  applicationReviewed():void {if(this.task){this.task.phase='resolved';this.task.attemptOpen=false;}}
  check(args:Record<string,unknown>):string {
   const t=this.task,o=this.observation;
@@ -267,6 +278,7 @@ export class SpecialistRecovery {
   this.checkObservation(args);
   if(args.result_id!==undefined){if(args.result_id!==this.resultId)throw Error('That result ID is stale. Use the current result_id; no recovery attempt or outcome changed.');}
   else if(!args.result_quote||!resultMaterial(t.result).includes(normal(args.result_quote)))throw Error('Reference the actual result_id or quote its tool result exactly. This is reporting feedback, not a failed recovery attempt.');
+  if(t.phase==='resolved'&&(args.assessment!=='resolved'||!this.goalObserved))return `This recovery remains resolved from verified browser evidence; goal currently observed: ${this.goalObserved}. A later report cannot reopen that completed blocker. Choose normal next actions; no application outcome changed.`;
   const verified=this.goalObserved,changed=t.before!==hash(surface(o));t.checks++;
   if(args.assessment==='resolved'&&!verified)throw Error('The recovery goal is not yet observed. Continue, wait or inspect; do not claim readiness from narration. No stop was recorded.');
   if(args.assessment==='resolved'){t.phase='resolved';t.attemptOpen=false;return 'The recovery goal is observed now. Choose the normal next action; preparation, approval and receipt checks still apply.';}
