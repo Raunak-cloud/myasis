@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {applicationCompletionInstruction, applicationSuitabilityAuthority} from './application-policy.js';
+import {AGENT_ONLY_PROMPT,applicationCompletionInstruction, applicationSuitabilityAuthority} from './application-policy.js';
 test('selected and approved applications have one suitability authority; only unreviewed work gets matching policy',()=>{
  for(const args of [[true,false,false],[false,true,false],[false,false,true]] as const){
   const policy=applicationSuitabilityAuthority(args[0],args[1],args[2]);
@@ -22,4 +22,11 @@ test('MiniMax receives the completion goal while Semi auto and truthful answers 
  assert.match(applicationCompletionInstruction('minimax',true),/target_mode.*Main-document fields have no iframe scope/);
  assert.equal(applicationCompletionInstruction('celeris',true),'');
  assert.equal(applicationCompletionInstruction('retired'), '');
+});
+
+
+test('the browser-owner prompt cannot reinstate a mandatory recovery report',()=>{
+ assert.doesNotMatch(AGENT_ONLY_PROMPT,/required specialist recovery obligation/);
+ assert.match(AGENT_ONLY_PROMPT,/structured recovery reports are optional/);
+ assert.match(AGENT_ONLY_PROMPT,/finish error with the observed technical blocker/);
 });
