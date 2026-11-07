@@ -17,6 +17,8 @@
     "test:agent-screenshots": "tsc && node --test dist/agent/agent-only-transcript.test.js && node dist/agent/agent-screenshots.test.js",
     "test:agent-screenshots-live": "tsc && node scripts/test-screenshot-agent-live.mjs --live",
     "test:agent-facts-live": "tsc && node scripts/test-agent-owned-facts-live.mjs --live",
+    "test:application-helpers": "tsc && node --test dist/agent/application-helpers.test.js dist/agent/application-helpers-simulation.test.js",
+    "test:application-helpers-live": "tsc && node scripts/test-application-helpers-live.mjs --live",
     "test:cover-letter": "tsc && node dist/agent/cover-letter-opportunity.test.js",
     "test:assessment-reuse": "tsc && node dist/assessment-reuse.test.js",
     "test:capmonster": "tsc && node scripts/test-capmonster.mjs",

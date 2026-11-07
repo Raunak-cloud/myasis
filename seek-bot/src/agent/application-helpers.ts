@@ -33,6 +33,12 @@ export const helperRecipeExample={name:'join_document',description:'Create one t
  parameters:{properties:{first:{type:'string'},second:{type:'string'}},required:['first','second']},
  steps:[{tool:'create_file',args:{name:'Combined.txt',format:'txt',text:{$concat:[{$input:'first'},'\n\n',{$input:'second'}]}}}],
  tests:[{html:'<main>Isolated document fixture</main>',input:{first:'Letter',second:'CV'},assertions:[{step:0,path:'name',equals:'Combined.txt'},{step:0,path:'bytes',equals:10}]}]};
+export const helperBrowserRecipeExample={name:'fill_field',description:'Fill one supplied current field and read its actual saved value.',
+ parameters:{properties:{selector:{type:'string'},value:{type:'string'}},required:['selector','value']},
+ steps:[{tool:'browser_action',args:{action:'fill',selector:{$input:'selector'},value:{$input:'value'}}},
+   {tool:'browser_action',args:{action:'inspect',selector:{$input:'selector'}}}],
+ tests:[{html:'<label>Example<input id=example></label>',input:{selector:'#example',value:'Dummy'},
+   assertions:[{step:0,path:'current.value',equals:'Dummy'},{step:1,path:'value',equals:'Dummy'}]}]};
 const schemaKeys=new Set(['type','properties','required','additionalProperties','items','enum','minLength','maxLength','minimum','maximum','minItems','maxItems','description']);
 /** Models commonly supply a field dictionary or omit mechanical size bounds.
  * Canonicalize those equivalent forms and impose bounds locally, rather than
@@ -71,7 +77,7 @@ function parameterSchema(schema:unknown,depth=0):void{
   if(s.enum!==undefined&&(!Array.isArray(s.enum)||s.enum.length>50||s.enum.some(v=>v!==null&&!['string','number','boolean'].includes(typeof v))))throw Error('Use small scalar parameter enums.');
 }
 const helperDefinitionTool:ToolSchema={name:'test_application_helper',description:
-  'Build and test a temporary helper for a genuinely missing operation. Compose the advertised browser_action/create_file/convert_file tools; no host code, new account access, auth, recursion or application sends. Templates: {"$input":"field.path"}, {"$result":"0.field.path"}, {"$concat":[...]}, {"$json":template}. Literal text is a normal JSON string, without a $literal wrapper. Each step has tool and args. Test the actual returned object: create_file returns file_id/name/bytes/format; inspecting one input returns value directly. Tests use only dummy inputs in a separate cookie-free, network-blocked browser and temporary document inventory. Only passing definitions become callable. A test proves the fixture, not employer acceptance. Complete working example (adapt this exact structure): '+JSON.stringify(helperRecipeExample),
+  'Build and test a temporary helper for a genuinely missing operation. Compose the advertised browser_action/create_file/convert_file tools; no host code, new account access, auth, recursion or application sends. Templates: {"$input":"field.path"}, {"$result":"0.field.path"}, {"$concat":[...]}, {"$json":template}. Literal text is a normal JSON string, without a $literal wrapper. Each step has tool and args. Returned objects: fill/type/check/select put readback in current (assert current.value or current.checked); inspect puts readback at the top level (assert value or checked); create_file/convert_file return file_id/name/bytes/format. Test HTML can use unquoted simple ids to avoid nested quote escaping. Tests use only dummy inputs in a separate cookie-free, network-blocked browser and temporary document inventory. Only passing definitions become callable. A test proves the fixture, not employer acceptance. Browser example: '+JSON.stringify(helperBrowserRecipeExample)+' Document example: '+JSON.stringify(helperRecipeExample),
   parameters:{type:'object',additionalProperties:false,properties:{
     name:{type:'string',pattern:'^[a-z][a-z0-9_]{1,38}$'},description:{type:'string',minLength:10,maxLength:1200},parameters:{...inputSchema,description:'Input schema example: {"properties":{"letter":{"type":"string"},"resume":{"type":"string"}},"required":["letter","resume"]}. Object type and closed properties are applied automatically. String maxLength defaults to 40000, array maxItems to 32; smaller bounds are welcome. Only typed properties, required, enums and scalar size/range constraints. No patterns or refs.'},
     steps:{type:'array',minItems:1,maxItems:12,items:{type:'object',additionalProperties:false,properties:{tool:{type:'string',enum:[...allowedTools]},args:objectSchema},required:['tool','args']}},
@@ -188,7 +194,12 @@ export class ApplicationHelpers {
             }
           });
           for(const assertion of test.assertions){
-            if(assertion.step>=results.length||JSON.stringify(at(results[assertion.step],assertion.path))!==JSON.stringify(assertion.equals))throw Error(`Test assertion failed at step ${assertion.step}, path ${assertion.path}. Helper not published.`);
+            const result=results[assertion.step];
+            let actual:unknown;
+            try{actual=at(result,assertion.path);}catch{
+              throw Error(`Test assertion failed at step ${assertion.step}: missing path ${assertion.path}. Actual returned object: ${JSON.stringify(result)?.slice(0,1800)}. Use that object's real path; fill readback is current.value and inspect readback is value. Helper not published.`);
+            }
+            if(assertion.step>=results.length||JSON.stringify(actual)!==JSON.stringify(assertion.equals))throw Error(`Test assertion failed at step ${assertion.step}, path ${assertion.path}. Expected ${JSON.stringify(assertion.equals)?.slice(0,600)}; actual ${JSON.stringify(actual)?.slice(0,600)}. Helper not published.`);
           }
         }finally{clearTimeout(timer);await browser.close().catch(()=>{});rmSync(directory,{recursive:true,force:true});}
       }
