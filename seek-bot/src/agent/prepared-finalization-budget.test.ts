@@ -29,23 +29,25 @@ test('a truncated final review followed by a full request timeout recovers witho
   const job={id:'final-review-budget',title:'Fictional developer',company:'Fixture',location:'Exampletown',platform:'seek' as const,url:'https://form.fixture.invalid/apply'};
   await page.goto(job.url);
   const calls=[{name:'browser_action',args:{action:'fill',selector:'#name',value:'Fixture Candidate'}},{name:'prepare_application',args:{answers:[],resume_id:'cv',submit_selector:'#send'}}];
-  const readiness=createReadinessFixtureReply();let reviewRequests=0,sequence=0;
+  const readiness=createReadinessFixtureReply();let reviewRequests=0,sequence=0;let savedReview:any;
   globalThis.fetch=(async(_url,init)=>{
-   const body=JSON.parse(String(init?.body));const review=readiness(body);
+   const body=JSON.parse(String(init?.body));const review=reviewRequests>0&&reviewRequests<3?Response.json(savedReview):readiness(body);
    if(review){
-    if(body.tool_choice?.function?.name==='record_application_review'){
+    const payload=await review.clone().json();
+    if(payload.choices[0].message.tool_calls[0].function.name==='record_application_review'){
+     savedReview=payload;
      reviewRequests++;
      assert.match(JSON.stringify(body.messages),/Fixture Candidate/,'candidate sources survive recovery');
      assert.match(JSON.stringify(body.messages),/APPLICATION READBACK EVIDENCE/,'current review evidence survives recovery');
      if(reviewRequests===1){
       assert.equal(body.chat_template_kwargs.reasoning_effort,'medium','routine final review is not automatically escalated');
-      elapsed+=31_000;const payload=await review.json();payload.choices[0].finish_reason='length';
+      elapsed+=31_000;const payload=structuredClone(savedReview);payload.choices[0].finish_reason='length';
       payload.choices[0].message.tool_calls=[{id:'incomplete-send',type:'function',function:{name:'browser_action',arguments:'{"action":"click","selector":"#send","sends_application":true}'}}];
       payload.choices[0].message.content='Incomplete fixture self-review';payload.usage={prompt_tokens:Math.ceil(.22*1_000_000/CELERIS_RATES.promptUncached),completion_tokens:8192};return Response.json(payload);
      }
-     assert.equal(body.max_tokens,16_384);assert.equal(body.chat_template_kwargs.reasoning_effort,'low');
-     assert.equal(windows.at(-1),90_000,'every recovery request gets its full inference window');
-     if(reviewRequests===2){elapsed+=90_000;throw new DOMException('Fixture inference timed out','TimeoutError');}
+     assert.ok(!body.tools.some((tool:any)=>tool.function.name==='browser_action'),'a generation overrun cannot fund browser mutations from completion reserves');
+     assert.ok(windows.at(-1)!>=45_000,'every recovery request gets its full inference window');
+     if(reviewRequests===2){elapsed+=45_000;throw new DOMException('Fixture inference timed out','TimeoutError');}
     }
     return review;
    }

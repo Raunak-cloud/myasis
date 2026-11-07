@@ -1127,14 +1127,29 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         reply = await applicationChat({ model: 'celeris-1-magnus', messages: compact(), tools: turnTools,
           requireTool: true, forceTool, thinking: true, reasoningEffort, maxTokens, meter });
       } catch (error) {
-        if (error instanceof ApplicationBudgetExhaustedError) { budgetStopped = true; break; }
+        if (error instanceof ApplicationBudgetExhaustedError) {
+          // An incomplete paid generation can cross the action allowance before
+          // returning a tool. Preserve existing preparation in the bounded,
+          // read-only completion lane; never retry that generation with writes.
+          if (!turn.completing && pendingPreparation && !ctx.submissionAttempted) {
+            meter.beginCompletion();
+            if (!meter.exhausted) { lastNote = 'Action funding ended during generation. Preserve completed work using only the bounded local completion tools.'; continue; }
+          }
+          budgetStopped = true; break;
+        }
         if (!/(?:Celeris|OpenRouter) (?:400|413):.*(?:context|token|too long|too large|maximum.*length)/is.test((error as Error).message) || contextLimit <= 8000) throw error;
         contextLimit = Math.max(8000, Math.floor(contextLimit / 2));
         try {
           reply = await applicationChat({ model: 'celeris-1-magnus', messages: compact(true), tools: turnTools,
             requireTool: true, forceTool, thinking: true, reasoningEffort, maxTokens, meter });
         } catch (retryError) {
-          if (retryError instanceof ApplicationBudgetExhaustedError) { budgetStopped = true; break; }
+          if (retryError instanceof ApplicationBudgetExhaustedError) {
+            if (!turn.completing && pendingPreparation && !ctx.submissionAttempted) {
+              meter.beginCompletion();
+              if (!meter.exhausted) { lastNote = 'Action funding ended during generation. Preserve completed work using only the bounded local completion tools.'; continue; }
+            }
+            budgetStopped = true; break;
+          }
           throw retryError;
         }
       }

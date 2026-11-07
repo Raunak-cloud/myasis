@@ -54,7 +54,7 @@ test('Celeris retains candidate facts, authored actions and current state while 
 });
 
 test('recovery and accuracy guidance retain the fresh screenshot and observation through compaction', () => {
-  for (const checkpoint of ['RECOVERY CHECKPOINT:', 'APPLICATION ACCURACY CHECKPOINT:']) {
+  for (const checkpoint of ['RECOVERY CHECKPOINT:', 'APPLICATION ACCURACY CHECKPOINT:', 'APPLICATION REVIEW ADVICE:']) {
     const messages: ChatMessage[] = [
       { role: 'system', content: 'System' },
       { role: 'user', content: 'CANDIDATE' },
