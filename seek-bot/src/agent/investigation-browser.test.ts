@@ -91,7 +91,7 @@ try {
   // check before a technical stop, without manufacturing success or a question.
   await page.setContent('<main><h1>Candidate access is still being checked</h1></main>');index=0;
   const stopCalls=[{name:'record_authentication_result',args:{purpose:'reset_password',outcome:'uncertain',evidence:'No employer verdict yet.'}},
-    ...Array.from({length:3},()=>({name:'finish',args:{status:'skipped',reason:'Reset outcome is still uncertain after safe checks.',evidence:'Candidate access is still being checked'}}))];
+    ...Array.from({length:2},()=>({name:'finish',args:{status:'skipped',reason:'Reset outcome is still uncertain after safe checks.',evidence:'Candidate access is still being checked'}}))];
   globalThis.fetch=(async(_url,init)=>{
     const body=JSON.parse(String(init?.body));
     if(isSpecialistFixtureRequest(body))return Response.json({choices:[{message:{content:JSON.stringify({advice:'The outcome remains unknown; preserve it honestly without another reset.',evidence:[{source:'page',detail:'Candidate access is still being checked'}],unknowns:['Reset acceptance'],nextSteps:['Report unresolved access honestly.']})}}]});
@@ -99,7 +99,7 @@ try {
     return Response.json({choices:[{message:{tool_calls:[{id:'stop-'+index,type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}]}}]});
   }) as typeof fetch;
   const stopped=await runAgentOnlyApplication({simulation:'isolated-form',page,job:{...job,id:'uncertain-stop'},profile:{name:'Fixture Candidate',email:'candidate@fixture.invalid',skills:[]} as never,log:()=>{}});
-  assert.equal(stopped.outcome.status,'rehearsed');assert.match(stopped.outcome.status==='rehearsed'?stopped.outcome.stoppedAt:'',/skipped/);assert.equal(index,4);
+  assert.equal(stopped.outcome.status,'rehearsed');assert.match(stopped.outcome.status==='rehearsed'?stopped.outcome.stoppedAt:'',/skipped/);assert.equal(index,3);
   const db=new DatabaseSync(join(dir,'application-recovery.sqlite'),{readOnly:true});
   try {
     const saved=db.prepare('SELECT state FROM recovery_records').all().map(row=>JSON.parse(String(row.state))).find(state=>state.scope.jobId==='uncertain-stop');
