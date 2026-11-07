@@ -30,3 +30,12 @@ test('the browser-owner prompt cannot reinstate a mandatory recovery report',()=
  assert.match(AGENT_ONLY_PROMPT,/structured recovery reports are optional/);
  assert.match(AGENT_ONLY_PROMPT,/finish error with the observed technical blocker/);
 });
+
+
+test('the applying agent owns recovery, supported inference and application consent',()=>{
+ assert.doesNotMatch(AGENT_ONLY_PROMPT,/ask consult_application_specialist|may consult a read-only specialist/);
+ assert.match(AGENT_ONLY_PROMPT,/Australian citizenship supports Australian nationality/);
+ assert.match(AGENT_ONLY_PROMPT,/answer No unless other candidate evidence contradicts/);
+ assert.match(AGENT_ONLY_PROMPT,/Accept all terms and conditions/);
+ assert.match(AGENT_ONLY_PROMPT,/Only request user input for a genuinely required personal question/);
+});

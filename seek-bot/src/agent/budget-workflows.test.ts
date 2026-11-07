@@ -47,7 +47,7 @@ test('Auto apply returns from canonical correction to work without spending the 
   assert.equal(calls,2,'an unaffordable repair must not start another paid model turn');
   assert.equal(body.tool_choice?.function?.name,undefined,'a review report is never forced');return packet([review('correct')],.13);
  };
- try{const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'skipped');assert.match(JSON.stringify(r.outcome),/spending budget/);assert.equal(calls,2);assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),0);}finally{await f.context.close();}
+ try{const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'error');assert.match(JSON.stringify(r.outcome),/spending budget/);assert.equal(calls,2);assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),0);}finally{await f.context.close();}
 });
 
 test('an already-generated recovery plan is saved once across the budget boundary, with no further paid plan loop',{timeout:10000},async()=>{
@@ -74,48 +74,6 @@ test('fresh progress verification can use its reserve and fund the next producti
  try{const r=await runAgentOnlyApplication(f);assert.deepEqual(r.outcome,{status:'skipped',reason:'Controlled fixture outcome'});assert.equal(calls,4);}finally{await f.context.close();}
 });
 
-test('Culture Amp style empty search box plus specialist advice completes without forced recovery reports',{timeout:15000},async()=>{
- const f=await fixture(`<main><label>Name<input id="name" required></label><label>Country<input id="country" role="combobox" aria-controls="countries"></label><span>🇦🇺 +61</span><div id="countries" role="listbox"><button role="option" aria-selected="true">Australia +61</button></div><button id="send" onclick="document.documentElement.dataset.sent='1'">Submit application</button></main>`);
- process.env.APPLICATION_REVIEW_MODE='prepare';let turns=0,specialists=0;
- const prepare:Call={name:'prepare_application',args:{answers:[],resume_id:'cv',submit_selector:'#send'}};
- globalThis.fetch=async(_url,init)=>{
-  const body=JSON.parse(String(init?.body)) as Body;
-  if(isSpecialistFixtureRequest(body)){specialists++;return Response.json({choices:[{message:{content:JSON.stringify({advice:'Australia is selected; the empty input is the search box. Inspect its selected option, then prepare.',evidence:[{source:'page',detail:'Australia +61 is aria-selected=true.'}],unknowns:[],nextSteps:['Inspect the selected option, then prepare for candidate confirmation.'],recovery_goal:{kind:'visible-text',target:'Australia +61',value:'Australia +61'}})}}],usage:{prompt_tokens:Math.round(.04*1_000_000/CELERIS_RATES.promptUncached),completion_tokens:0}});}
-  const specialist=specialistFixtureReply(body);if(specialist)return specialist;
-  turns++;assert.ok(turns<=6,'no repeated recovery/result reports can consume the completion reserve');
-  if(turns===1)return packet([{name:'browser_action',args:{action:'fill',selector:'#name',value:'Fictional Candidate'}}],.10);
-  if(turns===2)return packet([{name:'browser_action',args:{action:'click',selector:'#country',undeclared:true}}],.02);
-  if(turns===3){assert.equal(body.tool_choice?.function?.name,undefined);return packet([{name:'consult_application_specialist',args:{question:'Is this country selection committed?'}},{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],.03);}
-  if(turns===5){assert.equal(body.tool_choice?.function?.name,undefined,'a review report is never forced');return packet([review()],.03);}
-  assert.ok([4,6].includes(turns));assert.ok(!['record_recovery_plan','record_recovery_result'].includes(body.tool_choice?.function?.name??''),'recovery reports cannot exclude the normal completion operation');
-  return packet([prepare],.01);
- };
- try{
-  const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'prepared');assert.equal(turns,6);assert.equal(specialists,1);
-  assert.equal(await f.page.locator('#country').inputValue(),'');assert.equal(await f.page.getByRole('option').getAttribute('aria-selected'),'true');
-  assert.equal(await f.page.evaluate(()=>document.documentElement.dataset.sent),undefined,'advice cannot race a queued send');assert.equal(r.submitPressed,false);
-  const saved=JSON.parse(readFileSync(join(directory,'traces',f.job.id+'.json'),'utf8'));
-  assert.ok(!saved.steps.some((s:any)=>['record_recovery_plan','record_recovery_result'].includes(s.tool)));
-  const skippedSend=saved.steps.find((s:any)=>s.tool==='browser_action'&&s.args.sends_application);
-  assert.equal(skippedSend.execution,'not-started','the parent must reobserve after specialist advice before deciding its next action');
- }finally{process.env.APPLICATION_REVIEW_MODE='';await f.context.close();}
-});
-
-test('a post-send specialist charge leaves one receipt-only record, never another send',{timeout:10000},async()=>{
- const f=await fixture(form);let turns=0,specialists=0;
- globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;
-  if(isSpecialistFixtureRequest(body)){specialists++;return packet([{name:'return_application_advice',args:{advice:'Inspect the actual receipt.',evidence:[],unknowns:[],nextSteps:[],recovery_goal:{kind:'visible-text',target:'Application received: BUDGET-FIX',value:'Application received: BUDGET-FIX'}}}],.03);}
-  turns++;
-  if(turns===1)return packet([{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],.01);
-  if(turns===2)return packet([review()],.01);
-  if(turns===3)return packet([{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}},{name:'consult_application_specialist',args:{question:'What does the current fictional receipt mean?'}}],.17);
-  if(turns===4){assert.equal(specialists,0,'the send transition must discard its stale queued consultation');return packet([{name:'consult_application_specialist',args:{question:'What does the freshly observed fictional receipt mean?'}}]);}
-  assert.equal(turns,5);assert.deepEqual(body.tools?.map(tool=>tool.function.name),['finish']);assert.equal(body.tool_choice?.function?.name,'finish');
-  return packet([finish('applied',{receipt:{quote:'Application received: BUDGET-FIX'}})],.03);
- };
- try{const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'applied');assert.equal(r.submitPressed,true);assert.equal(specialists,1);assert.equal(turns,5);assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),1);}finally{await f.context.close();}
-});
-
 test('a final-record-only reply cannot retry a send or claim the skipped retry succeeded',{timeout:10000},async()=>{
  const f=await fixture(form);let turns=0;
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;
@@ -123,12 +81,12 @@ test('a final-record-only reply cannot retry a send or claim the skipped retry s
   turns++;
   if(turns===1)return packet([{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],.01);
   if(turns===2)return packet([review()],.01);
-  if(turns===3)return packet([{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}},{name:'consult_application_specialist',args:{question:'Read the current fictional page.'}}],.17);
-  if(turns===4)return packet([{name:'consult_application_specialist',args:{question:'Read the freshly observed fictional receipt.'}}]);
+  if(turns===3)return packet([{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],.17);
+  if(turns===4)return packet([{name:'browser_action',args:{action:'inspect',selector:'body'}}],.03);
   assert.equal(turns,5,'an unusable terminal record must not trigger another paid attempt');assert.deepEqual(body.tools?.map(tool=>tool.function.name),['finish']);
   return packet([{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}},finish('applied',{receipt:{quote:'Application received: BUDGET-FIX'}})]);
  };
- try{const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'skipped');assert.equal(r.submitPressed,true);assert.equal(turns,5);assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),1);}finally{await f.context.close();}
+ try{const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'error');assert.equal(r.submitPressed,true);assert.equal(turns,5);assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),1);}finally{await f.context.close();}
 });
 
 test('Semi auto preparation, exact approval and in-place answer repair keep their confirmation boundaries',{timeout:10000},async()=>{
@@ -229,9 +187,9 @@ test('cleanup failure cannot overwrite a completed result or the primary provide
    response.usage={prompt_tokens:Math.round(.01*1_000_000/CELERIS_RATES.promptUncached),completion_tokens:0};
    return Response.json(response);
   };
-  const r=await runAgentOnlyApplication({...f,simulation:'isolated-form'});assert.equal(r.outcome.status,'rehearsed');assert.equal(specialists,1);
-  assert.ok(r.usage.startsWith(`${requests} calls ·`),'every actual parent and specialist request remains on the same meter');
-  assert.ok(r.usage.endsWith(`$${(requests*.01).toFixed(5)}`),'the shared meter retains parent and specialist costs despite cleanup failure');
+  const r=await runAgentOnlyApplication({...f,simulation:'isolated-form'});assert.equal(r.outcome.status,'rehearsed');assert.equal(specialists,0);
+  assert.ok(r.usage.startsWith(`${requests} calls ·`),'every actual applying-agent request remains on the same meter');
+  assert.ok(r.usage.endsWith(`$${(requests*.01).toFixed(5)}`),'the shared meter retains applying-agent costs despite cleanup failure');
   globalThis.fetch=async()=>new Response('Fictional provider rejection',{status:400});
   await assert.rejects(()=>runAgentOnlyApplication({...f,job:{...f.job,id:f.job.id+'-provider'},simulation:'isolated-form'}),/Fictional provider rejection/);
   const diagnostics=readdirSync(join(directory,'traces')).filter(name=>name.endsWith('.diagnostics.jsonl')).map(name=>readFileSync(join(directory,'traces',name),'utf8')).join('\n');

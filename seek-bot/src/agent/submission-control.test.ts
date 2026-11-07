@@ -66,7 +66,7 @@ globalThis.fetch = (async (_url, init) => {
   const sharedTools = offered.filter(name => !['prepare_application', 'record_recovery_plan', 'record_recovery_result'].includes(name));
   normalTools ??= sharedTools;
   assert.deepEqual(sharedTools, normalTools, 'normal tools return after each checkpoint and remain available after a send');
-  for (const name of ['browser_action', 'browser_batch', 'take_snapshot', 'reason_through_problem', 'consult_application_specialist', 'save_progress']) assert.ok(offered.includes(name), `${name} remains available after a send`);
+  for (const name of ['browser_action', 'browser_batch', 'take_snapshot', 'reason_through_problem', 'save_progress']) assert.ok(offered.includes(name), `${name} remains available after a send`);
   assert.ok(!offered.includes('resume_after_rejected_submission'), 'there is no recovery-unlock tool');
   const call = calls.shift();
   assert.ok(call, `planned browser flow must complete without a workaround or human intervention; last result: ${body.messages.filter((item: { role: string }) => item.role === 'tool').at(-1)?.content?.slice(0, 1200)}`);
@@ -181,7 +181,6 @@ try {
   calls = [
     { name: 'browser_action', args: { action: 'click', selector: 'button', sends_application: true } },
     { name: 'finish', args: { status: 'skipped', reason: 'Employer delivery remains unconfirmed', evidence: 'The button only says Please wait...' } },
-    { name: 'finish', args: { status: 'skipped', reason: 'Employer delivery remains unconfirmed after a read-only investigation', evidence: 'The button only says Please wait...' } },
   ];
   const pending = await runAgentOnlyApplication({ page, job: { ...autoJob, id: 'agent-owned-pending' }, profile, log: () => {} });
   assert.equal(pending.outcome.status, 'skipped');
@@ -218,7 +217,6 @@ try {
     { name: 'browser_action', args: { action: 'fill', selector: '#city', value: 'Sydney' } },
     { name: 'finish', args: { status: 'skipped', reason: 'Fixture completed its correction without a submission.', evidence: 'City reads Sydney.' } },
     { name: 'finish', args: { status: 'skipped', reason: 'Fixture completed its correction without a submission.', evidence: 'City reads Sydney.' } },
-    { name: 'finish', args: { status: 'skipped', reason: 'Fixture completed its correction without a submission.', evidence: 'City reads Sydney.' } },
   ];
   const rejectedCheckpoint = await runAgentOnlyApplication({ page, job: { ...autoJob, id: 'checkpoint-invalid' }, profile, log: () => {} });
   assert.equal(rejectedCheckpoint.outcome.status, 'skipped');
@@ -236,7 +234,7 @@ try {
   assert.equal(finalRecoveryReceipt.outcome.status, 'applied', 'a final reply that crosses the budget retains the observed receipt');
   assert.equal(calls.length, 0);
   await context.close();
-  console.log('PASS: agent-owned classification and receipts; five Semi auto login/widget/approval flows, Auto location entry, transient receipt, agent-directed correction and uncertain-send audit. Optional specialists stay read-only; no real applications.');
+  console.log('PASS: agent-owned classification and receipts; five Semi auto login/widget/approval flows, Auto location entry, transient receipt, agent-directed correction and uncertain-send audit. Recovery stays with the applying agent; no real applications.');
 } finally {
   globalThis.fetch = originalFetch;
   await browser.close();
