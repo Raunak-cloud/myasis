@@ -6,11 +6,12 @@ const state = { actionExhausted: false, pendingDialog: false, reviewRequested: f
   needsAnswer: false, needsCorrection: false, submissionAttempted: false,
   preparations: ['prepare_application'] as ['prepare_application'] };
 
-test('normal tools stay available and canonical review has one mandatory owner', () => {
+test('normal tools stay available and canonical review is advisory with one browser owner', () => {
  const owner = new ApplicationTurnCoordinator();
  assert.equal(owner.next(state).checkpoint, undefined);
  assert.equal(owner.next(state).tools, undefined);
  assert.equal(owner.next({...state,reviewRequested:true}).checkpoint,'record_application_review');
+ assert.equal(owner.next({...state,reviewRequested:true}).tools,undefined,'review advice does not restrict normal tools');
  assert.equal(owner.next({...state,reviewRequested:true,pendingDialog:true}).checkpoint,undefined);
 });
 

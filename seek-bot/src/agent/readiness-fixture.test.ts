@@ -33,3 +33,16 @@ test('readiness fixture resumes only the stopped batch send and does not replay 
   const resumed = await readCall(fixture({ messages }));
   assert.equal(resumed.name, 'browser_action'); assert.deepEqual(JSON.parse(resumed.arguments), send);
 });
+
+
+test('identical advisory text across applications correlates to each distinct held operation', async()=>{
+ const fixture=createReadinessFixtureReply();
+ for(const id of ['job-one','job-two']){
+  const messages=[{role:'assistant',tool_calls:[tool(id,'prepare_application',{resume_id:'cv',submit_selector:'#send',answers:[]})]},
+   {role:'tool',tool_call_id:id,content:'Before preparing, assess the saved form.'},
+   {role:'user',content:'APPLICATION REVIEW ADVICE: optional assessment'}];
+  assert.equal((await readCall(fixture({messages}))).name,'record_application_review');
+  assert.equal((await readCall(fixture({messages}))).name,'prepare_application');
+  assert.equal(fixture({messages}),undefined);
+ }
+});

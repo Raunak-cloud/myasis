@@ -1,4 +1,4 @@
-import { fixtureToolArguments } from './agent/specialist-fixture.js';
+import { specialistFixtureReply, fixtureToolArguments } from './agent/specialist-fixture.js';
 import { createReadinessFixtureReply } from './agent/readiness-fixture.js';
 const readinessFixtureReply = createReadinessFixtureReply();
 import assert from 'node:assert/strict';
@@ -6,6 +6,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { chromium } from 'patchright';
+import type { ToolContext } from './agent/context.js';
 import type { PreparedApplication } from './application-review-types.js';
 import { cleanCoverLetter } from './cover-letter-policy.js';
 import { withCoverLetter } from './application-review-content.js';
@@ -83,9 +84,21 @@ try {
   await page.locator('input[type=checkbox]').evaluate(node => node.parentElement!.remove());
   writeFileSync(join(directory, 'approved-applications.json'), JSON.stringify([draft]));
   await page.locator('input').fill('Changed applicant');
-  const changed = await applicationApprovalGate(ctx);
-  assert.ok(changed?.kind === 'ok' && changed.disposition === 'failed', 'a changed approved answer requests in-place repair, never another Prepared draft');
+  const answerCtx = { ...ctx } as ToolContext;
+  const changed = await applicationApprovalGate(answerCtx);
+  assert.equal(changed,null,'ordinary displayed-answer differences are advisory; candidate approval is preserved');
+  assert.match(answerCtx.formAdvisories?.join(' ') ?? '',/differs from the approved text/);
   await page.locator('input').fill('Fixture Applicant');
+  await page.locator('form').evaluate(form=>{
+    const label=document.createElement('label');label.textContent='City';
+    const input=document.createElement('input');input.value='Sydney, New South Wales, Australia';label.append(input);form.append(label);
+  });
+  writeFileSync(join(directory,'approved-applications.json'),JSON.stringify([{...draft,answers:[...draft.answers,{question:'City',answer:'Sydney'}]}]));
+  const cityCtx={...ctx} as ToolContext;
+  assert.equal(await applicationApprovalGate(cityCtx),null,'a full city label does not veto an approved application');
+  assert.match(cityCtx.formAdvisories?.join(' ') ?? '',/City/);
+  await page.locator('input').last().evaluate(node=>node.parentElement!.remove());
+  writeFileSync(join(directory,'approved-applications.json'),JSON.stringify([draft]));
   writeFileSync(join(directory, 'resumes', 'Fixture CV.txt'), 'A different CV');
   assert.notEqual(await applicationApprovalGate(ctx), null, 'changed document bytes invalidate confirmation');
   writeFileSync(join(directory, 'resumes', 'Fixture CV.txt'), 'Fixture applicant CV');
@@ -98,6 +111,7 @@ try {
   globalThis.fetch = (async (_url, init) => {
     const body = JSON.parse(String(init?.body));
     assert.equal(body.model, 'minimax/minimax-m3.1-flash', 'the real application loop uses MiniMax');
+    const specialist = specialistFixtureReply(body); if (specialist) return specialist;
     const reviewReply = readinessFixtureReply(body); if (reviewReply) return reviewReply;
     if (!body.tools?.length) return Response.json({ choices: [{ message: { role: 'assistant', content: JSON.stringify({ sends_application: true }) } }] });
     const call = calls.shift() ?? { name: 'finish', args: { status: 'skipped', reason: 'Fixture complete', evidence: 'Fixture only' } };
@@ -147,7 +161,7 @@ try {
     label.append(input); form.append(label);
   });
   const unclean = await applicationApprovalGate({ ...ctx, coverLetter: 'Actual letter, still has an em dash' });
-  assert.ok(unclean?.kind === 'ok' && unclean.disposition === 'failed', 'actual unsanitized form text blocks preparation even when the recorded letter looks clean');
+  assert.ok(unclean?.kind === 'terminal' && unclean.outcome.status === 'prepared', 'actual unsanitized form text blocks preparation even when the recorded letter looks clean');
   // Reproduce the production failure: listing search fields plus an Apply
   // entry link must not be mistaken for a filled application's final send.
   // Exercise five real browser forms, including employer popups and a final
@@ -183,6 +197,7 @@ try {
   globalThis.fetch = (async (_url, init) => {
     const body = JSON.parse(String(init?.body));
     assert.equal(body.model, 'minimax/minimax-m3.1-flash', 'the real application loop uses MiniMax');
+    const specialist = specialistFixtureReply(body); if (specialist) return specialist;
     const reviewReply = readinessFixtureReply(body); if (reviewReply) return reviewReply;
     assert.ok(body.tools?.length, 'the applying agent owns send intent without an independent classifier');
     const call = calls.shift();

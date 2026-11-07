@@ -5,7 +5,7 @@ import { estimateTranscriptTokens, trimTranscript } from './loop/transcript.js';
  * newer browser observation and must not retire that page's screenshot. */
 function isCheckpoint(message: ChatMessage): boolean {
   return message.role === 'user' && typeof message.content === 'string'
-    && /^(?:RECOVERY CHECKPOINT:|APPLICATION ACCURACY CHECKPOINT:|SPECIALIST RECOVERY CHECKPOINT:)/.test(message.content);
+    && /^(?:RECOVERY CHECKPOINT:|APPLICATION ACCURACY CHECKPOINT:|APPLICATION REVIEW ADVICE:|SPECIALIST RECOVERY CHECKPOINT:)/.test(message.content);
 }
 
 /** Send one current picture while retaining prior text and actions. */

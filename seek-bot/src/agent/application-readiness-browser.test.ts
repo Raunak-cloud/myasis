@@ -1,3 +1,4 @@
+import { specialistFixtureReply } from './specialist-fixture.js';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,6 +18,7 @@ let turn=0;
 const observation=(body:Body)=>{const content=body.messages.filter(message=>message.role==='user').at(-1)?.content;return typeof content==='string'?content:JSON.stringify(content);};
 globalThis.fetch=(async(_url,init)=>{
  const body=JSON.parse(String(init?.body)) as Body;
+ const specialist=specialistFixtureReply(body);if(specialist)return specialist;
  assert.ok(body.tools?.length,'only the applying agent decides; no extra reviewer');
  const next=script.shift();assert.ok(next,'no unexpected model request');
  return Response.json({choices:[{message:{role:'assistant',content:null,tool_calls:(await next(body)).map((call,index)=>({id:`date-${turn++}-${index}`,type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}))}}],usage:{prompt_tokens:30,completion_tokens:10}});
@@ -53,7 +55,7 @@ try {
     return [{ name: 'browser_action', args: { action: 'fill', selector: '#date', value: '2024-02' } }];
   }, () => [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }],
   body => {
-    assert.match(observation(body), /APPLICATION ACCURACY CHECKPOINT/);
+    assert.match(observation(body), /APPLICATION REVIEW ADVICE/);
     return [{ name: 'record_application_review', args: { assessment: 'ready', vacancy: 'Software Developer at Fictional employer, Sydney', documents: 'Fixture requires no documents', unresolved: [], checks: [{ question: 'Employment start month', source_evidence: 'Candidate saved February 2024', intended_meaning: 'February 2024', observed_value: '2024-02', conclusion: 'Matches saved source' }], next_action: 'Submit the current form' } }];
   }, () => [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }],
   () => [{ name: 'finish', args: { status: 'applied', reason: 'Employer confirmed receipt.', evidence: 'Application received: FACT123', receipt: { quote: 'Application received: FACT123' } } }]];
@@ -71,7 +73,7 @@ try {
     { action: 'fill', selector: '#month', value: '1' }, { action: 'fill', selector: '#day', value: '11' },
     { action: 'fill', selector: '#year', value: '2026' }, { action: 'click', selector: '#send', sends_application: true },
   ] } }], body => {
-    assert.match(observation(body), /APPLICATION ACCURACY CHECKPOINT/);
+    assert.match(observation(body), /APPLICATION REVIEW ADVICE/);
     assert.match(observation(body), /"label":"Month".*"value":"1"/);
     return [review('correct')];
   }, async body => {
@@ -80,7 +82,7 @@ try {
     { action: 'fill', selector: '#month', value: '11' }, { action: 'fill', selector: '#day', value: '1' },
     { action: 'click', selector: '#send', sends_application: true },
   ] } }]; }, body => {
-    assert.match(observation(body), /APPLICATION ACCURACY CHECKPOINT/);
+    assert.match(observation(body), /APPLICATION REVIEW ADVICE/);
     assert.match(observation(body), /"label":"Month".*"value":"11"/);
     return [review('ready')];
   }, () => [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }],
@@ -111,7 +113,7 @@ try {
     vacancy:'Software Developer at Fictional employer, Sydney',documents:'No documents required by fixture',unresolved,
     checks:[{question:'Previously employed here?',source_evidence:'Saved answer: No, never employed by the fictional employer.',intended_meaning:'No',observed_value:assessment==='correct'?'Yes':'No',conclusion:assessment==='correct'?'Parsed answer conflicts; correct it':'Matches confirmed source'}],next_action:assessment==='correct'?'Select No and inspect':'Send the reviewed form'}});
   script=[()=>[{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],body=>{
-    assert.match(observation(body),/APPLICATION ACCURACY CHECKPOINT/);
+    assert.match(observation(body),/APPLICATION REVIEW ADVICE/);
     assert.match(observation(body),/Previously employed here/);
     return [historyReview('ready',['Employer history conflicts'])];
   },body=>{
@@ -127,7 +129,7 @@ try {
   await page.evaluate('window.tagSends=0',undefined,undefined,false);
   let tagReviews=0;
   script=[()=>[{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],body=>{
-    tagReviews++;assert.match(observation(body),/APPLICATION ACCURACY CHECKPOINT/);
+    tagReviews++;assert.match(observation(body),/APPLICATION REVIEW ADVICE/);
     assert.match(observation(body),/On Site/);
     return [{name:'record_application_review',args:{assessment:'ready',vacancy:'Fictional employer Software Developer Sydney',documents:'Fixture needs no documents',unresolved:[],checks:[{question:'Work environment',source_evidence:'Fictional candidate confirmed onsite Sydney',intended_meaning:'On Site',observed_value:'Committed On Site tag, empty search input',conclusion:'Selection is committed; search text is not the saved answer'}],next_action:'Choose Submit'}}];
   },()=>[{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],

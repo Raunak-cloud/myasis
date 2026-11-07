@@ -6,7 +6,7 @@ import type {ToolSchema} from './celeris.js';
 const tools=[{name:'browser_action',description:'Native browser tool',parameters:{type:'object',properties:{action:{enum:['click','fill','press','inspect','wait']}}}}] as ToolSchema[];
 const obs=(text='Verification pending',value=''):Observation=>({url:'https://fixture.invalid/form',title:'Application',text,fields:[{ref:'f0',label:'Answer',kind:'text',required:true,currentValue:value}],actions:[{ref:'a0',text:'Continue',role:'button',disabled:false}]});
 const goal={kind:'field-value',target:'Answer',value:'Known candidate answer'};
-const view=(r:SpecialistRecovery)=>JSON.parse(r.render().match(/SPECIALIST RECOVERY OBLIGATION\n([^\n]+)/)![1]);
+const view=(r:SpecialistRecovery)=>JSON.parse(r.render().match(/RECOVERY ADVISORY\n([^\n]+)/)![1]);
 function start(){const r=new SpecialistRecovery();r.observe(obs());r.accept('READ-ONLY SPECIALIST ADVICE.\n'+JSON.stringify({advice:'Inspect and fix the actual blocker.',recovery_goal:goal}));return r;}
 function plan(r:SpecialistRecovery,action='click',purpose='Use a different observed native approach'){
  return {advice_id:view(r).advice_id,decision:'adopt',reason:'Current evidence identifies the unresolved field.',observation_id:view(r).observation_id,operation_tool:'browser_action',operation_action:action,operation_purpose:purpose,verification:goal};
@@ -22,7 +22,7 @@ test('required-marker aliases resolve the completed school blocker and cannot bl
  for(const args of [{action:'click',ref:'f7'},{action:'fill',ref:'f7',value:'Other'},{action:'press',ref:'f7',value:'Enter'}]){
   assert.equal(r.permit('browser_action',args),undefined);r.complete('browser_action',args,'Actual failed attempt',true,true);r.observe(school());
  }
- assert.equal(r.exhausted,true);
+ assert.equal(r.exhausted,false);assert.equal(r.needsReconsideration,true);
  r.observe(school('Other'));assert.equal(r.pending,false);assert.equal(view(r).phase,'resolved');
  const degree={...obs(),fields:[{ref:'f8',label:'Degree*',kind:'text' as const,required:true,currentValue:''}]};
  r.observe(degree);assert.equal(r.pending,false,'opening Degree cannot resurrect the completed School budget');
@@ -48,7 +48,7 @@ test('a city query is not a dropdown answer; a valid committed full label resolv
  for(const args of [{action:'click',ref:'f6'},{action:'fill',ref:'f6',value:'Sydney'},{action:'press',ref:'f6',value:'Enter'}]){
   r.complete('browser_action',args,'Failed query approach',true,true);r.observe(city());
  }
- assert.equal(r.exhausted,true);
+ assert.equal(r.exhausted,false);assert.equal(r.needsReconsideration,true);
  const legacy=structuredClone(r.checkpoint());legacy.task!.verification={kind:'field-value',target:'Location (City) *',value:'Sydney'};
  const restored=new SpecialistRecovery(legacy);restored.observe(city(true,true));assert.equal(restored.pending,true,'employer validation remains authoritative');
  restored.observe(city(true));assert.equal(restored.pending,false);assert.equal(view(restored).phase,'resolved');assert.equal(view(restored).attempts,3,'migration closes verified work without granting additional repair attempts');
@@ -68,13 +68,13 @@ test('Sony sequence: unchanged checkbox, malformed reports and delayed review ne
  r.applicationReviewed();assert.equal(r.pending,false);
 });
 
-test('three actually executed different failed approaches survive restart; a fourth cannot mutate',()=>{
+test('three actually executed different failed approaches survive restart; a fourth remains available within the application budget',()=>{
  let r=start();
  for(const [index,args]of [{action:'click',ref:'a0'},{action:'fill',ref:'f0',value:'candidate-supported value'},{action:'press',ref:'f0',value:'ArrowDown'}].entries()){
   r.respond(plan(r,String(args.action),`Approach ${index+1}`),tools);act(r,args,true);assert.equal(view(r).attempts,index+1);
   r=new SpecialistRecovery(structuredClone(r.checkpoint()));r.observe(obs());
  }
- assert.match(r.permit('browser_action',{action:'press',ref:'f0',value:'Enter'})!,/three distinct/);
+ assert.equal(r.permit('browser_action',{action:'press',ref:'f0',value:'Enter'}),undefined);
  assert.equal(r.requiredTool,undefined);assert.equal(r.permit('take_snapshot',{}),undefined);assert.equal(r.permit('browser_action',{action:'wait'}),undefined);
  assert.equal(r.permit('prepare_application',{}),undefined);assert.equal(r.permit('finish',{status:'error'}),undefined);
  r.observe(obs('Delayed successful form readback',goal.value));assert.equal(r.permit('browser_action',{action:'click',ref:'a0'}),undefined,'a delayed verified goal releases the repair-only limit; normal approval guards still apply');
@@ -88,11 +88,11 @@ test('reports, rejected arguments, reads and waits do not consume approaches',()
  act(r,{action:'press',ref:'f0',value:'Tab'});assert.equal(view(r).attempts,1,'multiple successful steps belong to the same approach');
 });
 
-test('renaming a report or refreshing refs cannot repeat the same failed interaction',()=>{
+test('repeated interaction history remains diagnostic rather than blocking a native action',()=>{
  const r=start();act(r,{action:'click',ref:'a0'},true);
  r.observe({...obs(),actions:[{ref:'a99',text:'Continue',role:'button',disabled:false}]});
  r.respond(plan(r,'click','Different wording for the same click'),tools);
- assert.match(r.permit('browser_action',{action:'click',ref:'a99'})!,/exact interaction already ran/);assert.equal(view(r).attempts,1);
+ assert.equal(r.permit('browser_action',{action:'click',ref:'a99'}),undefined);assert.equal(view(r).attempts,1);
  r.accept('READ-ONLY SPECIALIST ADVICE.\n'+JSON.stringify({advice:'A second consultation does not reset attempts.',recovery_goal:goal}));assert.equal(view(r).attempts,1);
 });
 
@@ -110,10 +110,10 @@ test('agent chooses an earlier technical stop; old forced-report blocks migrate 
  assert.equal(r.requiredTool,undefined);assert.equal(r.permit('finish',{status:'error'}),undefined);assert.equal(r.permit('prepare_application',{}),undefined);
  const saved=r.checkpoint();saved.task!.stopReason='Specialist recovery verification could not be completed: quotation mismatch';
  const resumed=new SpecialistRecovery(structuredClone(saved));resumed.observe(obs());assert.equal(resumed.blocked,false);assert.equal(resumed.requiredTool,undefined);
- resumed.observe({...obs(),inspectionError:'Unreadable frame'});assert.equal(resumed.permit('take_snapshot',{}),undefined);assert.match(resumed.permit('browser_action',{action:'click',ref:'a0'})!,/re-inspect/);
+ resumed.observe({...obs(),inspectionError:'Unreadable frame'});assert.equal(resumed.permit('take_snapshot',{}),undefined);assert.equal(resumed.permit('browser_action',{action:'click',ref:'a0'}),undefined);
 });
 
-test('recovery is bounded before any specialist consultation and advice cannot reset it',()=>{
+test('recovery history survives consultation while spending bounds actual execution',()=>{
  const r=new SpecialistRecovery();r.observe(obs());
  r.complete('browser_action',{action:'click',ref:'a0'},'Original native interaction failed',true,true);r.observe(obs());
  assert.equal(view(r).attempts,0,'the original failure starts a blocker, not a recovery retry');assert.equal(r.consulted,false);
@@ -121,7 +121,7 @@ test('recovery is bounded before any specialist consultation and advice cannot r
  r.accept('READ-ONLY SPECIALIST ADVICE.\n'+JSON.stringify({advice:'Another observed method is available.',recovery_goal:goal}));
  assert.equal(r.consulted,true);assert.equal(view(r).attempts,1,'a consultation cannot discard an executed approach');
  act(r,{action:'press',ref:'f0',value:'ArrowDown'},true);act(r,{action:'press',ref:'f0',value:'Space'},true);
- assert.match(r.permit('browser_action',{action:'press',ref:'f0',value:'Enter'})!,/three distinct/);
+ assert.equal(r.permit('browser_action',{action:'press',ref:'f0',value:'Enter'}),undefined);
 });
 
 const referralLabel='How did you hear about this role?';
@@ -165,14 +165,14 @@ test('a corrected goal still requires actual matching values without validation 
  }
 });
 
-test('goal replacement preserves the spent approach limit and rejects malformed advice',()=>{
+test('goal replacement preserves approach history and rejects malformed advice',()=>{
  const r=start();
  for(const args of [{action:'click',ref:'a0'},{action:'fill',ref:'f0',value:'attempt'},{action:'press',ref:'f0',value:'ArrowDown'}])act(r,args,true);
  const prior=structuredClone(r.checkpoint());
  assert.throws(()=>r.accept('READ-ONLY SPECIALIST ADVICE.\n'+JSON.stringify({advice:'Missing a goal'})),/verifiable recovery goal/);
  assert.deepEqual(r.checkpoint(),prior,'invalid new advice cannot alter the current goal');
  r.accept(adviceFor('Another supported answer','Answer'));
- assert.equal(view(r).attempts,3);assert.match(r.permit('browser_action',{action:'press',ref:'f0',value:'Tab'})!,/three distinct/);
+ assert.equal(view(r).attempts,3);assert.equal(r.permit('browser_action',{action:'press',ref:'f0',value:'Tab'}),undefined);
  const id=view(r).advice_id;r.accept(adviceFor('Another supported answer','Answer'));
  assert.equal(view(r).advice_id,id,'repeated same advice is idempotent');
 });

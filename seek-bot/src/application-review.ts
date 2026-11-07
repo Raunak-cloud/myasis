@@ -50,6 +50,7 @@ const normal = (text: string) => text.replace(/\s+/g, ' ').trim();
  * vacancy, not a particular DOM serialization. An approved submission can
  * repair its saved work, but must never create another Prepared application. */
 export async function applicationApprovalGate(ctx: ToolContext, _sendControl?: Locator): Promise<ToolResult | null> {
+  ctx.formAdvisories = [];
   if (!reviewingApplications()) return null;
   const approved = approvedApplication(ctx.job);
   const form = await readSavedForm(ctx.page);
@@ -71,10 +72,10 @@ export async function applicationApprovalGate(ctx: ToolContext, _sendControl?: L
   if (ctx.coverLetter === undefined && witnessedLetter !== undefined) ctx.coverLetter = witnessedLetter;
   const originalFileLetter = ctx.documents?.some(document => document.role === 'cover-letter' && document.provenance === 'file' && document.text === ctx.coverLetter);
   if (!originalFileLetter && ctx.coverLetter?.includes('\u2014') || form.fields.some(field => isCoverLetterField(field.label) && field.currentValue?.includes('\u2014'))) {
-    return { kind: 'ok', disposition: 'failed', message: 'Replace em dashes in the actual cover letter with commas, full stops or parentheses, then inspect the saved form again.' };
+    ctx.formAdvisories.push('Writing advice: use commas, full stops or parentheses instead of em dashes when authoring a letter. Preserve an already approved document.');
   }
   if (form.fields.some(field => field.validationError || field.invalid === 'true' || field.required && !field.currentValue?.trim())) {
-    return { kind: 'ok', disposition: 'failed', message: 'The form still has missing or invalid required fields. Complete and inspect them before saving it for confirmation.' };
+    ctx.formAdvisories.push('The browser reports missing or invalid required fields. Inspect the actual saved controls and employer validation; a DOM hint can describe an inactive or consumed control. Resolve real missing required answers using candidate sources.');
   }
   if (!ctx.resumeName) return { kind: 'ok', disposition: 'failed', message: 'Inspect the selected resume and call prepare_application with its account resume ID, complete answers and cover letter before the final send.' };
   const answers = new Map(ctx.captured.filter(item => !/password|verification.?code|one.?time|\botp\b/i.test(item.question))
@@ -98,13 +99,14 @@ export async function applicationApprovalGate(ctx: ToolContext, _sendControl?: L
       return { kind: 'ok', disposition: 'failed', message: 'Restore the candidate-approved resume and inspect its actual selected bytes before sending. The job remains approved; do not prepare it again.' };
     // Retained answers are joined by their original question. Additional DOM
     // labels (including a selected radio option appended to its question) do
-    // not revoke approval. A genuinely different saved answer is work to
+    // not revoke approval. Ordinary string differences are advisory: the
+    // applying agent assesses meaning against candidate sources. A conflict is work to
     // repair in place, not an invitation to replace the candidate decision.
     const actual = new Map([...answers.values()].map(item => [normal(item.question), normal(item.answer)]));
     const conflict = approved.answers.find(item => !isCoverLetterField(item.question)
       && (actual.has(normal(item.question)) || observedEmpty.has(normal(item.question)))
       && (actual.get(normal(item.question)) ?? '') !== normal(item.answer));
-    if (conflict) return { kind: 'ok', disposition: 'failed', message: `Restore the approved answer to "${conflict.question}" in the actual form before sending. The job remains approved; do not prepare it again.` };
+    if (conflict) ctx.formAdvisories.push(`The displayed answer to "${conflict.question}" differs from the approved text. Compare its meaning with the approved answer and candidate sources; repair a real conflict. A display-label variation does not revoke job approval.`);
     // An approved letter does not require a separate delivery-proof gate.
     // Reject an observed replacement, but leave inclusion to the applying
     // agent and employer validation. Missing evidence is not an upload receipt.

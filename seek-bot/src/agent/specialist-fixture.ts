@@ -23,8 +23,8 @@ export function specialistFixtureReply(body: any): Response | undefined {
     } }] });
   }
   const forced=body.tool_choice?.function?.name;
-  const text=body.messages.map((m:any)=>typeof m.content==='string'?m.content:Array.isArray(m.content)?m.content.map((p:any)=>p.text??'').join('\n'):'').reverse().find((text:string)=>text.includes('SPECIALIST RECOVERY OBLIGATION\n'));
-  const task=text?JSON.parse(text.match(/SPECIALIST RECOVERY OBLIGATION\n([^\n]+)/)[1]):undefined;
+  const text=body.messages.map((m:any)=>typeof m.content==='string'?m.content:Array.isArray(m.content)?m.content.map((p:any)=>p.text??'').join('\n'):'').reverse().find((text:string)=>text.includes('RECOVERY ADVISORY\n'));
+  const task=text?JSON.parse(text.match(/RECOVERY ADVISORY\n([^\n]+)/)[1]):undefined;
   const controlled=text?.includes('This fixture supplies no additional recovery path.');
   if(task&&forced==='browser_action'&&task.phase==='action'&&task.plan?.action==='inspect'){
     return Response.json({usage:{prompt_tokens:0,completion_tokens:0},choices:[{message:{role:'assistant',content:null,tool_calls:[{id:'fixture-specialist-inspection',type:'function',function:{name:forced,arguments:fixtureToolArguments(body,forced,{action:'inspect',selector:'body'})}}]}}]});

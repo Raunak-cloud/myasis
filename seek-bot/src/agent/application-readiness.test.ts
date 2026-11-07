@@ -44,7 +44,8 @@ test('source review covers ordinary answers, cancelled editors and unresolved cl
  review.observe({ ...page(), fields: [{ ...page().fields[0], label: 'Previously employed here?', currentValue: 'No', controlIdentity: 'employment-history' }] });
  assert.equal(review.request(), true);
  assert.throws(() => review.record('ready', ['Employer history not confirmed']), /Resolve/);
- assert.equal(review.request(), true, 'conflicting review cannot authorize a send');
+ assert.equal(review.request(), false, 'a rejected optional report cannot demand another report or fabricate readiness');
+ assert.equal(review.ready,false);
  review.record('needs_answer');
  review.observe({ ...page(), fields: [] });
  assert.match(review.render(), /earlier saved-form readback; recheck retained entries if uncertain/);
@@ -63,4 +64,12 @@ test('raw autocomplete search values cannot overwrite reviewed committed tags', 
  review.observe({...page(),fields:[field]});assert.equal(review.request(),false,'unchanged committed selection permits the newly chosen send');
  review.observe({...page(),fields:[{...field,currentValue:'["Remote"]'}]});
  assert.equal(review.request(),true,'a genuinely changed committed selection still requires a new review');
+});
+
+
+test('an unchanged canonical readback nudges once and never requires a report',()=>{
+ const review=new ApplicationReadiness();review.observe(page());
+ assert.equal(review.request(),true);assert.equal(review.request(),false);assert.equal(review.ready,false);
+ review.observe(page());assert.equal(review.request(),false);
+ review.observe(page('11','1'));assert.equal(review.request(),true);assert.equal(review.request(),false);
 });

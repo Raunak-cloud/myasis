@@ -3,7 +3,7 @@ import type { ToolSchema } from './celeris.js';
 
 export const applicationReviewTool: ToolSchema = {
   name: 'record_application_review',
-  description: 'Your own pre-send review, not another reviewer. Return this when APPLICATION ACCURACY CHECKPOINT supplies canonical saved-form evidence. Before that checkpoint, choose the actual final send with sends_application=true to request the fresh readback; that first request neither sends nor queues an action. Review the supplied saved answers, dates, consent, documents and vacancy against candidate sources, then choose the current send anew. Historical wizard observations and drafts are not proof of saved state. Clear unsupported optional facts, correct conflicts or ask about required unknowns. Records your assessment; never sends or repairs.',
+  description: 'Optional self-review by the applying agent, never a separate permission gate. APPLICATION REVIEW ADVICE supplies fresh canonical saved-form evidence. Assess consequential answers, documents, vacancy and dates against candidate sources. You may record ready, correct or needs_answer, or continue directly with normal tools after assessing the evidence. A report never sends, repairs or authorizes a job. Unsupported required facts still need the candidate; an uncertain send must not be repeated.',
   parameters: { type: 'object', additionalProperties: false, properties: {
     assessment: { type: 'string', enum: ['ready', 'correct', 'needs_answer'] },
     vacancy: { type: 'string', minLength: 1, description: 'Actual employer vacancy and location compared with the authorized job.' },
@@ -25,6 +25,7 @@ export class ApplicationReadiness {
   private current = new Set<string>();
   private revision = 0;
   private reviewed = -1;
+  private notified = -1;
   private canonicalSurface = '';
   private correctionPending = false;
   private answerPending = false;
@@ -59,11 +60,12 @@ export class ApplicationReadiness {
   }
 
   request(): boolean {
-    if (this.reviewed === this.revision) return false;
-    this.answerPending = false; this.requested = true; return true;
+    if (this.reviewed === this.revision || this.notified === this.revision) return false;
+    this.notified = this.revision;
+    this.requested = true; return true;
   }
 
-  invalidate(): void { this.reviewed = -1; this.answerPending = false; }
+  invalidate(): void { this.revision++; this.reviewed = -1; this.answerPending = false; this.requested = false; }
 
   record(assessment: string, unresolved: string[] = []): void {
     if (assessment === 'ready' && unresolved.length) throw new Error('Resolve the listed conflicts before recording ready. No send ran.');

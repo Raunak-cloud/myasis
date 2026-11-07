@@ -75,9 +75,9 @@ try {
       })}}]}}]});
     }
     if(forced==='respond_to_specialist'||forced==='check_specialist_recovery'){
-      const text=body.messages.map((message:any)=>typeof message.content==='string'?message.content:Array.isArray(message.content)?message.content.map((part:any)=>part.text??'').join('\n'):'').reverse().find((text:string)=>text.includes('SPECIALIST RECOVERY OBLIGATION\n'));
+      const text=body.messages.map((message:any)=>typeof message.content==='string'?message.content:Array.isArray(message.content)?message.content.map((part:any)=>part.text??'').join('\n'):'').reverse().find((text:string)=>text.includes('RECOVERY ADVISORY\n'));
       assert.ok(text,'Specialist recovery must carry its actual shared obligation');
-      const task=JSON.parse(text.match(/SPECIALIST RECOVERY OBLIGATION\n([^\n]+)/)![1]);
+      const task=JSON.parse(text.match(/RECOVERY ADVISORY\n([^\n]+)/)![1]);
       const args=forced==='respond_to_specialist'?{advice_id:task.advice_id,decision:'adopt',reason:'Use the supported current fixture operation while retaining prior work.',evidence_quote:'Developer at Fixture Employer',operation_tool:'browser_action',operation_action:resumed?'fill':'inspect',operation_purpose:resumed?'Fill the remaining City field with Sydney.':'Inspect the actual controlled fixture heading.',verification:task.verification}
         :{advice_id:task.advice_id,assessment:'resolved',result_quote:task.result.slice(0,200),observation_quote:'Developer at Fixture Employer',reason:'Verified the committed operation against the actual browser and its recovery goal.'};
       if(forced==='respond_to_specialist'){

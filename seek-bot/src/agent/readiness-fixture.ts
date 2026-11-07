@@ -3,6 +3,7 @@
 export function createReadinessFixtureReply(): (body: any) => Response | undefined {
   let pending: any;
   let sequence = 0;
+  let lastAdvice: unknown;
   const reply = (call: any, body: any) => {
     const offered = body.tools?.find((tool: any) => tool.function.name === call.name)?.function;
     const args = JSON.parse(call.arguments);
@@ -13,7 +14,11 @@ export function createReadinessFixtureReply(): (body: any) => Response | undefin
       tool_calls: [{ id: `fixture-review-${++sequence}`, type: 'function', function: call }] } }], usage: { prompt_tokens: 0, completion_tokens: 0 } });
   };
   return body => {
-    if (body.tool_choice?.function?.name === 'record_application_review') {
+    const tail = body.messages.at(-1);
+    const latestAdvice = tail?.role === 'user' && typeof tail.content === 'string' && tail.content.startsWith('APPLICATION REVIEW ADVICE:')
+      ? JSON.stringify([body.messages.findLast((message: any) => message.role === 'tool')?.tool_call_id, tail.content]) : undefined;
+    if (!pending && (body.tool_choice?.function?.name === 'record_application_review' || latestAdvice && latestAdvice !== lastAdvice)) {
+      lastAdvice = latestAdvice;
       const calls = body.messages.flatMap((message: any) => message.role === 'assistant' ? message.tool_calls || [] : []);
       const requestsReview = (message: unknown) => typeof message === 'string'
         && ['Before this send,', 'Before preparing this email,', 'Before preparing,'].some(prefix => message.startsWith(prefix));

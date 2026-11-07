@@ -25,7 +25,7 @@ export type AgentTermination =
 
 /** Expected handoffs need a fresh observation, not expensive failure recovery.
  * Keep this separate from prose, which can quote arbitrary form wording. */
-export type ToolDisposition = 'completed' | 'reobserve' | 'uncertain' | 'failed' | 'invalid-arguments';
+export type ToolDisposition = 'completed' | 'advisory' | 'reobserve' | 'uncertain' | 'failed' | 'invalid-arguments';
 export type ToolResult = { kind: 'ok'; message: string; disposition?: ToolDisposition } | { kind: 'terminal'; outcome: AgentTermination };
 
 export interface ToolContext {
@@ -40,6 +40,8 @@ export interface ToolContext {
   coverLetter?: string;
   documents?: import('../application-review-types.js').ApplicationDocument[];
   letterWitness?: import('../types.js').FormField[];
+  /** Observed form hints, never permission to send or a field-value veto. */
+  formAdvisories?: string[];
   uploadedDocuments?: Array<{ fileId: string; sha256: string; coverLetterDigest?: string }>;
   pendingCredentials?: Map<string, SiteCredential & { purpose?: 'create_account' | 'reset_password' }>;
   authenticationRealm?: string;
