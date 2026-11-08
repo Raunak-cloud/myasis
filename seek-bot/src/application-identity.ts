@@ -1,4 +1,5 @@
 import type { AppliedRecord, JobListing } from './types.js';
+import { jobBoardForUrl } from './job-board-url.js';
 
 /** Preserve vacancy, tenant and routing parameters; omit attribution and
  * SEEK's per-candidate/job/session handoff token from identity only. Keep the
@@ -48,6 +49,17 @@ export function applicationKeys(job: Pick<JobListing, 'id' | 'platform' | 'url' 
   if (job.platform === 'adzuna') {
     const listing = applicationFormKey(job, job.url);
     if (listing && !keys.includes(listing)) keys.push(listing);
+    // Referral parameters differ from the account's native board history.
+    // The board's actual posting ID identifies the same vacancy reliably.
+    for (const raw of [job.url, job.applicationUrl]) {
+      if (!raw) continue;
+      try {
+        const url = new URL(raw), board = jobBoardForUrl(raw);
+        const id = board === 'seek' ? url.pathname.match(/^\/job\/(\d+)(?:\/|$)/)?.[1]
+          : board === 'indeed' ? url.searchParams.get('jk') ?? url.searchParams.get('vjk') : null;
+        if (id && (board !== 'indeed' || /^[a-f0-9]{16}$/i.test(id))) keys.push(`listing:${board}:${id}`);
+      } catch { /* An unreadable destination provides no duplicate evidence. */ }
+    }
   }
   return keys;
 }
@@ -56,6 +68,7 @@ export function applicationKeys(job: Pick<JobListing, 'id' | 'platform' | 'url' 
 export function sameApplication(record: AppliedRecord, job: JobListing): boolean {
   if (record.platform === (job.platform ?? 'seek') && record.jobId === job.id) return true;
   const known = applicationKeys(job);
+  if (known.includes(`listing:${record.platform}:${record.jobId}`)) return true;
   return [record.url, record.applicationUrl].some(raw => {
     const form = raw ? applicationFormKey(record, raw) : null;
     return form !== null && known.includes(form);

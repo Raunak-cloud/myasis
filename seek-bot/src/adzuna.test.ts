@@ -88,6 +88,11 @@ test('resolved Adzuna mirrors share application identity with prior board and em
   const prior = { jobId: '95593975', platform: 'seek', company: job.company, title: job.title, location: job.location,
     url: 'https://www.seek.com.au/job/95593975', appliedAt: '2026-11-07', score: 99, scoreReasons: [] } as AppliedRecord;
   assert.equal(sameApplication(prior, job), true);
+  assert.equal(sameApplication(prior,{...job,url:job.url+'?source=adzuna',applicationUrl:job.applicationUrl+'?ref=adzuna'}),true);
+  assert.equal(sameApplication({...prior,jobId:'95593976',url:'https://www.seek.com.au/job/95593976'},job),false);
+  const indeed={...job,url:'https://au.indeed.com/viewjob?jk=0123456789abcdef&from=adzuna',applicationUrl:'https://au.indeed.com/jobs?vjk=0123456789abcdef&from=adzuna'};
+  assert.equal(sameApplication({...prior,platform:'indeed',jobId:'0123456789abcdef',url:'https://au.indeed.com/viewjob?jk=0123456789abcdef'},indeed),true);
+  assert.equal(sameApplication({...prior,platform:'indeed',jobId:'1123456789abcdef',url:'https://au.indeed.com/viewjob?jk=1123456789abcdef'},indeed),false);
   const employer = 'https://example.com/jobs/87108?utm_source=adzuna';
   assert.equal(sameApplication({ ...prior, url: 'https://example.com/jobs/87108' }, { ...job, url: employer, applicationUrl: employer }), true);
   assert.equal(sameApplication({ ...prior, url: 'https://example.com/jobs/87109' }, { ...job, url: employer, applicationUrl: employer }), false);
