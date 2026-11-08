@@ -1,5 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
 import { chromium, type Browser, type BrowserContext, type Page } from 'patchright';
 import { config } from './config.js';
 import { signInAutomatically } from './signin-agent.js';
@@ -9,6 +11,7 @@ import { countHealth } from './run-health.js';
 import { metric } from './pipeline.js';
 import { currentApplicationWorker } from './application-workers.js';
 import { updateLiveTarget, type LiveActivity } from './live-workers.js';
+import {repairPersistentDownloadHistory} from './browser-download-history.js';
 
 const attachedBrowsers = new WeakMap<BrowserContext, Browser>();
 
@@ -127,6 +130,11 @@ export async function launchBrowser(): Promise<BrowserContext> {
     args.push('--window-size=1440,960');
     if (!config.headless && config.background) args.push('--window-position=-32000,-32000');
 
+    if(process.platform==='linux'){
+      const version=await promisify(execFile)(config.chromePath,['--version'],{timeout:5000}).then(result=>result.stdout).catch(()=> '');
+      const repair=await repairPersistentDownloadHistory(config.userDataDir,version);
+      if(repair.cleared)console.log('Browser startup: backed up and repaired stale download records; saved sessions and documents preserved.');
+    }
     ctx = await chromium.launchPersistentContext(config.userDataDir, {
       executablePath: config.chromePath,
       headless: config.headless,

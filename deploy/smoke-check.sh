@@ -62,6 +62,8 @@ if [ "$REPLAY_REQUIRED" = 1 ]; then
   node --test dist/company-identity.test.js
   node --test dist/verification-email-ai.test.js dist/gmail-ai-fallback.test.js
   node --test dist/run-deadline.test.js
+  node --test dist/browser-download-history.test.js
+  CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/browser-download-history-browser.test.js
   node --test dist/cover-letter-policy.test.js dist/cover-letter-length.test.js
   node --test dist/prepare-job.test.js dist/application-review-session.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/direct-external.test.js
