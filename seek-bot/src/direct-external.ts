@@ -52,6 +52,9 @@ export async function identifyDirectJob(page: Page): Promise<PageIdentity> {
     const amazonMeta = amazonId ? [...document.querySelectorAll('#job-detail .details-line .meta')].find(visible) : undefined;
     const amazonIdentity = clean(amazonMeta?.textContent).match(/^Job ID:\s*(\d+)\s*\|\s*(.+)$/i);
     const amazonCompany = amazonIdentity?.[1] === amazonId ? amazonIdentity?.[2] : undefined;
+    const amazonBody = amazonCompany ? document.querySelector('#job-detail-body .content') as HTMLElement | null : null;
+    if (amazonCompany) locations.push(...[...document.querySelectorAll('#job-detail-body .association.location-icon .association-content li')]
+      .filter(visible).map(node => clean(node.textContent)).filter(Boolean));
     // Google Careers keeps a visible, generic H1 outside the vacancy's main
     // panel. Confirm its metadata against the panel's actual role heading.
     const googleCareers = host === 'google.com' && /^\/about\/careers\/applications\/jobs\/results\/\d+-/.test(location.pathname);
@@ -90,7 +93,7 @@ export async function identifyDirectJob(page: Page): Promise<PageIdentity> {
           const text = document.createElement('div'); text.innerHTML = String(posting.description);
           return text.textContent?.trim().slice(0, 60000) ?? '';
         }
-        return (document.querySelector('main, [role="main"]') as HTMLElement | null)?.innerText?.trim().slice(0, 60000) ?? '';
+        return (amazonBody || document.querySelector('main, [role="main"]') as HTMLElement | null)?.innerText?.trim().slice(0, 60000) ?? '';
       })(),
     };
   });
