@@ -33,11 +33,11 @@ export async function assertExternalJobUrl(raw: string, resolveHost = resolvesOn
 /** Authentication redirects carry signed state that is longer than a pasted
  * job link. Validate the destination identically without truncating that state. */
 export async function assertExternalNavigationUrl(raw: string, resolveHost = resolvesOnlyPublic): Promise<string> {
-  return validateExternalUrl(raw, resolveHost, 65_536);
+  return validateExternalUrl(raw, resolveHost);
 }
 
-async function validateExternalUrl(raw: string, resolveHost: typeof resolvesOnlyPublic, maxLength: number): Promise<string> {
-  if (!raw || raw.length > maxLength) throw new Error('The direct external job URL is missing or too long.');
+async function validateExternalUrl(raw: string, resolveHost: typeof resolvesOnlyPublic, maxLength?: number): Promise<string> {
+  if (!raw || (maxLength !== undefined && raw.length > maxLength)) throw new Error('The direct external job URL is missing or too long.');
   let url: URL;
   try {
     url = new URL(raw);

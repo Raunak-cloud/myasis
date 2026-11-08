@@ -10,7 +10,8 @@ test('a signed login handoff preserves long state while pasted job links retain 
  assert.ok(callback.length>2048);
  await assert.rejects(assertExternalJobUrl(callback,publicHost),/too long/);
  assert.equal(await assertExternalNavigationUrl(callback,publicHost),callback);
- await assert.rejects(assertExternalNavigationUrl(`https://idp.federate.amazon.com/?state=${'x'.repeat(65536)}`,publicHost),/too long/);
+ const longCallback=`https://idp.federate.amazon.com/?state=${'x'.repeat(100000)}`;
+ assert.equal(await assertExternalNavigationUrl(longCallback,publicHost),longCallback,'browser redirects have no Owtomate length gate');
 });
 
 test('long browser handoffs retain protocol, destination and public-address checks',async()=>{

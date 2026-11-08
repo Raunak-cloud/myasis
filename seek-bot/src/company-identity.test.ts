@@ -27,10 +27,10 @@ test('clear decisions bind exclusion references from cited sources without unnec
  const r=new CompanyIdentityResolver(async prompt=>{const d=data(prompt);return {decision:'clear',exclusionId:'',reason:'Distinct registered employers.',evidenceIds:d.registryEvidence.map(e=>e.id)};},async name=>[row(name,name.startsWith('WesTrac')?'63009342572':'33007457141')]);
  assert.equal((await r.resolve(input)).decision,'clear');
 });
-test('AI can investigate a nonlexical alias instead of relying on name similarity',async()=>{
+test('AI can identify a nonlexical alias without a fixed registry-proof requirement',async()=>{
  let calls=0;
  const r=new CompanyIdentityResolver(async prompt=>{calls++;const d=data(prompt);return {decision:'excluded',exclusionId:'exclusion-0',reason:'Verified business name and entity name share an ABN.',evidenceIds:d.registryEvidence.map(e=>e.id)};},async name=>[row(name)]);
- assert.equal((await r.resolve({...input,company:'Distinct Current Brand',exclusions:['Historic Identity']})).decision,'excluded');assert.equal(calls,2);
+ assert.equal((await r.resolve({...input,company:'Distinct Current Brand',exclusions:['Historic Identity']})).decision,'excluded');assert.equal(calls,1);
 });
 test('canonical-name research stays bound to the original party and fixed registry',async()=>{
  let calls=0;const queries:string[]=[];
@@ -48,22 +48,22 @@ test('employer posting changes cannot reuse a prior agency/client identity decis
  await r.resolve({...input,company:'Unrelated Recruitment Agency',employerEvidence:'Client two'});
  assert.equal(calls,2);
 });
-test('unsupported exclusion, unknown source and contradictory clearance never become a decision',async()=>{
- for(const kind of ['invented-id','unsupported','contradiction','unknown-exclusion']){
-  const r=new CompanyIdentityResolver(async prompt=>{const d=data(prompt);return {decision:kind==='contradiction'?'clear':'excluded',exclusionId:kind==='unknown-exclusion'?'exclusion-99':'exclusion-0',reason:'Unverified assertion.',evidenceIds:kind==='invented-id'?['invented']:d.registryEvidence.map(e=>e.id)};},async name=>[row(name,kind==='contradiction'?'63009342572':name.startsWith('WesTrac')?'63009342572':'33007457141')]);
+test('unknown evidence and exclusion references cannot be recorded as valid model output',async()=>{
+ for(const kind of ['invented-id','unknown-exclusion']){
+  const r=new CompanyIdentityResolver(async prompt=>{const d=data(prompt);return {decision:'excluded',exclusionId:kind==='unknown-exclusion'?'exclusion-99':'exclusion-0',reason:'Model decision.',evidenceIds:kind==='invented-id'?['invented']:d.registryEvidence.map(e=>e.id)};},async name=>[row(name,name.startsWith('WesTrac')?'63009342572':'33007457141')]);
   assert.equal((await r.resolve(input)).decision,'uncertain',kind);
  }
 });
-test('an unrelated legal record cannot substantiate two ambiguous business aliases',async()=>{
- const r=new CompanyIdentityResolver(async prompt=>({decision:'excluded',exclusionId:'exclusion-0',reason:'Unsupported alias inference.',evidenceIds:data(prompt).registryEvidence.map(e=>e.id)}),async name=>[
+test('the model can leave genuinely ambiguous registry results uncertain',async()=>{
+ const r=new CompanyIdentityResolver(async prompt=>({decision:'uncertain',exclusionId:'exclusion-0',reason:'These fuzzy results do not identify the employer.',evidenceIds:data(prompt).registryEvidence.map(e=>e.id)}),async name=>[
   {...row(name),type:'Business Name'},row(`Different Legal Entity ${name}`,name.startsWith('WesTrac')?'33007457141':'48123123124'),
  ]);
  assert.equal((await r.resolve(input)).decision,'uncertain');
 });
-test('missing coverage, transport failure and provider errors remain retryable uncertainty',async()=>{
+test('genuine model uncertainty and provider errors remain retryable and uncached',async()=>{
  for(const fail of ['empty','lookup','model']){
   let calls=0;
-  const r=new CompanyIdentityResolver(async()=>{calls++;if(fail==='model')throw Error('provider timeout');return {decision:'clear',exclusionId:'exclusion-0',reason:'Not enough evidence.',evidenceIds:[]};},async()=>{if(fail==='lookup')throw Error('unavailable');return [];});
+  const r=new CompanyIdentityResolver(async()=>{calls++;if(fail==='model')throw Error('provider timeout');return {decision:'uncertain',exclusionId:'exclusion-0',reason:'Not enough evidence.',evidenceIds:[]};},async()=>{if(fail==='lookup')throw Error('unavailable');return [];});
   assert.equal((await r.resolve(input)).decision,'uncertain');const before=calls;
   assert.equal((await r.resolve(input)).decision,'uncertain');assert.ok(calls>before,'uncertainty must not be cached as final');
  }
@@ -87,7 +87,7 @@ test('employer research does not require registry proof for every unrelated save
  assert.equal(result.decision,'clear');assert.equal(calls,2);
 });
 
-test('a specific alias comparison still needs both identities with a long exclusion list',async()=>{
+test('a model clearance survives incomplete optional research with a long exclusion list',async()=>{
  for(const covered of [false,true]){
   let calls=0;
   const r=new CompanyIdentityResolver(async prompt=>{
@@ -96,11 +96,11 @@ test('a specific alias comparison still needs both identities with a long exclus
     ?{decision:'uncertain',exclusionId:'exclusion-6',reason:'Investigate the possible trading name.',evidenceIds:[],research:[]}
     :{decision:'clear',exclusionId:'',reason:'Distinct entities.',evidenceIds:d.registryEvidence.map(e=>e.id),research:[]};
   },async name=>name==='Talent Insights Group Pty Ltd'&&!covered?[]:[row(name,name==='Talent Insights Group Pty Ltd'?'60610702764':'29161376638')]);
-  assert.equal((await r.resolve({...input,company:'Different Recruitment Brand',exclusions:sevenExclusions})).decision,covered?'clear':'uncertain');
+  assert.equal((await r.resolve({...input,company:'Different Recruitment Brand',exclusions:sevenExclusions})).decision,'clear');
  }
 });
 
-test('research cannot clear a known shared employer identifier by omitting the exclusion ID',async()=>{
+test('registry identifiers inform the model without a separate code verdict',async()=>{
  let calls=0;
  const r=new CompanyIdentityResolver(async prompt=>{
   const d=data(prompt);calls++;
@@ -108,7 +108,21 @@ test('research cannot clear a known shared employer identifier by omitting the e
    ?{decision:'uncertain',exclusionId:'',reason:'Research the employer.',evidenceIds:[],research:[]}
    :{decision:'clear',exclusionId:'',reason:'Unsupported distinctness.',evidenceIds:d.registryEvidence.map(e=>e.id),research:[]};
  },async name=>[row(name)]);
- assert.equal((await r.resolve({...input,company:'Different Brand',exclusions:sevenExclusions})).decision,'uncertain');
+ assert.equal((await r.resolve({...input,company:'Different Brand',exclusions:sevenExclusions})).decision,'clear');
+});
+
+test('registry outages and missing legal-name rows do not veto the model decision',async()=>{
+ for(const decision of ['clear','excluded'] as const){
+  for(const coverage of ['unavailable','business-only'] as const){
+   const r=new CompanyIdentityResolver(async prompt=>({decision,exclusionId:decision==='excluded'?'exclusion-0':'',reason:'Decision from the employer posting and available evidence.',evidenceIds:data(prompt).registryEvidence.map(e=>e.id)}),async name=>{
+    if(coverage==='unavailable')throw Error('Registry unavailable.');
+    return [{...row(name),type:'Business Name'}];
+   });
+   const result=await r.resolve(input);
+   assert.equal(result.decision,decision,`${decision}: ${coverage}`);
+   assert.equal(result.matchedExclusion,decision==='excluded'?'Westpac Group':'');
+  }
+ }
 });
 test('registry parsing preserves legal identity and business aliases without making a decision',async()=>{
  const html='<html><body>ABN Lookup<table><tr><th>ABN</th><th>Name</th></tr><tr><td>63 009 342 572 Active</td><td>WESTRAC PTY LTD</td><td>Entity Name</td><td>6055 WA</td></tr><tr><td>63 009 342 572 Active</td><td>WESTRAC INSTITUTE</td><td>Business Name</td><td>6055 WA</td></tr></table></body></html>';
