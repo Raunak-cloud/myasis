@@ -27,7 +27,17 @@ async function resolvesOnlyPublic(hostname: string): Promise<boolean> {
 
 /** Defense-in-depth validation at the browser process, not only the dashboard API. */
 export async function assertExternalJobUrl(raw: string, resolveHost = resolvesOnlyPublic): Promise<string> {
-  if (!raw || raw.length > 2_048) throw new Error('The direct external job URL is missing or too long.');
+  return validateExternalUrl(raw, resolveHost, 2_048);
+}
+
+/** Authentication redirects carry signed state that is longer than a pasted
+ * job link. Validate the destination identically without truncating that state. */
+export async function assertExternalNavigationUrl(raw: string, resolveHost = resolvesOnlyPublic): Promise<string> {
+  return validateExternalUrl(raw, resolveHost, 65_536);
+}
+
+async function validateExternalUrl(raw: string, resolveHost: typeof resolvesOnlyPublic, maxLength: number): Promise<string> {
+  if (!raw || raw.length > maxLength) throw new Error('The direct external job URL is missing or too long.');
   let url: URL;
   try {
     url = new URL(raw);
@@ -58,7 +68,7 @@ export async function guardExternalNavigations(context: BrowserContext): Promise
     const request = route.request();
     if (request.resourceType() !== 'document') return route.fallback();
     try {
-      await assertExternalJobUrl(request.url());
+      await assertExternalNavigationUrl(request.url());
       return route.fallback();
     } catch (error) {
       blocked = (error as Error).message;

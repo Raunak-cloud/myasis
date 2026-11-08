@@ -60,6 +60,7 @@ if [ "$REPLAY_REQUIRED" = 1 ]; then
   cd "$APP/seek-bot"
   node dist/company-match.test.js
   node --test dist/company-identity.test.js
+  node --test dist/external-navigation.test.js
   node --test dist/verification-email-ai.test.js dist/gmail-ai-fallback.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/verification-choices.test.js
   node --test dist/run-deadline.test.js
