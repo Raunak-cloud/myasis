@@ -97,3 +97,10 @@ test('resolved Adzuna mirrors share application identity with prior board and em
   assert.equal(sameApplication({ ...prior, url: 'https://example.com/jobs/87108' }, { ...job, url: employer, applicationUrl: employer }), true);
   assert.equal(sameApplication({ ...prior, url: 'https://example.com/jobs/87109' }, { ...job, url: employer, applicationUrl: employer }), false);
 });
+
+test('current API details and Apply links retain the exact Adzuna posting identity',()=>{
+  for(const path of ['/details/123','/land/ad/123','/jobs/land/ad/123']){
+    assert.equal(adzunaListing({...raw,id:'123',redirect_url:'https://www.adzuna.com.au'+path+'?utm_source=api'})?.id,'adzuna-123');
+    assert.equal(adzunaListing({...raw,id:'124',redirect_url:'https://www.adzuna.com.au'+path}),null);
+  }
+});

@@ -35,7 +35,7 @@ test('browser resolves Adzuna tracking, reads full employer evidence, preserves 
     // Every request is fulfilled or refused locally; no employer receives data.
     await context.route('**/*', route => {
       const url = new URL(route.request().url());
-      if (url.hostname === 'www.adzuna.com.au') return route.fulfill({ status: 302, headers: { location: destination } });
+      if (url.hostname === 'www.adzuna.com.au') return route.fulfill({ contentType:'text/html',body:url.pathname.startsWith('/details/')?'<main><h1>Senior Data Analyst</h1><a href="/land/ad/123?from_adp=1">Apply for this job</a></main>':`<script>location.replace(${JSON.stringify(destination)})</script>` });
       if (url.hostname === 'example.com') return route.fulfill({ contentType: 'text/html', body: `<script type="application/ld+json">${JSON.stringify({ '@type': 'JobPosting', title: 'Senior Data Analyst',datePosted:new Date(Date.now()-postedDaysAgo*86400000).toISOString(), hiringOrganization: { name: 'Example Employer' }, jobLocation: { address: { addressLocality: 'Sydney' } }, description: 'Full employer description: analyse operational data and build SQL reports.' })}</script><main><h1>Senior Data Analyst</h1><p>Full employer description: analyse operational data and build SQL reports.</p><button>Apply</button></main>` });
       if (url.hostname === 'www.seek.com.au') return route.fulfill({ contentType: 'text/html', body: '<main><h1>Senior Data Analyst</h1><div data-automation="jobAdDetails">Full SEEK description: analyse operational data and build SQL reports.</div><span data-automation="job-detail-salary">$140,000</span><span data-automation="job-detail-date">20 days ago</span><span data-automation="job-detail-location">Sydney</span><span data-automation="job-detail-work-type">Hybrid</span><a data-automation="job-detail-apply" href="/job/95593975/apply">Quick apply</a></main>' });
       if (url.hostname === 'au.indeed.com') return route.fulfill({ contentType:'text/html',body:`<script type="application/ld+json">${JSON.stringify({'@type':'JobPosting',datePosted:new Date(Date.now()-3*86400000).toISOString()})}</script><main><h1>Senior Data Analyst</h1><div id="jobDescriptionText">Full Indeed description: SQL reporting for a hybrid Sydney team.</div><span data-testid="inlineHeader-companyLocation">Sydney</span><button data-testid="primary-apply-action">Apply now</button></main>` });
@@ -49,6 +49,12 @@ test('browser resolves Adzuna tracking, reads full employer evidence, preserves 
     assert.match(detail.description!, /^Full employer description/); assert.doesNotMatch(detail.description!, /Truncated/);
     assert.equal(detail.applicationMode, 'external');
     assert.equal(detail.ageDays,2,'The original employer date wins over a newly discovered aggregate.');
+    const currentApiStub={...stub,url:'https://www.adzuna.com.au/details/123?utm_source=fixture',listingSourceUrl:'https://www.adzuna.com.au/details/123?utm_source=fixture'};
+    const currentDetail=await detailReader(page,currentApiStub);
+    assert.equal(currentDetail.url,destination);assert.equal(currentDetail.listingSourceUrl,currentApiStub.listingSourceUrl);
+    assert.match(currentDetail.description!,/^Full employer description/);
+    const browserFallback=await fetchAdzunaDetail(page,stub,{resolve:async()=>{throw new Error('The Adzuna vacancy link returned HTTP 403.');}});
+    assert.equal(browserFallback.url,destination,'A refused server lookup uses the normal guarded browser connection.');
     const profile = { name: 'Fixture Candidate', email: 'fixture@example.test', skills: ['SQL'], excludedDomains: [] } as unknown as import('./types.js').CandidateProfile;
     detail.fitReview = { score: 90, reason: 'Fixture evidence matches', evidence: ['SQL reports'],
       contentFingerprint: reviewContentFingerprint(detail)!, contextFingerprint: reviewContextFingerprint(profile) };

@@ -24,11 +24,27 @@ export async function fetchAdzunaDetail(page: Page, stub: JobListing,
   if (stub.platform !== 'adzuna' || checked?.id !== stub.id) throw new Error('Invalid Adzuna listing identity.');
   // Resolve the tracking hop first, then let the existing browser and board
   // adapters read the full vacancy with the account's normal session.
-  const vacancy=await(options.resolve??resolveAdzunaRedirect)(checked.url);
+  let vacancy=checked.url;
+  if(!new URL(checked.url).pathname.startsWith('/details/')) {
+    try{vacancy=await(options.resolve??resolveAdzunaRedirect)(checked.url);}
+    catch(error){
+      // Adzuna can refuse a datacentre request while allowing the account's
+      // normal browser connection. Preserve its existing proxy/session path.
+      if(!/HTTP 403\b/.test((error as Error).message))throw error;
+    }
+  }
   const guard = await guardExternalNavigations(page.context(), { allowJobBoards: true });
   try {
     await page.goto(vacancy, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await page.waitForFunction(() => Boolean(document.body?.innerText.trim()), undefined, { timeout: 10000 }).catch(() => {});
+    if (['www.adzuna.com.au','adzuna.com.au'].includes(new URL(page.url()).hostname)) {
+      const href=await page.locator(`a[href*="/land/ad/${stub.id.replace(/^adzuna-/,'')}"]`).first().getAttribute('href').catch(()=>null);
+      const apply=href?adzunaListing({id:stub.id.replace(/^adzuna-/,''),title:stub.title,redirect_url:new URL(href,page.url()).href}):null;
+      if(!apply)throw new Error('The Adzuna vacancy has no available application link.');
+      await page.goto(apply.url,{waitUntil:'domcontentloaded',timeout:45000});
+      await page.waitForURL(url=>!['www.adzuna.com.au','adzuna.com.au'].includes(url.hostname),{timeout:15000}).catch(()=>{});
+      if(['www.adzuna.com.au','adzuna.com.au'].includes(new URL(page.url()).hostname))throw new Error('Adzuna did not open the original vacancy.');
+    }
     const destination = page.url();
     const board = jobBoardForUrl(destination);
     let detail: JobListing;

@@ -15,7 +15,7 @@ export function adzunaListing(raw: unknown, now = Date.now()): JobListing | null
   let url: URL;
   try { url = new URL(data.redirect_url); } catch { return null; }
   if (!['https:', 'http:'].includes(url.protocol) || !['www.adzuna.com.au', 'adzuna.com.au'].includes(url.hostname)
-    || url.username || url.password || url.port || !new RegExp(`^/jobs/land/ad/${id}(?:/|$)`).test(url.pathname)) return null;
+    || url.username || url.password || url.port || !new RegExp(`^/(?:jobs/land/ad|land/ad|details)/${id}(?:/|$)`).test(url.pathname)) return null;
   url.protocol = 'https:';
   const created = Date.parse(data.created);
   const predicted = String(data.salary_is_predicted) !== '0';
