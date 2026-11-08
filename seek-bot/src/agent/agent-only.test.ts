@@ -222,7 +222,7 @@ try {
   await page.goto(url);
   await page.setContent(`<iframe id=login srcdoc="<label>Email<input type=email></label><label>Password<input type=password></label>"></iframe>`);
   process.env.SITE_AUTH_SECRET='synthetic-credential-secret';
-  script=[()=>[{name:'complete_authentication',args:{targets:[{locator:{by:'label',value:'Email',frame:'#login'}},{locator:{by:'label',value:'Password',frame:'#login'}}],purpose:'create_account',reason:'Observed account registration inputs'}}],body=>{
+  script=[()=>[{name:'fill_authentication_fields',args:{targets:[{locator:{by:'label',value:'Email',frame:'#login'}},{locator:{by:'label',value:'Password',frame:'#login'}}],purpose:'create_account',reason:'Observed account registration inputs'}}],body=>{
     assert.match(JSON.stringify(body.messages),/authentication field\(s\) completed/);
     return [{name:'finish',args:{status:'skipped',reason:'Offline private authentication transport checked',evidence:'Both scoped iframe inputs filled using native browser events'}}];
   }];

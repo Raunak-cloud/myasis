@@ -96,7 +96,7 @@ test('credentials/reset URLs stay out of durable evidence; exact candidate docum
   try {
     record.checkpoint({...work,files:[{id:'generated:letter',path:'C:/owner/private-letter.txt',text:work.coverLetter}]},
       {recovery:{note:`Do not expose ${secret}`}}, {url:'https://employer.invalid/reset/123456789012345678901234567890?token=private-token#secret',password:secret,text:secret});
-    const id=record.begin('complete_authentication',undefined,true);
+    const id=record.begin('fill_authentication_fields',undefined,true);
     record.complete(id,`Reset opened https://employer.invalid/reset?code=private-code; password ${secret}`,'completed',work,false);
     const state=JSON.stringify(record.snapshot());assert.ok(!state.includes(secret));assert.ok(!state.includes('private-token'));assert.ok(!state.includes('private-code'));assert.ok(!state.includes('123456789012345678901234567890'));
     assert.equal(record.snapshot().work?.coverLetter,work.coverLetter);

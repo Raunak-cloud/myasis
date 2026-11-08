@@ -15,7 +15,7 @@ test('the live missing-target replay is rejected before a mailbox read or browse
   try {
     const tools = authenticationTools();
     const codeSchema = tools.find(tool => tool.name === 'enter_emailed_code')!.parameters;
-    const credentialSchema = tools.find(tool => tool.name === 'complete_authentication')!.parameters;
+    const credentialSchema = tools.find(tool => tool.name === 'fill_authentication_fields')!.parameters;
     const missing = { purpose: 'sign_in', sender_hint: 'PRIVATE_CANDIDATE_FACT' };
     assert.equal(validToolInput(missing, codeSchema), false);
     const issue = toolInputIssue(missing, codeSchema)!;

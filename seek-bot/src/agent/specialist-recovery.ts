@@ -105,7 +105,7 @@ function bindGoal(v:Verification,o?:Observation):Verification {
  }
  return v;
 }
-const workTools=new Set(['browser_action','browser_batch','take_snapshot','check_employer_account','complete_authentication','enter_emailed_code','open_emailed_link','record_authentication_result','wait_for_verification','render_approved_cover_letter','convert_file','create_file','read_candidate_evidence','read_browser_experience']);
+const workTools=new Set(['browser_action','browser_batch','take_snapshot','check_employer_account','fill_authentication_fields','enter_emailed_code','open_emailed_link','record_authentication_result','wait_for_verification','render_approved_cover_letter','convert_file','create_file','read_candidate_evidence','read_browser_experience']);
 function operationKey(op:Operation,o:Observation):string {
  const args={...normalizedOperation(op).args};
  const control=[...o.fields,...o.actions].find(c=>c.ref===args.ref);
@@ -248,7 +248,7 @@ export class SpecialistRecovery {
   if(args.sends_application===true)return false;
   if(name==='browser_batch')return Array.isArray(args.actions)&&args.actions.some(action=>this.mutating('browser_action',action as Record<string,unknown>));
   if(name==='browser_action')return !['inspect','wait','take_snapshot','scroll','hover','select_page'].includes(String(args.action))&&args.script_intent!=='inspect';
-  return ['complete_authentication','enter_emailed_code','open_emailed_link','wait_for_verification'].includes(name)||name.startsWith('helper_');
+  return ['fill_authentication_fields','enter_emailed_code','open_emailed_link','wait_for_verification'].includes(name)||name.startsWith('helper_');
  }
  complete(name:string,args:Record<string,unknown>,result:string,failed:boolean,executed=true):void {
   const o=this.observation;

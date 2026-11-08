@@ -510,7 +510,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     // A blocked renderer must not prevent saving evidence, recording a result,
     // or switching away from it. Check security before page interactions.
     const interactsWithPage = name === 'browser_action' && changesBrowserState(args) && !['navigate', 'select_page'].includes(String(args.action))
-      || ['add_cover_letter', 'prepare_application', 'prepare_email_application', 'complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(name);
+      || ['add_cover_letter', 'prepare_application', 'prepare_email_application', 'fill_authentication_fields', 'enter_emailed_code', 'open_emailed_link'].includes(name);
     if (interactsWithPage && await hasHcaptchaChallenge(ctx.page)) return { kind: 'terminal', outcome: { status: 'skipped', reason: HCAPTCHA_SKIP_REASON } };
     if (name === 'browser_batch') {
       const results: unknown[] = [];
@@ -686,7 +686,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       return ok(JSON.stringify(result), 'reobserve');
     }
     if (name === 'check_employer_account') return doCheckEmployerAccount(ctx,args);
-    if (name === 'complete_authentication') return doCompleteAuthentication(ctx, args);
+    if (name === 'fill_authentication_fields') return doCompleteAuthentication(ctx, args);
     if (name === 'enter_emailed_code') return doEnterEmailedCode(ctx, args);
     if (name === 'open_emailed_link') return doOpenEmailedLink(ctx, args);
     if (name === 'wait_for_verification') return ok(`Configured verification service result: ${await waitForChallengeToClear(ctx.page, 45_000) ? 'surface cleared' : 'surface remains'}. Inspect the page yourself.`);
@@ -1121,7 +1121,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
             if (issue) throw new Error(`Invalid tool input: ${issue}`);
             if (recoveryTools.some(item => item.name === call.name) && call.name !== recovery.tool) throw new Error('A recovery note needs current unreviewed recovery evidence. Continue from the current form instead of repeating a report.');
             failureKind='execution';
-            operationMayMutate=helpers.has(call.name)||['complete_authentication','enter_emailed_code','open_emailed_link','add_cover_letter','wait_for_verification'].includes(call.name)
+            operationMayMutate=helpers.has(call.name)||['fill_authentication_fields','enter_emailed_code','open_emailed_link','add_cover_letter','wait_for_verification'].includes(call.name)
                 || call.name==='browser_action'&&call.args.action==='script'
                 || call.name==='browser_action'&&changesBrowserState(call.args)
                 || call.name==='browser_batch'&&Array.isArray(call.args.actions)&&call.args.actions.some(changesBrowserState);
@@ -1131,7 +1131,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
             result = await act(call.name, call.args);
             failureKind='validation';
             if (result.kind === 'ok' && result.disposition!=='uncertain' && !readiness.requested && !failedToolResult(result) && (call.name === 'browser_batch' && Array.isArray(call.args.actions) && call.args.actions.some(changesBrowserState)
-              || ['complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(call.name)
+              || ['fill_authentication_fields', 'enter_emailed_code', 'open_emailed_link'].includes(call.name)
               || call.name === 'browser_action' && changesBrowserState(call.args))) browserMutated = true;
             ownedPages.add(ctx.page);
           } catch (error) {

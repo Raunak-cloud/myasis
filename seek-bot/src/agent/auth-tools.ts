@@ -15,8 +15,9 @@ const cachedVerification = {
 };
 
 const AUTHENTICATION_TOOL: ToolSchema = {
-    name: 'complete_authentication',
+    name: 'fill_authentication_fields',
     description:
+      'Fill login, account-creation or password-reset fields privately. Fills fields only. Use browser_action separately to click buttons. ' +
       'First check this candidate\'s saved employer account with check_employer_account or the automatic account summary. Reuse accepted credentials before registration. Existing accounts without saved passwords can use normal recovery through the matching candidate inbox; a genuine employer reset link/code must be consumed before setting a password. Fill sign-in or account-creation fields using the candidate profile and the private site credential. ' +
       'Use this for email, username, name, phone, password and password-confirmation fields. Pass every authentication FIELD on the page. ' +
       'Use this private tool for credentials. After filling, click the sign-in, create-account or continue control. ' +

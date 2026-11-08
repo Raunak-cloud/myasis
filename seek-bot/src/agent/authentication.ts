@@ -255,7 +255,7 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
         : '') +
       (failed.length ? ` Re-observe and retry fields the site rejected: ${failed.join('; ')}` : '') +
       ' Continue with the sign-in or account-creation control.' +
-      (setsPassword ? ' If the site then rejects the password for its rules, call complete_authentication again with password_rules taken from that message.' : ''),
+      (setsPassword ? ' If the site then rejects the password for its rules, call fill_authentication_fields again with password_rules taken from that message.' : ''),
     failed.length || unsupported.length ? 'failed' : 'completed',
   );
 }
@@ -320,7 +320,7 @@ export async function doRecordAuthenticationResult(ctx: ToolContext, args: Recor
   }
   ctx.actions.push(accepted);
   ctx.recoveryRecord?.resolveUncertainty('authentication','accepted',evidence.quote,authKey(ctx,purpose));
-  return ok('Recorded accepted authentication with current employer evidence.' + (purpose === 'reset_password' || purpose === 'create_account' ? ' This confirms the credential change, not a signed-in session. If the site returned to sign-in, use complete_authentication with purpose=sign_in next.' : ''));
+  return ok('Recorded accepted authentication with current employer evidence.' + (purpose === 'reset_password' || purpose === 'create_account' ? ' This confirms the credential change, not a signed-in session. If the site returned to sign-in, use fill_authentication_fields with purpose=sign_in next.' : ''));
 }
 
 export async function fillEmailedCode(page: Page, fields: Observation['fields'], code: string, targets?: Locator[]): Promise<boolean> {

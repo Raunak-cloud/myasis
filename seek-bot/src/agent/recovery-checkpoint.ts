@@ -230,7 +230,7 @@ export class RecoveryCheckpoint {
       ? changesBrowserState(args)
       : tool === 'browser_batch'
         ? Array.isArray(args.actions) && args.actions.some(changesBrowserState)
-        : ['complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(tool);
+        : ['fill_authentication_fields', 'enter_emailed_code', 'open_emailed_link'].includes(tool);
     // Choosing the next normal action after inspecting a repair is an
     // implicit continuation, not a reason to force a report or keep expensive
     // diagnosis active forever. It earns no extra allowance by itself.
@@ -250,7 +250,7 @@ export class RecoveryCheckpoint {
       }
     }
     if (['browser_action', 'browser_batch', 'take_snapshot', 'wait_for_submission_result',
-      'complete_authentication', 'enter_emailed_code', 'open_emailed_link'].includes(tool)) this.browserTurn = true;
+      'fill_authentication_fields', 'enter_emailed_code', 'open_emailed_link'].includes(tool)) this.browserTurn = true;
     if (failed) {
       this.failures++;
       if (this.failures >= 2) {

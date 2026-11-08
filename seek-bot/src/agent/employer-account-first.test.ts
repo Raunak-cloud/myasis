@@ -87,7 +87,7 @@ try{
  globalThis.fetch=async(_url,init)=>{
   const body=JSON.parse(String(init?.body)),specialist=specialistFixtureReply(body);if(specialist)return specialist;
   if(calls===0){assert.match(JSON.stringify(body.messages),/EMPLOYER ACCOUNT CHECK/);assert.match(JSON.stringify(body.messages),/accepted/);assert.equal(await page.evaluate(()=>(window as any).writes),0);}
-  const call=calls++===0?{name:'complete_authentication',args:{purpose:'sign_in',reason:'Reuse the saved employer account.',...fields}}:{name:'finish',args:{status:'skipped',reason:'Controlled account-reuse fixture completed.',evidence:'Employer account'}};
+  const call=calls++===0?{name:'fill_authentication_fields',args:{purpose:'sign_in',reason:'Reuse the saved employer account.',...fields}}:{name:'finish',args:{status:'skipped',reason:'Controlled account-reuse fixture completed.',evidence:'Employer account'}};
   return Response.json({usage:{prompt_tokens:0,completion_tokens:0},choices:[{message:{role:'assistant',content:null,tool_calls:[{id:'parent-'+calls,type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}]}}]});
  };
  const input=await ctx();await runAgentOnlyApplication({simulation:'isolated-form',page,job:input.job,profile:input.profile,log:()=>{}});
