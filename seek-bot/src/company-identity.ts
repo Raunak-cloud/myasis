@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {parseHTML} from 'linkedom';
 import {matchingExcludedCompany, possibleExcludedCompanies} from './company-match.js';
 
-export const COMPANY_IDENTITY_VERSION = 'employer-identity-v1';
+export const COMPANY_IDENTITY_VERSION = 'employer-identity-v2';
 export interface CompanyRecord {abn:string; name:string; type:string; location:string; sourceUrl:string}
 export interface CompanyEvidence extends CompanyRecord {id:string; query:string; searchedName?:string}
 export interface CompanyIdentityInput {scope:string; company:string; exclusions:readonly string[]; employerEvidence?:string}
@@ -89,6 +89,9 @@ export class CompanyIdentityResolver {
   private async investigate(company:string,exclusions:string[],employerEvidence:string):Promise<CompanyIdentityDecision>{
     const entries=exclusions.map((name,index)=>({id:`exclusion-${index}`,name}));
     const proposals=possibleExcludedCompanies(company,exclusions);
+    // Researching the employer does not make every unrelated exclusion an
+    // ambiguous alias. Keep evidence requirements tied to actual comparisons.
+    const comparisons=new Set(proposals);
     const evidence:CompanyEvidence[]=[];const searched=new Set<string>();let unavailable=false;let validationFeedback='';
     const research=async(names:string[],party?:string)=>{
       await Promise.all([...new Set(party?names:[company,...names])].filter(name=>!searched.has(JSON.stringify([party??name,name]))).map(async query=>{
@@ -106,19 +109,19 @@ export class CompanyIdentityResolver {
       if(!raw||!['clear','excluded','uncertain'].includes(String(raw.decision))||typeof raw.reason!=='string'||!raw.reason.trim()||!Array.isArray(raw.evidenceIds)||raw.evidenceIds.some(id=>typeof id!=='string'||!evidence.some(e=>e.id===id)))return this.uncertain('Employer identity reviewer returned invalid evidence.',evidence);
       const target=entries.find(e=>e.id===raw.exclusionId);
       if(typeof raw.exclusionId!=='string'||(raw.exclusionId!==''&&!target))return this.uncertain('Employer identity reviewer selected an unknown exclusion.',evidence);
+      if(target)comparisons.add(target.name);
       const evidenceIds=raw.evidenceIds as string[];
       const cited=evidence.filter(e=>evidenceIds.includes(e.id));
       const employerRows=cited.filter(e=>e.query===company),excludedRows=target?cited.filter(e=>e.query===target.name):[];
       const comparedRows=cited.filter(e=>exclusions.includes(e.query));
-      const covered=proposals.length?proposals:target?[target.name]:exclusions;
+      const covered=[...comparisons];
       const isLegal=(row:CompanyEvidence)=>row.type.toLowerCase()==='entity name';
       const clearEvidence=employerRows.some(isLegal)&&covered.every(name=>comparedRows.some(e=>e.query===name&&isLegal(e)))
         &&!employerRows.some(a=>comparedRows.some(b=>a.abn===b.abn));
       const shared=employerRows.filter(a=>excludedRows.some(b=>a.abn===b.abn));
-      const same=shared.length>0;
-      const investigated=proposals.length>0||attempt>0;
+      const same=employerRows.some(a=>comparedRows.some(b=>a.abn===b.abn));
       if(raw.decision==='excluded'&&target&&shared.some(row=>cited.some(e=>isLegal(e)&&e.abn===row.abn)))return {decision:'excluded',matchedExclusion:target.name,reason:raw.reason,evidence:cited,method:'ai'};
-      if(raw.decision==='clear'&&!same&&(!investigated||(clearEvidence&&!unavailable&&covered.length<=3)))return {decision:'clear',matchedExclusion:'',reason:raw.reason,evidence:cited,method:'ai'};
+      if(raw.decision==='clear'&&!same&&(!covered.length||(clearEvidence&&!unavailable)))return {decision:'clear',matchedExclusion:'',reason:raw.reason,evidence:cited,method:'ai'};
       if(attempt===0){
         validationFeedback='The proposed verdict did not establish both identities with the required registered legal-name evidence, or contradicted shared identifiers. Do not invent missing legal identities. Investigate canonical legal names or return uncertain.';
         await research(target?[target.name]:(proposals.length?proposals:exclusions).slice(0,3));
@@ -126,7 +129,10 @@ export class CompanyIdentityResolver {
           if(!request||typeof request!=='object')continue;
           const {party,name}=request as Record<string,unknown>;
           const owner=party==='employer'?company:entries.find(e=>e.id===party)?.name;
-          if(owner&&typeof name==='string'&&name.length>=2&&name.length<=200&&!/[\\<>\n\r]/.test(name))await research([name],owner);
+          if(owner&&typeof name==='string'&&name.length>=2&&name.length<=200&&!/[\\<>\n\r]/.test(name)){
+            if(party!=='employer')comparisons.add(owner);
+            await research([name],owner);
+          }
         }
         continue;
       }

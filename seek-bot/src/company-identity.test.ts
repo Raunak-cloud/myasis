@@ -72,6 +72,44 @@ test('clearly distinct employers use one AI call without unnecessary registry qu
  let calls=0;const r=new CompanyIdentityResolver(async()=>{calls++;return {decision:'clear',exclusionId:'',reason:'Distinct named employers with no identity overlap.',evidenceIds:[]};},async()=>{throw Error('must not query');});
  assert.equal((await r.resolve({...input,company:'Canva',exclusions:['Westpac Group']})).decision,'clear');assert.equal(calls,1);
 });
+
+const sevenExclusions=['Commonwealth Bank of Australia','Insight Timer','Transport for NSW','TPG Telecom','AFCA','Westpac Group','Talent Insights Group Pty Ltd'];
+
+test('employer research does not require registry proof for every unrelated saved exclusion',async()=>{
+ let calls=0;
+ const r=new CompanyIdentityResolver(async prompt=>{
+  const d=data(prompt);calls++;
+  return calls===1
+   ?{decision:'uncertain',exclusionId:'',reason:'Confirm the advertised employer legal name.',evidenceIds:[],research:[{party:'employer',name:'Plenti Pty Limited'}]}
+   :{decision:'clear',exclusionId:'',reason:'Plenti is distinct from the excluded employers.',evidenceIds:d.registryEvidence.map(e=>e.id),research:[]};
+ },async name=>[row(name,name.startsWith('Plenti')?'29161376638':String(sevenExclusions.indexOf(name)+10000000000))]);
+ const result=await r.resolve({...input,company:'Plenti',exclusions:sevenExclusions});
+ assert.equal(result.decision,'clear');assert.equal(calls,2);
+});
+
+test('a specific alias comparison still needs both identities with a long exclusion list',async()=>{
+ for(const covered of [false,true]){
+  let calls=0;
+  const r=new CompanyIdentityResolver(async prompt=>{
+   const d=data(prompt);calls++;
+   return calls===1
+    ?{decision:'uncertain',exclusionId:'exclusion-6',reason:'Investigate the possible trading name.',evidenceIds:[],research:[]}
+    :{decision:'clear',exclusionId:'',reason:'Distinct entities.',evidenceIds:d.registryEvidence.map(e=>e.id),research:[]};
+  },async name=>name==='Talent Insights Group Pty Ltd'&&!covered?[]:[row(name,name==='Talent Insights Group Pty Ltd'?'60610702764':'29161376638')]);
+  assert.equal((await r.resolve({...input,company:'Different Recruitment Brand',exclusions:sevenExclusions})).decision,covered?'clear':'uncertain');
+ }
+});
+
+test('research cannot clear a known shared employer identifier by omitting the exclusion ID',async()=>{
+ let calls=0;
+ const r=new CompanyIdentityResolver(async prompt=>{
+  const d=data(prompt);calls++;
+  return calls===1
+   ?{decision:'uncertain',exclusionId:'',reason:'Research the employer.',evidenceIds:[],research:[]}
+   :{decision:'clear',exclusionId:'',reason:'Unsupported distinctness.',evidenceIds:d.registryEvidence.map(e=>e.id),research:[]};
+ },async name=>[row(name)]);
+ assert.equal((await r.resolve({...input,company:'Different Brand',exclusions:sevenExclusions})).decision,'uncertain');
+});
 test('registry parsing preserves legal identity and business aliases without making a decision',async()=>{
  const html='<html><body>ABN Lookup<table><tr><th>ABN</th><th>Name</th></tr><tr><td>63 009 342 572 Active</td><td>WESTRAC PTY LTD</td><td>Entity Name</td><td>6055 WA</td></tr><tr><td>63 009 342 572 Active</td><td>WESTRAC INSTITUTE</td><td>Business Name</td><td>6055 WA</td></tr></table></body></html>';
  let requests=0;
