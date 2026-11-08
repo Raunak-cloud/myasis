@@ -9,7 +9,10 @@ import { GmailMcpService, GmailServiceError } from './gmail-mcp-service.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-gmail-mcp-'));
 Object.assign(process.env, { DATA_DIR: directory, FORM_CORPUS_DIR: join(directory, 'corpus'), CELERIS_API_KEY: 'fixture-only', COST_TRACKING: 'false', SITE_AUTH_SECRET: 'fixture-only-site-secret' });
-const { doEnterEmailedCode, doOpenEmailedLink, doCompleteAuthentication, doRecordAuthenticationResult, fillEmailedCode } = await import('./agent/authentication.js');
+const { doEnterEmailedCode: inspectCode, doOpenEmailedLink: inspectLink, doCompleteAuthentication, doRecordAuthenticationResult, fillEmailedCode } = await import('./agent/authentication.js');
+const { chooseTestVerification } = await import('./agent/verification-test-support.js');
+const doEnterEmailedCode: typeof inspectCode = (ctx, args) => chooseTestVerification(inspectCode, ctx, args, 'code');
+const doOpenEmailedLink: typeof inspectLink = (ctx, args) => chooseTestVerification(inspectLink, ctx, args, 'link');
 const { pendingCredential, storedCredential } = await import('./site-credentials.js');
 const { observe, renderObservation } = await import('./agent/observe.js');
 const { nativeReadback, nativeSnapshot } = await import('./agent/native-browser.js');

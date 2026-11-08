@@ -10,6 +10,7 @@ import {storedCredential,employerCredentialState} from '../site-credentials.js';
 import {doCheckEmployerAccount,doCompleteAuthentication,doOpenEmailedLink,doRecordAuthenticationResult} from './authentication.js';
 import type {ToolContext} from './context.js';
 import {observe} from './observe.js';
+import {chooseTestVerification} from './verification-test-support.js';
 
 test('existing-account recovery requires a matching inbox and a consumed employer reset message before any password replacement',async()=>{
  const directory=mkdtempSync(join(tmpdir(),'mailbox-account-recovery-'));
@@ -32,7 +33,7 @@ test('existing-account recovery requires a matching inbox and a consumed employe
   assert.equal(employerCredentialState(page.url(),email,company).state,'external');
   await doCompleteAuthentication(ctx,{purpose:'sign_in',...fields});assert.equal(await page.locator('#password').inputValue(),'','never guess an existing password');
   await doCompleteAuthentication(ctx,{purpose:'reset_password',...fields});assert.equal(await page.locator('#password').inputValue(),'','a connected inbox alone cannot authorize a new password');
-  await doOpenEmailedLink(ctx,{purpose:'reset_password',sender_hint:'SuccessFactors'});
+  await chooseTestVerification(doOpenEmailedLink,ctx,{purpose:'reset_password',sender_hint:'SuccessFactors'},'link');
   await ctx.page.goto('https://career41.sapsf.com/career?company=otherTenant');
   await doCompleteAuthentication(ctx,{purpose:'reset_password',...fields});assert.equal(await ctx.page.locator('#password').inputValue(),'','email proof cannot transfer across SAP tenants even with the same employer label');
   await ctx.page.goto(destination);

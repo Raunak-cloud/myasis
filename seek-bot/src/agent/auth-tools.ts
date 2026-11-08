@@ -9,6 +9,7 @@ const targets = { type: 'array', minItems: 1, maxItems: 12, items: {
   anyOf: [{ required: ['ref'] }, { required: ['selector'] }, { required: ['locator'] }],
 }, description: 'Required unless refs are supplied. Agent-selected native locators for the actual credential/code inputs, including frame and section scopes. Prefer these to refs for embedded forms.' };
 const cachedVerification = {
+  credential_id: { type: 'string', minLength: 1, maxLength: 100, description: 'Private credential ID chosen by you from this tool’s returned email evidence. Omit on the first call to inspect recent messages. Decide which email and credential match the current page and requested purpose; then call again with that ID. Values stay private.' },
   purpose: { type: 'string', enum: [...VERIFICATION_PURPOSES], description: 'The current requested email operation: account/application email verification or activation, sign-in, or password reset. A prior activation link cannot reset a password. Select reset_password after requesting password recovery.' },
   allow_recent_cached: { type: 'boolean', description: 'Set only when visible employer copy says an existing/reusable emailed code or link is still valid. Requires cached_code_evidence. Allows recent cached mail within fifteen minutes; never an unrestricted stale fallback.' },
   cached_code_evidence: { type: 'string', description: 'Complete exact visible employer message establishing that the existing emailed code/link can still be used. You judge its meaning; the tool verifies the quote against fresh noneditable employer copy.' },
@@ -64,7 +65,7 @@ const EMAILED_CODE_TOOL: ToolSchema = {
   description:
     'When the page asks for a code that was emailed to the candidate (verification code, one-time passcode, sign-in code), ' +
     "call this with the ref of the code FIELD after the email has been requested. The code is read from the candidate's " +
-    'inbox through Gmail MCP and typed into that field for you. For separate digit boxes, supply refs in visual reading order instead of ref. Never type a code yourself.',
+    'inbox through Gmail MCP. First call without credential_id to inspect sender, subject and masked message evidence. You choose the correct email and code using the current page and context, then call again with its credential_id to fill privately. There is no company-name or sender-matching veto. For separate digit boxes, supply refs in visual reading order instead of ref. Never type a code yourself.',
   parameters: {
     type: 'object',
     properties: {
@@ -84,7 +85,7 @@ const EMAILED_LINK_TOOL: ToolSchema = {
   description:
     'When the page says a verification, activation, confirmation or password-reset LINK was emailed to the candidate ' +
     '(for example "check your email to verify your account"), call this after the email has been requested. The link is read ' +
-    "from the candidate's inbox through Gmail MCP and opened in a new tab, where the application continues. Never guess or type a link.",
+    "from the candidate's inbox through Gmail MCP. First call without credential_id to inspect sender, subject and masked message evidence. You decide which email and action link belong to this flow, then call again with its credential_id to open privately in a new tab. Never guess or type a link.",
   parameters: {
     type: 'object',
     properties: { ...cachedVerification, sender_hint: { type: 'string', description: 'The site or company that sent the email, e.g. "Workday" or the employer.' } },

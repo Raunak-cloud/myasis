@@ -19,6 +19,7 @@ const grant = await service.grant('fixture-purpose-owner', 'candidate@fixture.in
 Object.assign(process.env, { GMAIL_MCP_URL: grant.connection.url, GMAIL_MCP_TOKEN: grant.connection.token, GMAIL_MCP_ACCOUNT: grant.connection.account, GMAIL_ACCESS_MODE: 'mcp' });
 const { findVerificationInGmail } = await import('./gmail-mailbox.js');
 const { doOpenEmailedLink } = await import('./agent/authentication.js');
+const { chooseTestVerification } = await import('./agent/verification-test-support.js');
 const { authenticationTools } = await import('./agent/auth-tools.js');
 const { observe } = await import('./agent/observe.js');
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
@@ -34,13 +35,13 @@ try {
   for (const [purpose, expected] of [['reset_password', '/reset'], ['account_verification', '/activate']] as const) {
     const page = await context.newPage(); await page.goto('https://fixture.invalid/login');
     const ctx = { page, profile: { email: 'candidate@fixture.invalid' }, job: { company: 'Fixture' }, observation: await observe(page), actions: [], log: () => {} } as unknown as Parameters<typeof doOpenEmailedLink>[0];
-    const result = await doOpenEmailedLink(ctx, { purpose, sender_hint: 'Fixture' });
+    const result = await chooseTestVerification(doOpenEmailedLink, ctx, { purpose, sender_hint: 'Fixture' }, 'link', purpose === 'reset_password' ? /reset/ : /activation/);
     assert.match(JSON.stringify(result), /Opened the emailed link/);
     assert.equal(new URL(ctx.page.url()).pathname, expected, 'the private tool must open the requested flow, regardless of newest same-employer mail');
     assert.doesNotMatch(JSON.stringify(result), /private-activation|private-reset/, 'private link tokens stay outside model-visible tool output');
     await ctx.page.close(); await page.close();
   }
-  assert.ok(queries.some(query => query.includes('(password OR reset OR recovery)')), 'password-recovery mailbox search is narrowed to that operation');
+  assert.ok(queries.some(query => query.includes('reset')), 'mailbox retrieval includes reset messages; the agent selects the requested purpose');
   for (const name of ['open_emailed_link', 'enter_emailed_code']) assert.ok((authenticationTools().find(tool => tool.name === name)!.parameters.required as string[]).includes('purpose'));
   console.log('PASS: wrong-purpose mail cannot satisfy recovery; actual private link tool opens reset/activation independently using a mock mailbox and isolated browser. No candidate mail or application.');
 } finally {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { authenticationTools } from './auth-tools.js';
 import { doCompleteAuthentication, doEnterEmailedCode, doOpenEmailedLink } from './authentication.js';
+import { chooseTestVerification } from './verification-test-support.js';
 import { GmailMcpService } from '../gmail-mcp-service.js';
 import { failedToolResult, ok, type ToolContext } from './context.js';
 import { toolInputIssue, validToolInput } from './tool-input.js';
@@ -73,7 +74,7 @@ test('emailed reset keeps the observed employer tenant after SuccessFactors drop
     job: { company: 'Fixture Employer', url: 'https://www.seek.com.au/job/12345678' }, profile: { email: 'candidate@fixture.invalid' },
     actions: [], log: () => {} } as unknown as ToolContext;
   try {
-    const result = await doOpenEmailedLink(ctx, { purpose: 'reset_password', sender_hint: 'SuccessFactors' });
+    const result = await chooseTestVerification(doOpenEmailedLink, ctx, { purpose: 'reset_password', sender_hint: 'SuccessFactors' }, 'link');
     assert.match(result.kind === 'ok' ? result.message : '', /Opened the emailed link/);
     assert.deepEqual(navigated, [destination]);
     assert.match(queries[0], /fixturetenant/);

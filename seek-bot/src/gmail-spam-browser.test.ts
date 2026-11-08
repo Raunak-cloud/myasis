@@ -7,6 +7,7 @@ import { chromium } from 'patchright';
 import { registerGmailBrowser, searchBrowserGmail, readBrowserGmail } from './gmail-browser.js';
 import { GmailMcpService } from './gmail-mcp-service.js';
 import { doOpenEmailedLink } from './agent/authentication.js';
+import { chooseTestVerification } from './agent/verification-test-support.js';
 import { observe } from './agent/observe.js';
 import type { ToolContext } from './agent/context.js';
 
@@ -41,7 +42,7 @@ Object.assign(process.env, { GMAIL_MCP_URL: lease.connection.url, GMAIL_MCP_TOKE
 try {
   const page = await context.newPage(); await page.goto('https://dcj.fixture.invalid/registration');
   const ctx = { page, profile: { email: 'candidate@fixture.invalid' }, job: { company: 'DCJ' }, observation: await observe(page), actions: [], captured: [], log: () => {} } as unknown as ToolContext;
-  const result = await doOpenEmailedLink(ctx, { purpose: 'account_verification', sender_hint: 'DCJ / justice.fixture.invalid' });
+  const result = await chooseTestVerification(doOpenEmailedLink, ctx, { purpose: 'account_verification', sender_hint: 'DCJ / justice.fixture.invalid' }, 'link');
   assert.match(JSON.stringify(result), /Opened the emailed link/);
   assert.doesNotMatch(JSON.stringify(result), /private-fixture-token/, 'activation tokens stay private');
   assert.equal(new URL(ctx.page.url()).pathname, '/activate'); assert.equal(openedActivation, 1);

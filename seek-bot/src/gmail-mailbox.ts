@@ -1,5 +1,5 @@
 import { parseHTML } from 'linkedom';
-import { GmailMcpClient, GmailRequestTimeoutError, safeGmailError, type GmailMessage } from './gmail-mcp-client.js';
+import { GmailMcpClient, GmailRequestTimeoutError, GMAIL_IO_TIMEOUT_MS, safeGmailError, type GmailMessage } from './gmail-mcp-client.js';
 import { verificationEmailMatchDecision, readVerificationEmailsLocally, verificationContextWords, type LocalVerificationEmail, type VerificationPurpose, type VerificationEmailMatchReason } from './verification-email-local.js';
 import type { PreparedApplication } from './application-review-types.js';
 import type { ApplyOutcome } from './types.js';
@@ -47,6 +47,41 @@ export function verificationMessageIsFresh(message: GmailMessage, earliest: numb
   if (!verificationMailboxMessageAllowed(message)) return false;
   const date = Date.parse(message.date || '');
   return Number.isFinite(date) ? date >= Math.max(earliest, now - VERIFICATION_MAX_AGE_MS) && date <= now + VERIFICATION_CLOCK_SKEW_MS : allowUndated;
+}
+
+/** Read recent owner mail for the applying agent. Identity, purpose and which
+ * credential to use are the agent's decisions, not string-matching vetoes. */
+export async function verificationEmailsForAgent(options: { hint?: string; requestedAt?: number; timeoutMs?: number; signal?: AbortSignal } = {}): Promise<
+  { messages: Array<{ email: LocalVerificationEmail; date?: string }> } | { error: string }
+> {
+  const timeout = AbortSignal.timeout(options.timeoutMs ?? GMAIL_IO_TIMEOUT_MS);
+  const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+  const client = gmailClient(undefined, { signal });
+  const earliest = Math.max(Date.now() - VERIFICATION_MAX_AGE_MS, Number.isFinite(options.requestedAt) ? options.requestedAt! - VERIFICATION_CLOCK_SKEW_MS : 0);
+  const context = verificationContextWords({ hint: options.hint }).filter(word => word.length <= 100).slice(0, 12);
+  const query = `after:${Math.floor(earliest / 1000)} (code OR verify OR verification OR confirm OR confirmation OR activate OR activation OR password OR passcode OR OTP OR "sign in" OR reset)`
+    + (context.length ? ` (${context.map(word => `"${word}"`).join(' OR ')})` : '');
+  try {
+    while (!signal.aborted) {
+      const threads = await client.search(query);
+      const messages = new Map<string, GmailMessage>();
+      for (const thread of threads.slice(0, 5)) {
+        for (const message of await client.thread(thread.id)) {
+          if (verificationMessageIsFresh(message, earliest, Date.now(), process.env.GMAIL_ACCESS_MODE === 'browser')) messages.set(message.id, message);
+        }
+      }
+      if (messages.size) return { messages: [...messages.values()].sort((a, b) => (Date.parse(b.date || '') || 0) - (Date.parse(a.date || '') || 0))
+        .slice(0, 10).map((message, position) => ({ email: verificationMessage(message, position), date: message.date })) };
+      await new Promise<void>((done, reject) => {
+        const timer = setTimeout(() => { signal.removeEventListener('abort', aborted); done(); }, 2000);
+        const aborted = () => { clearTimeout(timer); reject(signal.reason); };
+        signal.addEventListener('abort', aborted, { once: true }); if (signal.aborted) aborted();
+      });
+    }
+    return { error: 'The mailbox wait ended before recent verification messages were found. Inspect the current sign-in page before requesting another email.' };
+  } catch (error) {
+    return { error: signal.aborted ? 'The verification mailbox read ended or was cancelled. This does not establish that the email never arrived.' : safeGmailError(error).message };
+  } finally { await client.close(); }
 }
 class VerificationPollWindowExpired extends Error {
   constructor() { super('The bounded verification-email polling window ended.'); this.name = 'VerificationPollWindowExpired'; }
