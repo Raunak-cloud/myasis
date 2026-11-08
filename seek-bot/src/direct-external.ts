@@ -46,6 +46,12 @@ export async function identifyDirectJob(page: Page): Promise<PageIdentity> {
       ?? [...document.querySelectorAll('h1')].find(visible))?.textContent;
     const siteName = document.querySelector('meta[property="og:site_name"]')?.getAttribute('content');
     const host = location.hostname.replace(/^www\./, '');
+    // Amazon publishes the employing entity beside the vacancy number rather
+    // than in JobPosting JSON-LD. Its portal brand is not the employer name.
+    const amazonId = host === 'amazon.jobs' ? location.pathname.match(/^\/[a-z]{2}(?:-[A-Z]{2})?\/jobs\/(\d+)(?:\/|$)/)?.[1] : undefined;
+    const amazonMeta = amazonId ? [...document.querySelectorAll('#job-detail .details-line .meta')].find(visible) : undefined;
+    const amazonIdentity = clean(amazonMeta?.textContent).match(/^Job ID:\s*(\d+)\s*\|\s*(.+)$/i);
+    const amazonCompany = amazonIdentity?.[1] === amazonId ? amazonIdentity?.[2] : undefined;
     // Google Careers keeps a visible, generic H1 outside the vacancy's main
     // panel. Confirm its metadata against the panel's actual role heading.
     const googleCareers = host === 'google.com' && /^\/about\/careers\/applications\/jobs\/results\/\d+-/.test(location.pathname);
@@ -77,7 +83,7 @@ export async function identifyDirectJob(page: Page): Promise<PageIdentity> {
     }
     return {
       title,
-      company: clean(posting?.hiringOrganization?.name || (googleHeading ? 'Google' : siteName || host)),
+      company: clean(posting?.hiringOrganization?.name || amazonCompany || (googleHeading ? 'Google' : siteName || host)),
       location: [...new Set(locations)].join('; ').slice(0, 2_000),
       description: (() => {
         if (posting?.description) {

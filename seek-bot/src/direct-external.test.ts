@@ -10,6 +10,23 @@ import {identifyDirectJob,runDirectExternalApplication} from './direct-external.
 import {captureApplicationFailure} from './application-diagnostics.js';
 import type {FitAssessment} from './llm.js';
 
+test('Amazon direct vacancy reads the employing entity from its matching visible job-ID header',async()=>{
+ const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
+ try{
+  const page=await browser.newPage();
+  await page.route('**/*',route=>route.fulfill({contentType:'text/html',body:'<meta property="og:site_name" content="Amazon.jobs"><main><div id="job-detail"><h1>Sales Operations Analyst, AWS Enterprise Support Strategy &amp; Operations (ESSO)</h1><div class="details-line"><p class="meta">Job ID: 10598233 | Amazon Web Services Australia Pty Ltd</p></div><p>Analyse operational data, build reports and support AWS enterprise strategy in Sydney.</p></div></main>'}));
+  await page.goto('https://www.amazon.jobs/en/jobs/10598233/sales-operations-analyst-aws-enterprise-support-strategy-operations-esso');
+  const job=await identifyDirectJob(page);
+  assert.equal(job.company,'Amazon Web Services Australia Pty Ltd');
+  assert.equal(job.title,'Sales Operations Analyst, AWS Enterprise Support Strategy & Operations (ESSO)');
+  assert.match(job.description,/Analyse operational data/);
+  await page.locator('.meta').evaluate(el=>el.textContent='Job ID: 99999999 | Unrelated Employer');
+  assert.equal((await identifyDirectJob(page)).company,'Amazon.jobs','A different vacancy header cannot supply employer identity.');
+  await page.locator('.meta').evaluate(el=>{el.textContent='Job ID: 10598233 | Hidden Employer';(el as HTMLElement).style.display='none';});
+  assert.equal((await identifyDirectJob(page)).company,'Amazon.jobs','Hidden employer text is not visible vacancy evidence.');
+ }finally{await browser.close();}
+});
+
 test('Google vacancy identity uses its main role heading instead of the generic H1',async()=>{
  const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
  try{
