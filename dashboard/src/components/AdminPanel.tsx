@@ -815,7 +815,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
                       <li key={app.jobId}>
                         <div>
                           <strong>{app.title}</strong>
-                          <div className="job-meta">{app.company} · {app.platform === 'indeed' ? 'Indeed' : app.platform === 'external' ? 'Direct website' : 'SEEK'}{app.external ? ' · employer site' : ''}</div>
+                          <div className="job-meta">{app.company} · {app.platform === 'indeed' ? 'Indeed' : app.platform === 'adzuna' ? 'Adzuna' : app.platform === 'external' ? 'Direct website' : 'SEEK'}{app.external ? ' · employer site' : ''}</div>
                         </div>
                         <span className="job-meta nowrap">{when(app.appliedAt)}</span>
                       </li>

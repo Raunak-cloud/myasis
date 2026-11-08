@@ -1,4 +1,5 @@
 import { plainReason, userFacingError } from '../run-messages';
+import { AdzunaAttribution } from './AdzunaAttribution';
 import { useMemo, useState } from 'react';
 import { relative } from '../format';
 
@@ -77,6 +78,7 @@ function SkippedRow({ job, onChange }: { job: SkippedJob; onChange: (items: Skip
       <td className="attention-role">
         <div className="job-title">{job.title}</div>
         <div className="job-meta">{job.company}</div>
+        <AdzunaAttribution jobId={job.jobId} />
       </td>
       <td className="attention-blocker">
         <span className={`badge ${KIND[job.kind].tone}`}>{KIND[job.kind].label}</span>

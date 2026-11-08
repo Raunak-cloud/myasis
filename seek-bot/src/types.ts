@@ -64,6 +64,8 @@ export interface JobListing {
   listedAt?: string;
   ageDays?: number;
   url: string;
+  /** Original aggregator link, retained when the vacancy URL is resolved. */
+  listingSourceUrl?: string;
   teaser?: string;
   /** Where this candidate came from. Recommended jobs are evaluated first. */
   /** Where review found it; 'chosen' is a skipped job the candidate said they would have applied to. */

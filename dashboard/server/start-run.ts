@@ -1,7 +1,8 @@
 import { type ApplicationModel } from '../../seek-bot/src/application-model-catalog.js';
 import { validOperatorApplicationBudget, type OperatorApplicationBudget } from './operator-application-budget.js';
 import { EMPLOYER_SOURCES, isEmployerSource } from '../../seek-bot/src/employer-source-config.js';
-import { runner, type RunMode } from './runner.js';
+import { runner, readEnv, type RunMode } from './runner.js';
+import { adzunaConfigured } from '../../seek-bot/src/adzuna-config.js';
 import { runSettingsSnapshotForUser, USER_SETTABLE_SETTINGS_KEYS, DAILY_APPLICATION_CAP_CHOSEN } from './settings.js';
 import {
   billingStatus,
@@ -187,7 +188,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   const admin = isAdmin(email);
   // Reject malformed sources and admin-only controls before loading account facts.
   // Source eligibility itself is checked against the current pass below.
-  const invalidSettings = jobSourceSettingsError(request.clientOverrides ?? {}, admin, true);
+  const invalidSettings = jobSourceSettingsError(request.clientOverrides ?? {}, admin, true, adzunaConfigured({ ...readEnv(), ...process.env }));
   if (invalidSettings) return { ok: false, ...invalidSettings };
   let borrowFreeProxy = false;
   let entitlements = await entitlementsFor(userId, email);
@@ -238,7 +239,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   try { seeds = discoverySeeds(request.oneTime?.seedSeekJobs); }
   catch (error) { return {ok:false,status:400,error:(error as Error).message}; }
   if (seeds.length && (request.approvals !== undefined || request.jobIds !== undefined || request.externalUrl !== undefined)) return {ok:false,status:400,error:'Discovery leads cannot be combined with an approval or targeted retry.'};
-  const sourceError = jobSourceSettingsError(request.clientOverrides ?? {}, admin, entitlements.employerSources);
+  const sourceError = jobSourceSettingsError(request.clientOverrides ?? {}, admin, entitlements.employerSources, adzunaConfigured({ ...readEnv(), ...process.env }));
   if (sourceError) return { ok: false, ...sourceError };
 
   /**
@@ -337,11 +338,11 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * that includes Indeed, so "SEEK only" searched and applied on Indeed too.
    */
   const narrowedBoards = trigger === 'admin' ? String(request.clientOverrides?.PLATFORMS ?? '').trim() : '';
-  if (narrowedBoards && narrowedBoards.split(',').every((board) => ['seek', 'indeed', ...(entitlements.employerSources ? EMPLOYER_SOURCES.map(source => source.id) : [])].includes(board.trim()))) {
+  if (narrowedBoards && narrowedBoards.split(',').every((board) => ['seek', 'indeed', 'adzuna', ...(entitlements.employerSources ? EMPLOYER_SOURCES.map(source => source.id) : [])].includes(board.trim()))) {
     overrides.PLATFORMS = narrowedBoards;
   }
   try {
-    applyJobSourceAccess(overrides, admin, entitlements.employerSources);
+    applyJobSourceAccess(overrides, admin, entitlements.employerSources, adzunaConfigured({ ...readEnv(), ...process.env }));
   }
   catch (error) { return { ok: false, status: 400, error: (error as Error).message }; }
   let directExternalUrl: string | null = null;
@@ -524,7 +525,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     // of stays out until they sign in again.
     if (!state || (state.signedIn === false && !state.signedOutByPerson)) await checkSignin(userId, board);
   }
-  const { supported: supportedBoards, unavailable, usable } = availableJobSources(boards, entitlements.employerSources, board => readSiteState(userId, board)?.signedIn === true);
+  const { supported: supportedBoards, unavailable, usable } = availableJobSources(boards, entitlements.employerSources, board => readSiteState(userId, board)?.signedIn === true, adzunaConfigured({ ...readEnv(), ...process.env }));
   if (!directExternalUrl && usable.length && usable.every(isEmployerSource) && overrides.APPLY_ONLY === 'hosted') {
     return { ok: false, status: 400, error: 'Employer feeds use employer-site applications. Choose a normal or employer-sites run.' };
   }

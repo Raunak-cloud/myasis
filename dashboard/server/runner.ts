@@ -92,6 +92,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
     APPLICATION_AGENT_MODE: agentMode,
     APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: applicationScreenshotsForAccount(selectedSettings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, admin, selected),
     // Only the authorized provider credential enters the account's run context.
+    ADZUNA_ENABLED: serverEnv.ADZUNA_ENABLED || '', ADZUNA_APP_ID: serverEnv.ADZUNA_APP_ID || '', ADZUNA_APP_KEY: serverEnv.ADZUNA_APP_KEY || '',
     ...credentials };
 }
 
@@ -99,7 +100,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
 export function applicationRunEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const credentials = new Set(['CELERIS_API_KEY', 'CAPMONSTER_API_KEY',
     'SITE_AUTH_SECRET', 'WEBSHARE_API_KEY']);
-  return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('OPERATOR_') && !key.startsWith('OPENROUTER_') && !key.startsWith('GMAIL_') && !key.startsWith('APPLICATION_AI_') && !key.startsWith('APPLICATION_AGENT_') && !key.startsWith('HUMANIZER_')
+  return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('ADZUNA_') && !key.startsWith('OPERATOR_') && !key.startsWith('OPENROUTER_') && !key.startsWith('GMAIL_') && !key.startsWith('APPLICATION_AI_') && !key.startsWith('APPLICATION_AGENT_') && !key.startsWith('HUMANIZER_')
     && (!/(?:_KEY|SECRET|PASSWORD|PASSWD|TOKEN)$/.test(key) || credentials.has(key))));
 }
 
@@ -910,6 +911,7 @@ export function readEnv(): Record<string, string> {
 }
 
 const SECRET_KEYS = new Set([
+  'ADZUNA_APP_ID',
   'GEMINI_API_KEY',
   'STRIPE_SECRET_KEY',
   'STRIPE_WEBHOOK_SECRET',

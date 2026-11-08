@@ -26,17 +26,17 @@ async function resolvesOnlyPublic(hostname: string): Promise<boolean> {
 }
 
 /** Defense-in-depth validation at the browser process, not only the dashboard API. */
-export async function assertExternalJobUrl(raw: string, resolveHost = resolvesOnlyPublic): Promise<string> {
-  return validateExternalUrl(raw, resolveHost, 2_048);
+export async function assertExternalJobUrl(raw: string, resolveHost = resolvesOnlyPublic, allowJobBoards = false): Promise<string> {
+  return validateExternalUrl(raw, resolveHost, allowJobBoards, 2_048);
 }
 
 /** Authentication redirects carry signed state that is longer than a pasted
  * job link. Validate the destination identically without truncating that state. */
-export async function assertExternalNavigationUrl(raw: string, resolveHost = resolvesOnlyPublic): Promise<string> {
-  return validateExternalUrl(raw, resolveHost);
+export async function assertExternalNavigationUrl(raw: string, resolveHost = resolvesOnlyPublic, allowJobBoards = false): Promise<string> {
+  return validateExternalUrl(raw, resolveHost, allowJobBoards);
 }
 
-async function validateExternalUrl(raw: string, resolveHost: typeof resolvesOnlyPublic, maxLength?: number): Promise<string> {
+async function validateExternalUrl(raw: string, resolveHost: typeof resolvesOnlyPublic, allowJobBoards: boolean, maxLength?: number): Promise<string> {
   if (!raw || (maxLength !== undefined && raw.length > maxLength)) throw new Error('The direct external job URL is missing or too long.');
   let url: URL;
   try {
@@ -51,7 +51,7 @@ async function validateExternalUrl(raw: string, resolveHost: typeof resolvesOnly
   if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) {
     throw new Error('The direct external job URL is not a public website.');
   }
-  if (jobBoardForHost(host)) throw new Error('A direct external run cannot target a SEEK or Indeed listing.');
+  if (!allowJobBoards && jobBoardForHost(host)) throw new Error('A direct external run cannot target a SEEK or Indeed listing.');
   if (/\/(?:checkout|payment|billing)(?:\/|$)/i.test(url.pathname)) throw new Error('Payment pages cannot be used as a direct job URL.');
   if (!(await resolveHost(host))) throw new Error('The direct external job URL does not resolve only to public internet addresses.');
   return url.href;
@@ -62,13 +62,13 @@ async function validateExternalUrl(raw: string, resolveHost: typeof resolvesOnly
  * the ATS. This keeps a public URL from redirecting the production browser to
  * localhost, cloud metadata, a private network, or payment pages.
  */
-export async function guardExternalNavigations(context: BrowserContext): Promise<{ blocked: () => string | null; stop: () => Promise<void> }> {
+export async function guardExternalNavigations(context: BrowserContext, options: { allowJobBoards?: boolean } = {}): Promise<{ blocked: () => string | null; stop: () => Promise<void> }> {
   let blocked: string | null = null;
   const handler: Parameters<BrowserContext['route']>[1] = async (route) => {
     const request = route.request();
     if (request.resourceType() !== 'document') return route.fallback();
     try {
-      await assertExternalNavigationUrl(request.url());
+      await assertExternalNavigationUrl(request.url(), undefined, options.allowJobBoards);
       return route.fallback();
     } catch (error) {
       blocked = (error as Error).message;

@@ -1,4 +1,5 @@
 import { EMPLOYER_SOURCES } from '../../../seek-bot/src/employer-source-config';
+import { AdzunaAttribution } from './AdzunaAttribution';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { Application, ApplicationAction, Outcome, SiteAccount } from '../types';
 import type { SkippedJob } from './SkippedPanel';
@@ -19,7 +20,7 @@ interface Props {
 const SkippedPanel = lazy(() => import('./SkippedPanel').then((m) => ({ default: m.SkippedPanel })));
 
 /** The job board an application went through, named the way the board names itself. */
-const BOARD_LABELS: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed', ...Object.fromEntries(EMPLOYER_SOURCES.map(source => [source.id, source.label])) };
+const BOARD_LABELS: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed', adzuna: 'Adzuna', ...Object.fromEntries(EMPLOYER_SOURCES.map(source => [source.id, source.label])) };
 const boardLabel = (platform: string | undefined): string =>
   BOARD_LABELS[(platform ?? 'seek').toLowerCase()] ?? (platform ? platform[0].toUpperCase() + platform.slice(1) : 'SEEK');
 
@@ -266,6 +267,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                       </div>
                       <div className="job-meta">
                         {a.company} · {a.location}
+                        <AdzunaAttribution platform={a.platform} />
                       </div>
                     </td>
                     <td className="nowrap application-when">
@@ -320,6 +322,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                 <h2>{open.title}</h2>
                 <div className="job-meta">
                   {open.company} · applied {fmtDate(open.appliedAt)} at {fmtTime(open.appliedAt)} ({daysSince(open.appliedAt)}d ago)
+                  <AdzunaAttribution platform={open.platform} />
                 </div>
               </div>
               <button className="btn" onClick={() => setOpen(null)}>

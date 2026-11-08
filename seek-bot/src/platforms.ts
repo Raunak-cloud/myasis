@@ -8,7 +8,8 @@
  * silently does nothing.
  */
 import { EMPLOYER_SOURCES, isEmployerSource, employerFeedsEnabled, type EmployerSourceId } from './employer-source-config.js';
-export type PlatformId = 'seek' | 'indeed' | 'jora' | 'external' | EmployerSourceId;
+import { adzunaConfigured } from './adzuna-config.js';
+export type PlatformId = 'seek' | 'indeed' | 'adzuna' | 'jora' | 'external' | EmployerSourceId;
 
 interface Platform {
   id: PlatformId;
@@ -20,6 +21,7 @@ interface Platform {
 }
 
 const PLATFORMS: Platform[] = [
+  { id: 'adzuna', label: 'Adzuna', baseUrl: 'https://www.adzuna.com.au', available: true },
   {
     id: 'seek',
     label: 'SEEK',
@@ -47,11 +49,11 @@ const PLATFORMS: Platform[] = [
  * Resolves the configured list, dropping anything without an adapter so a
  * stale setting can never point a run at a board it cannot drive.
  */
-export function enabledPlatforms(configured: string, smartRecruitersAdminEnabled = employerFeedsEnabled(process.env)): Platform[] {
+export function enabledPlatforms(configured: string, smartRecruitersAdminEnabled = employerFeedsEnabled(process.env), adzunaAvailable = adzunaConfigured()): Platform[] {
   const wanted = configured
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
-  const chosen = PLATFORMS.filter((p) => p.available && wanted.includes(p.id) && (!isEmployerSource(p.id) || smartRecruitersAdminEnabled));
+  const chosen = PLATFORMS.filter((p) => p.available && wanted.includes(p.id) && (p.id !== 'adzuna' || adzunaAvailable) && (!isEmployerSource(p.id) || smartRecruitersAdminEnabled));
   return chosen.length ? chosen : PLATFORMS.filter((p) => p.id === 'seek');
 }

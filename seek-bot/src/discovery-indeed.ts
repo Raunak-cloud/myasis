@@ -260,7 +260,7 @@ export async function search(page: Page, keywords: string, pageNum = 1, scope?: 
  * Indeed's own SPA makes when you click a card — never a top-level
  * `page.goto()` to a job URL (see the module comment for why).
  */
-async function fetchJobDetailViaPanel(page: Page, job: JobListing): Promise<JobListing> {
+export async function fetchJobDetailViaPanel(page: Page, job: JobListing): Promise<JobListing> {
   // Open the listing through Indeed's normal search-panel route. A real card
   // click lands on this URL and lets Indeed create the current request token;
   // replaying its private embedded endpoint with mosaic.initialData.logTk is

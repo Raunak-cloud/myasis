@@ -33,6 +33,7 @@ import { allowedOrigin, crossSite, hasSessionCookie, rateLimited, readJsonBody, 
 import { marketScoutProxy } from './server/market-scout.js';
 import { isAdmin as isAdminEmail } from './server/billing.js';
 import { jobSourceSettingsError } from './server/job-sources.js';
+import { adzunaConfigured } from '../seek-bot/src/adzuna-config.js';
 import { applicationModelForAccount } from './server/application-model-policy.js';
 import { assignedApplicationModel } from './server/application-model-assignments.js';
 import { migrateFilesToUser } from './server/db/migrate-files.js';
@@ -458,7 +459,7 @@ function dataApi(): Plugin {
              */
             const settingsUser = await currentUser(req.headers?.cookie);
             const entitlements = await entitlementsFor(userId, settingsUser?.email);
-            const sourceError = jobSourceSettingsError(body?.updates ?? {}, isAdminEmail(settingsUser?.email), entitlements.employerSources);
+            const sourceError = jobSourceSettingsError(body?.updates ?? {}, isAdminEmail(settingsUser?.email), entitlements.employerSources, adzunaConfigured({ ...readEnv(), ...process.env }));
             if (sourceError) return send({ error: sourceError.error }, sourceError.status);
             const updates: Record<string, string> = {};
             for (const [key, value] of Object.entries(body?.updates ?? {})) {
@@ -789,6 +790,7 @@ function dataApi(): Plugin {
             session: sessionFor(userId),
             seek,
             indeed,
+            adzunaAvailable: adzunaConfigured({ ...readEnv(), ...process.env }),
             checking: seekCheckInProgress(userId, 'seek') || seekCheckInProgress(userId, 'indeed'),
           });
         });

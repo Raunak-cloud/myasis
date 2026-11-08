@@ -38,6 +38,7 @@ export const query=async(sql,params)=>{state.queries.push({sql,params});if(sql.i
   if(sql.includes('FROM users'))return [{email:'operator@fixture.invalid'}];throw Error('Unexpected fixture query');};
 export const userDir=id=>{if(id!=='183')throw Error('Foreign fixture owner');return ${JSON.stringify(owner)};};
 export const runner={claimStart:()=>!state.busy,releaseStart:()=>{},inUse:()=>state.busy,start:async(...args)=>{state.starts.push(args);return {ok:true};}};
+export const readEnv=()=>({}),adzunaConfigured=()=>false;
 export const runSettingsSnapshotForUser=async()=>({settings:{KEYWORDS:'data analyst',MAX_AGE_DAYS:'15',MIN_SCORE:'70'},saved:{}});
 export const USER_SETTABLE_SETTINGS_KEYS=[],DAILY_APPLICATION_CAP_CHOSEN='fixture-daily';
 export const billingStatus=async()=>({totalRemaining:state.credits,paid:{remaining:state.credits,hasActiveIntensivePass:true,employerSiteRemaining:5},free:{remaining:0}});

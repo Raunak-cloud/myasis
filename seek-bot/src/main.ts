@@ -61,6 +61,9 @@ import { applicationKeys } from './application-identity.js';
 import { waitingForCurrentAnswers } from './answer-eligibility.js';
 import { runDeadline } from './run-deadline.js';
 import { prepareMatchedJob } from './prepare-job.js';
+import { AdzunaDiscovery } from './adzuna.js';
+import { adzunaConfigured } from './adzuna-config.js';
+import { fetchAdzunaDetail, applyToAdzunaJob } from './adzuna-browser.js';
 
 const searchOnly = process.argv.includes('--search-only');
 const doSync = process.argv.includes('--sync');
@@ -77,6 +80,7 @@ interface PlatformAdapter {
   label: string;
   /** Public API discovery needs no sign-in or browser reading pause. */
   apiDiscovery?: boolean;
+  scopedSearch?: boolean;
   newestFirst?: boolean;
   assertSignedIn: (page: Page) => Promise<void>;
   search: (page: Page, keywords: string, pageNum: number, scope?: DiscoverySearch) => Promise<JobListing[]>;
@@ -110,6 +114,15 @@ const ADAPTERS = new Map<PlatformId, PlatformAdapter>([
     },
   ],
 ]);
+
+if (adzunaConfigured()) {
+  const discovery = new AdzunaDiscovery({ appId: process.env.ADZUNA_APP_ID!, appKey: process.env.ADZUNA_APP_KEY!, maxAgeDays: config.rules.maxAgeDays });
+  ADAPTERS.set('adzuna', {
+    id: 'adzuna', label: 'Adzuna', apiDiscovery: true, scopedSearch: true, newestFirst: true,
+    assertSignedIn: async () => {}, search: (_page, keyword, page, scope) => discovery.search(keyword, page, scope),
+    fetchJobDetail: fetchAdzunaDetail, apply: applyToAdzunaJob,
+  });
+}
 
 if (employerFeedsEnabled(process.env)) {
   const discovery = new SmartRecruitersDiscovery(process.env.SMARTRECRUITERS_COMPANIES || undefined, {
@@ -454,7 +467,7 @@ async function main() {
     const searchAdapters = active.filter((adapter) => !targetedAdapters.has(adapter.id));
     // Boards take turns, so one board's polite gap is spent searching the other.
     const streams: SearchStream[] = terms.flatMap((keyword) => searchAdapters.flatMap((adapter) =>
-      (adapter.apiDiscovery ? [undefined] : discoverySearches(config.search, config.rules)).map(scope => ({
+      (adapter.apiDiscovery && !adapter.scopedSearch ? [undefined] : discoverySearches(config.search, config.rules)).map(scope => ({
         adapter, keyword, scope, total: 0, pages: 0, seen: new Set<string>(), exhausted: false,
       }))));
 

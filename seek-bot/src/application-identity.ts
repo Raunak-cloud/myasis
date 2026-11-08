@@ -45,6 +45,10 @@ export function applicationKeys(job: Pick<JobListing, 'id' | 'platform' | 'url' 
   const keys = [`listing:${job.platform ?? 'seek'}:${job.id}`];
   const form = applicationFormKey(job, job.applicationUrl ?? job.url);
   if (form) keys.push(form);
+  if (job.platform === 'adzuna') {
+    const listing = applicationFormKey(job, job.url);
+    if (listing && !keys.includes(listing)) keys.push(listing);
+  }
   return keys;
 }
 

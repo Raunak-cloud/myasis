@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { AdzunaAttribution } from './AdzunaAttribution';
 import { COVER_LETTER_INSTRUCTION_WORD_LIMIT, instructionWordCount } from '../../../seek-bot/src/cover-letter-policy.js';
 import { plainReason, preparedStatusLabel, userFacingError } from '../run-messages';
 import { decodeSettingText, encodeSettingText } from '../runSettings';
@@ -9,7 +10,7 @@ interface Review {
   operator_hold?: { reason: string } | null;
   security_retry?: SecurityRetry | null;
   application: {
-    revision: string; job: { title: string; company: string; location: string; url: string };
+    revision: string; job: { id?: string; platform?: string; title: string; company: string; location: string; url: string };
     resume?: string; coverLetter?: string; answers: Array<{ question: string; answer: string }>;
     preparation?: { version:1; stage:'job-and-letter'; access:'no-login-required'|'signed-in'; checkedAt:string; checkedUrl:string };
     email?: { to: string; subject: string; attachCoverLetter?: boolean };
@@ -180,6 +181,7 @@ export function PreparedApplications({ running, onStarted, onCountChange, canCha
         <span className="prepared-job"><strong>{item.application.job.title}</strong><span className="job-meta">{item.application.job.company} · {item.application.job.location}</span></span>
       </label>
       <span className={`prepared-status ${item.operator_hold ? 'held' : item.status}`}>{item.operator_hold ? 'Needs review' : preparedStatusLabel(item.status, running)}</span>
+      <AdzunaAttribution platform={item.application.job.platform} jobId={item.application.job.id} />
       {(item.operator_hold?.reason || item.detail) && <p className="job-meta prepared-detail">{plainReason(item.operator_hold?.reason || item.detail || '')}</p>}
       {item.status === 'failed' && !item.operator_hold && <SecurityRetryControl retry={item.security_retry} now={now}
         disabled={running || busy || Boolean(editing)} onRetry={() => void decide('submit', item)} />}

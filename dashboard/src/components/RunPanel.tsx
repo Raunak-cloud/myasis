@@ -174,7 +174,7 @@ export function RunPanel({
   const [adminModeEnabled, setAdminModeEnabled] = useState(false);
   const adminMode = isAdmin && adminModeEnabled;
   const useScheduledRuns = Boolean(entitlements?.canPauseAutoApply) && !adminMode;
-  const jobBoards = employerSourcesEnabled ? ALL_JOB_SOURCES : JOB_BOARDS;
+  const jobBoards = [...(employerSourcesEnabled ? ALL_JOB_SOURCES : JOB_BOARDS), ...(boards?.adzunaAvailable ? [{ id: 'adzuna', label: 'Adzuna' }] : [])];
   const outOfAllowance = Boolean(entitlements && !isAdmin && billing && billing.totalRemaining < 1);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [edits, setEdits] = useState<Record<string, string>>({});
@@ -465,8 +465,9 @@ export function RunPanel({
   };
   const platforms = val('PLATFORMS').split(',').map((item) => item.trim()).filter(Boolean);
   /** Unknown until read; then only a board confirmed signed in can be used. */
-  const boardUsable = (id: string) => isEmployerSource(id) ? employerSourcesEnabled : boardSignedIn === null || boardSignedIn[id] === true;
+  const boardUsable = (id: string) => id === 'adzuna' ? boards?.adzunaAvailable === true : isEmployerSource(id) ? employerSourcesEnabled : boardSignedIn === null || boardSignedIn[id] === true;
   const employerSourceSelected = employerSourcesEnabled && platforms.some(isEmployerSource);
+  const sessionFreeSourceSelected = employerSourceSelected || platforms.includes('adzuna') && boards?.adzunaAvailable === true;
   const unusableBoards = jobBoards.filter((board) => !boardUsable(board.id));
   const togglePlatform = (id: string) => {
     const next = new Set(platforms);
@@ -769,8 +770,8 @@ export function RunPanel({
               <ResumeSourceNote />
               <button
                 className="btn primary lg"
-                disabled={accountSetupIncomplete || verifyingSignIn || (!isAdmin && !employerSourceSelected && (boards === null || signedOutEverywhere)) || outOfAllowance}
-                title={accountSetupIncomplete ? 'Finish your setup first.' : verifyingSignIn || (!isAdmin && !employerSourceSelected && boards === null) ? 'Checking your job-board sign-ins first.' : !isAdmin && !employerSourceSelected && signedOutEverywhere ? 'Sign in to a job board first.' : outOfAllowance ? 'Get a pass to keep applying.' : undefined}
+                disabled={accountSetupIncomplete || verifyingSignIn || (!isAdmin && !sessionFreeSourceSelected && (boards === null || signedOutEverywhere)) || outOfAllowance}
+                title={accountSetupIncomplete ? 'Finish your setup first.' : verifyingSignIn || (!isAdmin && !sessionFreeSourceSelected && boards === null) ? 'Checking your job-board sign-ins first.' : !isAdmin && !sessionFreeSourceSelected && signedOutEverywhere ? 'Sign in to a job board first.' : outOfAllowance ? 'Get a pass to keep applying.' : undefined}
                 onClick={() => { reviewOpen.current = true; modeChosenByUser.current = true; setScope('all'); setConfirming(true); }}
               >
                 {applicationMode === 'semi-auto' ? 'Start Semi auto' : 'Start Auto apply'}
@@ -800,7 +801,7 @@ export function RunPanel({
               {accountSetupIncomplete && (
                 <span className="job-meta">Finish the setup steps above to start a run.</span>
               )}
-              {!accountSetupIncomplete && signedOutEverywhere && (
+              {!accountSetupIncomplete && signedOutEverywhere && !sessionFreeSourceSelected && (
                 <span className="job-meta">{employerSourcesEnabled ? 'You can search employer sites, or sign in to SEEK or Indeed below.' : 'Sign in to SEEK below before starting your first run.'}</span>
               )}
             </>

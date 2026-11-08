@@ -75,6 +75,15 @@ const PER_ACCOUNT = new Set<string>([
 
 const GROUPS: GroupSpec[] = [
   {
+    key: 'adzuna', title: 'Adzuna job search',
+    note: 'Enable after adding your Adzuna credentials and arranging the licence for ongoing commercial use. Customers do not need an Adzuna account.',
+    keys: [
+      { key: 'ADZUNA_ENABLED', label: 'Enable Adzuna', help: 'Offer Adzuna in job sources when both credentials are set.', kind: 'boolean' },
+      { key: 'ADZUNA_APP_ID', label: 'Application ID', help: 'From the Adzuna developer account.', kind: 'secret' },
+      { key: 'ADZUNA_APP_KEY', label: 'Application key', help: 'From the Adzuna developer account. Kept on the server.', kind: 'secret' },
+    ],
+  },
+  {
     key:'job-index',title:'Job discovery',
     keys:[
       {key:'JOB_INDEX_DATABASE_URL',label:'Neon database connection',help:'Direct connection URL for the separate job database. Use TLS; this never changes the application database.',kind:'secret'},

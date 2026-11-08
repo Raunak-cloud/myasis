@@ -17,6 +17,7 @@ export interface BoardState {
 }
 
 export interface BoardsStatus {
+  adzunaAvailable?: boolean;
   seek: BoardState | null;
   indeed: BoardState | null;
 }
@@ -36,7 +37,7 @@ export function useBoardsStatus(): BoardsStatus | null {
         .then((response) => (response.ok ? response.json() : null))
         .then((value) => {
           if (cancelled || !value || typeof value !== 'object') return;
-          setStatus({ seek: value.seek ?? null, indeed: value.indeed ?? null });
+          setStatus({ seek: value.seek ?? null, indeed: value.indeed ?? null, adzunaAvailable: value.adzunaAvailable === true });
         })
         .catch(() => {});
     };

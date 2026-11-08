@@ -4,6 +4,18 @@ import { test } from 'node:test';
 import { applyJobSourceAccess, availableJobSources, jobSourceSettingsError } from './job-sources.js';
 import { USER_SETTABLE_SETTINGS_KEYS } from './settings.js';
 
+test('Adzuna uses installation availability, needs no board login and never takes user credentials', () => {
+  assert.equal(jobSourceSettingsError({ PLATFORMS: 'adzuna' }, false, false)?.status, 400);
+  assert.equal(jobSourceSettingsError({ PLATFORMS: 'adzuna' }, false, false, true), null);
+  const settings = { PLATFORMS: 'adzuna' };
+  applyJobSourceAccess(settings, false, false, true); assert.equal(settings.PLATFORMS, 'adzuna');
+  applyJobSourceAccess(settings, false, false, false); assert.equal(settings.PLATFORMS, 'seek');
+  assert.deepEqual(availableJobSources(['seek', 'adzuna'], false, () => false, true), {
+    supported: ['seek', 'adzuna'], usable: ['adzuna'], unavailable: ['seek'],
+  });
+  for (const key of ['ADZUNA_ENABLED', 'ADZUNA_APP_ID', 'ADZUNA_APP_KEY']) assert.ok(!(USER_SETTABLE_SETTINGS_KEYS as readonly string[]).includes(key));
+});
+
 test('source access is validated independently of admin-only model and configuration access', () => {
   assert.equal(jobSourceSettingsError({ PLATFORMS: 'indeed, SmartRecruiters' }, false)?.status, 403);
   assert.equal(jobSourceSettingsError({ SMARTRECRUITERS_COMPANIES: 'Canva' }, false)?.status, 403);

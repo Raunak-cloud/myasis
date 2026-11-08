@@ -52,7 +52,10 @@ export async function applyToIndeedJob(
     }
   };
   const location = config.search.location || 'Australia';
-  await page.goto(`${config.indeedBase}/jobs?l=${encodeURIComponent(location)}&vjk=${encodeURIComponent(job.id)}`, {
+  const listingUrl = new URL(job.url);
+  const jobKey = job.platform === 'adzuna' ? listingUrl.searchParams.get('jk') ?? listingUrl.searchParams.get('vjk') : job.id;
+  if (!jobKey || job.platform === 'adzuna' && !/^[a-f0-9]{16}$/i.test(jobKey)) throw new Error('The Indeed vacancy key is missing.');
+  await page.goto(`${config.indeedBase}/jobs?l=${encodeURIComponent(location)}&vjk=${encodeURIComponent(jobKey)}`, {
     waitUntil: 'domcontentloaded',
   });
 

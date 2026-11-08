@@ -3,13 +3,14 @@ import { RETIRED_SOURCE_SETTING_KEYS } from '../../seek-bot/src/retired-job-sour
 import { applicationModelSettingsError, applicationModelForAccount } from './application-model-policy.js';
 import { applicationAgentSettingsError, applicationAgentModeForAccount, applicationScreenshotsForAccount } from './application-agent-policy.js';
 
-export function jobSourceSettingsError(updates: Record<string, unknown>, targetIsAdmin: boolean, employerSources = targetIsAdmin): { status: number; error: string } | null {
+export function jobSourceSettingsError(updates: Record<string, unknown>, targetIsAdmin: boolean, employerSources = targetIsAdmin, adzunaAvailable = false): { status: number; error: string } | null {
   const modelError = applicationModelSettingsError(updates, targetIsAdmin);
   if (modelError) return modelError;
   const agentError = applicationAgentSettingsError(updates, targetIsAdmin);
   if (agentError) return agentError;
   const selected = String(updates.PLATFORMS ?? '').split(',').map(value => value.trim().toLowerCase());
-  if (updates.PLATFORMS !== undefined && selected.some(id => id && !['seek', 'indeed'].includes(id) && !isEmployerSource(id))) return { status: 400, error: 'Choose an available job source.' };
+  if (selected.includes('adzuna') && !adzunaAvailable) return { status: 400, error: 'Adzuna is currently unavailable.' };
+  if (updates.PLATFORMS !== undefined && selected.some(id => id && !['seek', 'indeed', 'adzuna'].includes(id) && !isEmployerSource(id))) return { status: 400, error: 'Choose an available job source.' };
   if (!employerSources && (selected.some(isEmployerSource) || EMPLOYER_SOURCES.some(source => updates[source.key] !== undefined))) {
     return { status: 403, error: 'These job sources are included with Get Owtomated.' };
   }
@@ -25,14 +26,14 @@ export function jobSourceSettingsError(updates: Record<string, unknown>, targetI
 }
 
 /** Account access wins over saved choices, client overrides and shared process environment. */
-export function applyJobSourceAccess(settings: Record<string, string>, targetIsAdmin: boolean, employerSources = targetIsAdmin): void {
+export function applyJobSourceAccess(settings: Record<string, string>, targetIsAdmin: boolean, employerSources = targetIsAdmin, adzunaAvailable = false): void {
   for (const key of RETIRED_SOURCE_SETTING_KEYS) delete settings[key];
   settings.APPLICATION_AI_MODEL = applicationModelForAccount(settings.APPLICATION_AI_MODEL, targetIsAdmin);
   settings.APPLICATION_AGENT_MODE = applicationAgentModeForAccount(settings.APPLICATION_AGENT_MODE, targetIsAdmin);
   settings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN = applicationScreenshotsForAccount(settings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, targetIsAdmin, settings.APPLICATION_AI_MODEL);
   // Authorization is supplied only by accountApplicationEnvironment after rechecking ownership.
   delete settings.APPLICATION_AGENT_MODE_AUTHORIZED;
-  const allowed: string[] = ['seek', 'indeed', ...(employerSources ? EMPLOYER_SOURCES.map(source => source.id) : [])];
+  const allowed: string[] = ['seek', 'indeed', ...(adzunaAvailable ? ['adzuna'] : []), ...(employerSources ? EMPLOYER_SOURCES.map(source => source.id) : [])];
   const platforms = [...new Set((settings.PLATFORMS || 'seek').split(',').map(value => value.trim().toLowerCase()))].filter(value => allowed.includes(value));
   settings.PLATFORMS = platforms.join(',') || 'seek';
   settings.EMPLOYER_FEEDS_ADMIN_ENABLED = employerSources ? 'true' : 'false';
@@ -43,8 +44,8 @@ export function applyJobSourceAccess(settings: Record<string, string>, targetIsA
   }
 }
 
-export function availableJobSources(boards: string[], employerSources: boolean, signedIn: (board: 'seek' | 'indeed') => boolean) {
-  const supported = boards.filter(board => board === 'seek' || board === 'indeed' || (isEmployerSource(board) && employerSources));
-  const usable = supported.filter(board => isEmployerSource(board) || signedIn(board as 'seek' | 'indeed'));
+export function availableJobSources(boards: string[], employerSources: boolean, signedIn: (board: 'seek' | 'indeed') => boolean, adzunaAvailable = false) {
+  const supported = boards.filter(board => board === 'seek' || board === 'indeed' || (board === 'adzuna' && adzunaAvailable) || (isEmployerSource(board) && employerSources));
+  const usable = supported.filter(board => board === 'adzuna' || isEmployerSource(board) || signedIn(board as 'seek' | 'indeed'));
   return { supported, usable, unavailable: supported.filter(board => !usable.includes(board)) };
 }

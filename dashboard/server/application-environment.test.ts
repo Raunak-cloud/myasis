@@ -16,6 +16,7 @@ test('worker environment excludes retired controls and unknown credentials witho
     RETIRED_PROVIDER_API_KEY: 'must-not-inherit', RETIRED_PROVIDER_KEY: 'must-not-inherit', UNRELATED_SECRET: 'must-not-inherit',
     GMAIL_MCP_TOKEN: 'foreign-mailbox-capability', GMAIL_MCP_URL: 'http://foreign.invalid', GMAIL_MCP_ACCOUNT: 'foreign@fixture.invalid',
     OPENROUTER_API_KEY: 'foreign-credential', OPENROUTER_BASE_URL: 'http://foreign.invalid',
+    ADZUNA_ENABLED:'true',ADZUNA_APP_ID:'foreign-id',ADZUNA_APP_KEY:'foreign-key',
     RETIRED_BROWSER_PASSWORD: 'fixture-browser-password', OPERATOR_MAX_EVALUATIONS:'400', OPERATOR_RUN_TIMEOUT_MINUTES:'120', OPERATOR_PLAN:'intensive-pass' };
   const before = { ...input };
   assert.deepEqual(applicationRunEnvironment(input), { PATH: 'fixture-path', DATA_DIR: '/owner/files',
@@ -25,15 +26,15 @@ test('worker environment excludes retired controls and unknown credentials witho
 
 test('owner authorization selects one whole-run provider and server-owned credential', async () => {
   const originalQuery = pool.query;
-  const names = ['CELERIS_API_KEY','OPENROUTER_API_KEY','ADMIN_EMAILS'] as const;
+  const names = ['CELERIS_API_KEY','OPENROUTER_API_KEY','ADMIN_EMAILS','ADZUNA_ENABLED','ADZUNA_APP_ID','ADZUNA_APP_KEY'] as const;
   const prior = Object.fromEntries(names.map(name => [name,process.env[name]]));
-  Object.assign(process.env,{CELERIS_API_KEY:'server-review-key',OPENROUTER_API_KEY:'server-apply-key',ADMIN_EMAILS:'admin@fixture.invalid'});
+  Object.assign(process.env,{CELERIS_API_KEY:'server-review-key',OPENROUTER_API_KEY:'server-apply-key',ADMIN_EMAILS:'admin@fixture.invalid',ADZUNA_ENABLED:'true',ADZUNA_APP_ID:'server-adzuna-id',ADZUNA_APP_KEY:'server-adzuna-key'});
   pool.query = (async(sql:string,params:unknown[]) => ({rows: sql.includes('FROM application_model_assignments') ? [] : sql.includes('FROM run_starts')
     ? params[0]==='authorized'?[{email:'admin@fixture.invalid'}]:[]
     : [{id:params[0],email:params[0]==='admin'?'admin@fixture.invalid':'customer@fixture.invalid'}]})) as typeof originalQuery;
   try {
     for (const owner of ['admin','customer']) for (const selected of ['celeris','minimax','deepseek','retired']) {
-      const settings={APPLICATION_AI_MODEL:selected,CELERIS_API_KEY:'forged-review',OPENROUTER_API_KEY:'forged-apply'};
+      const settings={APPLICATION_AI_MODEL:selected,CELERIS_API_KEY:'forged-review',OPENROUTER_API_KEY:'forged-apply',ADZUNA_APP_KEY:'forged-adzuna'};
       const env=await accountApplicationEnvironment(owner,settings);
       const minimax=owner==='admin' && selected==='minimax';
       const openRouter=owner==='admin' && selected==='minimax';
@@ -41,6 +42,7 @@ test('owner authorization selects one whole-run provider and server-owned creden
       assert.equal(env.CELERIS_API_KEY,openRouter?'':'server-review-key');
       assert.equal(env.OPENROUTER_API_KEY,openRouter?'server-apply-key':'');
       assert.equal(env.DATA_DIR,userDir(owner));
+      assert.equal(env.ADZUNA_APP_KEY,'server-adzuna-key');
       assert.equal(env.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN,minimax?'false':'true');
       assert.equal(env.APPLICATION_AGENT_MODE,'agent-only');
       assert.equal(settings.APPLICATION_AI_MODEL,selected,'no saved preference mutation');
