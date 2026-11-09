@@ -58,6 +58,9 @@ agent's working conversation. Candidate evidence and prior tool outcomes remain
 available as historical data alongside the current page, approvals and saved
 work. This does not restart the browser, replay an action, change tools or add
 funding. It removes old behavioural examples that can reinforce a failed plan.
+An explicit administrator-targeted retry may re-inspect a historical unanswered
+question rather than being blocked before the agent opens the form. It does not
+provide an answer or change matching, candidate approvals or send authority.
 
 Verification covers admission at the absolute deadline, deadline arrival during
 review, worker wakeups, manual Stop during completion, unresponsive-worker

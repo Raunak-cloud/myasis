@@ -255,6 +255,7 @@ async function main() {
       // These existing explicit flows may inspect/recapture an old question;
       // none grants an answer, changes approval or permits an extra send.
       if (approvedApplication(job) || job.source === 'chosen'
+        || targeted.some(item => item.job_id === job.id && (job.platform ?? 'seek') === 'seek')
         || repairTarget && repairTarget.id === job.id && repairTarget.platform === (job.platform ?? 'seek')) return false;
       return waitingForCurrentAnswers(job,preparingApplications()?'preparation':'application');
     };

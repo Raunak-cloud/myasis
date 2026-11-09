@@ -14,16 +14,29 @@ export function createReadinessFixtureReply(): (body: any) => Response | undefin
       tool_calls: [{ id: `fixture-review-${++sequence}`, type: 'function', function: call }] } }], usage: { prompt_tokens: 0, completion_tokens: 0 } });
   };
   return body => {
+    // A production perspective refresh retains prior calls as data rather
+    // than assistant behaviour. Reconstruct them only for this scripted test
+    // responder's held-operation lookup; no production action is replayed.
+    const history = body.messages.flatMap((message:any) => {
+      if(message.role==='user'&&typeof message.content==='string'&&message.content.startsWith('<untrusted role="prior-tool-evidence">\n')){
+        try{
+          const audit=JSON.parse(message.content.split('\n')[1]);
+          if(audit.tool_call_id&&audit.call)return [{role:'assistant',tool_calls:[{id:audit.tool_call_id,function:audit.call}]},
+            {role:'tool',tool_call_id:audit.tool_call_id,content:audit.result}];
+        }catch{ /* Not a scripted historical tool result. */ }
+      }
+      return [message];
+    });
     const tail = body.messages.at(-1);
     const latestAdvice = tail?.role === 'user' && typeof tail.content === 'string' && tail.content.startsWith('APPLICATION REVIEW ADVICE:')
-      ? JSON.stringify([body.messages.findLast((message: any) => message.role === 'tool')?.tool_call_id, tail.content]) : undefined;
+      ? JSON.stringify([history.findLast((message: any) => message.role === 'tool')?.tool_call_id, tail.content]) : undefined;
     if (!pending && (body.tool_choice?.function?.name === 'record_application_review' || latestAdvice && latestAdvice !== lastAdvice)) {
       lastAdvice = latestAdvice;
-      const calls = body.messages.flatMap((message: any) => message.role === 'assistant' ? message.tool_calls || [] : []);
+      const calls = history.flatMap((message: any) => message.role === 'assistant' ? message.tool_calls || [] : []);
       const requestsReview = (message: unknown) => typeof message === 'string'
         && ['Before this send,', 'Before preparing this email,', 'Before preparing,'].some(prefix => message.startsWith(prefix));
       pending = undefined;
-      for (const message of [...body.messages].reverse()) {
+      for (const message of [...history].reverse()) {
         if (message.role !== 'tool') continue;
         const call = calls.find((item: any) => item.id === message.tool_call_id)?.function;
         if (!call) continue;

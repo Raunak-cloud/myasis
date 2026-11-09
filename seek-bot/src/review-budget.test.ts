@@ -17,7 +17,7 @@ const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
 
 /** Exercise the compiled main loop with offline boundary adapters, real history
  * and a one-review budget. No browser, model or employer is contacted. */
-function run(jobs: FixtureJob[], options: { scope?: 'all' | 'external' | 'hosted'; waiting?: Array<{ job: FixtureJob; questions: BlockedQuestion[] }>; savedAnswers?: unknown[]; attentionOnFit?: { job: FixtureJob; questions: BlockedQuestion[] }; repairTarget?: FixtureJob; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; completed?: Array<{job:FixtureJob;decision:'apply'|'skip'|'uncertain'}>; retries?:TechnicalRetryCandidate[]; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[]; workArrangements?: string[]; onsiteCity?: string } = {}) {
+function run(jobs: FixtureJob[], options: { targetedIds?:string[]; scope?: 'all' | 'external' | 'hosted'; waiting?: Array<{ job: FixtureJob; questions: BlockedQuestion[] }>; savedAnswers?: unknown[]; attentionOnFit?: { job: FixtureJob; questions: BlockedQuestion[] }; repairTarget?: FixtureJob; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; completed?: Array<{job:FixtureJob;decision:'apply'|'skip'|'uncertain'}>; retries?:TechnicalRetryCandidate[]; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[]; workArrangements?: string[]; onsiteCity?: string } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-review-budget-'));
   const url = (file: string) => pathToFileURL(join(directory, file)).href;
   try {
@@ -176,7 +176,7 @@ ${options.queue ? "process.argv[1]='queue.js';" : ''} await import('./main.mjs')
       env: { ...process.env, DATA_DIR: directory, PROFILE_PATH: join(directory, 'profile.txt'),
         CELERIS_API_KEY: 'fixture-only', COVER_LETTER_MODE: 'tailored',
         APPLICATION_REVIEW_MODE: options.prepare ? 'prepare' : options.approvedIds ? 'approved' : '', APPLY_ONLY: options.scope ?? 'all',
-        APPLICATION_WORKERS: String(options.workers ?? 1), DIRECT_EXTERNAL_JOB_URL: '', TARGETED_JOBS_JSON: '', TARGET_SEEK_JOBS: '[]', OWTOMATE_REPAIR_CASE_ID: options.repairTarget ? 'fixture-repair' : '', TARGET_REPAIR_JOB_JSON: options.repairTarget ? JSON.stringify(options.repairTarget) : '', EMPLOYER_FEEDS_ADMIN_ENABLED: 'false', SMARTRECRUITERS_ADMIN_ENABLED: 'false' },
+        APPLICATION_WORKERS: String(options.workers ?? 1), DIRECT_EXTERNAL_JOB_URL: '', TARGETED_JOBS_JSON: '', TARGET_SEEK_JOBS: JSON.stringify(jobs.filter(item=>options.targetedIds?.includes(item.id)).map(item=>({job_id:item.id,title:item.title,company:item.company}))), OWTOMATE_REPAIR_CASE_ID: options.repairTarget ? 'fixture-repair' : '', TARGET_REPAIR_JOB_JSON: options.repairTarget ? JSON.stringify(options.repairTarget) : '', EMPLOYER_FEEDS_ADMIN_ENABLED: 'false', SMARTRECRUITERS_ADMIN_ENABLED: 'false' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const events = readFileSync(join(directory, 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
@@ -210,6 +210,14 @@ const requiredAnswerSnapshot = (options = ['Yes', 'No']) => sealQuestionSnapshot
   source: { origin: 'https://employer.fixture.invalid', path: '' }, prompt: 'Do you hold the required current licence?', context: [], help: [], completeness: 'complete',
   controls: [{ id: 'part0', label: 'Do you hold the required current licence?', kind: 'checkbox-group', required: true, multiple: true,
     choices: options.map((label, index) => ({ id: `choice${index}`, label, value: label, disabled: false })), constraints: {} }],
+});
+test('admin repair targeted retry re-inspects an old question with the same completed match and no invented answer',()=>{
+ const target=job('98765432'),snapshot=requiredAnswerSnapshot();
+ const result=run([target],{apply:true,targetedIds:[target.id],completed:[{job:target,decision:'apply'}],waiting:[{job:target,questions:[{question:snapshot.prompt,snapshot}]}]});
+ assert.deepEqual(result.events.filter(event=>event.stage==='apply').map(event=>event.id),[target.id]);
+ assert.equal(result.events.some(event=>event.stage==='fit'),false,'the completed matching decision is reused');
+ assert.equal(result.attention.items.length,1,'the prior question is neither answered nor dismissed by a retry request');
+ assert.equal(result.attention.items[0].questions[0].question,snapshot.prompt);
 });
 for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply'} external-only reviews semantic priority before scope certainty`, () => {
   const knownLow = job('known-external-low', { applicationMode: 'external', reviewPriority: 10 });

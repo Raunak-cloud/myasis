@@ -84,7 +84,7 @@ export function recoveryPerspectiveTranscript(messages: ChatMessage[]): ChatMess
     for (const call of message.tool_calls ?? []) calls.set(call.id, call.function);
   }
   const audit: ChatMessage[] = current.filter(message => message.role === 'tool').map(message => ({ role: 'user',
-    content: '<untrusted role="prior-tool-evidence">\n' + JSON.stringify({call:calls.get(message.tool_call_id),result:message.content}).replace(/</g,'\\u003c').replace(/>/g,'\\u003e') + '\n</untrusted>',
+    content: '<untrusted role="prior-tool-evidence">\n' + JSON.stringify({tool_call_id:message.tool_call_id,call:calls.get(message.tool_call_id),result:message.content}).replace(/</g,'\\u003c').replace(/>/g,'\\u003e') + '\n</untrusted>',
   }));
   const durable = current.filter((message, index) => index > 1 && index < latest && message.role === 'user'
     && !/^URL: |^Previous page observation superseded:|^RECOVERY PERSPECTIVE REFRESH:/m.test(textOf(message)) && !isCheckpoint(message));
