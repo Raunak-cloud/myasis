@@ -61,6 +61,10 @@ funding. It removes old behavioural examples that can reinforce a failed plan.
 An explicit administrator-targeted retry may re-inspect a historical unanswered
 question rather than being blocked before the agent opens the form. It does not
 provide an answer or change matching, candidate approvals or send authority.
+Exact administrator retries support recorded SEEK and Indeed posting IDs. They
+use the owner's recorded listing metadata, refetch that posting and retain the
+normal matching and applying path. They do not fall back to another job search
+or the automatic technical-retry backlog.
 
 Verification covers admission at the absolute deadline, deadline arrival during
 review, worker wakeups, manual Stop during completion, unresponsive-worker

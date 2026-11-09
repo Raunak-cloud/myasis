@@ -176,7 +176,7 @@ ${options.queue ? "process.argv[1]='queue.js';" : ''} await import('./main.mjs')
       env: { ...process.env, DATA_DIR: directory, PROFILE_PATH: join(directory, 'profile.txt'),
         CELERIS_API_KEY: 'fixture-only', COVER_LETTER_MODE: 'tailored',
         APPLICATION_REVIEW_MODE: options.prepare ? 'prepare' : options.approvedIds ? 'approved' : '', APPLY_ONLY: options.scope ?? 'all',
-        APPLICATION_WORKERS: String(options.workers ?? 1), DIRECT_EXTERNAL_JOB_URL: '', TARGETED_JOBS_JSON: '', TARGET_SEEK_JOBS: JSON.stringify(jobs.filter(item=>options.targetedIds?.includes(item.id)).map(item=>({job_id:item.id,title:item.title,company:item.company}))), OWTOMATE_REPAIR_CASE_ID: options.repairTarget ? 'fixture-repair' : '', TARGET_REPAIR_JOB_JSON: options.repairTarget ? JSON.stringify(options.repairTarget) : '', EMPLOYER_FEEDS_ADMIN_ENABLED: 'false', SMARTRECRUITERS_ADMIN_ENABLED: 'false' },
+        APPLICATION_WORKERS: String(options.workers ?? 1), DIRECT_EXTERNAL_JOB_URL: '', TARGETED_JOBS_JSON: '', TARGET_SEEK_JOBS: JSON.stringify(jobs.filter(item=>options.platform!=='indeed'&&options.targetedIds?.includes(item.id)).map(item=>({job_id:item.id,title:item.title,company:item.company}))), TARGET_INDEED_JOBS:JSON.stringify(jobs.filter(item=>options.platform==='indeed'&&options.targetedIds?.includes(item.id)).map(item=>({job_id:item.id,title:item.title,company:item.company}))), OWTOMATE_REPAIR_CASE_ID: options.repairTarget ? 'fixture-repair' : '', TARGET_REPAIR_JOB_JSON: options.repairTarget ? JSON.stringify(options.repairTarget) : '', EMPLOYER_FEEDS_ADMIN_ENABLED: 'false', SMARTRECRUITERS_ADMIN_ENABLED: 'false' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const events = readFileSync(join(directory, 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
@@ -218,6 +218,14 @@ test('admin repair targeted retry re-inspects an old question with the same comp
  assert.equal(result.events.some(event=>event.stage==='fit'),false,'the completed matching decision is reused');
  assert.equal(result.attention.items.length,1,'the prior question is neither answered nor dismissed by a retry request');
  assert.equal(result.attention.items[0].questions[0].question,snapshot.prompt);
+});
+test('admin repair exact Indeed retry opens only its recorded posting and reuses the completed match',()=>{
+ const target=job('abc123def4567890',{platform:'indeed',url:'https://au.indeed.com/viewjob?jk=abc123def4567890'});
+ const extra=job('0000000000000000',{platform:'indeed'});
+ const result=run([target,extra],{platform:'indeed',apply:true,targetedIds:[target.id],completed:[{job:target,decision:'apply'}]});
+ assert.deepEqual(result.events.filter(event=>event.stage==='apply').map(event=>event.id),[target.id]);
+ assert.equal(result.events.some(event=>event.stage==='fit'),false);
+ assert.equal(result.events.some(event=>event.stage==='detail'&&event.id===extra.id),false,'no broad search or other posting can replace the exact retry');
 });
 for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply'} external-only reviews semantic priority before scope certainty`, () => {
   const knownLow = job('known-external-low', { applicationMode: 'external', reviewPriority: 10 });

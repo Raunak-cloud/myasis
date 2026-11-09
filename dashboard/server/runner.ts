@@ -521,7 +521,7 @@ class Run {
     const timeoutMs = runTimeoutMs(env.OPERATOR_RUN_TIMEOUT_MINUTES || process.env.RUN_TIMEOUT_MINUTES || readEnv().RUN_TIMEOUT_MINUTES);
     env.OWTOMATE_RUN_DEADLINE_AT = String(Date.now() + timeoutMs);
     const autoRetries=mode==='live' && !env.APPLICATION_REVIEW_MODE && !env.DIRECT_EXTERNAL_JOB_URL
-      && (!env.TARGET_SEEK_JOBS || env.TARGET_SEEK_JOBS==='[]') && !env.TARGET_REPAIR_JOB_JSON && !repairCaseId;
+      && (!env.TARGET_SEEK_JOBS || env.TARGET_SEEK_JOBS==='[]') && (!env.TARGET_INDEED_JOBS || env.TARGET_INDEED_JOBS==='[]') && !env.TARGET_REPAIR_JOB_JSON && !repairCaseId;
     env.AUTO_TECHNICAL_RETRIES=autoRetries?'true':'false';
     this.prepaidRetryIds.clear();
     const retryContext:TechnicalRetryContext|undefined=autoRetries?{

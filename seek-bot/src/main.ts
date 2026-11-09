@@ -256,6 +256,7 @@ async function main() {
       // none grants an answer, changes approval or permits an extra send.
       if (approvedApplication(job) || job.source === 'chosen'
         || targeted.some(item => item.job_id === job.id && (job.platform ?? 'seek') === 'seek')
+        || targetedIndeed.some(item => item.job_id === job.id && job.platform === 'indeed')
         || repairTarget && repairTarget.id === job.id && repairTarget.platform === (job.platform ?? 'seek')) return false;
       return waitingForCurrentAnswers(job,preparingApplications()?'preparation':'application');
     };
@@ -382,6 +383,7 @@ async function main() {
     // Sign in before querying date-filtered searches. Homepage recommendations
     // have no date filter and are deliberately not part of automatic discovery.
     const targeted: Array<{ job_id: string; title: string; company: string }> = JSON.parse(process.env.TARGET_SEEK_JOBS ?? '[]');
+    const targetedIndeed: typeof targeted = JSON.parse(process.env.TARGET_INDEED_JOBS ?? '[]');
     const seeded = discoverySeeds(process.env.DISCOVERY_SEED_JOBS_JSON ? JSON.parse(process.env.DISCOVERY_SEED_JOBS_JSON) : undefined);
     const repairTarget: JobListing | null = process.env.OWTOMATE_REPAIR_CASE_ID && process.env.TARGET_REPAIR_JOB_JSON
       ? JSON.parse(process.env.TARGET_REPAIR_JOB_JSON) : null;
@@ -425,20 +427,21 @@ async function main() {
         continue;
       }
 
-      if (targeted.length && adapter.id === 'seek') {
+      const boardTargets=adapter.id==='seek'?targeted:adapter.id==='indeed'?targetedIndeed:[];
+      if (boardTargets.length) {
         targetedAdapters.add(adapter.id);
         const targetedJobs: JobListing[] = [];
-        for (const target of targeted.slice(0, 10)) {
+        for (const target of boardTargets.slice(0, 10)) {
           if (runDeadline.reached) break;
           const id = target.job_id;
-          if (!/^\d{6,12}$/.test(id) || !target.title || !target.company) throw new Error('Invalid targeted job metadata.');
+          if (!(adapter.id==='indeed'?/^[a-f0-9]{16}$/i:/^\d{6,12}$/).test(id) || !target.title || !target.company) throw new Error('Invalid targeted job metadata.');
           targetedJobs.push(await adapter.fetchJobDetail(page, {
-            id, title: target.title, company: target.company, location: '', platform: 'seek',
-            url: `https://www.seek.com.au/job/${id}`,
+            id, title: target.title, company: target.company, location: '', platform: adapter.id,
+            url: adapter.id==='indeed'?`https://au.indeed.com/viewjob?jk=${id}`:`https://www.seek.com.au/job/${id}`,
           }));
         }
         selectedAccepted.push(...ingest(targetedJobs, adapter));
-        console.log(`  Targeted retry: ${targeted.length} listing(s); normal fit, scope and duplicate checks still apply.`);
+        console.log(`  Targeted retry: ${boardTargets.length} listing(s); normal fit, scope and duplicate checks still apply.`);
         continue;
       }
       if (adapter.id === 'seek' && seeded.length) {

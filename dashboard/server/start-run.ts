@@ -43,6 +43,7 @@ import { gmailAccess } from './gmail-access.js';
 import { scheduledStart } from './run-schedule.js';
 import { dailyApplicationLimit, USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
 import { targetedSeekRetryJobs } from './targeted-retry-jobs.js';
+import { targetedIndeedRetryJobs } from './targeted-retry-indeed.js';
 import { VIP_RUN_PLAN, sponsoredRunAllowance, sponsoredRunEntitlements } from './operator-run-plan.js';
 import { discoverySeeds } from '../../seek-bot/src/discovery-seeds.js';
 import {approvedRunRepairs} from './approved-run-repairs.js';
@@ -349,7 +350,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   if (request.externalUrl !== undefined) {
     if (trigger !== 'admin') return { ok: false, status: 403, error: 'Only administrators can start a direct website application.' };
     if (mode !== 'live') return { ok: false, status: 400, error: 'A direct website application must be a live run.' };
-    if (request.jobIds !== undefined) return { ok: false, status: 400, error: 'Choose either a direct website URL or targeted SEEK jobs, not both.' };
+    if (request.jobIds !== undefined) return { ok: false, status: 400, error: 'Choose either a direct website URL or targeted board jobs, not both.' };
     const checked = await validateExternalJobUrl(request.externalUrl);
     if (typeof checked !== 'string') return { ok: false, status: 400, error: checked.error };
     directExternalUrl = checked;
@@ -360,14 +361,17 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   }
   if (request.jobIds !== undefined) {
     if (trigger !== 'admin') return { ok: false, status: 403, error: 'Only administrators can target a retry.' };
-    if (!Array.isArray(request.jobIds) || !request.jobIds.length || request.jobIds.length > USER_RUN_LIMITS.MAX_APPS_PER_DAY || request.jobIds.some(id => typeof id !== 'string' || !/^\d{6,12}$/.test(id))) {
-      return { ok: false, status: 400, error: `Provide between 1 and ${USER_RUN_LIMITS.MAX_APPS_PER_DAY} valid SEEK job IDs.` };
+    if (!Array.isArray(request.jobIds) || !request.jobIds.length || request.jobIds.length > USER_RUN_LIMITS.MAX_APPS_PER_DAY || request.jobIds.some(id => typeof id !== 'string' || !/^(?:\d{6,12}|[a-f0-9]{16})$/i.test(id))) {
+      return { ok: false, status: 400, error: `Provide between 1 and ${USER_RUN_LIMITS.MAX_APPS_PER_DAY} valid SEEK or Indeed job IDs.` };
     }
     const ids = [...new Set(request.jobIds)] as string[];
-    const jobs = await targetedSeekRetryJobs(userId, ids);
+    const indeed=ids.every(id=>/^[a-f0-9]{16}$/i.test(id));
+    if(!indeed&&ids.some(id=>!/^\d{6,12}$/.test(id)))return {ok:false,status:400,error:'Choose targeted jobs from one board per retry.'};
+    const jobs = indeed?await targetedIndeedRetryJobs(userId,ids):await targetedSeekRetryJobs(userId, ids);
     if (!jobs) return { ok: false, status: 400, error: 'Targeted retries require an existing job record or a verified no-send attempt for this account.' };
-    overrides.TARGET_SEEK_JOBS = JSON.stringify(ids.map(id => jobs.find(job => job.job_id === id)!));
-    overrides.PLATFORMS = 'seek';
+    overrides.TARGET_SEEK_JOBS = indeed?'[]':JSON.stringify(jobs);
+    overrides.TARGET_INDEED_JOBS = indeed?JSON.stringify(jobs):'[]';
+    overrides.PLATFORMS = indeed?'indeed':'seek';
   }
   if (request.repairJob) {
     const job = request.repairJob;
