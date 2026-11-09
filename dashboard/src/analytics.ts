@@ -159,6 +159,7 @@ function listen(): void {
   });
   window.addEventListener('pagehide', () => { if (current) hide(current); });
   document.addEventListener('freeze', () => { if (current) hide(current); });
+  document.addEventListener('resume', () => { if (current && document.visibilityState !== 'hidden') show(current); });
   // Back/forward cache restores do not remount React.
   window.addEventListener('pageshow', () => {
     if (current && document.visibilityState !== 'hidden') show(current);

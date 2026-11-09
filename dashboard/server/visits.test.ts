@@ -264,6 +264,10 @@ try {
   const recoveredClose=(await connection.query("SELECT count(*)::int n,max(duration_ms)::int ms,bool_or(visible) visible,min(started_at)<now()-interval '1 second' AS original_start FROM page_views WHERE visitor_id='visitor-short'")).rows[0];
   assert.equal(recoveredClose.n,1);assert.equal(recoveredClose.ms,1200);assert.equal(recoveredClose.visible,false);assert.equal(recoveredClose.original_start,true);
   assert.ok(initialAfterClose);
+  await recordPageProgress(request,{id:initialAfterClose,visitorId:'visitor-short',durationMs:1500},null,true);
+  const legacyClose=(await connection.query('SELECT duration_ms,visible,presence_seq FROM page_views WHERE id=$1',[initialAfterClose])).rows[0];
+  assert.equal(legacyClose.duration_ms,1500,'already-open older clients can still report exit timing without a sequence number');
+  assert.equal(legacyClose.visible,false);assert.equal(Number(legacyClose.presence_seq),2);
   await recordPageProgress(request,{...short,visitorId:'visitor-malformed',viewId:'bad!',sequence:1},null,true);
   assert.equal((await connection.query("SELECT count(*)::int n FROM page_views WHERE visitor_id='visitor-malformed'")).rows[0].n,0);
   const ignoredProgressRequest={...request,socket:{remoteAddress:'198.51.100.5'}} as IncomingMessage;

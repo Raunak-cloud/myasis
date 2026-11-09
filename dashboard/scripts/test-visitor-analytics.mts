@@ -259,6 +259,11 @@ const sleeper=fixture();sleeper.track('landing');await flush();
 sleeper.setClock(1000);sleeper.intervals[0]();
 sleeper.setClock(60*60_000);sleeper.intervals[0]();await flush();
 assert.equal(sleeper.sent.find(r=>r.path==='/api/visit/leave')!.body.durationMs,21000,'a sleeping computer does not contribute an hour of visible time');
+const frozen=fixture();frozen.track('landing');await flush();
+frozen.setClock(1000);frozen.event('freeze');
+frozen.setClock(61000);frozen.event('resume');
+frozen.setClock(62000);frozen.intervals[0]();
+assert.equal(frozen.sent.at(-1)!.body.durationMs,2000,'a resumed page restarts timing without counting its frozen interval');
 const robot = fixture(false, true);
 robot.track('landing');
 assert.equal(

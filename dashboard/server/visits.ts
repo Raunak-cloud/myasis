@@ -217,9 +217,9 @@ export async function endPageView(body: unknown): Promise<void> {
  * same view before applying its ordered timing checkpoint. */
 export async function recordPageProgress(req:IncomingMessage,body:unknown,userId:string|null,leaving=false):Promise<void> {
   const b=(body??{}) as Record<string,unknown>;
-  if(!Number.isFinite(Number(b.durationMs)) || Number(b.durationMs)<0 || !Number.isSafeInteger(Number(b.sequence)) || Number(b.sequence)<1)return;
   let id=String(b.id??'');
   if(!/^\d{1,18}$/.test(id)){
+    if(!Number.isFinite(Number(b.durationMs)) || Number(b.durationMs)<0 || !Number.isSafeInteger(Number(b.sequence)) || Number(b.sequence)<1)return;
     if(!ID_PATTERN.test(String(b.viewId??'')))return;
     id=await recordPageView(req,{...b,visible:!leaving&&b.visible===true},leaving?null:userId)??'';
   }
