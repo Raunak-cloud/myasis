@@ -27,7 +27,6 @@ import { repairRuntime, repairedWorkerEnvironment, liveRepairEnvironment } from 
 import { repairPilotEnabled } from './repair-release.js';
 import { claimTechnicalRetries, finishTechnicalRetryLeases, type TechnicalRetryContext } from './technical-retries.js';
 import { TECHNICAL_RETRY_REQUEST, TECHNICAL_RETRY_RESPONSE, PREPAID_RETRY_SUBMITTED } from '../../seek-bot/src/technical-retry-types.js';
-import { billingStatus } from './billing.js';
 
 export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
   const owners = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [userId]);
@@ -639,6 +638,9 @@ class Run {
       void (async()=>{
         const [owner]=await query<{email:string}>('SELECT email FROM users WHERE id=$1 AND blocked_at IS NULL',[userId]);
         if(!owner){reply([]);return;}
+        // Billing also loads account policy, which reads settings during initialization.
+        // Resolve it only when a running worker requests its fallback batch.
+        const {billingStatus}=await import('./billing.js');
         const billing=await billingStatus(userId,owner.email);
         const candidates=await claimTechnicalRetries(userId,runId,Math.min(100,request.shortfall!),{...retryContext,creditsRemaining:billing.totalRemaining,
           externalRemaining:typeof request.externalRemaining==='number'&&Number.isFinite(request.externalRemaining)
