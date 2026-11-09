@@ -2,11 +2,12 @@
 export interface VisitSource { source: string; medium: string; campaign: string; referrer: string }
 export const UNKNOWN_SOURCE = 'Direct / unavailable';
 const TRANSIT_HOSTS = new Set(['accounts.google.com', 'checkout.stripe.com', 'billing.stripe.com']);
+export const isTransitHost = (host:string) => TRANSIT_HOSTS.has(host) || /^accounts\.google\.(?:com|(?:co|com)\.[a-z]{2}|[a-z]{2,3})$/.test(host);
 
 export function entryReferrer(raw: string, ownHost: string): string {
   try {
     const url = new URL(raw), host = url.hostname.replace(/^www\./, '').toLowerCase();
-    if (!['http:', 'https:'].includes(url.protocol) || host === ownHost.replace(/^www\./, '').toLowerCase() || TRANSIT_HOSTS.has(host)) return '';
+    if (!['http:', 'https:'].includes(url.protocol) || host === ownHost.replace(/^www\./, '').toLowerCase() || isTransitHost(host)) return '';
     return `${url.origin}${url.pathname}`.slice(0, 500);
   } catch { return ''; }
 }
@@ -16,7 +17,7 @@ export function sourceLabel(source: string | null | undefined, referrer?: string
   if (!label && referrer) {
     try { label = new URL(referrer).hostname.replace(/^www\./, '').toLowerCase(); } catch { /* unavailable */ }
   }
-  if (!label || label === UNKNOWN_SOURCE.toLowerCase() || TRANSIT_HOSTS.has(label)) return UNKNOWN_SOURCE;
+  if (!label || label === UNKNOWN_SOURCE.toLowerCase() || isTransitHost(label)) return UNKNOWN_SOURCE;
   if (/^(?:www\.)?google\.[a-z.]+$/.test(label)) return 'google';
   const aliases: Record<string,string> = { 'bing.com':'bing', 'facebook.com':'facebook', 'm.facebook.com':'facebook', 'l.facebook.com':'facebook', 'instagram.com':'instagram','l.instagram.com':'instagram',
     'linkedin.com':'linkedin', 'lnkd.in':'linkedin', 'reddit.com':'reddit', 'old.reddit.com':'reddit', 'duckduckgo.com':'duckduckgo', 't.co':'x', 'twitter.com':'x', 'x.com':'x' };

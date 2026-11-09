@@ -251,6 +251,7 @@ assert.ok(!JSON.stringify(secondArrival.sent).includes('secret-click'),'click ID
 assert.equal(captureVisitSource('?msclkid=private','','owtomate.com').source,'bing');
 assert.equal(captureVisitSource('?fbclid=private','','owtomate.com').source,'meta','a Meta click ID alone does not establish Facebook versus Instagram');
 assert.equal(captureVisitSource('','https://checkout.stripe.com/c/pay/private','owtomate.com').referrer,'');
+assert.equal(captureVisitSource('','https://accounts.google.com.au/auth','owtomate.com').referrer,'','regional sign-in returns are not acquisition sources');
 assert.equal(captureVisitSource('','https://owtomate.com/pricing?token=secret','owtomate.com').referrer,'');
 assert.equal(sourceLabel(null,'https://www.google.com/search?q=private'),'google');
 assert.equal(sourceLabel(null,'null/'),UNKNOWN_SOURCE);

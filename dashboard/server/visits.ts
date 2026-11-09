@@ -5,7 +5,7 @@ import { isAdmin } from './billing.js';
 import { RUN_TIME_ZONE } from './entitlements.js';
 import { geoipConfigured, lookupPlace } from './geoip.js';
 import { readEnv } from './runner.js';
-import { sourceLabel, UNKNOWN_SOURCE } from '../src/visitor-source.js';
+import { entryReferrer, sourceLabel, UNKNOWN_SOURCE } from '../src/visitor-source.js';
 
 /**
  * First-party visitor analytics: who looked at what, from where, for how long.
@@ -103,9 +103,6 @@ function describeAgent(ua: string): Agent {
   return { device, browser, os, bot };
 }
 
-/** Hosts a visitor passes through on the way in, not places they came from: our own, and the sign-in provider's. */
-const NOT_A_SOURCE = new Set(['accounts.google.com', 'checkout.stripe.com', 'billing.stripe.com']);
-
 /**
  * Where the visitor came from, kept to the site and path. The query string is
  * dropped — it is where tokens and campaign junk live — and a referrer on our
@@ -113,16 +110,7 @@ const NOT_A_SOURCE = new Set(['accounts.google.com', 'checkout.stripe.com', 'bil
  * our own flow, not a source.
  */
 function cleanReferrer(raw: unknown, ownHost: string): string | null {
-  if (typeof raw !== 'string' || !raw.trim()) return null;
-  try {
-    const url = new URL(raw);
-    if (!['https:', 'http:'].includes(url.protocol)) return null;
-    const host = url.hostname.replace(/^www\./, '');
-    if (host === ownHost.replace(/^www\./, '') || NOT_A_SOURCE.has(host)) return null;
-    return `${url.origin}${url.pathname}`.slice(0, 500);
-  } catch {
-    return null;
-  }
+  return typeof raw === 'string' ? entryReferrer(raw,ownHost)||null : null;
 }
 
 function cleanAttribution(raw: unknown): { source: string | null; medium: string | null; campaign: string | null } {
@@ -395,7 +383,7 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
     ), entries AS (
       SELECT DISTINCT ON(visitor_id,session_id) visitor_id,session_id,attribution_source AS source,referrer
       FROM page_views JOIN selected USING(visitor_id,session_id) WHERE ${baseWhere}
-        AND (NULLIF(trim(attribution_source),'') IS NOT NULL OR (referrer ~ '^https?://' AND referrer !~* '^https?://(accounts\\.google\\.com|checkout\\.stripe\\.com|billing\\.stripe\\.com)(/|$)'))
+        AND (NULLIF(trim(attribution_source),'') IS NOT NULL OR (referrer ~ '^https?://' AND referrer !~* '^https?://(accounts\\.google\\.[a-z.]+|checkout\\.stripe\\.com|billing\\.stripe\\.com)(/|$)'))
       ORDER BY visitor_id,session_id,started_at,id
     ) SELECT visitor_id,source,referrer,count(*)::int AS visits FROM selected LEFT JOIN entries USING(visitor_id,session_id) GROUP BY visitor_id,source,referrer`,params),
     breakdown('device', 'os', 'NULL'),

@@ -287,6 +287,9 @@ try {
   assert.equal(sourceReport.referrers.find(r=>r.label==='reddit')?.visitors,1);
   assert.equal(sourceReport.referrers.find(r=>r.label==='google')?.views,1,'campaign and referrer spellings share one canonical source');
   assert.deepEqual(sourceReport.sourceCoverage,{knownVisits:3,unknownVisits:2});
+  await recordPageView(request,view('visitor-regional-auth','regional-auth-session',{referrer:'https://accounts.google.com.au/auth'}),null);
+  const regional=await visitorReport({range:'7d',market:'all'});
+  assert.equal(regional.referrers.find(r=>r.label==='Direct / unavailable')?.views,3,'regional sign-in returns do not invent an acquisition source');
   await recordPageView(request,view('visitor-first-source','first-source-session',{referrer:'https://www.bing.com/search?q=private'}),null);
   await recordPageView(request,view('visitor-first-source','first-source-session',{page:'pricing',attribution:{source:'reddit'}}),null);
   const firstSource=await visitorReport({range:'7d',market:'all'});
