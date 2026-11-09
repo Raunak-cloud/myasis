@@ -30,9 +30,9 @@ test('normal startRun resolves retained metadata and still enforces mode, accoun
   };
   try {
     writeFileSync(join(directory, 'boundary.mjs'), `
-export const state={credits:5,sent:0,busy:false,starts:[],queries:[],pending:['seek:held-fixture'],repairs:[],approvedDrafts:[]};
+export const state={credits:5,sent:0,busy:false,starts:[],queries:[],events:[],pending:['seek:held-fixture'],repairs:[],approvedDrafts:[]};
 export const approvedRunRepairs=async()=>state.repairs;
-export const query=async(sql,params)=>{state.queries.push({sql,params});if(sql.includes('FROM run_events'))return [];
+export const query=async(sql,params)=>{state.queries.push({sql,params});if(sql.includes('FROM run_events'))return state.events;
   if(sql.includes('UPDATE run_starts SET operator_options'))return [];
   if(sql.includes('FROM run_starts'))return [{id:'1145',user_id:'183',finished_at:'2026-11-02T17:45:00Z'}];
   if(sql.includes('FROM users'))return [{email:'operator@fixture.invalid'}];throw Error('Unexpected fixture query');};
@@ -62,7 +62,8 @@ export const gmailAccess=async()=>({connected:false}),scheduledStart=async()=>{t
 `);
     compile('./targeted-retry-jobs.ts', 'targeted.mjs', { './db/index.js': url('boundary.mjs'), './userdata.js': url('boundary.mjs') },
       ['../../seek-bot/src/job-board-url.js', '../../seek-bot/src/repair-safety.js', './run-diagnostics.js']);
-    compile('./start-run.ts', 'start.mjs', { './targeted-retry-jobs.js': url('targeted.mjs') },
+    compile('./targeted-retry-indeed.ts','indeed.mjs',{'./db/index.js':url('boundary.mjs')},['../../seek-bot/src/job-board-url.js']);
+    compile('./start-run.ts', 'start.mjs', { './targeted-retry-jobs.js': url('targeted.mjs'),'./targeted-retry-indeed.js':url('indeed.mjs') },
       ['../../seek-bot/src/application-model-catalog.js', '../../seek-bot/src/employer-source-config.js', '../src/salary.js',
         '../../seek-bot/src/job-board-url.js', '../../seek-bot/src/cover-letter-policy.js', '../../seek-bot/src/run-limits.js', '../../seek-bot/src/discovery-seeds.js', './employer-site-access.js', './operator-run-plan.js', './operator-application-budget.js']);
     const { startRun } = await import(url('start.mjs')) as typeof import('./start-run.js');
@@ -97,6 +98,19 @@ export const gmailAccess=async()=>({connected:false}),scheduledStart=async()=>{t
     assert.equal((await startRun({...request,trigger:'manual',oneTime:{applicationBudget}}) as {status:number}).status,403);
     assert.deepEqual(await startRun(request),{ok:true,mode:'live'});
     assert.equal(state.starts.at(-1)[1].OPERATOR_APPLICATION_BASE_USD,undefined,'the next ordinary run has no spending override');
+    const indeedId='abc123def4567890';
+    state.events=[{job_id:indeedId,title:'Recorded analyst',company:'Recorded employer',url:`https://au.indeed.com/viewjob?jk=${indeedId}`}];
+    assert.deepEqual(await startRun({...request,jobIds:[indeedId]}),{ok:true,mode:'live'});
+    const exactIndeed=state.starts.at(-1)[1];
+    assert.deepEqual(JSON.parse(exactIndeed.TARGET_INDEED_JOBS),[{job_id:indeedId,title:'Recorded analyst',company:'Recorded employer'}]);
+    assert.equal(exactIndeed.TARGET_SEEK_JOBS,'[]');assert.equal(exactIndeed.PLATFORMS,'indeed');
+    assert.equal(exactIndeed.APPLICATION_REVIEW_MODE,'prepare','an Indeed target cannot authorize a Semi auto send');
+    assert.equal(exactIndeed.MIN_SCORE,'70');assert.equal(exactIndeed.MAX_AGE_DAYS,'15');
+    assert.equal((await startRun({...request,jobIds:[id,indeedId]}) as {status:number}).status,400);
+    state.events=[];
+    const beforeMissingIndeed=state.starts.length;
+    assert.equal((await startRun({...request,jobIds:[indeedId]}) as {status:number}).status,400);
+    assert.equal(state.starts.length,beforeMissingIndeed,'an unrecorded Indeed job cannot fall back to discovery');
     const starts = state.starts.length;
     assert.equal((await startRun({ ...request, oneTime: { includeSavedChoices: 'false' as unknown as boolean } }) as { status: number }).status, 400);
     assert.equal((await startRun({ ...request, trigger: 'manual', oneTime: { includeSavedChoices: false } }) as { status: number }).status, 403);
