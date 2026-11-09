@@ -1143,3 +1143,19 @@ FROM application_reviews WHERE payload->'job'->>'id' IS NOT NULL
  AND jsonb_typeof(payload->'job'->'fitReview'->'reason')='string'
 ON CONFLICT(user_id,review_key) DO NOTHING;
 -- END completed job reviews
+
+-- BEGIN technical application retries
+CREATE TABLE IF NOT EXISTS technical_application_retries (
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  job_key TEXT NOT NULL,
+  payload JSONB NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending','leased','held','closed')),
+  failed_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL,
+  last_run_id BIGINT REFERENCES run_starts(id) ON DELETE SET NULL,
+  attempted_at TIMESTAMPTZ,
+  PRIMARY KEY(user_id,job_key)
+);
+CREATE INDEX IF NOT EXISTS technical_application_retries_pending_idx
+  ON technical_application_retries(user_id,failed_at) WHERE status='pending';
+-- END technical application retries

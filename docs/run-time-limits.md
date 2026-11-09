@@ -32,6 +32,16 @@ checks remain retryable. Current application history is checked before reusing
 a matching approval. Explicit candidate choices and prepared applications keep
 their existing continuation paths.
 
+Auto apply searches and reviews online jobs first. If it finds fewer matches
+than the run's available application allowance, it fills the shortfall from
+saved matches whose earlier application failed technically. Each saved job is
+attempted at most once in that run, without another matching review. Failed
+saved forms retain their exact approved content and do not spend another
+application credit. Current listing age, selected sources, exclusions, quotas,
+personal-question holds and submission history still apply. Semi auto,
+search-only scans and explicitly targeted/approved runs do not invoke this
+fallback. Interrupted attempts with uncertain send state stay held.
+
 Verification covers admission at the absolute deadline, deadline arrival during
 review, worker wakeups, manual Stop during completion, unresponsive-worker
 cleanup, and a real child process with two concurrent applications that both

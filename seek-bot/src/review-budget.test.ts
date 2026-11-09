@@ -6,6 +6,7 @@ import { join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import type { AppliedRecord, BlockedQuestion, JobListing } from './types.js';
+import type { TechnicalRetryCandidate } from './technical-retry-types.js';
 import { sealQuestionSnapshot } from './question-snapshot-node.js';
 
 type FixtureJob = JobListing & { reviewPriority?: number; searchPage?: number; searchScope?: 'office' | 'remote' | 'unscoped'; detailApplicationMode?: 'hosted' | 'external'; detailDescription?: string; cardConflict?: boolean; wall?: boolean; searchOnlyJob?: boolean; detailApplied?: boolean; loadingFirst?: boolean; fitError?: boolean; fitReject?: boolean; matchScore?: number; lateApplied?: boolean; delayMs?: number; detailDelayMs?: number; detailWaitFor?: { stage: string; id: string }; applyWaitFor?: { stage: string; id: string }; fitDelayMs?: number; detailError?: boolean; formUrl?: string; uncertain?: boolean; preSendFailure?: boolean };
@@ -16,7 +17,7 @@ const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
 
 /** Exercise the compiled main loop with offline boundary adapters, real history
  * and a one-review budget. No browser, model or employer is contacted. */
-function run(jobs: FixtureJob[], options: { scope?: 'all' | 'external' | 'hosted'; waiting?: Array<{ job: FixtureJob; questions: BlockedQuestion[] }>; savedAnswers?: unknown[]; attentionOnFit?: { job: FixtureJob; questions: BlockedQuestion[] }; repairTarget?: FixtureJob; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; completed?: Array<{job:FixtureJob;decision:'apply'|'skip'|'uncertain'}>; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[]; workArrangements?: string[]; onsiteCity?: string } = {}) {
+function run(jobs: FixtureJob[], options: { scope?: 'all' | 'external' | 'hosted'; waiting?: Array<{ job: FixtureJob; questions: BlockedQuestion[] }>; savedAnswers?: unknown[]; attentionOnFit?: { job: FixtureJob; questions: BlockedQuestion[] }; repairTarget?: FixtureJob; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; completed?: Array<{job:FixtureJob;decision:'apply'|'skip'|'uncertain'}>; retries?:TechnicalRetryCandidate[]; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[]; workArrangements?: string[]; onsiteCity?: string } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-review-budget-'));
   const url = (file: string) => pathToFileURL(join(directory, file)).href;
   try {
@@ -118,9 +119,11 @@ export const assessFit = async job => {
     writeFileSync(join(directory, 'apply.mjs'), `
 import { record, waitForEvent } from './boundary.mjs';
 import { applicationAllowance } from ${JSON.stringify(new URL('./application-allowance.js', import.meta.url).href)};
+import {approvedApplication} from ${JSON.stringify(new URL('./application-review.js',import.meta.url).href)};
 import { isExternalApplicationUrl } from ${JSON.stringify(new URL('./job-board-url.js', import.meta.url).href)};
 const performFixtureWork = async (_page,job) => {
-  record('apply',job.id);
+  const approved=approvedApplication(job);
+  record('apply',job.id,{approval:approved??null});
   if(job.applyWaitFor) await waitForEvent(job.applyWaitFor);
   await new Promise(done=>setTimeout(done,job.delayMs||0));
   if(job.preSendFailure) return {status:'error',jobId:job.id,error:'Fixture failure before send'};
@@ -136,8 +139,16 @@ export const prepareMatchedJob = async (job) => {record('prepare-only',job.id);r
 export const applyToIndeedJob = applyToJobWithAgent;
 `);
     writeFileSync(join(directory, 'blocker.mjs'), "export const WALL_STATES = new Set(['captcha','login','identity']); export const judgePage = async () => ({state:'loading',reason:'Fixture delayed listing'});");
+    writeFileSync(join(directory,'retry.mjs'),`
+import {record} from './boundary.mjs';
+import {applicationKeys} from ${JSON.stringify(new URL('./application-identity.js',import.meta.url).href)};
+const enabled=${Boolean(options.apply&&!options.prepare&&!options.approvedIds)};
+const retries=${JSON.stringify(options.retries??[])};
+export const deferredTechnicalRetryKeys=()=>new Set(enabled?retries.flatMap(row=>applicationKeys(row.job)):[]);
+export const claimTechnicalRetryFallback=async shortfall=>{if(!enabled||!retries.length)return [];record('retry-fallback','batch',{shortfall});return retries.slice(0,shortfall);};
+`);
     const overrides: Record<string, string> = {
-      './config.js': 'config.mjs', './browser.js': 'browser.mjs', './llm.js': 'llm.mjs',
+      './config.js': 'config.mjs', './browser.js': 'browser.mjs', './llm.js': 'llm.mjs', './technical-retry-client.js':'retry.mjs',
       './discovery.js': 'discovery.mjs', './discovery-indeed.js': 'discovery.mjs',
       './agent/apply-agent.js': 'apply.mjs', './apply-indeed.js': 'apply.mjs', './prepare-job.js':'apply.mjs', './blocker.js': 'blocker.mjs',
     };
@@ -430,6 +441,64 @@ test('Get Owtomated can complete 200 new reviews and never starts review 201',()
   assert.equal(result.events.filter(x=>x.stage==='fit').length,200);
   assert.ok(!result.events.some(x=>x.stage==='detail'&&x.id===jobs[200].id));
   assert.match(result.output,/evaluation cap \(200\) reached/);
+});
+
+const retryMatch=(listing:FixtureJob):TechnicalRetryCandidate=>({key:`${listing.platform}:${listing.id}`,reason:'Browser disconnected before submission',failedAt:new Date().toISOString(),
+ job:{...listing,fitReview:{score:90,reason:'Previously matched',evidence:['Saved match'],contentFingerprint:'old',contextFingerprint:'old'}}});
+
+test('technical fallback tries fresh matches first, then fills only the matching shortfall without another review',()=>{
+ const old=job('old-failure'),fresh=job('fresh-match');
+ const result=run([old,fresh],{apply:true,cap:2,reviews:2,retries:[retryMatch(old)]});
+ assert.deepEqual(result.events.filter(x=>x.stage==='fit').map(x=>x.id),[fresh.id]);
+ assert.deepEqual(result.events.filter(x=>x.stage==='apply').map(x=>x.id),[fresh.id,old.id]);
+ assert.equal(result.events.filter(x=>x.stage==='retry-fallback').length,1);
+ assert.equal(result.events.find(x=>x.stage==='retry-fallback')?.shortfall,1);
+});
+
+test('technical fallback stays unused when the online search finds enough matches',()=>{
+ const old=job('old-failure');
+ const result=run([old,job('fresh-one'),job('fresh-two')],{apply:true,cap:2,reviews:2,retries:[retryMatch(old)]});
+ assert.equal(result.events.some(x=>x.stage==='retry-fallback'),false);
+ assert.equal(result.events.some(x=>x.stage==='apply'&&x.id===old.id),false);
+});
+
+test('technical fallback preserves a saved approval and ignores its old pending-search hold',()=>{
+ const old=job('approved-failure'),retry=retryMatch(old);
+ retry.approval={id:'00000000-0000-4000-8000-000000000001',revision:'original',job:old,preparedAt:new Date().toISOString(),formUrl:old.url,
+  coverLetter:'Exact previously approved letter',resume:'Approved CV.pdf',answers:[{question:'Notice',answer:'Immediate'}]};
+ const result=run([old],{apply:true,cap:1,retries:[retry],pendingKeys:['listing:seek:'+old.id]});
+ const applied=result.events.find(x=>x.stage==='apply');
+ assert.equal(applied?.id,old.id);assert.deepEqual(applied?.approval,retry.approval);
+ assert.equal(result.events.some(x=>x.stage==='fit'),false);
+ assert.match(result.output,/saved application submitted/);
+});
+
+test('technical fallback makes only one attempt per saved job in a run and does not repeat new failures immediately',()=>{
+ const old=job('still-broken',{preSendFailure:true});
+ const result=run([old],{apply:true,cap:2,retries:[retryMatch(old)]});
+ assert.equal(result.events.filter(x=>x.stage==='apply'&&x.id===old.id).length,1);
+ assert.equal(result.events.filter(x=>x.stage==='retry-fallback').length,1);
+ const fresh=job('new-technical-failure',{preSendFailure:true});
+ const enough=run([fresh],{apply:true,cap:1,retries:[retryMatch(old)]});
+ assert.equal(enough.events.some(x=>x.stage==='retry-fallback'),false,'the condition is insufficient matches, not simply failed submissions');
+});
+
+test('technical fallback is shared between workers and keeps known duplicates and expired jobs out',()=>{
+ const seek=job('seek-retry'),indeed=job('indeed-retry',{platform:'indeed'});
+ const result=run([seek,indeed],{apply:true,workers:2,cap:2,retries:[retryMatch(seek),retryMatch(indeed)]});
+ assert.equal(result.events.filter(x=>x.stage==='retry-fallback').length,1);
+ assert.deepEqual(result.history.map(x=>x.jobId).sort(),[seek.id,indeed.id].sort());
+ const expired=job('expired-retry',{ageDays:30});
+ const blocked=run([expired],{apply:true,cap:1,maxAgeDays:10,retries:[retryMatch(expired)]});
+ assert.equal(blocked.events.some(x=>x.stage==='apply'),false);
+});
+
+test('technical fallback never submits during Semi auto preparation or search-only scans',()=>{
+ const old=job('old-failure');
+ for(const options of [{apply:true,prepare:true},{apply:false}]){
+  const result=run([old],{...options,retries:[retryMatch(old)]});
+  assert.equal(result.events.some(x=>x.stage==='retry-fallback'),false);
+ }
 });
 
 test('two pages of remembered jobs do not hide fresh listings on page three', () => {

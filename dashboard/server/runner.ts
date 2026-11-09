@@ -25,6 +25,9 @@ import { gmailRunConnection } from './gmail-mcp.js';
 import { gmailAccess } from './gmail-access.js';
 import { repairRuntime, repairedWorkerEnvironment, liveRepairEnvironment } from './repair-runtime.js';
 import { repairPilotEnabled } from './repair-release.js';
+import { claimTechnicalRetries, finishTechnicalRetryLeases, type TechnicalRetryContext } from './technical-retries.js';
+import { TECHNICAL_RETRY_REQUEST, TECHNICAL_RETRY_RESPONSE, PREPAID_RETRY_SUBMITTED } from '../../seek-bot/src/technical-retry-types.js';
+import { billingStatus } from './billing.js';
 
 export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
   const owners = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [userId]);
@@ -276,6 +279,7 @@ class Run {
   private emailOnlyRun = false;
   private cdpPort: number | null = null;
   private onApplicationSubmitted: ((external: boolean) => void | Promise<void>) | null = null;
+  private prepaidRetryIds = new Set<string>();
   /** Cleanup owned by the caller, such as returning a temporary free proxy. */
   private onFinished: (() => void | Promise<void>) | null = null;
   /** The run_starts row this run belongs to, when the caller made one. */
@@ -517,7 +521,20 @@ class Run {
 
     const timeoutMs = runTimeoutMs(env.OPERATOR_RUN_TIMEOUT_MINUTES || process.env.RUN_TIMEOUT_MINUTES || readEnv().RUN_TIMEOUT_MINUTES);
     env.OWTOMATE_RUN_DEADLINE_AT = String(Date.now() + timeoutMs);
-    this.spawnChild(spawn(process.execPath, args, { cwd: BOT_DIR, env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], detached: process.platform !== 'win32' }), userId, dataDir, 'run', env.OPERATOR_RUN_TIMEOUT_MINUTES);
+    const autoRetries=mode==='live' && !env.APPLICATION_REVIEW_MODE && !env.DIRECT_EXTERNAL_JOB_URL
+      && (!env.TARGET_SEEK_JOBS || env.TARGET_SEEK_JOBS==='[]') && !env.TARGET_REPAIR_JOB_JSON && !repairCaseId;
+    env.AUTO_TECHNICAL_RETRIES=autoRetries?'true':'false';
+    this.prepaidRetryIds.clear();
+    const retryContext:TechnicalRetryContext|undefined=autoRetries?{
+      platforms:String(env.PLATFORMS||'seek').split(','),maxAgeDays:Number(env.MAX_AGE_DAYS||7),
+      excludedCompanies:String(env.EXCLUDED_COMPANIES||'').split(/[,;\r\n]+/).map(s=>s.trim()).filter(Boolean),
+      external:env.ALLOW_EXTERNAL_APPLY==='true',scope:['hosted','external'].includes(env.APPLY_ONLY??'')?env.APPLY_ONLY!:'all',
+      deadlineAt:Number(env.OWTOMATE_RUN_DEADLINE_AT),
+      directory:dataDir,
+      externalRemaining:env.MAX_EXTERNAL_PER_DAY?.trim() && Number.isFinite(Number(env.MAX_EXTERNAL_PER_DAY))
+        ? Math.max(0,Number(env.MAX_EXTERNAL_PER_DAY)-Number(env.EXTERNAL_ATTEMPTS_TODAY||0)):Infinity,
+    }:undefined;
+    this.spawnChild(spawn(process.execPath, args, { cwd: BOT_DIR, env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'], detached: process.platform !== 'win32' }), userId, dataDir, 'run', env.OPERATOR_RUN_TIMEOUT_MINUTES,retryContext);
     return { ok: true };
   }
 
@@ -604,8 +621,36 @@ class Run {
   }
 
   /** Wiring shared by a run and a scan: console piping, exit handling, result sync. */
-  private spawnChild(child: ChildProcess, userId: string, dataDir: string, kind: 'run' | 'scan', operatorTimeout?: string): void {
+  private spawnChild(child: ChildProcess, userId: string, dataDir: string, kind: 'run' | 'scan', operatorTimeout?: string,retryContext?:TechnicalRetryContext): void {
     this.child = child;
+    let fallbackRequested=false;
+    const receive=(message:unknown)=>{
+      const request=message as {type?:string;requestId?:string;shortfall?:number;reviewId?:string;externalRemaining?:number};
+      if(request?.type===PREPAID_RETRY_SUBMITTED){
+        if(retryContext && this.child===child && request.reviewId && this.prepaidRetryIds.delete(request.reviewId))this.state.applied++;
+        return;
+      }
+      if(request?.type!==TECHNICAL_RETRY_REQUEST || !/^[a-f0-9-]{36}$/i.test(request.requestId??''))return;
+      const reply=(candidates:unknown[])=>{if(child.connected)child.send?.({type:TECHNICAL_RETRY_RESPONSE,requestId:request.requestId,candidates},()=>{});};
+      if(!retryContext || fallbackRequested || this.child!==child || !this.runStartId || !Number.isInteger(request.shortfall)
+        || request.shortfall! <= 0 || Date.now()>=retryContext.deadlineAt){reply([]);return;}
+      fallbackRequested=true;
+      const runId=this.runStartId;
+      void (async()=>{
+        const [owner]=await query<{email:string}>('SELECT email FROM users WHERE id=$1 AND blocked_at IS NULL',[userId]);
+        if(!owner){reply([]);return;}
+        const billing=await billingStatus(userId,owner.email);
+        const candidates=await claimTechnicalRetries(userId,runId,Math.min(100,request.shortfall!),{...retryContext,creditsRemaining:billing.totalRemaining,
+          externalRemaining:typeof request.externalRemaining==='number'&&Number.isFinite(request.externalRemaining)
+            ? Math.min(retryContext.externalRemaining??Infinity,Math.max(0,request.externalRemaining)):retryContext.externalRemaining});
+        if(this.child!==child || !child.connected || Date.now()>=retryContext.deadlineAt){
+          await finishTechnicalRetryLeases(userId,runId,dataDir);reply([]);return;
+        }
+        for(const row of candidates)if(row.approval)this.prepaidRetryIds.add(row.approval.id);
+        reply(candidates);
+      })().catch(error=>{this.push('err',`Saved application retries are unavailable: ${(error as Error).message}`);reply([]);});
+    };
+    child.on('message',receive);child.once('close',()=>child.off('message',receive));
     child.stdout?.on('data', (b) => this.push('out', b.toString()));
     child.stderr?.on('data', (b) => this.push('err', b.toString()));
     const timeoutMs = runTimeoutMs(operatorTimeout || process.env.RUN_TIMEOUT_MINUTES || readEnv().RUN_TIMEOUT_MINUTES);
@@ -628,6 +673,8 @@ class Run {
   }
 
   private async finishChild(userId: string, dataDir: string, kind: 'run' | 'scan', code: number | null, child: ChildProcess, signal: NodeJS.Signals | null): Promise<void> {
+    const finishedRunId=this.runStartId;
+    this.prepaidRetryIds.clear();
     this.revokeGmail?.(); this.revokeGmail = null;
     this.state.running = false;
     this.state.exitCode = code;
@@ -656,7 +703,7 @@ class Run {
       // into userId's Postgres rows. The sync is idempotent, so retries cannot
       // double-count an application or event.
       syncRunResultsToDb(userId, dataDir)
-        .then(async result => { await finishApplicationReviews(userId); return result; })
+        .then(async result => { if(finishedRunId)await finishTechnicalRetryLeases(userId,finishedRunId,dataDir);await finishApplicationReviews(userId); return result; })
         .then((r) => this.push('sys', `  synced ${r.applications} application(s), ${r.runEvents} event(s) to your account`))
         .catch((error) => this.push('err', `Could not save this ${kind}'s results: ${(error as Error).message}`)),
     ];

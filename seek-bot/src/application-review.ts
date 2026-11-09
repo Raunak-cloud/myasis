@@ -13,12 +13,19 @@ import type { ToolContext, ToolResult } from './agent/context.js';
 import type { JobListing } from './types.js';
 import type { PreparedApplication } from './application-review-types.js';
 import { applicationFormKey } from './application-identity.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { applicationModelEnvironment, withApplicationModel } from './application-model.js';
 
-export const preparingApplications = () => process.env.APPLICATION_REVIEW_MODE === 'prepare';
-export const reviewingApplications = () => preparingApplications() || process.env.APPLICATION_REVIEW_MODE === 'approved';
+const retryApproval=new AsyncLocalStorage<PreparedApplication>();
+export function withApprovedRetry<T>(approval:PreparedApplication|undefined,action:()=>T):T {
+  return approval ? withApplicationModel({...applicationModelEnvironment(),APPLICATION_REVIEW_MODE:'approved'},()=>retryApproval.run(approval,action)) : action();
+}
+export const preparingApplications = () => !retryApproval.getStore() && process.env.APPLICATION_REVIEW_MODE === 'prepare';
+export const reviewingApplications = () => Boolean(retryApproval.getStore()) || preparingApplications() || process.env.APPLICATION_REVIEW_MODE === 'approved';
 
 /** This value is supplied only by the server, never a browser run setting. */
 export function approvedApplications(): PreparedApplication[] {
+  const retry=retryApproval.getStore();if(retry)return [retry];
   if (process.env.APPLICATION_REVIEW_MODE !== 'approved') return [];
   const raw = readFileSync(resolve(config.dataDir, 'approved-applications.json'), 'utf8');
   const value: unknown = JSON.parse(raw);

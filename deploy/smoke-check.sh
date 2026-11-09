@@ -22,6 +22,7 @@ npm run test:statuses
 ../seek-bot/node_modules/.bin/tsx --test server/billing-unlimited.test.ts server/billing-upgrades.test.ts server/application-email.test.ts
 ../seek-bot/node_modules/.bin/tsx server/run-policy.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/completed-job-reviews.test.ts server/job-review-memory.test.ts
+../seek-bot/node_modules/.bin/tsx --test server/technical-retries.test.ts server/technical-retry-receipts.test.ts
 node --test server/form-lab/engine.test.mjs
 ../seek-bot/node_modules/.bin/tsx server/form-lab-access.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/run-diagnostics.test.ts
@@ -72,8 +73,9 @@ if [ "$REPLAY_REQUIRED" = 1 ]; then
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/direct-external.test.js
   node --test dist/application-model.test.js dist/application-model-cache.test.js dist/agent/stage-model-routing.test.js
   node --test dist/completed-reviews.test.js dist/application-limits.test.js
+  node --test dist/technical-retry.test.js dist/technical-retry-ipc.test.js
   node dist/fit-contract.test.js
-  node --test --test-name-pattern='completed|Get Owtomated' dist/review-budget.test.js
+  node --test --test-name-pattern='completed|Get Owtomated|technical fallback' dist/review-budget.test.js
   node --test dist/answer-eligibility.test.js dist/agent/personal-declaration-policy.test.js dist/agent/provider-tool-schema.test.js dist/fit-provenance.test.js
   node --test dist/question-snapshot.test.js dist/question-patterns.test.js dist/answer-gate.test.js dist/agent/agent-only-evidence.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/question-robustness-browser.test.js

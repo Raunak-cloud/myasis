@@ -1,5 +1,6 @@
 import { loadReviewMemory } from '../job-review-memory.js';
 import { exportCompletedJobReviews, syncCompletedJobReviews } from '../completed-job-reviews.js';
+import { exportTechnicalRetries, importTechnicalAttemptJournal } from '../technical-retries.js';
 import { writeFileSync, existsSync, unlinkSync, readFileSync, renameSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
@@ -196,6 +197,7 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
   const reviewMemory = await loadReviewMemory(userId);
   writeFileSync(resolve(dir, 'review-cache.jsonl'), reviewMemory.map(row => JSON.stringify(row)).join('\n'));
   await exportCompletedJobReviews(userId,dir);
+  await exportTechnicalRetries(userId,dir);
 
   // The candidate's calls on skipped jobs (skipped.ts, seek-bot review-verdicts.ts).
   writeFileSync(resolve(dir, 'review-verdicts.json'), JSON.stringify(await verdictsForRun(userId), null, 2));
@@ -364,6 +366,7 @@ export async function syncRunResultsToDb(
   }
 
   await syncCompletedJobReviews(userId,dir);
+  await importTechnicalAttemptJournal(userId,dir);
   await syncCostJournal(userId, dir);
   return { applications, runEvents };
 }

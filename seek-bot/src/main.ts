@@ -57,7 +57,9 @@ import { SmartRecruitersDiscovery } from './smartrecruiters.js';
 import { AppliedIndex, logOutcome, saveRunSummary, syncFromSeek, recordUnconfirmedApplication } from './store.js';
 import { reviewDuplicate, DuplicateReviewQueue } from './duplicate-review.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
-import { approvedApplications, approvedApplication, pendingApplicationKeys, preparingApplications } from './application-review.js';
+import { approvedApplications, approvedApplication, pendingApplicationKeys, preparingApplications, withApprovedRetry } from './application-review.js';
+import { deferredTechnicalRetryKeys, claimTechnicalRetryFallback } from './technical-retry-client.js';
+import { retryShortfall, PREPAID_RETRY_SUBMITTED, type TechnicalRetryCandidate, type TechnicalAttempt } from './technical-retry-types.js';
 import { applicationKeys } from './application-identity.js';
 import { waitingForCurrentAnswers } from './answer-eligibility.js';
 import { runDeadline } from './run-deadline.js';
@@ -179,6 +181,7 @@ async function main() {
   );
 
   let index = new AppliedIndex();
+  const technicalRetryKeys=deferredTechnicalRetryKeys();
   const reviewCache = new ReviewCache({
     // External listings are valid in a normal run, but known misses in a
     // hosted-only run. Normal runs still ignore this scoped suppression.
@@ -301,6 +304,9 @@ async function main() {
         job.discoveryFingerprint = listingFingerprint(job);
 
         if (skipExistingApplication(job)) continue;
+        if (!approvedApplications().length && job.source!=='chosen' && applicationKeys(job).some(key=>technicalRetryKeys.has(key))) {
+          bump('saved for application retry');continue;
+        }
         if (!approvedApplications().length && applicationKeys(job).some(key => pendingApplicationKeys().has(key))) {
           bump('awaiting your confirmation');
           continue;
@@ -652,7 +658,8 @@ async function main() {
      * first, so the best candidates are reviewed first, and the run cap is
      * rarely what ends a run (about 1.4 submissions per run over ten days).
      */
-    const candidates: Array<{ job: JobListing; score: number; why: string; reasons: string[] }> = [];
+    const candidates: Array<{ job: JobListing; score: number; why: string; reasons: string[];retry?:TechnicalRetryCandidate }> = [];
+    const applicationTarget=Math.min(config.limits.maxApplicationsPerRun,Math.max(0,config.limits.maxApplicationsPerDay-index.appliedToday()));
     const duplicateReviews = new DuplicateReviewQueue();
     const preparedKeys = new Set<string>();
     const uncertainKeys = new Set<string>();
@@ -1096,6 +1103,31 @@ async function main() {
       if (best) candidates.splice(candidates.indexOf(best), 1);
       return best;
     };
+    let retryFallback:Promise<void>|undefined;
+    const activateRetryFallback=async()=>{
+      if(searchOnly || preparingApplications() || approvedApplications().length || limitReached() || !reviewExhausted()
+        || candidates.some(candidate=>!candidate.retry))return;
+      if(!retryFallback)retryFallback=(async()=>{
+        const shortfall=retryShortfall(qualified,applicationTarget,applicationTarget);
+        if(!shortfall)return;
+        const batch=await claimTechnicalRetryFallback(shortfall,Math.max(0,config.limits.maxExternalPerDay-externalSubmitted));
+        if(limitReached())return;
+        for(const retry of batch){
+          const job={...retry.job,source:'search' as const};
+          if(skipExistingApplication(job) || waitingOnCandidate(job) || stoppedPlatform(job.platform??'seek')
+            || deterministicExclusion(job) || job.applicationMode&&job.applicationMode!=='unknown'&&outsideScope(job.applicationMode))continue;
+          const saved=completedReview(job)?.assessment;
+          const previous=saved ? {score:saved.matchScore,reason:saved.reason,evidence:saved.evidence,
+            roleFitCheck:saved.roleFitCheck,workArrangementCheck:saved.workArrangementCheck}:job.fitReview;
+          if(!previous)continue;
+          job.fitReview={...previous,contentFingerprint:reviewContentFingerprint(job)??job.fitReview?.contentFingerprint??'',contextFingerprint:reviewContext};
+          candidates.push({job,score:previous.score,why:previous.reason,reasons:previous.evidence,retry});
+        }
+        if(batch.length)console.log(`Retrying up to ${batch.length} saved matches after finding ${qualified} matching jobs online. No new matching reviews are needed.`);
+        workChanged();
+      })();
+      await retryFallback;
+    };
 
     const printSummary = () => {
       if (!limitReached() && evaluated >= config.limits.maxEvaluations) {
@@ -1188,8 +1220,9 @@ async function main() {
         await showLiveActivity({ phase: 'waiting', detail: 'Looking for the next matching job.' });
         // Each worker reads and applies on its own isolated page. Only fallback
         // discovery uses the persistent page; queue claims and budgets are shared.
-        const next = await nextApplicationCandidate(() => takeCandidate(accept), reviewExhausted,
+        let next = await nextApplicationCandidate(() => takeCandidate(accept), reviewExhausted,
           () => advanceReview(applicationPage, accept), limitReached);
+        if(!next && !limitReached()) {await activateRetryFallback();next=takeCandidate(accept);}
         if (!next) {
           if (limitReached()) break;
           // Another application may restore a review slot or produce new
@@ -1207,6 +1240,11 @@ async function main() {
 
         try {
           const { job, score, reasons } = next;
+          const retryApproval=next.retry?.approval;
+          const selectedApproval=retryApproval??approvedApplication(job);
+          const attemptMetadata=(outcome?:ApplyOutcome):TechnicalAttempt=>({job:{...job,
+            ...(outcome?.applicationUrl?{applicationUrl:outcome.applicationUrl}:{})},runId:process.env.OWTOMATE_RUN_START_ID??'',
+            ...(selectedApproval?{approval:{id:selectedApproval.id,revision:selectedApproval.revision}}:{})});
           const platformId = job.platform ?? 'seek';
           const adapter = ADAPTERS.get(platformId);
           if (!adapter) continue;
@@ -1314,7 +1352,7 @@ async function main() {
               const apply = () => measured('application', () => preparingApplications() ? prepareMatchedJob(job,profile) : approvedApplication(job)?.email
                 ? submitApprovedEmail(approvedApplication(job)!)
                 : adapter.apply(applicationPage, job, profile, { onFriction: () => {} }), { jobId: job.id, platform: platformId });
-              outcome = await withApplicationAllowance(slot.beforeSubmit, apply);
+              outcome = await withApprovedRetry(retryApproval,()=>withApplicationAllowance(slot.beforeSubmit, apply));
             } catch (err) {
               const msg = (err as Error).message;
               const submitPressed = applicationFailureContext(err)?.submitPressed === true;
@@ -1333,11 +1371,13 @@ async function main() {
                   submitPressed,
                   title: job.title,
                   company: job.company,
+                  reviewId:selectedApproval?.id,
+                  technicalAttempt:attemptMetadata(finalOutcome),
                 });
                 break;
               }
               console.log(submitPressed ? `  Submission not confirmed: ${msg}` : `  ✗ unexpected error: ${msg}`);
-              logOutcome({ status: 'error', jobId: job.id, error: msg, submitPressed, title: job.title, company: job.company });
+              logOutcome({ status: 'error', jobId: job.id, error: msg, submitPressed, title: job.title, company: job.company,reviewId:selectedApproval?.id,technicalAttempt:attemptMetadata(finalOutcome) });
               // It may have failed halfway through the board's form, so the next request still keeps its distance.
               await cooldown(false, applicationPage, accept);
               continue;
@@ -1346,7 +1386,8 @@ async function main() {
             outcome = normaliseAttentionOutcome(outcome);
             finalOutcome = outcome;
             const rejectionCache = applicationRejectionCache(job, outcome, reviewContext);
-            logOutcome({ ...outcome, title: job.title, company: job.company, url: outcome.status==='needs-human'&&outcome.accountAccess?outcome.url:job.url, reviewId: approvedApplication(job)?.id,
+            logOutcome({ ...outcome, title: job.title, company: job.company, url: outcome.status==='needs-human'&&outcome.accountAccess?outcome.url:job.url, reviewId: selectedApproval?.id,
+              technicalAttempt:attemptMetadata(outcome),
               ...(rejectionCache ? { reviewCache: rejectionCache } : {}) });
             // Accounts, sign-ins and documents added are the candidate's business whatever the outcome.
             for (const action of outcome.actions ?? []) console.log(`  ℹ ${action.detail}`);
@@ -1388,7 +1429,10 @@ async function main() {
                   ...(outcome.actions?.length ? { actions: outcome.actions } : {}),
                   submittedByMyasis: true,
                 });
-                console.log(`  ✅ submitted${job.applicationMode === 'external' ? ' [external]' : ''} (${Number.isFinite(config.limits.maxApplicationsPerRun) ? `${applied}/${config.limits.maxApplicationsPerRun}` : applied})`);
+                if(retryApproval){
+                  console.log('  ✅ saved application submitted');
+                  if(process.connected)process.send?.({type:PREPAID_RETRY_SUBMITTED,reviewId:retryApproval.id},()=>{});
+                }else console.log(`  ✅ submitted${job.applicationMode === 'external' ? ' [external]' : ''} (${Number.isFinite(config.limits.maxApplicationsPerRun) ? `${applied}/${config.limits.maxApplicationsPerRun}` : applied})`);
                 break;
               case 'rehearsed':
                 rehearsed++;

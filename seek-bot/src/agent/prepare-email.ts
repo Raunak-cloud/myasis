@@ -8,10 +8,11 @@ import { agentOnlyDocuments, agentOnlyResumePath } from './agent-only-evidence.j
 import { readSavedForm } from './saved-form.js';
 import { ok, type ToolContext, type ToolResult } from './context.js';
 import type { PreparedApplication } from '../application-review-types.js';
+import { reviewingApplications, preparingApplications } from '../application-review.js';
 
 /** Email applications always wait for candidate confirmation, including Auto runs. */
 export async function prepareEmailApplication(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
-  if (process.env.APPLICATION_REVIEW_MODE === 'approved')
+  if (reviewingApplications() && !preparingApplications())
     return ok('This job is already approved. Continue its authorized submission without creating another Prepared draft. Approved email applications use the retained recipient, message and attachments through their existing submission path.', 'failed');
   if (!gmailAvailable()) return ok('Connect Gmail in Setup before preparing an email application. Do not open Gmail in the browser.', 'failed');
   const to = String(args.to || '').trim().toLowerCase(), subject = String(args.subject || '').trim();
