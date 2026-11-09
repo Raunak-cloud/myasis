@@ -26,6 +26,7 @@ import { AppliedIndex, logOutcome } from './store.js';
 import { judgePage } from './blocker.js';
 import type { JobListing } from './types.js';
 import { ReviewCache, listingFingerprint, reviewContextFingerprint, reviewCacheMetadata, REVIEW_TTL } from './review-cache.js';
+import { completedReview } from './completed-reviews.js';
 
 type QueueStatus = 'pending' | 'applied' | 'skipped';
 
@@ -162,6 +163,12 @@ async function build() {
       .map(job => ({ ...job, discoveryFingerprint: listingFingerprint(job) }))
       .filter((j) => !known.has(j.id))
       .filter((j) => !index.hasApplication(j))
+      .filter(job => {
+        const prior = completedReview(job);
+        if (prior ? prior.assessment.shouldApply : !reviewCache.reviewed(job)) return true;
+        bump('already reviewed');
+        return false;
+      })
       .filter((job) => {
         const prior = reviewCache.suppression(job, reviewContext);
         if (!prior) return true;
@@ -216,8 +223,10 @@ async function build() {
         bump(excluded.replace(/:.*/, '').trim());
         continue;
       }
-      evaluated++;
+      const previouslyReviewed = Boolean(completedReview(job));
+      if (!previouslyReviewed) evaluated++;
       const fit = await assessFit(job, profile);
+      if (!previouslyReviewed && fit.reviewReused) evaluated--;
       if (fit.injectionSuspected) console.warn(`  ! injection-shaped text in ${job.company} — ignored`);
       if (!fit.shouldApply) {
         console.log(`  ✗ ${fit.matchScore} · ${job.title} @ ${job.company} — ${fit.reason.slice(0, 90)}`);

@@ -1089,3 +1089,57 @@ CREATE TABLE IF NOT EXISTS admin_attention_dismissals (
 
 -- A sponsored run records its operator authorization without changing the account's pass or settings.
 ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS operator_options JSONB;
+
+-- BEGIN completed job reviews
+-- Every completed fit decision belongs to one account and stable vacancy identity.
+-- Unlike the visible run history, these rows do not expire or depend on a model version.
+CREATE TABLE IF NOT EXISTS completed_job_reviews (
+  user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  review_key TEXT NOT NULL,
+  payload JSONB NOT NULL,
+  reviewed_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY(user_id,review_key),
+  CHECK(payload->>'key'=review_key)
+);
+
+-- Carry forward historical negative reviews where the source is identifiable.
+-- Numeric IDs on different boards are deliberately not assumed to be the same job.
+WITH history AS (
+  SELECT d.*, CASE
+    WHEN e.url ~ '^https?://(www\.)?seek\.com\.au/' THEN 'seek'
+    WHEN e.url ~ '^https?://([a-z]+\.)?indeed\.com(\.au)?/' THEN 'indeed'
+    WHEN e.url ~ '^https?://jobs\.smartrecruiters\.com/' THEN 'smartrecruiters'
+    WHEN e.url ~ '^https?://(job-boards|boards)\.greenhouse\.io/' THEN 'greenhouse'
+    WHEN e.url ~ '^https?://careers\.pageuppeople\.com/' THEN 'pageup'
+    WHEN e.url ~ '^https?://[^/]+\.myworkdayjobs\.com/' THEN 'workday'
+    END AS platform
+  FROM job_review_decisions d
+  JOIN LATERAL (SELECT url FROM run_events e WHERE e.user_id=d.user_id AND e.job_id=d.job_id
+    AND e.review_listing_fingerprint=d.listing_fingerprint AND e.url IS NOT NULL
+    ORDER BY e.ts DESC LIMIT 1) e ON true
+), decisions AS (
+ SELECT DISTINCT ON (user_id,platform,job_id) *, 'listing:'||platform||':'||job_id AS identity
+ FROM history WHERE platform IS NOT NULL ORDER BY user_id,platform,job_id,reviewed_at DESC
+)
+INSERT INTO completed_job_reviews(user_id,review_key,reviewed_at,payload)
+SELECT user_id,identity,reviewed_at,jsonb_build_object('key',identity,'keys',jsonb_build_array(identity),
+ 'jobId',job_id,'platform',platform,'title',coalesce(title,''),'company',coalesce(company,''),'reviewedAt',reviewed_at,
+ 'assessment',jsonb_build_object('decision','skip','shouldApply',false,'matchScore',0,
+   'reason',coalesce(reason,'Previously reviewed and declined'),'evidence','[]'::jsonb,'injectionSuspected',false))
+FROM decisions ON CONFLICT(user_id,review_key) DO NOTHING;
+
+-- Prepared applications retain the matching agent's approved score and evidence.
+INSERT INTO completed_job_reviews(user_id,review_key,reviewed_at,payload)
+SELECT user_id,'listing:'||coalesce(payload->'job'->>'platform','seek')||':'||(payload->'job'->>'id'),updated_at,
+ jsonb_build_object('key','listing:'||coalesce(payload->'job'->>'platform','seek')||':'||(payload->'job'->>'id'),
+ 'keys',jsonb_build_array('listing:'||coalesce(payload->'job'->>'platform','seek')||':'||(payload->'job'->>'id')),
+ 'jobId',payload->'job'->>'id','platform',coalesce(payload->'job'->>'platform','seek'),
+ 'title',payload->'job'->>'title','company',payload->'job'->>'company','reviewedAt',updated_at,
+ 'assessment',(payload->'job'->'fitReview')||jsonb_build_object('decision','apply','shouldApply',true,
+   'matchScore',payload->'job'->'fitReview'->'score','injectionSuspected',false))
+FROM application_reviews WHERE payload->'job'->>'id' IS NOT NULL
+ AND jsonb_typeof(payload->'job'->'fitReview'->'score')='number'
+ AND jsonb_typeof(payload->'job'->'fitReview'->'evidence')='array'
+ AND jsonb_typeof(payload->'job'->'fitReview'->'reason')='string'
+ON CONFLICT(user_id,review_key) DO NOTHING;
+-- END completed job reviews

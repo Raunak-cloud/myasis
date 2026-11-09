@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
+import { spawnSync } from 'node:child_process';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-fit-contract-'));
 Object.assign(process.env, { DATA_DIR: directory, APPLICATION_AI_MODEL: 'celeris', CELERIS_API_KEY: 'fixture-only', COST_TRACKING: 'false' });
 const { config } = await import('./config.js');
-const { assessFit } = await import('./llm.js');
+const { assessFit, rankJobsForReview, reviewKey } = await import('./llm.js');
 const { withApplicationModel } = await import('./application-model.js');
 config.aiInstructions = 'Do not apply for manager positions.';
 config.resume.select = 'fixture-cv';
@@ -79,6 +80,27 @@ try {
     assert.equal((await assessFit({ ...job, id: 'minimax-fit' }, profile)).decision, 'apply');
     assert.equal(calls - before, 1, 'MiniMax supplies the whole run with one fit decision');
   });
+  const completedCalls=calls;
+  config.aiInstructions='Changed standing instructions';config.rules.minSalary+=1;
+  const cachedJobs=['apply','skip','uncertain'].map(id=>({...job,id}));
+  for(const listing of cachedJobs){
+    const reused=await assessFit({...listing,description:'An amended advert'}, {...profile,skills:['Changed skills']});
+    assert.equal(reused.decision,listing.id);assert.equal(reused.reviewReused,true);
+  }
+  const priorities=await rankJobsForReview(cachedJobs,profile);
+  assert.equal(priorities.get(reviewKey(cachedJobs[0]))?.priority,100);
+  assert.equal(priorities.get(reviewKey(cachedJobs[1]))?.priority,0);
+  assert.equal(calls,completedCalls,'completed jobs require neither ranking nor matching calls after context changes');
+  const alreadyApplied=await assessFit({...job,id:'apply',alreadyApplied:true},profile);
+  assert.equal(alreadyApplied.duplicateReview?.decision,'duplicate','current application history still overrides an old matching approval');
+  assert.equal(calls,completedCalls);
+  const child=spawnSync(process.execPath,['--input-type=module','-e',`
+    globalThis.fetch=async()=>{throw Error('No network call is permitted after restart');};
+    const {assessFit}=await import(${JSON.stringify(new URL('./llm.js',import.meta.url).href)});
+    const result=await assessFit(${JSON.stringify({...job,id:'apply'})},${JSON.stringify(profile)});
+    if(!result.shouldApply||!result.reviewReused)process.exit(1);
+  `],{env:{...process.env,APPLICATION_AI_MODEL:'minimax',CELERIS_API_KEY:'',OPENROUTER_API_KEY:''},encoding:'utf8'});
+  assert.equal(child.status,0,child.stderr);
   const metrics = readFileSync(join(directory, 'pipeline-metrics.jsonl'), 'utf8');
   assert.doesNotMatch(metrics, /SAVED_FACT_FIXTURE|Retail service/);
   console.log('PASS: one selected-provider decision, complete evidence/preferences, preserved diagnostic paraphrases, grounded intent provenance, cache reuse and bounded format repair. All provider calls mocked.');

@@ -17,6 +17,9 @@ import { withJobCost } from './cost-ledger.js';
 import { roleFitProvenanceError, type RoleFitCheck, type FitProvenanceSources } from './role-fit.js';
 import { fitProvenanceCatalog, fitProvenanceWireSchema, resolveFitProvenanceWire, type FitSourcePassage } from './fit-provenance.js';
 import { loadReviewVerdicts, verdictContext } from './review-verdicts.js';
+import { completedReview, reuseCompletedReview } from './completed-reviews.js';
+import type { SavedFitAssessment, FitInstructionCheck } from './fit-assessment-types.js';
+export type { FitInstructionCheck } from './fit-assessment-types.js';
 
 /**
  * Spend on the non-navigation model calls (fit checks, answers, cover letters).
@@ -395,29 +398,10 @@ export function finishedCoverLetterForJob(job: JobListing, profile: CandidatePro
 let calls: string | null = null;
 const candidateCalls = (): string => (calls ??= verdictContext(loadReviewVerdicts()));
 
-export interface FitInstructionCheck {
-  violated: boolean;
-  ruleQuote: string;
-  explanation: string;
-}
-
-export interface FitAssessment {
+export interface FitAssessment extends SavedFitAssessment {
   companyExclusionCheck?: CompanyIdentityDecision;
-  roleFitCheck?: RoleFitCheck;
   /** Duplicate decisions are not suitability rejections and must not enter the fit cache. */
   duplicateReview?: DuplicateReview;
-  workArrangementCheck?: { offered: Array<'onsite' | 'hybrid' | 'remote'>; evidence: string };
-  /** Agent-authored instruction evidence for audit; never a separate veto. */
-  instructionConflict?: string;
-  /** Instruction interpretation is part of the agent's final decision. */
-  instructionCheck?: FitInstructionCheck;
-  shouldApply: boolean;
-  decision: 'apply' | 'skip' | 'uncertain';
-  /** Semantic match quality used to order jobs the model has approved. */
-  matchScore: number;
-  reason: string;
-  evidence: string[];
-  injectionSuspected: boolean;
 }
 
 /** Validate the transport contract only. Magnus owns suitability and evidence judgments. */
@@ -575,6 +559,12 @@ export async function rankJobsForReview(
   options: { batchSize?: number; concurrency?: number } = {},
 ): Promise<Map<string, ReviewPriority>> {
   const ranked = new Map<string, ReviewPriority>();
+  const unseen = jobs.filter(job => {
+    const prior = completedReview(job);
+    if (!prior) return true;
+    ranked.set(reviewKey(job), {reviewId:reviewKey(job),priority:prior.assessment.shouldApply ? 100 : 0,reason:prior.assessment.reason});
+    return false;
+  });
   const rank = async (batch: JobListing[]): Promise<void> => {
     try {
       const allowed = new Set(batch.map(reviewKey));
@@ -604,11 +594,11 @@ export async function rankJobsForReview(
   const concurrency = Math.max(1, Math.min(4, Math.floor(options.concurrency || 2)));
   let cursor = 0;
   let failure: unknown;
-  await Promise.all(Array.from({ length: Math.min(concurrency, Math.ceil(jobs.length / batchSize)) }, async () => {
-    while (!failure && cursor < jobs.length) {
+  await Promise.all(Array.from({ length: Math.min(concurrency, Math.ceil(unseen.length / batchSize)) }, async () => {
+    while (!failure && cursor < unseen.length) {
       const start = cursor;
       cursor += batchSize;
-      try { await rank(jobs.slice(start, start + batchSize)); }
+      try { await rank(unseen.slice(start, start + batchSize)); }
       catch (error) { failure = error; }
     }
   }));
@@ -627,7 +617,14 @@ export async function rankJobsForReview(
 
 /** Role-neutral judgment; search terms and board badges are evidence, never veto overrides. */
 export function assessFit(job: JobListing, profile: CandidateProfile): Promise<FitAssessment> {
-  return withJobCost(job.id, () => assessFitScoped(job, profile));
+  return withJobCost(job.id, () => {
+    // Application history remains current even when suitability is already known.
+    const duplicateReview = reviewCurrentDuplicate(job);
+    if (duplicateReview.decision === 'duplicate') return Promise.resolve({duplicateReview,
+      decision:'skip',shouldApply:false,matchScore:0,reason:duplicateReview.reason,
+      evidence:[JSON.stringify(duplicateReview.evidence)],injectionSuspected:false} as FitAssessment);
+    return reuseCompletedReview(job, () => assessFitScoped(job, profile));
+  });
 }
 async function assessFitScoped(job: JobListing, profile: CandidateProfile): Promise<FitAssessment> {
   const model = FIT_CLASSIFIER_MODEL;

@@ -48,6 +48,7 @@ import { SitePacer } from './pacing.js';
 import { measured, metric } from './pipeline.js';
 import { enabledPlatforms, type PlatformId } from './platforms.js';
 import { REVIEW_TTL, ReviewCache, applicationRejectionCache, listingFingerprint, reviewCacheMetadata, reviewContentFingerprint, reviewContextFingerprint } from './review-cache.js';
+import { completedReview } from './completed-reviews.js';
 import { chosenListings, loadReviewVerdicts } from './review-verdicts.js';
 import { countHealth } from './run-health.js';
 import { outsideScope, runScope, SCOPE_LABEL, scopeSkipReason } from './run-scope.js';
@@ -307,6 +308,12 @@ async function main() {
 
         if (waitingOnCandidate(job)) {
           bump('waiting for your answers');
+          continue;
+        }
+
+        const completed = completedReview(job);
+        if ((completed ? !completed.assessment.shouldApply : reviewCache.reviewed(job)) && !approvedApplication(job) && job.source !== 'chosen') {
+          bump('already reviewed');
           continue;
         }
 
@@ -709,6 +716,8 @@ async function main() {
         return;
       }
 
+      if (fit?.reviewReused) restoreReviewSlot(job, false);
+
       if (fit?.duplicateReview?.decision === 'duplicate') {
         restoreReviewSlot(job, false);
         bump('already applied');
@@ -841,7 +850,8 @@ async function main() {
       // Claim capacity before the first await. Page reads now overlap, but the
       // evaluation allowance remains one run-wide budget. Unusable reads return
       // their reservation in finally, including navigation failures and walls.
-      const revalidating = priorRejections.has(listingKey(stub));
+      const previouslyReviewed = Boolean(completedReview(stub));
+      const revalidating = priorRejections.has(listingKey(stub)) || previouslyReviewed;
       if (!revalidating) { evaluated++; reviewReservations.add(reviewReservationKey(stub)); }
       let retained = false;
       try {
@@ -914,7 +924,7 @@ async function main() {
             console.log(`  - unchanged rejection: ${jobLabel(job)} (no AI review)`);
             return;
           }
-          if (revalidating) {
+          if (revalidating && !previouslyReviewed) {
             if (evaluated >= config.limits.maxEvaluations) { reviewStopped = true; return; }
             evaluated++;
             reviewReservations.add(reviewReservationKey(stub));
@@ -925,7 +935,7 @@ async function main() {
            * fifteen minutes, and Cloudflare challenges are partly rate-based — the
            * one that blocked a run appeared on a plain search page.
            */
-          if (!adapter.apiDiscovery && !approvedApplication(stub)) await jitter(5000, 8000);
+          if (!adapter.apiDiscovery && !approvedApplication(stub) && !previouslyReviewed) await jitter(5000, 8000);
           if (limitReached()) return;
 
           /**

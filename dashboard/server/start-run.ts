@@ -228,7 +228,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
       || (oneTime.includeSavedChoices !== undefined && typeof oneTime.includeSavedChoices !== 'boolean')
       || (oneTime.applicationModel !== undefined && oneTime.applicationModel !== 'minimax')
       || (oneTime.maxApplications !== undefined && (!Number.isInteger(oneTime.maxApplications) || oneTime.maxApplications < 1 || oneTime.maxApplications > USER_RUN_LIMITS.MAX_APPS_PER_DAY))
-      || (oneTime.maxEvaluations !== undefined && (!Number.isInteger(oneTime.maxEvaluations) || oneTime.maxEvaluations < 1 || oneTime.maxEvaluations > (oneTime.plan ? VIP_RUN_PLAN.maxReviews : 150)))) {
+      || (oneTime.maxEvaluations !== undefined && (!Number.isInteger(oneTime.maxEvaluations) || oneTime.maxEvaluations < 1 || oneTime.maxEvaluations > (oneTime.plan ? VIP_RUN_PLAN.maxReviews : 200)))) {
       return { ok: false, status: 400, error: `Use 1–${USER_RUN_LIMITS.MAX_APPS_PER_DAY} applications and 1–${oneTime?.plan === VIP_RUN_PLAN.plan ? VIP_RUN_PLAN.maxReviews : 150} job reviews for a one-time run.` };
     }
     if (oneTime.plan && (request.approvals !== undefined || request.applicationMode === 'semi-auto')) return {ok:false,status:400,error:'A sponsored plan is for one Auto apply discovery run.'};

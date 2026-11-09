@@ -35,7 +35,7 @@ export const PLAN_LIMITS = {
   free: { autoRunsPerDay: 1, evaluationsPerRun: 30 },
   'essential-pass': { autoRunsPerDay: 2, evaluationsPerRun: 25 },
   'job-search-pass': { autoRunsPerDay: 4, evaluationsPerRun: 70, applicationsPerDay: 50 },
-  'intensive-pass': { autoRunsPerDay: 4, evaluationsPerRun: 100, employerSitesPerDay: 5 },
+  'intensive-pass': { autoRunsPerDay: 4, evaluationsPerRun: 200, employerSitesPerDay: 5 },
 } as const;
 
 /** Highest active pass wins; the global admin/Intensive ceiling remains 100. */

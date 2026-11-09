@@ -44,7 +44,7 @@ export const DAILY_APPLICATION_CAP_CHOSEN = 'DAILY_APPLICATION_CAP_CHOSEN';
 const KEEP_SET = new Set<string>(KEEP_SETTINGS_KEYS);
 /** Mirrors seek-bot's own clamps, so the dashboard shows what a run will really use. */
 export const RUN_LIMITS: Record<string, number> = {
-  MAX_EVALUATIONS: 150,
+  MAX_EVALUATIONS: 200,
   MAX_APPS_PER_RUN: USER_RUN_LIMITS.MAX_APPS_PER_DAY,
   ...USER_RUN_LIMITS,
 };

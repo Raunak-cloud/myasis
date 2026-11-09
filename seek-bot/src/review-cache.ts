@@ -182,6 +182,14 @@ export class ReviewCache {
     return entry;
   }
 
+  /** Legacy completed rejections remain final for this account. The card
+   * fingerprint includes the source, so equal IDs on other boards stay separate. */
+  reviewed(job: JobListing): ReviewCacheEntry | null {
+    const fingerprint=job.discoveryFingerprint ?? listingFingerprint(job);
+    const entry=this.entries.get(`${job.id}:${fingerprint}`);
+    return entry && entry.disposition !== 'external' ? entry : null;
+  }
+
   suppression(job: JobListing, contextFingerprint: string): ReviewCacheEntry | null {
     const entry = this.prior(job, contextFingerprint);
     if (!entry || entry.disposition === 'external') return entry;

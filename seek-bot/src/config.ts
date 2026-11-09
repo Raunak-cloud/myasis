@@ -246,7 +246,7 @@ export const config = {
     maxApplicationsPerRun: ceiling(USER_RUN_LIMITS.MAX_APPS_PER_DAY, process.env.MAX_APPS_PER_RUN, USER_RUN_LIMITS.MAX_APPS_PER_DAY, true),
     /** Detail pages opened per run — bounds both wall-clock and model spend. */
     // Keep an accidentally large dashboard value from creating an hour-long crawl.
-    maxEvaluations: ceiling(process.env.OPERATOR_MAX_EVALUATIONS === '400' ? 400 : 150, process.env.MAX_EVALUATIONS, 40),
+    maxEvaluations: ceiling(process.env.OPERATOR_MAX_EVALUATIONS === '400' ? 400 : 200, process.env.MAX_EVALUATIONS, 40),
     maxApplicationsPerDay: dailyApplicationLimit(process.env.MAX_APPS_PER_DAY),
     /**
      * Employer-site applications SUBMITTED per day. Unset means no limit (a

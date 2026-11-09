@@ -39,7 +39,7 @@ test('ordinary runners can use the complete daily allowance without the old ten-
 test('a bounded sponsored review allowance lifts reviews only and does not leak to the next runner', () => {
   const source = `import {config} from ${JSON.stringify(new URL('./config.js', import.meta.url).href)};
     console.log(JSON.stringify([config.limits.maxEvaluations,config.limits.maxApplicationsPerRun,config.limits.maxApplicationsPerDay]));`;
-  for (const [marker, expected] of [['400',400],['401',150],['',150]]) {
+  for (const [marker, expected] of [['400',400],['401',200],['',200]]) {
     const output=execFileSync(process.execPath,['--input-type=module','-e',source],{
       env:{...process.env,ADMIN_UNLIMITED:'false',APPLICATIONS_UNLIMITED:'false',OPERATOR_MAX_EVALUATIONS:String(marker),MAX_EVALUATIONS:'999',MAX_APPS_PER_RUN:'999',MAX_APPS_PER_DAY:'999'},encoding:'utf8'});
     assert.deepEqual(JSON.parse(output.trim().split('\n').at(-1)!),[expected,100,100]);

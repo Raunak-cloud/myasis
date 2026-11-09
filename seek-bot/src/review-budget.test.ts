@@ -16,7 +16,7 @@ const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
 
 /** Exercise the compiled main loop with offline boundary adapters, real history
  * and a one-review budget. No browser, model or employer is contacted. */
-function run(jobs: FixtureJob[], options: { scope?: 'all' | 'external' | 'hosted'; waiting?: Array<{ job: FixtureJob; questions: BlockedQuestion[] }>; savedAnswers?: unknown[]; attentionOnFit?: { job: FixtureJob; questions: BlockedQuestion[] }; repairTarget?: FixtureJob; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[]; workArrangements?: string[]; onsiteCity?: string } = {}) {
+function run(jobs: FixtureJob[], options: { scope?: 'all' | 'external' | 'hosted'; waiting?: Array<{ job: FixtureJob; questions: BlockedQuestion[] }>; savedAnswers?: unknown[]; attentionOnFit?: { job: FixtureJob; questions: BlockedQuestion[] }; repairTarget?: FixtureJob; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; completed?: Array<{job:FixtureJob;decision:'apply'|'skip'|'uncertain'}>; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[]; workArrangements?: string[]; onsiteCity?: string } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-review-budget-'));
   const url = (file: string) => pathToFileURL(join(directory, file)).href;
   try {
@@ -100,7 +100,9 @@ export const reviewKey = job => job.platform+':'+job.id;
 export const rankJobsForReview = async jobs => new Map(jobs.map(job => [reviewKey(job),{priority:job.reviewPriority??90,reason:'Fixture priority'}]));
 export const finishedCoverLetterForJob = async () => 'Fixture letter';
 import { config } from './config.mjs';
+import {completedReview} from ${JSON.stringify(new URL('./completed-reviews.js',import.meta.url).href)};
 export const assessFit = async job => {
+  const saved=completedReview(job);if(saved){record('fit-reused',job.id);return {...saved.assessment,reviewReused:true};}
   record('fit',job.id);
   const updatedAttention=${JSON.stringify(options.attentionOnFit ? attention([options.attentionOnFit]) : null)};
   if(updatedAttention && job.id===updatedAttention.items[0].jobId) {
@@ -150,6 +152,8 @@ import {writeFileSync} from 'node:fs';
 const {loadProfile}=await import('./config.mjs');
 const {reviewCacheMetadata,reviewContextFingerprint}=await import(${JSON.stringify(new URL('./review-cache.js', import.meta.url).href)});
 const context=reviewContextFingerprint(loadProfile());
+const {rememberCompletedReview}=await import(${JSON.stringify(new URL('./completed-reviews.js',import.meta.url).href)});
+for(const item of ${JSON.stringify(options.completed ?? [])})rememberCompletedReview(item.job,{decision:item.decision,shouldApply:item.decision==='apply',matchScore:90,reason:'Prior completed fit',evidence:['Fixture'],injectionSuspected:false});
 const priors=${JSON.stringify(options.priorReviews ?? [])};
 writeFileSync(new URL('./review-cache.jsonl',import.meta.url),priors.map(prior=>JSON.stringify({
   ...reviewCacheMetadata({...prior.job,description:prior.description??'Build software in Sydney.'},'fit-mismatch',prior.changedContext?'old-context':context,null),
@@ -377,19 +381,19 @@ test('old rejected recommendations cannot consume the only review before a fresh
   assert.ok(result.history.some(record => record.jobId === fresh.id && record.submittedByMyasis));
 });
 
-test('unchanged old rejections use no model call or review slot; full-description edits get a new review', () => {
+test('completed rejections use no model call or review slot even after full-description edits', () => {
   const old = job('unchanged');
   const changed = job('changed', { detailDescription: 'A genuinely different job description.' });
   const result = run([old, changed], { apply: true, reviews: 1, cap: 1, priorReviews: [{ job: old }, { job: changed }] });
-  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), [changed.id]);
-  assert.match(result.output, /unchanged rejection.*no AI review/);
-  assert.ok(result.history.some(record => record.jobId === changed.id));
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), []);
+  assert.match(result.output, /already reviewed/);
+  assert.equal(result.events.filter(event => event.stage === 'detail').length,0);
 });
 
-test('candidate changes invalidate an old rejection and explicit user choices bypass it', () => {
+test('completed rejections survive candidate changes and explicit user choices still bypass them', () => {
   const changed = job('profile-change');
   const result = run([changed], { priorReviews: [{ job: changed, changedContext: true }] });
-  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), [changed.id]);
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), []);
   const chosen = job('chosen', { source: 'chosen' });
   const override = run([chosen], { apply: true, priorReviews: [{ job: chosen }] });
   assert.ok(override.history.some(record => record.jobId === chosen.id));
@@ -402,12 +406,30 @@ test('rejection memory is scoped by board even when both boards reuse the same j
   assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), [other.id]);
 });
 
-test('parallel revalidation does not reserve the evaluation allowance for unchanged rejections', () => {
+test('parallel discovery skips completed rejections and preserves its review allowance', () => {
   const old = job('old-seek', { detailDelayMs: 40 });
   const changed = job('changed-indeed', { platform: 'indeed', detailDescription: 'Changed requirements.' });
   const result = run([old, changed], { apply: true, workers: 2, reviews: 1, cap: 1, priorReviews: [{ job: old }, { job: changed }] });
-  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), [changed.id]);
-  assert.ok(result.history.some(record => record.jobId === changed.id));
+  assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), []);
+  assert.equal(result.events.filter(event => event.stage === 'detail').length,0);
+});
+
+test('completed matches remain applyable and do not consume the new-review allowance',()=>{
+  const matched=job('past-match'),rejected=job('past-rejection'),fresh=job('fresh-review');
+  const result=run([matched,rejected,fresh],{apply:true,reviews:1,cap:2,
+    completed:[{job:matched,decision:'apply'},{job:rejected,decision:'skip'}]});
+  assert.deepEqual(result.events.filter(x=>x.stage==='fit').map(x=>x.id),[fresh.id]);
+  assert.deepEqual(result.events.filter(x=>x.stage==='fit-reused').map(x=>x.id),[matched.id]);
+  assert.deepEqual(result.history.filter(x=>x.submittedByMyasis).map(x=>x.jobId).sort(),[fresh.id,matched.id].sort());
+  assert.ok(!result.events.some(x=>x.stage==='detail'&&x.id===rejected.id));
+});
+
+test('Get Owtomated can complete 200 new reviews and never starts review 201',()=>{
+  const jobs=Array.from({length:201},(_,i)=>job('review-'+i,{fitReject:true}));
+  const result=run(jobs,{reviews:200});
+  assert.equal(result.events.filter(x=>x.stage==='fit').length,200);
+  assert.ok(!result.events.some(x=>x.stage==='detail'&&x.id===jobs[200].id));
+  assert.match(result.output,/evaluation cap \(200\) reached/);
 });
 
 test('two pages of remembered jobs do not hide fresh listings on page three', () => {

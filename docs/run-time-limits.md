@@ -23,6 +23,15 @@ applications and confirmed submissions. The user Activity badge shows
 "Finished". Genuine application/process failures remain failures. Historical
 run results are not rewritten.
 
+Get Owtomated can review up to 200 new jobs per run. Completed matching
+decisions are stored permanently per account and vacancy, independently of
+run-history retention, model changes, profile changes or advert edits. Later
+runs reuse previous matches and skip previous rejections without spending a
+new review slot. Failed or malformed reviews and unresolved employer-identity
+checks remain retryable. Current application history is checked before reusing
+a matching approval. Explicit candidate choices and prepared applications keep
+their existing continuation paths.
+
 Verification covers admission at the absolute deadline, deadline arrival during
 review, worker wakeups, manual Stop during completion, unresponsive-worker
 cleanup, and a real child process with two concurrent applications that both
