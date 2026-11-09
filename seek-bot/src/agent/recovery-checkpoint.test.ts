@@ -11,6 +11,24 @@ import { changesBrowserState } from './browser-commands.js';
 const observation = (value = '', ref = 'f0'): Observation => ({ url: 'https://employer.invalid/apply', title: 'Apply',
   actions: [], text: 'Apply', fields: [{ ref, label: 'City', kind: 'text', required: true, currentValue: value }] });
 
+test('repeated route advice survives narration and restart, then clears on actual new form progress', () => {
+  const state = new RecoveryCheckpoint(), entry = observation(), code = { ...observation(), url: 'https://employer.invalid/code' };
+  state.observe(entry);
+  for (let n = 0; n < 2; n++) {
+    state.acted('browser_action', false, { action: 'click', selector: '#request-code' }); state.endTurn(); state.observe(code);
+    state.acted('browser_action', false, { action: 'click', selector: '#continue' }); state.endTurn(); state.observe(entry);
+  }
+  assert.match(state.render(), /RECOVERY LOOP ADVICE/);
+  state.planned({ diagnosis: 'Try a different observed route' });
+  assert.match(state.render(), /not proof of acceptance/);
+  const restored = new RecoveryCheckpoint(); restored.restore(state.checkpoint());
+  assert.match(restored.render(), /You still choose the next action/);
+  assert.equal(restored.needsDeepReasoning, true);
+  restored.observe(entry);
+  restored.acted('browser_action', false, { action: 'fill', ref: 'f0' }); restored.endTurn(); restored.observe(observation('Sydney'));
+  assert.doesNotMatch(restored.render(), /RECOVERY LOOP ADVICE/);
+});
+
 test('specialist escalation follows failed work and survives recovery narration, not successful form progress', () => {
   const state = new RecoveryCheckpoint(); state.observe(observation());
   state.acted('enter_emailed_code', true); state.observe(observation('', 'new-ref'));

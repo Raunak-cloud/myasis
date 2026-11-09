@@ -33,6 +33,7 @@ const AUTHENTICATION_TOOL: ToolSchema = {
       type: 'object',
       properties: {
         targets,
+        refill: { type: 'boolean', description: 'Re-enter already matching values only when you choose to trigger native input events for an uncommitted or rejected field. Otherwise matching values are preserved. Filling never clicks a button or proves account acceptance.' },
         refs: {
           type: 'array',
           minItems: 1, items: { type: 'string', minLength: 1 },

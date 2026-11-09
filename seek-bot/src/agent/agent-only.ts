@@ -7,11 +7,8 @@ import { cleanCoverLetter, isCoverLetterField } from '../cover-letter-policy.js'
 import { observedApprovedCoverLetter } from '../application-letter.js';
 import { readSavedForm } from './saved-form.js';
 import { waitForChallengeToClear, workingIn } from '../browser.js';
-import { BrowserOperationTimeout } from '../browser-deadline.js';
 import { config } from '../config.js';
 import { retiredJobSource, retiredJobDestination, RETIRED_SOURCE_MESSAGE } from '../retired-job-sources.js';
-import { hasHcaptchaChallenge } from '../captcha/detect.js';
-import { HCAPTCHA_SKIP_REASON } from '../captcha.js';
 import { captureApplicationFailure } from '../application-diagnostics.js';
 import { recordFormPage } from '../form-corpus.js';
 import type { DocumentFormat } from '../resume.js';
@@ -63,6 +60,7 @@ import { RecoveryRecord, RecoveryRecordError, recoveryContextHash, type Recovery
 import { currentApplicationWorker } from '../application-workers.js';
 import { investigationTool, investigateApplicationState } from './investigation.js';
 import {ApplicationHelpers, helperBuilderTool, helperRecipeExample} from './application-helpers.js';
+import { ApplicationBrowserRecovery } from './browser-recovery.js';
 
 const string = { type: 'string' };
 const batchActions = ['click', 'fill', 'type', 'select', 'check', 'press', 'hover', 'wait', 'inspect', 'set_input_files', 'script'];
@@ -350,6 +348,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
   // short timeouts, but an individual application has no elapsed-time cap.
   const watched = new Set<Page>();
   const ownedPages = new Set<Page>([options.page]);
+  const browserRecovery = new ApplicationBrowserRecovery(options.page, ownedPages);
   const dialogs = new Map<Page, import('patchright').Dialog>();
   const popups = new Map<Page, Page[]>();
   const popupListeners = new Map<Page, (popup: Page) => void>();
@@ -359,7 +358,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     if (watched.has(page)) return;
     watched.add(page);
     page.on('dialog', onDialog);
-    const opened = (popup: Page) => { if (ownedPages.has(page)) ownedPages.add(popup); popups.set(page, [...(popups.get(page) ?? []), popup]); };
+    const opened = (popup: Page) => { if (ownedPages.has(page)) browserRecovery.opened(popup, page); popups.set(page, [...(popups.get(page) ?? []), popup]); };
     popupListeners.set(page, opened);
     page.on('popup', opened);
     const pageError = bindAttemptCallback((error: Error) => recordDiagnostic({ severity: 'warning', category: 'page_runtime_error', stage: 'browser', message: error.message, error }));
@@ -441,7 +440,6 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       }
     }
     if(helpers.has(name))return helpers.execute(name,args,async(primitive,input)=>{
-      if(await hasHcaptchaChallenge(ctx.page))return {kind:'terminal',outcome:{status:'skipped',reason:HCAPTCHA_SKIP_REASON}};
       recordDiagnostic({severity:'info',category:'helper_operation',stage:'tool',tool:primitive,message:`Executing ${name} using the normal ${primitive} executor.`});
       const effectBefore=browserEffectEpoch;
       let result:ToolResult;
@@ -505,11 +503,6 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       }
       return checked;
     }
-    // A blocked renderer must not prevent saving evidence, recording a result,
-    // or switching away from it. Check security before page interactions.
-    const interactsWithPage = name === 'browser_action' && changesBrowserState(args) && !['navigate', 'select_page'].includes(String(args.action))
-      || ['add_cover_letter', 'prepare_application', 'prepare_email_application', 'fill_authentication_fields', 'enter_emailed_code', 'open_emailed_link'].includes(name);
-    if (interactsWithPage && await hasHcaptchaChallenge(ctx.page)) return { kind: 'terminal', outcome: { status: 'skipped', reason: HCAPTCHA_SKIP_REASON } };
     if (name === 'browser_batch') {
       const results: unknown[] = [];
       for (const [index, command] of (args.actions as Record<string, unknown>[]).entries()) {
@@ -686,7 +679,12 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     if (name === 'check_employer_account') return doCheckEmployerAccount(ctx,args);
     if (name === 'fill_authentication_fields') return doCompleteAuthentication(ctx, args);
     if (name === 'enter_emailed_code') return doEnterEmailedCode(ctx, args);
-    if (name === 'open_emailed_link') return doOpenEmailedLink(ctx, args);
+    if (name === 'open_emailed_link') {
+      const previous = ctx.page;
+      const result = await doOpenEmailedLink(ctx, args);
+      if (ctx.page !== previous) browserRecovery.opened(ctx.page, previous);
+      return result;
+    }
     if (name === 'wait_for_verification') return ok(`Configured verification service result: ${await waitForChallengeToClear(ctx.page, 45_000) ? 'surface cleared' : 'surface remains'}. Inspect the page yourself.`);
     if (name === 'record_authentication_result') return doRecordAuthenticationResult(ctx, args);
     if (name === 'create_file') return ok(JSON.stringify(await files.create(String(args.name), String(args.text), args.format as DocumentFormat)));
@@ -908,38 +906,31 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         terminal={status:'skipped',reason:'In-run tool recovery was paused or cancelled before another application action.'};break;
       }
       if (retiredJobDestination(ctx.page.url())) { terminal = { status: 'skipped', reason: RETIRED_SOURCE_MESSAGE }; break; }
-      if (ctx.page.isClosed()) {
-        const open = [...ownedPages].filter(page => !page.isClosed());
-        if (!open.length) { terminal = { status: 'skipped', reason: 'The application browser closed.' }; break; }
-        ctx.page = open.at(-1)!;
-      }
       if (await followPopup()) lastNote = 'The previous control opened a new tab. Read the new page before acting.';
-      const pendingDialog = dialogs.get(ctx.page);
-      try {
-        if (!pendingDialog && await hasHcaptchaChallenge(ctx.page)) {
-          terminal = { status: 'skipped', reason: HCAPTCHA_SKIP_REASON };
-          finished = true;
-          break;
-        }
-        ctx.observation = pendingDialog ? { url: ctx.page.url(), title: ctx.observation.title,
+      let pendingDialog = dialogs.get(ctx.page);
+      const observed = await browserRecovery.observe(ctx.page, async page => {
+        pendingDialog = dialogs.get(page);
+        let observation = pendingDialog ? { url: page.url(), title: ctx.observation.title,
           actions: [], fields: [], text: `Native browser ${pendingDialog.type()} dialog blocks the page: ${pendingDialog.message()}` }
-          : await observe(ctx.page, { screenshot: screenshotsEveryTurn || screenshot || domFirst && visualIssue });
-      } catch (error) {
-        if (!(error instanceof BrowserOperationTimeout)) throw error;
-        recordDiagnostic({ severity: 'warning', category: 'observation_error', stage: 'observation',tool:'take_snapshot',failureKind:'execution', message: error.message, error });
-        ctx.observation = { url: ctx.page.url(), title: '', actions: [], fields: [], inspectionError: error.message,
-          text: `LIVE BROWSER INSPECTION FAILED: ${error.message} No current form values or receipt were obtained. This is not an empty form or progress. You can save evidence, select another open page, navigate away, or finish honestly. Do not repeat a possible send without fresh employer evidence.` };
-        recovery.failed('take_snapshot', {}, ctx.page.url(), error.message);
-        shared.openUncertainty('form','inspection','Fresh browser inspection failed; the existing application state is unknown. Inspect another available source without restarting completed work or repeating a possible send.');
-        if(pauseForRepair())break;
-      }
-      if (!pendingDialog && !ctx.observation.inspectionError && !waitedForSurface.has(ctx.observation.url) && (looksUnrendered(ctx.observation)
-        || !ctx.observation.fields.length && /\b(?:loading|please wait)\b/i.test(ctx.observation.text))) {
-        waitedForSurface.add(ctx.observation.url);
-        const ready = await waitForApplicationSurface(ctx.page, 15_000);
-        ctx.observation = await observe(ctx.page, { screenshot: screenshotsEveryTurn || screenshot || domFirst && (visualIssue || !ready) });
-        if (!ready) lastNote += ' Waited for the application surface; it has not rendered yet. Inspect loading/blocking evidence instead of repeatedly requesting the same snapshot.';
-      }
+          : await observe(page, { screenshot: screenshotsEveryTurn || screenshot || domFirst && visualIssue });
+        if (!pendingDialog && !waitedForSurface.has(observation.url) && (looksUnrendered(observation)
+          || !observation.fields.length && /\b(?:loading|please wait)\b/i.test(observation.text))) {
+          waitedForSurface.add(observation.url);
+          const ready = await waitForApplicationSurface(page, 15_000);
+          observation = await observe(page, { screenshot: screenshotsEveryTurn || screenshot || domFirst && (visualIssue || !ready) });
+          if (!ready) lastNote += ' Waited for the application surface; it has not rendered yet. Inspect loading/blocking evidence instead of repeating the same snapshot.';
+        }
+        return observation;
+      }, error => {
+        const message = error instanceof Error ? error.message : String(error);
+        recordDiagnostic({ severity: 'warning', category: 'observation_error', stage: 'observation',tool:'take_snapshot',failureKind:'execution', message, error });
+        recovery.failed('take_snapshot', {}, ctx.page.url(), message);
+        shared.openUncertainty('form','inspection','Fresh browser inspection failed. Inspect surviving pages or another supported source; preserve completed work and do not repeat a possible send.');
+      });
+      ctx.page = observed.page;
+      ctx.observation = observed.observation;
+      if (observed.note) lastNote += '\n' + observed.note;
+      if (ctx.observation.inspectionError && pauseForRepair()) break;
       if (!pendingDialog && !ctx.observation.inspectionError && isExternal(ctx.page.url())) await recordFormPage(ctx.page, ctx.observation);
       ctx.observation.fields = ctx.observation.fields.map(field => field.sensitive || field.inputType === 'password' ? { ...field, currentValue: '[private credential]' } : field);
       if(!pendingDialog&&!ctx.observation.inspectionError&&ctx.observation.fields.some(isAuthenticationPasswordField)){
@@ -994,11 +985,6 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       const dialog = dialogs.get(ctx.page);
       const draft = { answers: [...new Map(ctx.captured.map(item => [item.question, item])).values()], resume: ctx.resumeName,
         coverLetter: ctx.coverLetter && !ctx.captured.some(item => item.answer === ctx.coverLetter) ? ctx.coverLetter : undefined };
-      if (!pendingDialog && !ctx.observation.inspectionError && await hasHcaptchaChallenge(ctx.page)) {
-        terminal = { status: 'skipped', reason: HCAPTCHA_SKIP_REASON };
-        finished = true;
-        break;
-      }
       messages.push(observationMessage(ctx.observation, `${lastNote}\nOpen pages: ${JSON.stringify(pages)}\n${recovery.render()}\nSHARED RECOVERY RECORD (tool observations and agent assessments are separate; historical evidence is not a receipt or permission): ${JSON.stringify(shared.view())}\nRecorded draft (action audit, not independent proof of saved values): ${JSON.stringify(draft)}${dialog ? `\nPending ${dialog.type()} dialog: ${dialog.message()}` : ''}`));
       if (recordOnly) messages.push({ role: 'user', content: 'Browser-action spending is exhausted. Use the reserved completion lane only to prepare the current application for candidate confirmation or record its truthful final outcome. No edits or sends are available. Assess fresh canonical evidence and retain approval and document protections; unresolved required facts go to Needs attention, and unfinished technical work must be reported honestly. Continue directly to preparation when the observed form is complete; do not write another recovery report.' });
       if (checkpoint) {
@@ -1161,7 +1147,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         else if (failedToolResult(result)) {
           if (result.disposition === 'failed') visualIssue = true;
           recovery.failed(call.name, call.args, ctx.page.url(), result.message);
-          interrupted = true; lastNote = 'The last action failed. Inspect the current evidence, then recover or request deeper reasoning if medium cannot resolve the problem.';
+          interrupted = true; lastNote = 'The last action failed. Read the current page and its visible controls before choosing the next action. A missing field may mean you are still on an entry page or a different tab; it does not prove the application is blocked. Reassess, correct the target or use a materially different supported route. Do not replay a possible send.';
           pauseForRepair();
         }
         else if (result.disposition === 'reobserve'||result.disposition==='uncertain') {

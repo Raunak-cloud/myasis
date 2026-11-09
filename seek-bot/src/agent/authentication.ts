@@ -210,6 +210,7 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
   }
 
   const filled: string[] = [];
+  const alreadyCorrect: string[] = [];
   const filledRefs = new Set<string>();
   const failed: string[] = [];
   for (const { field, value } of values) {
@@ -217,7 +218,13 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
     try {
       assertLive();
       if(isAuthenticationPasswordField(field))rememberPrivateAuthenticationValue(ctx.page,value);
-      await (selected.get(field.ref) ?? browserTarget(ctx.page, { ref: field.ref })).fill(value, { timeout: 8000 });
+      const input = selected.get(field.ref) ?? browserTarget(ctx.page, { ref: field.ref });
+      const existing = await input.inputValue({ timeout: 2500 }).catch(() => undefined);
+      if (existing === value && args.refill !== true) {
+        alreadyCorrect.push(field.label);
+        continue;
+      }
+      await input.fill(value, { timeout: 8000 });
       filled.push(field.label);
       filledRefs.add(field.ref);
     } catch {
@@ -234,7 +241,7 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
     ({ field, value }) => value !== null && isAuthenticationPasswordField(field) && filledRefs.has(field.ref),
   );
   assertLive();
-  if (filled.length) rememberAuthenticationStart(ctx, hostOf(ctx.page.url()));
+  if (filled.length || alreadyCorrect.length) rememberAuthenticationStart(ctx, hostOf(ctx.page.url()));
   if(failed.length)ctx.recoveryRecord?.openUncertainty('authentication',authKey(ctx,purpose),'A private authentication fill did not finish cleanly. Inspect the current controls before repeating it; no acceptance or rejection is established by the transport error.');
   if (credentialFilled) {
     const email = ctx.profile.email;
@@ -252,13 +259,14 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
   }
   return ok(
     `${filled.length} authentication field(s) completed${filled.length ? `: ${filled.join('; ')}` : ''}.` +
+      (alreadyCorrect.length ? ` Already matched the requested candidate values: ${alreadyCorrect.join('; ')}. Those inputs were left unchanged; repeating this fill will not advance the form. Use refill=true only if you choose to trigger native input events for an uncommitted field.` : '') +
       (unsupported.length
-        ? ` Use native browser actions for the remaining profile field(s): ${unsupported.map((entry) => `${entry.field.ref} (${entry.field.label})`).join(', ')}.`
+        ? ` This private login tool cannot complete these ordinary form controls: ${unsupported.map((entry) => entry.field.label).join('; ')}. Choose browser_action with action="set_input_files" and file_id for a file input, action="fill" and an evidence-supported value for a text input, or action="click" for a button. Use its actual observed ref or the locator you selected, never a private-native marker. For a cover-letter text field, add_cover_letter is also available. Repeating fill_authentication_fields on these controls will not complete them.`
         : '') +
       (failed.length ? ` Re-observe and retry fields the site rejected: ${failed.join('; ')}` : '') +
-      ' Continue with the sign-in or account-creation control.' +
+      ` No button was clicked and no account acceptance was established. Inspect the current response and choose the next actual control. Visible enabled controls: ${JSON.stringify(ctx.observation.actions.filter(action => !action.disabled).map(action => action.text).slice(0, 12))}.` +
       (setsPassword ? ' If the site then rejects the password for its rules, call fill_authentication_fields again with password_rules taken from that message.' : ''),
-    failed.length || unsupported.length ? 'failed' : 'completed',
+    failed.length || unsupported.length ? 'failed' : alreadyCorrect.length && !filled.length ? 'reobserve' : 'completed',
   );
 }
 

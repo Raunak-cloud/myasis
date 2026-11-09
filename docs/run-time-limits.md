@@ -42,6 +42,18 @@ personal-question holds and submission history still apply. Semi auto,
 search-only scans and explicitly targeted/approved runs do not invoke this
 fallback. Interrupted attempts with uncertain send state stay held.
 
+The applying agent retains control through browser recovery. Closed sign-in
+popups return to a surviving application page without replaying an action.
+Frame, renderer and inspection failures are reported as uncertain browser
+evidence so the agent can inspect, switch pages or choose another supported
+approach. Repeated-route advice persists through optional recovery narration
+until actual progress. It never vetoes an action or forces a retry count.
+Verification challenges remain visible to the agent and its configured
+verification tools instead of ending the application merely on detection.
+Private filling reports matching values as unchanged rather than pretending
+to advance the form. The agent can still request a native refill when a widget
+needs input events, and chooses the next observed control itself.
+
 Verification covers admission at the absolute deadline, deadline arrival during
 review, worker wakeups, manual Stop during completion, unresponsive-worker
 cleanup, and a real child process with two concurrent applications that both

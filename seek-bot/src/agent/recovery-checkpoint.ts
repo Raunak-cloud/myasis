@@ -39,7 +39,7 @@ export class RecoveryCheckpoint {
       reviewable: this.reviewable, phase: this.phase, previous: this.previous, browserTurn: this.browserTurn, failures: this.failures,
       unchanged: this.unchanged, furtherInspections: this.furtherInspections, actionPending: this.actionPending,
       specialistPending: this.specialistPending, readResults: [...this.readResults], repeatedReads: this.repeatedReads,
-      readNotice: this.readNotice, failedInteractions: this.memory.checkpoint() };
+      readNotice: this.readNotice, failedInteractions: this.memory.checkpoint(), ...(this.loopAdvice ? { loopAdvice: this.loopAdvice } : {}) };
   }
   restore(saved: ReturnType<RecoveryCheckpoint['checkpoint']>): void {
     if (saved.version !== 1) throw Error('Unsupported recovery checkpoint.');
@@ -49,6 +49,7 @@ export class RecoveryCheckpoint {
     this.browserTurn = saved.browserTurn; this.failures = saved.failures; this.unchanged = saved.unchanged;
     this.furtherInspections = saved.furtherInspections; this.actionPending = saved.actionPending; this.specialistPending = saved.specialistPending;
     this.readResults = new Set(saved.readResults); this.repeatedReads = saved.repeatedReads; this.readNotice = saved.readNotice;
+    this.loopAdvice = saved.loopAdvice ?? '';
     this.memory.restore(saved.failedInteractions);
   }
   private readonly memory = new InteractionMemory();
@@ -68,6 +69,7 @@ export class RecoveryCheckpoint {
   private specialistPending = false;
   private readResults = new Set<string>();
   private repeatedReads = 0;
+  private loopAdvice = '';
   private readNotice = '';
 
   /** Retrieval adds evidence only when its response is new. This also catches
@@ -115,7 +117,7 @@ export class RecoveryCheckpoint {
   }
   finish(status: string, sendAttempted: boolean): void { this.persist({ status, sendAttempted }); }
   render(): string {
-    return `${this.previousAttempt ? `PREVIOUS ATTEMPT (historical agent claims only; inspect the current page, never replay a send or adopt old answers blindly): ${this.previousAttempt}\n` : ''}${this.memory.render()}${this.readNotice ? `\nEVIDENCE READ RECOVERY: ${this.readNotice}` : ''}\nRECENT ACTION OUTCOMES (changed does not necessarily mean closer to submission): ${JSON.stringify(this.transitions)}\nRECORDED PLAN / PROGRESS: ${this.note}${this.tool ? `\nRECOVERY ADVISORY: ${this.tool} is optional. ${this.budgetReview ? 'One assessment covers both recovery and spending.' : 'Inspect the latest outcome before acting.'} If the evidence or specialist advice already resolves the issue, continue the form or prepare it directly; do not spend another turn restating a completed fix.` : ''}`;
+    return `${this.loopAdvice ? `RECOVERY LOOP ADVICE: ${this.loopAdvice}\n` : ''}${this.previousAttempt ? `PREVIOUS ATTEMPT (historical agent claims only; inspect the current page, never replay a send or adopt old answers blindly): ${this.previousAttempt}\n` : ''}${this.memory.render()}${this.readNotice ? `\nEVIDENCE READ RECOVERY: ${this.readNotice}` : ''}\nRECENT ACTION OUTCOMES (changed does not necessarily mean closer to submission): ${JSON.stringify(this.transitions)}\nRECORDED PLAN / PROGRESS: ${this.note}${this.tool ? `\nRECOVERY ADVISORY: ${this.tool} is optional. ${this.budgetReview ? 'One assessment covers both recovery and spending.' : 'Inspect the latest outcome before acting.'} If the evidence or specialist advice already resolves the issue, continue the form or prepare it directly; do not spend another turn restating a completed fix.` : ''}`;
   }
   get reviewingBudget(): boolean { return this.budgetReview; }
   /** Escalation survives optional recovery narration until it is actually handled. */
@@ -128,7 +130,7 @@ export class RecoveryCheckpoint {
   /** Keep deeper reasoning through diagnosis, repair and fresh verification.
    * An accepted tool call or another inspection cannot end escalation. */
   get needsDeepReasoning(): boolean {
-    return (!this.budgetReview && this.phase !== 'normal') || this.failures >= 2 || this.unchanged >= 5;
+    return Boolean(this.loopAdvice) || (!this.budgetReview && this.phase !== 'normal') || this.failures >= 2 || this.unchanged >= 5;
   }
   requestBudgetReview(): boolean {
     // Do not turn an unexecuted repair into a result checkpoint using older
@@ -164,6 +166,7 @@ export class RecoveryCheckpoint {
       this.transitions.push(`${action}: ${signature === this.previous ? 'unchanged' : this.seen.has(signature) ? 'returned to a previous state' : 'changed'}${count > 1 ? `; repeated ${count} times` : ''}`);
       this.transitions = this.transitions.slice(-12);
       if (count >= 2) {
+        this.loopAdvice = `The same approach has returned to an already observed state ${count} times. A successful tool call, entered code or redirect is not proof of acceptance. Inspect the current employer response and incomplete controls, then choose a different supported route or build a temporary helper. Reuse evidence already retrieved; do not repeat this cycle without a new reason it can work. You still choose the next action.`;
         this.specialistPending = true;
         if (this.phase === 'normal') this.phase = 'plan';
       }
@@ -179,7 +182,7 @@ export class RecoveryCheckpoint {
       this.unchanged = 0;
       // Only a successful operation with a changed, valid field clears old
       // failures. A chatbot animation or delayed error must not erase them.
-      if (completedChange) { this.failures = 0; this.specialistPending = false; }
+      if (completedChange) { this.failures = 0; this.specialistPending = false; this.loopAdvice = ''; }
     }
     else if (this.browserTurn) this.unchanged++;
     this.previous = signature;
@@ -200,6 +203,7 @@ export class RecoveryCheckpoint {
     this.reviewable = false; this.progressCandidate = undefined;
     this.failures = 0; this.unchanged = 0; this.furtherInspections = 0;
     this.specialistPending = false;
+    this.loopAdvice = '';
   }
 
   planned(args?: Record<string, unknown>): void {
@@ -212,6 +216,7 @@ export class RecoveryCheckpoint {
     // The agent judges meaningful progress. Only fresh, action-grounded states
     // can fund another interval; revisits and narration cannot mint allowance.
     const credit = assessment === 'progress' && this.progressCandidate && this.progressCandidate === this.previous && !this.credited.has(this.progressCandidate) ? this.progressCandidate : undefined;
+    if (credit) this.loopAdvice = '';
     if (credit) this.credited.add(credit);
     this.progressCandidate = undefined;
     this.reviewable = false;

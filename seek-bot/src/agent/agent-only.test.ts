@@ -507,8 +507,9 @@ try {
   await page.goto(url);
   await page.setContent('<main><iframe src="https://newassets.hcaptcha.com/captcha/v1/test/static/hcaptcha.html#frame=checkbox"></iframe></main>');
   const beforeCaptcha=turns.length;
+  script=[()=>[{name:'finish',args:{status:'error',reason:'The agent assessed the available verification surface as unfinished.',evidence:'Verification challenge remains on the current page.'}}]];
   const captcha=await runApplicationAgent({page,job:{...job,id:'native-hcaptcha'},profile,log:()=>{}});
-  assert.equal(captcha.outcome.status,'skipped');assert.equal(turns.length,beforeCaptcha,'visible hCaptcha stops before a model call');
+  assert.equal(captcha.outcome.status,'error');assert.ok(turns.length>beforeCaptcha,'visible verification remains available for agent judgement instead of a pre-model skip');
   assert.equal(await page.locator('iframe').count(),1);
   await page.goto(url);
   const beforeDuplicate = turns.length;
@@ -619,7 +620,7 @@ try {
   assert.equal(sourcedDates.outcome.status, 'applied');
   assert.equal(await page.evaluate('window.factSends', undefined, undefined, false), 1);
   assert.equal(script.length, 0);
-  console.log('PASS: native submissions, recovery, matcher-owned duplicate decisions, employer duplicate evidence, confirmation, limits and hCaptcha skip.');
+  console.log('PASS: native submissions, recovery, matcher-owned duplicate decisions, employer duplicate evidence, confirmation, limits and agent-owned verification.');
 } finally {
   await browser.close();
   rmSync(directory,{recursive:true,force:true});
