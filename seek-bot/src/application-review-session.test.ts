@@ -37,9 +37,10 @@ try {
   await page.locator('input').fill('Changed answer');
   { const checked={...ctx} as ToolContext; assert.equal(await applicationApprovalGate(checked),null,'ordinary answer text differences are advisory'); assert.match(checked.formAdvisories?.join(' ')??'',/differs from the approved text/); }
   await page.goto(url.replace('first', 'third').replace('tenant=one', 'tenant=two'));
-  assert.notEqual(await applicationApprovalGate(ctx), null, 'changed tenant still requires confirmation');
+  assert.equal(await applicationApprovalGate(ctx), null, 'the agent verifies the live employer; a tenant URL alone does not revoke the selected-job approval');
   await page.goto(url.replace('/123?', '/456?'));
-  assert.notEqual(await applicationApprovalGate(ctx), null, 'changed vacancy still requires confirmation');
+  assert.equal(await applicationApprovalGate(ctx), null, 'the agent verifies live vacancy evidence; the URL alone is not a send veto');
+  assert.notEqual(await applicationApprovalGate({...ctx,job:{...job,id:'unapproved-job'}}),null,'removing the URL veto does not create an approval for another selected job');
   await page.goto(url.replace('first', 'fourth'));
   writeFileSync(join(directory, 'resumes', 'CV.txt'), 'Changed candidate CV');
   assert.notEqual(await applicationApprovalGate(ctx), null, 'changed CV bytes still require confirmation');
@@ -70,15 +71,24 @@ try {
   await page.locator('input').fill('Changed Workday answer');
   { const checked={...ctx} as ToolContext; assert.equal(await applicationApprovalGate(checked),null,'ordinary answer text differences are advisory'); assert.match(checked.formAdvisories?.join(' ')??'',/differs from the approved text/); }
   await page.goto(workdayUrl.replace('R123', 'R456'));
-  assert.notEqual(await applicationApprovalGate(ctx), null, 'a different Workday requisition cannot inherit confirmation');
+  assert.equal(await applicationApprovalGate(ctx), null, 'URL requisition differences are assessed by the applying agent against the selected approved job');
   await page.goto(workdayUrl.replace('tenant=one', 'tenant=two'));
-  assert.notEqual(await applicationApprovalGate(ctx), null, 'a different Workday tenant cannot inherit confirmation');
+  assert.equal(await applicationApprovalGate(ctx), null, 'the applying agent assesses employer identity rather than a URL tenant veto');
   await page.goto(workdayUrl.replace('/External/', '/AnotherSite/'));
-  assert.notEqual(await applicationApprovalGate(ctx), null, 'a different Workday career site cannot inherit confirmation');
+  assert.equal(await applicationApprovalGate(ctx), null, 'the gate leaves career-site URL interpretation to the applying agent');
   await page.goto(workdayUrl.replace('myworkdayjobs.com', 'myworkdayjobs.com.evil.invalid').replace('/apply/applyManually', '/apply'));
-  assert.notEqual(await applicationApprovalGate(ctx), null, 'a lookalike host cannot inherit Workday confirmation');
+  assert.equal(await applicationApprovalGate(ctx), null, 'there is no replacement URL veto; the agent must verify the actual destination before sending');
+  const employerEntry='https://forms.fixture.invalid/oneclick-ui/company/Fixture/publication/55d99f40-4e42-40aa-b438-65ac45b4cc21';
+  process.env.APPLICATION_REVIEW_MODE='prepare';
+  await page.goto(employerEntry);
+  const employerPrepared=await applicationApprovalGate(ctx);
+  assert.ok(employerPrepared?.kind==='terminal'&&employerPrepared.outcome.status==='prepared');
+  writeFileSync(join(directory,'approved-applications.json'),JSON.stringify([employerPrepared.outcome.draft]));
+  process.env.APPLICATION_REVIEW_MODE='approved';
+  await page.goto(employerEntry+'/screening?dcr_ci=Fixture&seek-token=rotated');
+  assert.equal(await applicationApprovalGate(ctx),null,'a saved approved form can advance to screening without a code-level URL identity block');
   assert.equal(submissions, 0, 'checking approval never sends an application');
-  console.log('PASS: rotated SEEK sessions preserve existing approval; answer differences are advisory; vacancy, tenant and CV protection remains enforced.');
+  console.log('PASS: page and tenant URL changes are left to the applying agent; screening resumes without a URL veto, selected-job approval and CV protection remain enforced, and checks never send.');
 } finally {
   await browser.close();
   rmSync(directory, { recursive: true, force: true });

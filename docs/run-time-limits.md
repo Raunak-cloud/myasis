@@ -65,6 +65,9 @@ Exact administrator retries support recorded SEEK and Indeed posting IDs. They
 use the owner's recorded listing metadata, refetch that posting and retain the
 normal matching and applying path. They do not fall back to another job search
 or the automatic technical-retry backlog.
+Approved applications have no page-URL identity veto. The applying agent verifies
+the live employer and vacancy throughout handoffs and before sending. Moving
+between an approved entry page and screening does not revoke its approval.
 
 Verification covers admission at the absolute deadline, deadline arrival during
 review, worker wakeups, manual Stop during completion, unresponsive-worker
