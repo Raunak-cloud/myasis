@@ -102,6 +102,18 @@ test('durable technical backlog preserves approvals, isolates owners, respects c
   assert.equal(employer[0]?.job.id,'legacy-failure','normal board retries take priority over employer forms');
   const nextEmployer=await claimTechnicalRetries('1','300',1,{...context,externalRemaining:1});
   assert.equal(nextEmployer[0]?.job.id,'employer-quota','employer retries become eligible when allowance remains');
+  const interrupted=listing('live-only'),startedOnly=listing('started-only');
+  await rememberTechnicalAttempt('1',error(interrupted),directory);
+  await rememberTechnicalAttempt('1',error(startedOnly),directory);
+  assert.equal((await claimTechnicalRetries('1','300',10,context)).length,2);
+  writeFileSync(join(directory,'traces',interrupted.id+'.json'),JSON.stringify({jobId:interrupted.id,job:interrupted,runStartId:'100',
+    savedAt:new Date(Date.now()-1000).toISOString(),outcome:{status:'error'},sendAudit:{attempted:false}}));
+  writeFileSync(join(directory,'traces',interrupted.id+'.live.json'),JSON.stringify({jobId:interrupted.id,job:interrupted,runStartId:'300',
+    savedAt:new Date().toISOString(),status:'in-progress'}));
+  writeFileSync(join(directory,'traces','run-300.diagnostics.jsonl'),JSON.stringify({runStartId:'300',jobId:startedOnly.id,category:'attempt_started'})+'\n');
+  await finishTechnicalRetryLeases('1','300',directory);
+  assert.equal(await state(interrupted.id),'held','a newer unfinished live trace cannot fall back to an older no-send terminal trace');
+  assert.equal(await state(startedOnly.id),'held','a started attempt without a final trace is held after an interruption');
   await client.query('DELETE FROM users WHERE id=1');
   assert.equal((await client.query('SELECT count(*)::int n FROM technical_application_retries WHERE user_id=1')).rows[0].n,0);
   assert.equal((await client.query('SELECT count(*)::int n FROM technical_application_retries WHERE user_id=2')).rows[0].n,1);

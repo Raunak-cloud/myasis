@@ -28,14 +28,32 @@ function datedJob(job:JobListing,at:string):JobListing {
     ? {listedAt:new Date(Date.parse(at)-age*86400000).toISOString()}:{}),source:'search'};
 }
 function traceFor(dir:string,job:JobListing):Record<string,any>|undefined {
-  const file=resolve(dir,'traces',`${job.id}.json`),part=relative(resolve(dir,'traces'),file);
-  if(!part || part==='..' || part.startsWith('..'+sep) || !existsSync(file))return;
-  const stat=lstatSync(file);
-  if(!stat.isFile() || stat.isSymbolicLink() || stat.size>32*1024*1024)return;
+  let latest:Record<string,any>|undefined;
+  for(const suffix of ['.json','.live.json']){
+    const file=resolve(dir,'traces',`${job.id}${suffix}`),part=relative(resolve(dir,'traces'),file);
+    if(!part || part==='..' || part.startsWith('..'+sep) || !existsSync(file))continue;
+    try{
+      const stat=lstatSync(file);
+      if(!stat.isFile() || stat.isSymbolicLink() || stat.size>32*1024*1024)continue;
+      const trace=JSON.parse(readFileSync(file,'utf8'));
+      if(trace.jobId===job.id && trace.job?.platform===job.platform && trace.job?.url===job.url
+        && (!latest || (Date.parse(trace.savedAt)||0)>(Date.parse(latest.savedAt)||0)))latest=trace;
+    }catch{ /* A damaged or incomplete trace is not retry evidence. */ }
+  }
+  return latest;
+}
+
+function startedJobs(dir:string,runId:string):Set<string> {
+  const jobs=new Set<string>(),file=resolve(dir,'traces',`run-${runId}.diagnostics.jsonl`);
+  if(!/^\d+$/.test(runId) || !existsSync(file))return jobs;
   try{
-    const trace=JSON.parse(readFileSync(file,'utf8'));
-    if(trace.jobId===job.id && trace.job?.platform===job.platform && trace.job?.url===job.url)return trace;
-  }catch{ /* A damaged or incomplete trace is not retry evidence. */ }
+    const stat=lstatSync(file);
+    if(!stat.isFile() || stat.isSymbolicLink() || stat.size>64*1024*1024)return jobs;
+    for(const line of readFileSync(file,'utf8').split(/\r?\n/)){
+      try{const event=JSON.parse(line);if(String(event.runStartId)===runId && event.category==='attempt_started')jobs.add(event.jobId);}catch{continue;}
+    }
+  }catch{ /* Retained live traces still identify started work. */ }
+  return jobs;
 }
 
 /** The event belongs to a real run of this owner; matching and applying remain separate. */
@@ -157,10 +175,11 @@ export async function claimTechnicalRetries(userId:string,runId:string,count:num
 /** Never-started leases return to the backlog. Interrupted sends remain held. */
 export async function finishTechnicalRetryLeases(userId:string,runId:string,dir:string):Promise<void> {
   const rows=await query<RetryRow>("SELECT job_key,payload,status,failed_at,last_run_id::text FROM technical_application_retries WHERE user_id=$1 AND last_run_id=$2 AND status='leased'",[userId,runId]);
+  const startedAttempts=startedJobs(dir,runId);
   for(const row of rows){
     const trace=traceFor(dir,row.payload.job);
-    const started=String(trace?.runStartId)===runId;
-    if(started && trace?.outcome && trace.sendAudit?.attempted===false){
+    const started=startedAttempts.has(row.payload.job.id) || String(trace?.runStartId)===runId;
+    if(String(trace?.runStartId)===runId && trace?.outcome && trace.sendAudit?.attempted===false){
       const outcome={...trace.outcome,submitPressed:false};if(outcome.status==='error')outcome.error=outcome.reason;
       if(technicalFailure(outcome)){
         await rememberTechnicalAttempt(userId,{...outcome,ts:trace.savedAt,technicalAttempt:{...row.payload,runId}},dir);continue;
