@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../adminApi';
 import { StackedTable } from './StackedTable';
 import './VisitorsView.css';
+import { sourceLabel } from '../visitor-source';
 
 interface Breakdown {
   label: string;
@@ -61,6 +62,7 @@ interface VisitorReport {
     located: number;
     avgSeconds: number | null;
   };
+  sourceCoverage?: {knownVisits:number;unknownVisits:number};
   countries: Breakdown[];
   regions: Breakdown[];
   cities: Breakdown[];
@@ -224,7 +226,7 @@ function BreakdownList({ title, rows }: { title: string; rows: Breakdown[] }) {
                 {title === 'Pages' ? pageLabel(row.label) : row.label}
                 {row.sub && <small> · {row.sub}</small>}
               </span>
-              <strong>{row.visitors}</strong>
+              <strong>{title === 'Sources' ? row.views : row.visitors}</strong>
             </li>
           ))}
         </ul>
@@ -475,9 +477,7 @@ export function VisitorsView() {
                           </p>
                           <p className="job-meta">
                             Source:{' '}
-                            {visit.attributionSource ??
-                              visit.referrer ??
-                              'Direct / unknown'}
+                            {sourceLabel(visit.attributionSource,visit.referrer)}
                             {visit.attributionCampaign
                               ? ` · ${visit.attributionCampaign}`
                               : ''}
@@ -505,9 +505,10 @@ export function VisitorsView() {
           <details className="card admin-section">
             <summary>Traffic breakdown</summary>
             <p className="job-meta">
-              Unique browser visitors per category, up to 25 each. A visitor can
-              appear in several categories. Sources without a referrer or
-              campaign are unavailable.
+              Sources count visits once each, using their recorded entry source.
+              Other categories count browser visitors, up to 25 each. A browser can appear in several categories.
+              Direct / unavailable means no reliable source was recorded.
+              {data.sourceCoverage && <> Source recorded for {data.sourceCoverage.knownVisits} of {data.totals.visits} visits.</>}
             </p>
             <div className="visitor-breakdowns">
               <BreakdownList title="Pages" rows={data.pages} />
@@ -608,6 +609,7 @@ export function VisitorsView() {
             Browser IDs are not a count of people; cleared storage and blocked
             tracking affect counts. New visits expire after 30 minutes without
             visible activity; older records may contain long-lived tab sessions.
+            {' '}Visible time is checkpointed while the page is open; background tabs and long suspended gaps are excluded. Missing historical time cannot be recovered.
             Data kept for {data.retentionDays} days.{' '}
             {data.geoConfigured ? (
               <>

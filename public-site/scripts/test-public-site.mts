@@ -7,6 +7,7 @@ import { readFile, mkdir } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import { publicWebsiteProxy } from '../../dashboard/server/public-website-proxy.js';
 import { applyPagePatch } from '../../dashboard/server/marketing/page-edits.js';
+import { PAID_PLANS } from '../../dashboard/src/pricing.js';
 const { chromium } = createRequire(import.meta.url)('../../seek-bot/node_modules/patchright');
 const root = resolve(import.meta.dirname, '../..');
 const portReservation = createServer().listen(0, '127.0.0.1');
@@ -15,6 +16,8 @@ const nextPort = (portReservation.address() as { port: number }).port;
 await new Promise<void>(done => portReservation.close(() => done()));
 const nextOrigin = `http://127.0.0.1:${nextPort}`;
 let patch: Record<string, unknown> = {};
+let delayVisitResponse=false;
+const visitRequests:Array<{path:string;body:any}>=[];
 const files: Record<string, string> = { '/': 'index.html', '/privacy': 'privacy.html', '/terms': 'terms.html', '/automate-job-applications-australia': 'automate-job-applications-australia.html' };
 const bridge = publicWebsiteProxy(nextOrigin);
 const fixture = createServer(async (req, res) => {
@@ -33,6 +36,12 @@ const fixture = createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ status, html, patch: path === '/' ? patch : {}, googleConfigured: true })); return;
   }
   if (url.pathname === '/' && (req.headers.cookie?.includes('myasis_session=') || url.searchParams.has('tab'))) { res.end('<h1>Existing dashboard</h1>'); return; }
+  if(url.pathname==='/api/visit'||url.pathname.startsWith('/api/visit/')){
+    let body='';for await(const chunk of req)body+=chunk;
+    visitRequests.push({path:url.pathname,body:JSON.parse(body)});
+    if(url.pathname==='/api/visit'&&delayVisitResponse)await new Promise(done=>setTimeout(done,1500));
+    if(!res.destroyed){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({id:'1'}));}return;
+  }
   if (url.pathname.startsWith('/api/')) { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ backend: true })); return; }
   bridge(req, res, () => {
     const file = resolve(root, 'dashboard/public', `.${url.pathname}`);
@@ -62,7 +71,8 @@ try {
     assert.ok(/<link[^>]+rel="canonical"/.test(html), `${path}: canonical retained`);
     assert.ok(!/src="\/assets\//.test(html), 'no dashboard bootstrap on public pages');
     if (path === '/') {
-      for (const [name, price] of [['Active Search', '19.99'], ['Get Owtomated', '59.99']]) {
+      for (const plan of [PAID_PLANS['job-search-pass'],PAID_PLANS['intensive-pass']]) {
+        const name=plan.name,price=(plan.priceCents/100).toFixed(2);
         const offers: any[] = [];
         const visit = (value: any) => {
           if (value && typeof value === 'object') {
@@ -91,6 +101,24 @@ try {
   assert.ok(patched.includes('<title>Updated public title</title>'));
   assert.ok(patched.includes('Updated public heading'));
   patch = {};
+  // Exercise actual public-page JavaScript with a slow acknowledgement and
+  // a quick exit. Requests stay on this fixture; no production visit is made.
+  const bounce=await browser.newPage();
+  await bounce.addInitScript(()=>Object.defineProperty(navigator,'webdriver',{get:()=>false}));
+  await bounce.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
+  delayVisitResponse=true;
+  const initialRequest=bounce.waitForRequest(r=>new URL(r.url()).pathname==='/api/visit');
+  await bounce.goto(origin+'/?utm_source=reddit&utm_campaign=fixture-bounce');
+  const initial=JSON.parse((await initialRequest).postData()!);
+  await bounce.waitForTimeout(150);
+  await bounce.goto('about:blank');
+  for(let i=0;i<50&&!visitRequests.some(r=>r.path==='/api/visit/leave');i++)await new Promise(done=>setTimeout(done,50));
+  const exit=visitRequests.find(r=>r.path==='/api/visit/leave')?.body;
+  assert.ok(exit&&exit.durationMs>0,'a fast browser exit reports its visible time');
+  assert.equal(exit.id,undefined,'exit does not wait for initial acknowledgement');
+  assert.equal(exit.viewId,initial.viewId,'exit and initial request identify one page view');
+  assert.equal(exit.attribution.source,'reddit');
+  delayVisitResponse=false;await bounce.close();
   await mkdir(resolve(root, 'output/public-next'), { recursive: true });
   for (const width of [1440, 390]) {
     const page = await browser.newPage({ viewport: { width, height: 1000 } });

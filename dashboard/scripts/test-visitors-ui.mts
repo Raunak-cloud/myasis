@@ -239,24 +239,25 @@ const server = createServer(async (req, res) => {
       res.end(
         JSON.stringify({
           range,
-          market: 'all',
+          market: new URL(req.url!, 'http://fixture').searchParams.get('market')??'home',
           home: { code: 'AU', name: 'Australia' },
           timeZone: 'Australia/Sydney',
           retentionDays: 180,
           geoConfigured: true,
           totals: {
             visitors: range === '30d' ? 33 : range === 'today' ? 11 : 22,
-            visits: 1,
+            visits: 5,
             views: 2,
             signedIn: 1,
             located: 2,
             avgSeconds: null,
           },
+          sourceCoverage: {knownVisits:3,unknownVisits:2},
           countries: [],
           regions: [],
           cities: [],
           pages: [],
-          referrers: [],
+          referrers: [{label:'reddit',sub:null,code:null,visitors:1,views:3,seconds:null},{label:'Direct / unavailable',sub:null,code:null,visitors:2,views:2,seconds:null}],
           devices: [],
           browsers: [],
           days: [],
@@ -344,8 +345,12 @@ try {
     .waitFor();
   assert.equal(
     await page.getByLabel('Visitor location', { exact: true }).inputValue(),
-    'all',
+    'home',
   );
+  const allCountries=page.waitForResponse(response=>response.url().includes('/api/admin/visitors?')&&response.url().includes('market=all'));
+  await page.getByLabel('Visitor location',{exact:true}).selectOption('all');
+  await allCountries;
+  await page.getByText('Not recorded',{exact:true}).first().waitFor();
   assert.equal(
     await page.getByText('Not recorded', { exact: true }).count(),
     2,
@@ -364,6 +369,10 @@ try {
     0,
     'advanced details stay collapsed',
   );
+  await page.getByText('Traffic breakdown',{exact:true}).click();
+  const sourceSection=page.locator('section').filter({has:page.getByRole('heading',{name:'Sources',exact:true})});
+  assert.equal(await sourceSection.locator('li').filter({hasText:'reddit'}).locator('strong').innerText(),'3','sources show visits rather than distinct browsers');
+  await page.getByText('Source recorded for 3 of 5 visits.',{exact:false}).waitFor();
   const recentVisits = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Recent visits', exact: true }) });
   await recentVisits.getByRole('columnheader', { name: 'Last active', exact: true }).waitFor();
   await recentVisits.getByText(/sorted by last recorded activity/).waitFor();

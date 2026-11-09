@@ -37,7 +37,7 @@ import { adzunaConfigured } from '../seek-bot/src/adzuna-config.js';
 import { applicationModelForAccount } from './server/application-model-policy.js';
 import { assignedApplicationModel } from './server/application-model-assignments.js';
 import { migrateFilesToUser } from './server/db/migrate-files.js';
-import { endPageView, pulsePageView, recordPageView, startVisitMaintenance } from './server/visits.js';
+import { recordPageProgress, recordPageView, startVisitMaintenance } from './server/visits.js';
 import { matchKeysFromRequest, reportRedditConversion } from './server/reddit-capi.js';
 import { startProfileMaintenance } from './server/profile-prune.js';
 import { startHealthMaintenance } from './server/health.js';
@@ -297,14 +297,14 @@ function dataApi(): Plugin {
     if (route === '/api/visit/pulse' && req.method === 'POST') {
       return readBody().then(async (b) => {
         const user = await currentUser(req.headers?.cookie).catch(() => null);
-        await pulsePageView(b, user?.id ?? null).catch(() => {});
+        await recordPageProgress(req,b,user?.id??null).catch(() => {});
         res.statusCode = 204;
         res.end();
       });
     }
     if (route === '/api/visit/leave' && req.method === 'POST') {
       return readBody().then(async (b) => {
-        await endPageView(b).catch(() => {});
+        await recordPageProgress(req,b,null,true).catch(() => {});
         res.statusCode = 204;
         res.end();
       });

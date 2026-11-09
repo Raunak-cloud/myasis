@@ -11,46 +11,20 @@
  * only as long as this page load.
  */
 
+import { captureVisitSource, type VisitSource } from './visitor-source';
+
 const VISITOR_KEY = 'owtomate_visitor';
 const SESSION_KEY = 'owtomate_session_v2';
 const SESSION_IDLE_MS = 30 * 60 * 1000;
-const ATTRIBUTION_KEY = 'owtomate_attribution';
+const HEARTBEAT_MS = 10_000;
+const MAX_UNOBSERVED_MS = 2 * HEARTBEAT_MS;
 const ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 
-interface Attribution {
-  source: string;
-  medium: string;
-  campaign: string;
-}
-
-function cleanAttributionValue(value: string | null, max: number): string {
-  return [...(value ?? '').trim()]
-    .filter((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127)
-    .join('')
-    .slice(0, max);
-}
-
-/** Capture campaign data before auth or an in-app navigation can replace the landing URL. */
-function landingAttribution(): Attribution | null {
-  let current: Attribution | null = null;
-  try {
-    const params = new URLSearchParams(window.location.search);
-    const source = cleanAttributionValue(params.get('utm_source'), 80)
-      || (params.has('rdt_cid') ? 'reddit' : '');
-    current = source ? {
-      source: source.toLowerCase(),
-      medium: cleanAttributionValue(params.get('utm_medium'), 80),
-      campaign: cleanAttributionValue(params.get('utm_campaign'), 160),
-    } : null;
-    if (current) sessionStorage.setItem(ATTRIBUTION_KEY, JSON.stringify(current));
-    const stored = current ?? JSON.parse(sessionStorage.getItem(ATTRIBUTION_KEY) ?? 'null');
-    return stored && typeof stored.source === 'string' ? stored as Attribution : null;
-  } catch {
-    return current;
-  }
-}
-
-const attribution = landingAttribution();
+// Capture before sign-in and pixel code can replace the landing URL. Reuse it
+// only for this document's first visit, never for an idle return hours later.
+const entry:VisitSource = typeof window==='undefined' ? {source:'',medium:'',campaign:'',referrer:''}
+  : captureVisitSource(window.location.search, document.referrer, window.location.hostname ?? '');
+let entryConsumed = false;
 
 function freshId(): string {
   try {
@@ -61,7 +35,7 @@ function freshId(): string {
 }
 
 const fallback = { visitor: freshId(), session: freshId() };
-interface BrowserSession { id: string; lastActiveAt: number }
+interface BrowserSession { id: string; lastActiveAt: number; acquisition?: VisitSource }
 let fallbackSession: BrowserSession = { id: fallback.session, lastActiveAt: Date.now() };
 
 function stored(storage: () => Storage, key: string, fallbackId: string): string {
@@ -83,14 +57,19 @@ function ids() {
   try {
     const saved = JSON.parse(localStorage.getItem(SESSION_KEY) ?? 'null') as BrowserSession | null;
     if (saved && typeof saved.id === 'string' && ID_PATTERN.test(saved.id)
-      && Number.isFinite(saved.lastActiveAt)) session = saved;
+      && Number.isFinite(saved.lastActiveAt)) {
+      const acquisition=saved.acquisition;
+      session={id:saved.id,lastActiveAt:saved.lastActiveAt,...(acquisition && ['source','medium','campaign','referrer'].every(key=>typeof acquisition[key as keyof VisitSource]==='string')?{acquisition}:{})};
+    }
   } catch { /* Blocked storage keeps a session in this page's memory. */ }
   if (now - session.lastActiveAt >= SESSION_IDLE_MS || session.lastActiveAt > now) {
     session = { id: freshId(), lastActiveAt: now };
   }
-  fallbackSession = { id: session.id, lastActiveAt: now };
+  const acquisition = session.acquisition ?? (entryConsumed ? {source:'',medium:'',campaign:'',referrer:''} : entry);
+  entryConsumed = true;
+  fallbackSession = { id: session.id, lastActiveAt: now, acquisition };
   try { localStorage.setItem(SESSION_KEY, JSON.stringify(fallbackSession)); } catch { /* private storage */ }
-  return { visitorId: stored(() => localStorage, VISITOR_KEY, fallback.visitor), sessionId: session.id };
+  return { visitorId: stored(() => localStorage, VISITOR_KEY, fallback.visitor), sessionId: session.id, acquisition };
 }
 
 interface View {
@@ -103,6 +82,7 @@ interface View {
   sequence: number;
   startedAt: number;
   failed: boolean;
+  ignored?: boolean;
   visibleMs: number;
   visibleSince: number | null;
   ready: Promise<void>;
@@ -110,8 +90,6 @@ interface View {
 
 let current: View | null = null;
 let listening = false;
-let referrerReported = false;
-let attributionReported = false;
 
 /** Retry the same event ID so a lost response cannot create a second page view. */
 function createView(view: View): void {
@@ -119,37 +97,42 @@ function createView(view: View): void {
   view.ready = fetch('/api/visit', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
     ...(typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? { signal: AbortSignal.timeout(8_000) } : {}),
-    body: JSON.stringify(view.payload),
+    body: JSON.stringify({ ...view.payload, startedAgoMs: Math.max(0,Math.round(performance.now()-view.startedAt)) }),
   }).then(response => {
     if (!response.ok) throw new Error('Visit recording unavailable');
     return response.json();
   }).then((body: { id?: unknown; ignored?: boolean }) => {
     if (typeof body?.id === 'string' && /^\d{1,18}$/.test(body.id)) {
       view.id = body.id;
-      referrerReported = true;
-      attributionReported = true;
-    } else if (body?.ignored !== true) throw new Error('Visit recording was not acknowledged');
+      // Checkpoint short visits immediately, rather than waiting for a timer.
+      report(view, current === view && view.visibleSince !== null && document.visibilityState !== 'hidden');
+    } else if (body?.ignored === true) view.ignored=true;
+    else throw new Error('Visit recording was not acknowledged');
   }).catch(() => { view.failed = true; });
 }
 
 function elapsed(view: View): number {
-  return Math.max(0, Math.round(view.visibleMs + (view.visibleSince === null ? 0 : performance.now() - view.visibleSince)));
+  if (view.visibleSince !== null) {
+    const now = performance.now();
+    // A suspended computer or frozen browser is not hours of observed viewing.
+    view.visibleMs += Math.max(0, Math.min(MAX_UNOBSERVED_MS, now - view.visibleSince));
+    view.visibleSince = now;
+  }
+  return Math.max(0, Math.round(view.visibleMs));
 }
 
 /** Sequence numbers keep delayed network requests from reviving a hidden tab. */
 function report(view: View, visible: boolean): void {
-  const message = { visitorId: view.visitorId, durationMs: elapsed(view), visible, sequence: ++view.sequence };
-  const send = () => {
-    if (!view.id) return;
-    const body = JSON.stringify({ ...message, id: view.id });
-    const url = visible ? '/api/visit/pulse' : '/api/visit/leave';
-    try {
-      if (navigator.sendBeacon?.(url, body)) return;
-    } catch { /* Some browsers throw when the beacon queue is full. */ }
-    void fetch(url, { method: 'POST', body, keepalive: true }).catch(() => {});
-  };
-  if (view.id) send();
-  else void view.ready.then(send);
+  if(view.ignored)return;
+  // The stable client event ID lets an exit checkpoint arrive before the
+  // initial request/response, without inventing another page view.
+  const body = JSON.stringify({ ...view.payload, ...(view.id ? {id:view.id} : {}),
+    startedAgoMs:Math.max(0,Math.round(performance.now()-view.startedAt)),durationMs:elapsed(view),visible,sequence:++view.sequence });
+  const url = visible ? '/api/visit/pulse' : '/api/visit/leave';
+  try {
+    if (navigator.sendBeacon?.(url, body)) return;
+  } catch { /* Some browsers throw when the beacon queue is full. */ }
+  void fetch(url, { method: 'POST', body, keepalive: true }).catch(() => {});
 }
 
 function hide(view: View): void {
@@ -175,6 +158,7 @@ function listen(): void {
     else show(current);
   });
   window.addEventListener('pagehide', () => { if (current) hide(current); });
+  document.addEventListener('freeze', () => { if (current) hide(current); });
   // Back/forward cache restores do not remount React.
   window.addEventListener('pageshow', () => {
     if (current && document.visibilityState !== 'hidden') show(current);
@@ -184,13 +168,13 @@ function listen(): void {
       trackPage(current.page, current.identity);
       if (current) report(current, true);
     }
-  }, 20_000);
+  }, HEARTBEAT_MS);
 }
 
 /** Authentication changes rotate the row too, so account identity stays accurate. */
 export function trackPage(page: string, identity: string | null = null): void {
   if (navigator.webdriver) return;
-  const { visitorId, sessionId } = ids();
+  const { visitorId, sessionId, acquisition } = ids();
   if (current?.page === page && current.identity === identity && current.sessionId === sessionId
     && performance.now() - current.startedAt < 6 * 60 * 60 * 1000) {
     if (current.failed) createView(current);
@@ -203,8 +187,8 @@ export function trackPage(page: string, identity: string | null = null): void {
     visibleSince: document.visibilityState === 'hidden' ? null : performance.now(),
     ready: Promise.resolve(),
     payload: { visitorId, sessionId, viewId: freshId(), page, visible: document.visibilityState !== 'hidden',
-      referrer: referrerReported ? '' : document.referrer,
-      attribution: attributionReported ? null : attribution,
+      referrer: acquisition.referrer,
+      attribution: acquisition.source || acquisition.medium || acquisition.campaign ? acquisition : null,
       screen: `${window.screen.width}x${window.screen.height}`, language: navigator.language,
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
   };

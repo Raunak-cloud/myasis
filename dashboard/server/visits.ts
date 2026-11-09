@@ -5,6 +5,7 @@ import { isAdmin } from './billing.js';
 import { RUN_TIME_ZONE } from './entitlements.js';
 import { geoipConfigured, lookupPlace } from './geoip.js';
 import { readEnv } from './runner.js';
+import { sourceLabel, UNKNOWN_SOURCE } from '../src/visitor-source.js';
 
 /**
  * First-party visitor analytics: who looked at what, from where, for how long.
@@ -103,7 +104,7 @@ function describeAgent(ua: string): Agent {
 }
 
 /** Hosts a visitor passes through on the way in, not places they came from: our own, and the sign-in provider's. */
-const NOT_A_SOURCE = new Set(['accounts.google.com']);
+const NOT_A_SOURCE = new Set(['accounts.google.com', 'checkout.stripe.com', 'billing.stripe.com']);
 
 /**
  * Where the visitor came from, kept to the site and path. The query string is
@@ -159,6 +160,10 @@ export async function recordPageView(req: IncomingMessage, body: unknown, userId
   const language = typeof b.language === 'string' && /^[A-Za-z-]{2,16}$/.test(b.language) ? b.language : null;
   const timeZone = typeof b.timeZone === 'string' && /^[A-Za-z_/+-]{2,64}$/.test(b.timeZone) ? b.timeZone : null;
   const attribution = cleanAttribution(b.attribution);
+  // Recover the event's original time if a close beacon is the first request
+  // to reach us. Monotonic age avoids trusting the browser's calendar clock.
+  const age=Number(b.startedAgoMs);
+  const startedAgoMs=Number.isFinite(age)?Math.max(0,Math.min(MAX_DURATION_MS,Math.floor(age))):0;
 
   // An ignored address is the operator's own: the view is acknowledged, never kept.
   const row = await one<{ id: string }>(
@@ -166,12 +171,13 @@ export async function recordPageView(req: IncomingMessage, body: unknown, userId
        visitor_id, session_id, user_id, page, referrer, client_view_id,
        attribution_source, attribution_medium, attribution_campaign, ip,
        country_code, country, region, city, latitude, longitude,
-       user_agent, device, browser, os, screen, language, time_zone, last_seen_at, visible
+       user_agent, device, browser, os, screen, language, time_zone, last_seen_at, visible, started_at
      )
      SELECT $1::text, $2::text, $3::bigint, $4::text, $5::text, $24::text,
             $6::text, $7::text, $8::text, $9::inet,
             $10::text, $11::text, $12::text, $13::text, $14::double precision, $15::double precision,
-            $16::text, $17::text, $18::text, $19::text, $20::text, $21::text, $22::text, now(), $23::boolean
+            $16::text, $17::text, $18::text, $19::text, $20::text, $21::text, $22::text, now(), $23::boolean,
+            now()-make_interval(secs=>$25::double precision/1000)
       WHERE NOT EXISTS (SELECT 1 FROM ignored_addresses WHERE ip = $9::inet)
      ON CONFLICT (visitor_id, client_view_id) WHERE client_view_id IS NOT NULL
      DO UPDATE SET client_view_id = EXCLUDED.client_view_id
@@ -180,7 +186,7 @@ export async function recordPageView(req: IncomingMessage, body: unknown, userId
       visitorId, sessionId, userId, page, cleanReferrer(b.referrer, host),
       attribution.source, attribution.medium, attribution.campaign, ip,
       place.countryCode, place.country, place.region, place.city, place.latitude, place.longitude,
-      ua, agent.device, agent.browser, agent.os, screen, language, timeZone, b.visible === true, clientViewId,
+      ua, agent.device, agent.browser, agent.os, screen, language, timeZone, b.visible === true, clientViewId,startedAgoMs,
     ],
   );
   return row?.id ?? null;
@@ -217,6 +223,19 @@ export async function pulsePageView(body: unknown, userId: string | null = null,
 
 export async function endPageView(body: unknown): Promise<void> {
   await pulsePageView(body, null, true);
+}
+
+/** An exit can beat the initial response. The browser event ID upserts the
+ * same view before applying its ordered timing checkpoint. */
+export async function recordPageProgress(req:IncomingMessage,body:unknown,userId:string|null,leaving=false):Promise<void> {
+  const b=(body??{}) as Record<string,unknown>;
+  if(!Number.isFinite(Number(b.durationMs)) || Number(b.durationMs)<0 || !Number.isSafeInteger(Number(b.sequence)) || Number(b.sequence)<1)return;
+  let id=String(b.id??'');
+  if(!/^\d{1,18}$/.test(id)){
+    if(!ID_PATTERN.test(String(b.viewId??'')))return;
+    id=await recordPageView(req,{...b,visible:!leaving&&b.visible===true},leaving?null:userId)??'';
+  }
+  if(id)await pulsePageView({...b,id},leaving?null:userId,leaving);
 }
 
 // ---------------------------------------------------------------- reporting
@@ -322,6 +341,7 @@ export interface VisitorReport {
   retentionDays: number;
   geoConfigured: boolean;
   totals: { visitors: number; visits: number; views: number; timedViews: number; signedIn: number; located: number; avgSeconds: number | null };
+  sourceCoverage: { knownVisits:number; unknownVisits:number };
   countries: Breakdown[];
   regions: Breakdown[];
   cities: Breakdown[];
@@ -338,7 +358,7 @@ export interface VisitorReport {
 }
 
 export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> {
-  const { where, params } = await scope(opts);
+  const { where, baseWhere, params } = await scope(opts);
   // At home the country is a given; abroad it is the first thing to know about a place.
   const home = opts.market === 'home';
   const breakdown = (label: string, sub: string, code: string, extra = '', views = 'count(*)') =>
@@ -351,7 +371,7 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
       params,
     ).then((rows) => rows.map((row) => ({ ...row, label: row.label ?? 'Unknown' })));
 
-  const [totals, countries, regions, cities, pages, referrers, devices, browsers, days, addresses] = await Promise.all([
+  const [totals, countries, regions, cities, pages, sourceRows, devices, browsers, days, addresses] = await Promise.all([
     one<{ visitors: number; visits: number; views: number; timed_views: number; signed_in: number; located: number; addresses: number; avg_seconds: number | null }>(
       `SELECT count(DISTINCT visitor_id)::int AS visitors,
               count(DISTINCT (visitor_id, session_id))::int AS visits,
@@ -368,9 +388,16 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
     breakdown('region', home ? 'NULL' : 'country', 'country_code', 'AND region IS NOT NULL'),
     breakdown('city', home ? 'region' : `concat_ws(', ', region, country)`, 'country_code', 'AND city IS NOT NULL'),
     breakdown('page', 'NULL', 'NULL'),
-    // A source brings a visit, not a page view: the page reports it once, and it is counted once.
-    breakdown(`COALESCE(attribution_source, CASE WHEN referrer ~ '^https?://' THEN referrer END)`, 'NULL', 'NULL',
-      "AND COALESCE(attribution_source, CASE WHEN referrer ~ '^https?://' THEN referrer END) IS NOT NULL", 'count(DISTINCT (visitor_id, session_id))'),
+    // A visit gets one entry source across tabs, sign-in and reloads. Retained
+    // earlier pages supply the source for a visit crossing the reporting edge.
+    query<{visitor_id:string;source:string|null;referrer:string|null;visits:number}>(`WITH selected AS (
+      SELECT DISTINCT visitor_id,session_id FROM page_views WHERE ${where}
+    ), entries AS (
+      SELECT DISTINCT ON(visitor_id,session_id) visitor_id,session_id,attribution_source AS source,referrer
+      FROM page_views JOIN selected USING(visitor_id,session_id) WHERE ${baseWhere}
+        AND (NULLIF(trim(attribution_source),'') IS NOT NULL OR (referrer ~ '^https?://' AND referrer !~* '^https?://(accounts\\.google\\.com|checkout\\.stripe\\.com|billing\\.stripe\\.com)(/|$)'))
+      ORDER BY visitor_id,session_id,started_at,id
+    ) SELECT visitor_id,source,referrer,count(*)::int AS visits FROM selected LEFT JOIN entries USING(visitor_id,session_id) GROUP BY visitor_id,source,referrer`,params),
     breakdown('device', 'os', 'NULL'),
     breakdown('browser', 'os', 'NULL'),
     query<{ day: string; visitors: number; views: number }>(
@@ -392,6 +419,15 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
     ),
   ]);
 
+  const sources=new Map<string,{visitors:Set<string>;visits:number}>();
+  const sourceCoverage={knownVisits:0,unknownVisits:0};
+  for(const row of sourceRows){
+    const label=sourceLabel(row.source,row.referrer),entry=sources.get(label)??{visitors:new Set<string>(),visits:0};
+    entry.visitors.add(row.visitor_id);entry.visits+=row.visits;sources.set(label,entry);
+    sourceCoverage[label===UNKNOWN_SOURCE?'unknownVisits':'knownVisits']+=row.visits;
+  }
+  const referrers:Breakdown[]=[...sources].map(([label,value])=>({label,sub:null,code:null,visitors:value.visitors.size,views:value.visits,seconds:null}))
+    .sort((a,b)=>b.views-a.views||b.visitors-a.visitors||a.label.localeCompare(b.label)).slice(0,25);
   return {
     range: opts.range,
     market: opts.market,
@@ -409,6 +445,7 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
       avgSeconds: totals?.avg_seconds ?? null,
     },
     countries, regions, cities, pages, referrers, devices, browsers, days,
+    sourceCoverage,
     addresses: {
       count: totals?.addresses ?? 0,
       list: addresses.map((row) => ({

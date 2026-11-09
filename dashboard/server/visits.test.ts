@@ -9,6 +9,7 @@ import {
   pulsePageView,
   recentVisits,
   recordPageView,
+  recordPageProgress,
   visitorReport,
 } from './visits.js';
 import type { IncomingMessage } from 'node:http';
@@ -254,6 +255,48 @@ try {
     if (originalHome === undefined) delete process.env.VISIT_HOME_COUNTRY; else process.env.VISIT_HOME_COUNTRY = originalHome;
     if (originalRetention === undefined) delete process.env.VISIT_RETENTION_DAYS; else process.env.VISIT_RETENTION_DAYS = originalRetention;
   }
+  // A close beacon can be the first request received; a later create/pulse
+  // must reuse its row and must not revive the closed tab.
+  const short=view('visitor-short','session-short',{viewId:'short-event-0001',startedAgoMs:1200,durationMs:1200,sequence:2,visible:false,attribution:{source:'reddit',medium:'paid',campaign:'test'}});
+  await recordPageProgress(request,short,null,true);
+  const initialAfterClose=await recordPageView(request,short,null);
+  await recordPageProgress(request,{...short,sequence:1,visible:true,durationMs:500},null);
+  const recoveredClose=(await connection.query("SELECT count(*)::int n,max(duration_ms)::int ms,bool_or(visible) visible,min(started_at)<now()-interval '1 second' AS original_start FROM page_views WHERE visitor_id='visitor-short'")).rows[0];
+  assert.equal(recoveredClose.n,1);assert.equal(recoveredClose.ms,1200);assert.equal(recoveredClose.visible,false);assert.equal(recoveredClose.original_start,true);
+  assert.ok(initialAfterClose);
+  await recordPageProgress(request,{...short,visitorId:'visitor-malformed',viewId:'bad!',sequence:1},null,true);
+  assert.equal((await connection.query("SELECT count(*)::int n FROM page_views WHERE visitor_id='visitor-malformed'")).rows[0].n,0);
+  const ignoredProgressRequest={...request,socket:{remoteAddress:'198.51.100.5'}} as IncomingMessage;
+  await recordPageProgress(ignoredProgressRequest,{...short,visitorId:'visitor-ignore-close',viewId:'ignored-event-0001'},null,true);
+  assert.equal((await connection.query("SELECT count(*)::int n FROM page_views WHERE visitor_id='visitor-ignore-close'")).rows[0].n,0);
+
+  // Isolate visit-source cases from the earlier count fixtures.
+  await connection.query('DELETE FROM page_views');
+  await recordPageView(request,view('visitor-campaign','campaign-session',{attribution:{source:'reddit',medium:'paid',campaign:'launch'}}),null);
+  await recordPageView(request,view('visitor-campaign','campaign-session',{page:'pricing',attribution:{source:'reddit',medium:'paid',campaign:'launch'}}),null);
+  await recordPageView(request,view('visitor-campaign','campaign-session',{page:'run',attribution:{source:'google'}}),'2');
+  await recordPageView(request,view('visitor-campaign','second-campaign-session',{attribution:{source:'reddit'}}),'2');
+  await recordPageView(request,view('visitor-google','google-session',{referrer:'https://www.google.com/search?q=private'}),null);
+  await recordPageView(request,view('visitor-google','google-session',{page:'pricing',attribution:{source:'google'}}),null);
+  await recordPageView(request,view('visitor-direct','direct-session'),null);
+  await recordPageView(request,view('visitor-payment','payment-session',{referrer:'https://checkout.stripe.com/c/pay/private'}),null);
+  const sourceReport=await visitorReport({range:'7d',market:'all'});
+  assert.equal(sourceReport.totals.visits,5);
+  assert.equal(sourceReport.referrers.reduce((n,r)=>n+r.views,0),5,'a visit appears in exactly one source group');
+  assert.equal(sourceReport.referrers.find(r=>r.label==='reddit')?.views,2,'repeat visits count separately while page reloads do not');
+  assert.equal(sourceReport.referrers.find(r=>r.label==='reddit')?.visitors,1);
+  assert.equal(sourceReport.referrers.find(r=>r.label==='google')?.views,1,'campaign and referrer spellings share one canonical source');
+  assert.deepEqual(sourceReport.sourceCoverage,{knownVisits:3,unknownVisits:2});
+  await recordPageView(request,view('visitor-first-source','first-source-session',{referrer:'https://www.bing.com/search?q=private'}),null);
+  await recordPageView(request,view('visitor-first-source','first-source-session',{page:'pricing',attribution:{source:'reddit'}}),null);
+  const firstSource=await visitorReport({range:'7d',market:'all'});
+  assert.equal(firstSource.referrers.find(r=>r.label==='bing')?.views,1,'the entry referrer wins over a later campaign within the same visit');
+  assert.equal(firstSource.referrers.find(r=>r.label==='reddit')?.views,2,'the later campaign is not counted as a second visit');
+  const [landingRow]=(await connection.query("SELECT id FROM page_views WHERE visitor_id='visitor-campaign' ORDER BY id LIMIT 1")).rows;
+  await connection.query("UPDATE page_views SET started_at=(date_trunc('day',now() AT TIME ZONE 'Australia/Sydney') AT TIME ZONE 'Australia/Sydney')-interval '1 minute' WHERE id=$1",[landingRow.id]);
+  await connection.query("UPDATE page_views SET attribution_source=NULL WHERE visitor_id='visitor-campaign' AND id<>$1",[landingRow.id]);
+  const crossed=await visitorReport({range:'today',market:'all'});
+  assert.equal(crossed.referrers.find(r=>r.label==='reddit')?.views,1,'a visit with new views today retains yesterday\'s recorded entry source');
   console.log(
     'PASS visitor presence, expiry, admin exclusion, shared devices, counts, location scope, referrer privacy and unknown duration (temporary PostgreSQL tables only)',
   );
