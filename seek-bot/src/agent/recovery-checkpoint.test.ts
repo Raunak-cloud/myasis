@@ -11,6 +11,17 @@ import { changesBrowserState } from './browser-commands.js';
 const observation = (value = '', ref = 'f0'): Observation => ({ url: 'https://employer.invalid/apply', title: 'Apply',
   actions: [], text: 'Apply', fields: [{ ref, label: 'City', kind: 'text', required: true, currentValue: value }] });
 
+test('repeated failed tools can request a fresh perspective without denying another action or resetting work',()=>{
+ const state=new RecoveryCheckpoint();state.observe(observation());
+ state.failed('open_emailed_link',{},observation().url,'Mailbox timed out');assert.equal(state.takePerspectiveRefresh(),false);
+ state.failed('open_emailed_link',{},observation().url,'Mailbox timed out');
+ const restored=new RecoveryCheckpoint();restored.restore(state.checkpoint());
+ assert.equal(restored.takePerspectiveRefresh(),true);assert.equal(restored.takePerspectiveRefresh(),false);
+ restored.failed('open_emailed_link',{},observation().url,'Mailbox timed out');assert.equal(restored.takePerspectiveRefresh(),false);
+ restored.failed('open_emailed_link',{},observation().url,'Mailbox timed out');assert.equal(restored.takePerspectiveRefresh(),true);
+ assert.match(restored.render(),/Mailbox timed out/);assert.match(restored.render(),/historical evidence, not restrictions/);
+});
+
 test('repeated route advice survives narration and restart, then clears on actual new form progress', () => {
   const state = new RecoveryCheckpoint(), entry = observation(), code = { ...observation(), url: 'https://employer.invalid/code' };
   state.observe(entry);

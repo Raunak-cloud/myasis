@@ -39,7 +39,8 @@ export class RecoveryCheckpoint {
       reviewable: this.reviewable, phase: this.phase, previous: this.previous, browserTurn: this.browserTurn, failures: this.failures,
       unchanged: this.unchanged, furtherInspections: this.furtherInspections, actionPending: this.actionPending,
       specialistPending: this.specialistPending, readResults: [...this.readResults], repeatedReads: this.repeatedReads,
-      readNotice: this.readNotice, failedInteractions: this.memory.checkpoint(), ...(this.loopAdvice ? { loopAdvice: this.loopAdvice } : {}) };
+      readNotice: this.readNotice, failedInteractions: this.memory.checkpoint(), ...(this.loopAdvice ? { loopAdvice: this.loopAdvice } : {}),
+      perspectiveRefreshPending: this.perspectiveRefreshPending };
   }
   restore(saved: ReturnType<RecoveryCheckpoint['checkpoint']>): void {
     if (saved.version !== 1) throw Error('Unsupported recovery checkpoint.');
@@ -50,6 +51,7 @@ export class RecoveryCheckpoint {
     this.furtherInspections = saved.furtherInspections; this.actionPending = saved.actionPending; this.specialistPending = saved.specialistPending;
     this.readResults = new Set(saved.readResults); this.repeatedReads = saved.repeatedReads; this.readNotice = saved.readNotice;
     this.loopAdvice = saved.loopAdvice ?? '';
+    this.perspectiveRefreshPending = saved.perspectiveRefreshPending ?? false;
     this.memory.restore(saved.failedInteractions);
   }
   private readonly memory = new InteractionMemory();
@@ -70,7 +72,15 @@ export class RecoveryCheckpoint {
   private readResults = new Set<string>();
   private repeatedReads = 0;
   private loopAdvice = '';
+  private perspectiveRefreshPending = false;
   private readNotice = '';
+
+  /** Changes only the conversation presentation, never available actions or work. */
+  takePerspectiveRefresh(): boolean {
+    const pending = this.perspectiveRefreshPending;
+    this.perspectiveRefreshPending = false;
+    return pending;
+  }
 
   /** Retrieval adds evidence only when its response is new. This also catches
    * alternating already-read queries, without denying tools or choosing answers. */
@@ -82,6 +92,7 @@ export class RecoveryCheckpoint {
     this.repeatedReads = repeated ? this.repeatedReads + 1 : 0;
     if (this.repeatedReads < 3) return { newlyStalled: false };
     const newlyStalled = !this.readNotice;
+    if (newlyStalled) this.perspectiveRefreshPending = true;
     this.readNotice = 'Repeated evidence reads returned material already retrieved while the employer form stayed unchanged. Reuse the evidence already read. Follow NEXT_OFFSET with the same query, read an exact document ID, or inspect and advance the actual form. Do not keep restarting the same searches. If a mandatory personal fact remains unknown after full source review, ask for that exact fact; otherwise continue using supported facts and clearly framed technical reasoning.';
     this.specialistPending = true;
     if (this.phase === 'normal') this.phase = 'plan';
@@ -112,8 +123,10 @@ export class RecoveryCheckpoint {
   remember(note: string): void { this.note = note.slice(-6000); this.persist(); }
   failed(tool: string, args: Record<string, unknown>, url: string, error: string): void {
     const control = [...(this.observation?.actions ?? []), ...(this.observation?.fields ?? [])].find(item => item.ref === args.ref);
-    this.memory.failed(tool, control ? { ...args, observed_target: { label: 'label' in control ? control.label : control.text,
-      context: 'section' in control ? control.section : 'context' in control ? control.context : undefined } } : args, url, error); this.persist();
+    const count = this.memory.failed(tool, control ? { ...args, observed_target: { label: 'label' in control ? control.label : control.text,
+      context: 'section' in control ? control.section : 'context' in control ? control.context : undefined } } : args, url, error);
+    if (count > 1 && Number.isInteger(Math.log2(count))) this.perspectiveRefreshPending = true;
+    this.persist();
   }
   finish(status: string, sendAttempted: boolean): void { this.persist({ status, sendAttempted }); }
   render(): string {
@@ -166,6 +179,7 @@ export class RecoveryCheckpoint {
       this.transitions.push(`${action}: ${signature === this.previous ? 'unchanged' : this.seen.has(signature) ? 'returned to a previous state' : 'changed'}${count > 1 ? `; repeated ${count} times` : ''}`);
       this.transitions = this.transitions.slice(-12);
       if (count >= 2) {
+        if (Number.isInteger(Math.log2(count))) this.perspectiveRefreshPending = true;
         this.loopAdvice = `The same approach has returned to an already observed state ${count} times. A successful tool call, entered code or redirect is not proof of acceptance. Inspect the current employer response and incomplete controls, then choose a different supported route or build a temporary helper. Reuse evidence already retrieved; do not repeat this cycle without a new reason it can work. You still choose the next action.`;
         this.specialistPending = true;
         if (this.phase === 'normal') this.phase = 'plan';

@@ -53,6 +53,11 @@ verification tools instead of ending the application merely on detection.
 Private filling reports matching values as unchanged rather than pretending
 to advance the form. The agent can still request a native refill when a widget
 needs input events, and chooses the next observed control itself.
+Repeated failures, route cycles and evidence-read loops can refresh the same
+agent's working conversation. Candidate evidence and prior tool outcomes remain
+available as historical data alongside the current page, approvals and saved
+work. This does not restart the browser, replay an action, change tools or add
+funding. It removes old behavioural examples that can reinforce a failed plan.
 
 Verification covers admission at the absolute deadline, deadline arrival during
 review, worker wakeups, manual Stop during completion, unresponsive-worker

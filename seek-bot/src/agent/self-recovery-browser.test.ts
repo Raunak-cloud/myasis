@@ -95,10 +95,12 @@ try {
   assert.equal(run.result.outcome.status, 'applied'); assert.equal(run.sends, 1); assert.equal(run.result.submitPressed, true);
  });
  await test('wrong private tool selection returns usable native actions instead of unusable internal refs', async () => {
+  const wrong:Call={name:'fill_authentication_fields',args:{purpose:'sign_in',reason:'The agent selected the wrong tool for the resume.',targets:[{selector:'#cv'}]}};
   const run = await scenario('wrong-tool-recovery', `<main><label>Resume<input id=cv type=file></label><div id=status></div>${form}</main>`,
-   [{name:'fill_authentication_fields',args:{purpose:'sign_in',reason:'The agent selected the wrong tool for the resume.',targets:[{selector:'#cv'}]}},city,prepare]);
+   [wrong,wrong,city,prepare]);
   assert.equal(run.result.outcome.status,'prepared'); assert.equal(run.sends,0);
   assert.match(run.trace.steps[0].result,/action="set_input_files" and file_id/);
   assert.doesNotMatch(run.trace.steps[0].result,/private-native-0/);
+  assert.ok(run.seen.some(text=>text.includes('RECOVERY PERSPECTIVE REFRESH:')),'a repeated wrong tool gets a fresh perspective while the agent still chooses its own next action');
  });
 } finally { globalThis.fetch = fetchOriginal; await browser.close(); closeCelerisQueues(); rmSync(directory, { recursive: true, force: true }); }

@@ -5,7 +5,7 @@ export class InteractionMemory {
   checkpoint() { return [...this.failures.entries()]; }
   restore(entries: ReturnType<InteractionMemory['checkpoint']>): void { this.failures = new Map(entries.slice(-6)); }
 
-  failed(tool: string, args: Record<string, unknown>, url: string, error: string): void {
+  failed(tool: string, args: Record<string, unknown>, url: string, error: string): number {
     let location = '';
     try { const parsed = new URL(url); location = parsed.origin + parsed.pathname; } catch { /* Unfinished navigation. */ }
     const target = JSON.stringify({ tool, action: args.action,
@@ -15,6 +15,7 @@ export class InteractionMemory {
     this.failures.delete(key);
     this.failures.set(key, { target: target.slice(0, 700), error: error.slice(0, 800), count });
     while (this.failures.size > 6) this.failures.delete(this.failures.keys().next().value!);
+    return count;
   }
 
   render(): string {
