@@ -319,6 +319,7 @@ export async function unignoreAddress(ip: string): Promise<void> {
 }
 
 interface Breakdown { label: string; sub: string | null; code: string | null; visitors: number; views: number; seconds: number | null }
+const SOURCE_EVIDENCE_SQL = `(NULLIF(trim(attribution_source),'') IS NOT NULL OR (referrer ~ '^https?://' AND referrer !~* '^https?://(accounts\\.google\\.[a-z.]+|checkout\\.stripe\\.com|billing\\.stripe\\.com)(/|$)'))`;
 
 export interface VisitorReport {
   range: VisitorRange;
@@ -383,7 +384,7 @@ export async function visitorReport(opts: VisitorScope): Promise<VisitorReport> 
     ), entries AS (
       SELECT DISTINCT ON(visitor_id,session_id) visitor_id,session_id,attribution_source AS source,referrer
       FROM page_views JOIN selected USING(visitor_id,session_id) WHERE ${baseWhere}
-        AND (NULLIF(trim(attribution_source),'') IS NOT NULL OR (referrer ~ '^https?://' AND referrer !~* '^https?://(accounts\\.google\\.[a-z.]+|checkout\\.stripe\\.com|billing\\.stripe\\.com)(/|$)'))
+        AND ${SOURCE_EVIDENCE_SQL}
       ORDER BY visitor_id,session_id,started_at,id
     ) SELECT visitor_id,source,referrer,count(*)::int AS visits FROM selected LEFT JOIN entries USING(visitor_id,session_id) GROUP BY visitor_id,source,referrer`,params),
     breakdown('device', 'os', 'NULL'),
@@ -516,16 +517,18 @@ export async function recentVisits(opts: VisitorScope, limit = 150): Promise<Rec
               (array_agg(screen ORDER BY COALESCE(last_seen_at, started_at) DESC, id DESC))[1] AS screen,
               (array_agg(language ORDER BY COALESCE(last_seen_at, started_at) DESC, id DESC))[1] AS language,
               (array_agg(time_zone ORDER BY COALESCE(last_seen_at, started_at) DESC, id DESC))[1] AS time_zone,
-              (array_agg(referrer ORDER BY started_at) FILTER (WHERE referrer IS NOT NULL))[1] AS referrer,
-              (array_agg(attribution_source ORDER BY started_at) FILTER (WHERE attribution_source IS NOT NULL))[1] AS attribution_source,
-              (array_agg(attribution_medium ORDER BY started_at) FILTER (WHERE attribution_medium IS NOT NULL))[1] AS attribution_medium,
-              (array_agg(attribution_campaign ORDER BY started_at) FILTER (WHERE attribution_campaign IS NOT NULL))[1] AS attribution_campaign,
               (array_agg(user_id ORDER BY started_at DESC, id DESC) FILTER (WHERE user_id IS NOT NULL))[1] AS user_id
          FROM page_views JOIN active_sessions USING (session_id, visitor_id) WHERE ${baseWhere}
         GROUP BY session_id, visitor_id
+     ), entries AS (
+       SELECT DISTINCT ON(visitor_id,session_id) visitor_id,session_id,referrer,attribution_source,attribution_medium,attribution_campaign
+       FROM page_views JOIN active_sessions USING(session_id,visitor_id) WHERE ${baseWhere} AND ${SOURCE_EVIDENCE_SQL}
+       ORDER BY visitor_id,session_id,started_at,id
      )
-     SELECT v.*, CASE WHEN v.account_count = 1 THEN u.email ELSE NULL END AS email
+     SELECT v.*, e.referrer,e.attribution_source,e.attribution_medium,e.attribution_campaign,
+       CASE WHEN v.account_count = 1 THEN u.email ELSE NULL END AS email
        FROM visits v LEFT JOIN users u ON u.id = v.user_id
+       LEFT JOIN entries e USING(visitor_id,session_id)
       ORDER BY v.ended_at DESC, v.started_at DESC, v.visitor_id, v.session_id
       LIMIT $${params.length}`,
     params,

@@ -295,6 +295,9 @@ try {
   const firstSource=await visitorReport({range:'7d',market:'all'});
   assert.equal(firstSource.referrers.find(r=>r.label==='bing')?.views,1,'the entry referrer wins over a later campaign within the same visit');
   assert.equal(firstSource.referrers.find(r=>r.label==='reddit')?.views,2,'the later campaign is not counted as a second visit');
+  const entryVisit=(await recentVisits({range:'7d',market:'all'},500)).find(r=>r.visitorId==='visitor-first-source')!;
+  assert.equal(entryVisit.attributionSource,null,'visit details use the same entry source as the source totals');
+  assert.equal(entryVisit.referrer,'https://www.bing.com/search');
   const [landingRow]=(await connection.query("SELECT id FROM page_views WHERE visitor_id='visitor-campaign' ORDER BY id LIMIT 1")).rows;
   await connection.query("UPDATE page_views SET started_at=(date_trunc('day',now() AT TIME ZONE 'Australia/Sydney') AT TIME ZONE 'Australia/Sydney')-interval '1 minute' WHERE id=$1",[landingRow.id]);
   await connection.query("UPDATE page_views SET attribution_source=NULL WHERE visitor_id='visitor-campaign' AND id<>$1",[landingRow.id]);
