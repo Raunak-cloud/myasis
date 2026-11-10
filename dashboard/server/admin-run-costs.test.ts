@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { aggregateRunCosts,type CostRun,type OwnerCostEvent } from './admin-run-costs.js';
+import { aggregateRunCosts,readLiveCostRecords,type CostRun,type OwnerCostEvent } from './admin-run-costs.js';
+import { mkdtempSync,writeFileSync,rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { formatRunCost,runCostTitle } from '../src/run-cost.js';
 import { parseCostEvent } from './application-costs.js';
 
@@ -55,4 +59,20 @@ test('journal parsing accepts a trusted numeric run identity and rejects malform
   const value={id:'00000000-0000-4000-8000-000000000001',runId:'00000000-0000-4000-8000-000000000002',at:run().startedAt,kind:'usage',amountUsd:1};
   assert.equal(parseCostEvent(JSON.stringify({...value,runStartId:'1083'}))?.runStartId,'1083');
   for(const runStartId of ['../183',1083,''])assert.equal(parseCostEvent(JSON.stringify({...value,runStartId})),null);
+});
+
+test('live journals stream only relevant complete worker groups, including legacy records before their start marker',async()=>{
+  const dir=mkdtempSync(join(tmpdir(),'owtomate-live-costs-'));
+  const old=randomUUID(),active=randomUUID(),legacy=randomUUID();
+  const item=(runId:string,extra:Record<string,unknown>={})=>({id:randomUUID(),runId,at:run().startedAt,kind:'usage',amountUsd:1,...extra});
+  const events=[...Array.from({length:2000},()=>item(old,{runStartId:'9',detail:'historical detail '.repeat(50)})),
+    item(active,{runStartId:'10',kind:'started'}),item(active,{runStartId:'10'}),
+    item(legacy),item(legacy,{kind:'started'}),item(legacy,{kind:'finished'})];
+  try{
+    writeFileSync(join(dir,'cost-ledger.jsonl'),events.map(e=>JSON.stringify(e)).join('\n')+'\n{"incomplete":');
+    const records=await readLiveCostRecords('183',[run()],dir);
+    assert.equal(records.length,5);
+    assert.ok(records.every(r=>r.user_id==='183'&&r.event.runId!==old&&!r.event.detail));
+    assert.equal(aggregateRunCosts([run()],records.map(r=>({userId:r.user_id,event:r.event})),[]).get('10')!.totalUsd,2);
+  }finally{rmSync(dir,{recursive:true,force:true});}
 });

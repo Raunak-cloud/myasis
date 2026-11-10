@@ -14,7 +14,7 @@ function fixture() {
   const ports: number[] = [];
   const fake = () => ({
     occupiesSlot: false, disposable: false, browserPort: null as number | null, workerSlots: 1,
-    async start(_mode: unknown, _settings: unknown, port: number, _submit: unknown, _finished: unknown, _start: unknown, _keywords: unknown, expand: () => boolean) {
+    async start(_mode: unknown, _settings: unknown, port: number, _submit: unknown, _finished: unknown, _start: unknown, expand: () => boolean) {
       this.browserPort = port; ports.push(port);
       await new Promise<void>(resolve => releases.push(resolve));
       this.workerSlots = expand() ? 2 : 1;

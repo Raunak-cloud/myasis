@@ -100,7 +100,7 @@ async function execute(entry:Entry){
  }catch(error){entry.meta.status=entry.stopped?'stopped':'error';entry.meta.error=safeMessage((error as Error).message);}
  finally{
   try{lease?.revoke();await transport?.close().catch(()=>{});await desktop?.stop().catch(()=>{});}
-  finally{entry.token=undefined;entry.stop=undefined;entry.meta.finishedAt=new Date().toISOString();runner.releaseStart(entry.meta.owner);save(entry);}
+  finally{entry.token=undefined;entry.stop=undefined;entry.meta.finishedAt=new Date().toISOString();await runner.releaseStart(entry.meta.owner);save(entry);}
  }
 }
 export async function stopFormTests(){
@@ -122,14 +122,14 @@ export async function formAdminAction(actor:SessionUser,path:string,method:strin
   const access=await gmailAccess(actor.id);
   if(definition.account&&(!access.connected||!access.account||!digestConfig()))return {status:400,body:{error:'Connect Gmail and configure the notification sender before testing account creation.'}};
   const agent=body.action==='run';
-  if(agent&&(deploying()||sessionFor(actor.id)||!runner.claimStart(actor.id)))return {status:409,body:{error:'Wait for this account’s current browser session or the server’s active runs to finish.'}};
+  if(agent&&(deploying()||sessionFor(actor.id)||!await runner.claimStart(actor.id)))return {status:409,body:{error:'Wait for this account’s current browser session or the server’s active runs to finish.'}};
   try{
    const id=randomUUID(),email=access.account||'alex.morgan@example.invalid',seed=918374621,directory=resolve(userDir(actor.id),'form-tests',id),secret=randomBytes(32).toString('hex');
    mkdirSync(directory,{recursive:true,mode:0o700});
    const entry:Entry={directory,secret,meta:{id,owner:actor.id,key:definition.key,email,seed,model:body.model,status:agent?'starting':'manual',createdAt:new Date().toISOString(),agent,...(body.exerciseHelpers===true?{exerciseHelpers:true}:{})},lab:new FormLab({key:definition.key,email,seed,id,secret}),token:agent?randomBytes(32).toString('hex'):undefined};
    entries.set(id,entry);save(entry);if(agent)entry.finished=execute(entry).catch(error=>{entry.meta.status='error';entry.meta.error=safeMessage((error as Error).message);console.error('[form-lab] Test cleanup failed:',entry.meta.id);});
    return {status:201,body:details(entry)};
-  }catch(error){if(agent)runner.releaseStart(actor.id);throw error;}
+  }catch(error){if(agent)await runner.releaseStart(actor.id);throw error;}
  }
  const match=path.match(/^\/forms\/([^/]+)(\/stop)?$/);
  if(match){const entry=load(actor.id,match[1]);if(!entry)return {status:404,body:{error:'Test not found.'}};

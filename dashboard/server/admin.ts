@@ -28,6 +28,7 @@ import { readServerLogs, serverHealth } from './health.js';
 import { pruneAllProfiles } from './profile-prune.js';
 import { pruneAllTraces, TRACE_RETENTION_DAYS } from './trace-retention.js';
 import { runner, readEnv, writeEnv, MAX_CONCURRENT } from './runner.js';
+import { writeConsole, type ConsoleResponse } from './live-console.js';
 import { setupStatus } from './setup.js';
 import { draftSetupEmail, sendAdminEmail, tailorSetupEmail, adminEmailHistory, validEmailHistoryCursor } from './admin-email.js';
 import { readSiteState } from './seek-state.js';
@@ -421,7 +422,7 @@ function setAdminEmail(email: string, admin: boolean): void {
 
 /** Ends whatever the account has going: its run, its sign-in window, and every session it holds. */
 async function cutOff(user: UserRecord): Promise<void> {
-  if (runner.stateFor(user.id).running) runner.stop(user.id);
+  if (runner.stateFor(user.id).running) await runner.stop(user.id);
   if (sessionFor(user.id)) await stopSignin(user.id);
   await query('DELETE FROM sessions WHERE user_id = $1', [user.id]);
 }
@@ -474,7 +475,7 @@ export async function handleAdminRequest(
     socket?: { remoteAddress?: string };
     on: (event: string, fn: (...args: any[]) => void) => void;
   },
-  res: { writeHead: (status: number, headers: Record<string, string>) => void; write: (chunk: string) => void },
+  res: ConsoleResponse & { writeHead: (status: number, headers: Record<string, string>) => void; on?: (event:string, listener:()=>void)=>unknown },
   url: URL,
   send: Send,
   readBody: () => Promise<any>,
@@ -635,10 +636,10 @@ export async function handleAdminRequest(
       // The same live console the account sees, for an operator watching it.
       const userId = match[1];
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
-      for (const line of runner.backlog(userId, 0)) res.write(`data: ${JSON.stringify(line)}\n\n`);
-      const unsubscribe = runner.subscribe(userId, (line) => res.write(`data: ${JSON.stringify(line)}\n\n`));
-      const ping = setInterval(() => res.write(': ping\n\n'), 25_000);
-      req.on('close', () => {
+      for (const line of runner.backlog(userId, 0)) writeConsole(res, `data: ${JSON.stringify(line)}\n\n`);
+      const unsubscribe = runner.subscribe(userId, (line) => writeConsole(res, `data: ${JSON.stringify(line)}\n\n`));
+      const ping = setInterval(() => writeConsole(res, ': ping\n\n'), 25_000);
+      (res.on ? res.on.bind(res) : req.on.bind(req))('close', () => {
         clearInterval(ping);
         unsubscribe();
       });
@@ -725,7 +726,7 @@ export async function handleAdminRequest(
         const schedule = await scheduleFor(target.id);
         const entitlement = await entitlementsFor(target.id, target.email);
         await changeSchedule(target.id, body.enabled, schedule?.application_mode ?? 'auto', entitlement.autoRunsPerDay);
-        if (!body.enabled) runner.stop(target.id);
+        if (!body.enabled) await runner.stop(target.id);
         return send({ ok: true, user: await userRow(target) });
       }
       case 'run': {
@@ -759,7 +760,7 @@ export async function handleAdminRequest(
         return result.ok ? send({ ok: true, user: await userRow(target) }) : send({ error: result.error }, result.status);
       }
       case 'stop': {
-        const result = runner.stop(target.id);
+        const result = await runner.stop(target.id);
         return result.ok ? send({ ok: true }) : send({ error: result.error }, 409);
       }
       case 'grant': {

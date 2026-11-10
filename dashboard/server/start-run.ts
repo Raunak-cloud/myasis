@@ -6,7 +6,6 @@ import { adzunaConfigured } from '../../seek-bot/src/adzuna-config.js';
 import { runSettingsSnapshotForUser, USER_SETTABLE_SETTINGS_KEYS, DAILY_APPLICATION_CAP_CHOSEN } from './settings.js';
 import {
   billingStatus,
-  consumeSuccessfulApplication,
   isAdmin,
   type BillingStatus,
 } from './billing.js';
@@ -155,7 +154,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
   if (request.trigger === 'auto' && (!Number.isInteger(request.scheduleGeneration) || !request.applicationMode)) {
     return { ok: false, status: 403, error: 'An active user-enabled schedule is required.' };
   }
-  if (!runner.claimStart(request.userId)) {
+  if (!await runner.claimStart(request.userId)) {
     return { ok: false, status: 409, error: runner.inUse(request.userId)
       ? 'A run is already starting or in progress for this account.'
       : 'The server is busy with other runs. Scheduled runs stay queued until a slot is available.' };
@@ -163,7 +162,7 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
   try {
     return await prepareAndStart(request);
   } finally {
-    runner.releaseStart(request.userId);
+    await runner.releaseStart(request.userId);
   }
 }
 
@@ -597,33 +596,11 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
         mode,
         overrides,
         userId,
-        mode === 'live' && !admin && !selections && !sponsored
-          ? async (external) => {
-              let usageError: unknown = null;
-              try {
-                await consumeSuccessfulApplication(userId, external);
-              } catch (error) {
-                usageError = error;
-              }
-              try {
-                // The runner calls this only after it has confirmed submission. A
-                // free loan is returned; a paid user's dedicated proxy is a no-op.
-                await releaseFreeProxy(userId);
-              } catch (releaseError) {
-                if (!usageError) throw releaseError;
-              }
-              if (usageError) throw usageError;
-            }
-          : undefined,
-        borrowFreeProxy
-          ? async () => {
-              // Also return a loan when the run finishes without submitting,
-              // fails, or is stopped. Paid assignments are ignored by this call.
-              await releaseFreeProxy(userId);
-            }
-          : undefined,
+        undefined,
+        undefined,
         runStartId,
         request.repairCaseId,
+        { chargeSubmission: mode === 'live' && !admin && !selections && !sponsored, releaseProxy: borrowFreeProxy },
       );
       if (!result.ok) {
         await discardRunStart(runStartId).catch(() => {});

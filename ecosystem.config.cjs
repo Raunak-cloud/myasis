@@ -7,6 +7,19 @@ const host = process.env.HOST || '127.0.0.1';
 module.exports = {
   apps: [
     {
+      name: 'owtomate-applications', cwd: appRoot,
+      script: path.join(appRoot, 'dashboard', 'scripts', 'run-service.mts'),
+      interpreter: process.execPath,
+      node_args: `--import ${path.join(appRoot, 'seek-bot', 'node_modules', 'tsx', 'dist', 'loader.mjs')}`,
+      instances: 1, exec_mode: 'fork', autorestart: true, watch: false,
+      // Dashboard memory restarts must never signal this sibling process.
+      // Full deployments drain applications before refreshing this service.
+      kill_timeout: 3 * 60 * 60 * 1000, restart_delay: 2000, time: true,
+      env: { NODE_ENV: 'production', DISPLAY: process.env.DISPLAY || ':99',
+        OWTOMATE_RUN_SERVICE_CLIENT: '0', MALLOC_ARENA_MAX: '2',
+        ...(process.env.MAX_CONCURRENT_RUNS ? { MAX_CONCURRENT_RUNS: process.env.MAX_CONCURRENT_RUNS } : {}) },
+    },
+    {
       name: 'owtomate-job-index', cwd: appRoot,
       script: path.join(appRoot, 'seek-bot', 'node_modules', 'tsx', 'dist', 'cli.mjs'),
       args: 'dashboard/scripts/job-index-worker.mts', interpreter: process.execPath,
@@ -64,11 +77,14 @@ module.exports = {
       autorestart: true,
       watch: false,
       max_memory_restart: '750M',
+      node_args: '--max-old-space-size=256',
       kill_timeout: 30_000,
       restart_delay: 2_000,
       time: true,
       env: {
         NODE_ENV: 'production',
+        OWTOMATE_RUN_SERVICE_CLIENT: '1',
+        MALLOC_ARENA_MAX: '2',
         /**
          * The virtual screen every run's Chrome draws on (myasis-xvfb.service).
          * Headed Chrome needs a display; headless is what bot detection looks

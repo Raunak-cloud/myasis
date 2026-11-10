@@ -65,5 +65,8 @@ export async function deleteAccount(user: { id: string }): Promise<void> {
     } finally { client.release(); }
     forgetAccountRoute(user.id);
     success = true;
-  } finally { finish(success); }
+  } finally {
+    finish(success);
+    await runner.finishAccountDeletion(user.id, success);
+  }
 }

@@ -135,6 +135,7 @@ as_app "cd $APP/market-scout && npm exec tsc -- -p ."
 # Reserve two seconds for forced termination within the configured bound.
 # A failed or timed-out check stops the release; it never counts as a pass.
 echo "Running limited deployment checks ($CHECK_TIMEOUT_SECONDS-second maximum)"
+as_app "cd $APP && timeout --signal=TERM --kill-after=2s 60s bash deploy/check-application-service.sh"
 FORCE_FLAG=0
 if [ "${FORCE_DEPLOY:-}" = 1 ]; then FORCE_FLAG=1; fi
 REPLAY_BASELINE_FLAG=""
@@ -163,8 +164,10 @@ bash "$APP/deploy/public-site.sh"
 # and saved, and later deploys keep it without being told again.
 RUN_LIMIT=""
 if [[ "${MAX_CONCURRENT_RUNS:-}" =~ ^[1-9][0-9]?$ ]]; then RUN_LIMIT="MAX_CONCURRENT_RUNS=$MAX_CONCURRENT_RUNS "; fi
-# The dashboard closes its browsers on SIGINT; pm2 waits for it before forcing.
-as_app "${RUN_LIMIT}PUBLIC_SITE_URL=http://127.0.0.1:5191 pm2 restart myasis-dashboard --update-env --kill-timeout 30000 > /dev/null && pm2 save > /dev/null && echo restarted"
+# Refresh the independent application service only after the drain above.
+# Routine dashboard restarts never restart this service or its browser children.
+as_app "cd $APP && ${RUN_LIMIT}pm2 startOrReload ecosystem.config.cjs --only owtomate-applications --update-env > /dev/null"
+as_app "cd $APP && ${RUN_LIMIT}PUBLIC_SITE_URL=http://127.0.0.1:5191 pm2 startOrReload ecosystem.config.cjs --only myasis-dashboard --update-env > /dev/null && pm2 save > /dev/null && echo restarted"
 as_app "cd $APP && pm2 startOrReload ecosystem.config.cjs --only market-scout --update-env > /dev/null && pm2 save > /dev/null && echo 'market research restarted'"
 # Fail the release if the public bridge is missing or serves a broken page.
 for attempt in {1..30}; do

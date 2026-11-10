@@ -6,6 +6,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { userChromeDir, userDir } from './server/userdata.js';
 import { runner, readEnv, readEnvSafe, isRunMode, type RunMode } from './server/runner.js';
+import { writeConsole } from './server/live-console.js';
 import {
   listResumes, addResume, updateResume, deleteResume,
   listKnowledge, addKnowledgeFile, addKnowledgeNote, updateKnowledge, deleteKnowledge, knowledgeStats,
@@ -1134,7 +1135,7 @@ function dataApi(): Plugin {
             if (existing?.enabled && existing.application_mode !== mode) return send({ error: 'Pause before changing application mode.' }, 409);
           }
           await changeSchedule(userId, body.enabled, mode, entitlements.autoRunsPerDay);
-          if (!body.enabled) runner.stop(userId);
+          if (!body.enabled) await runner.stop(userId);
           else wakeAutoRunner();
           return send({ ok: true, entitlements: await entitlementsFor(userId, user?.email) });
         });
@@ -1172,7 +1173,7 @@ function dataApi(): Plugin {
           // shared .env's search settings instead of this account's.
           const settings = applyRunPolicy(await runSettingsForUser(userId, { unlimited: entitlements.tier === 'admin' }), entitlements, 'manual');
           // Claimed like a run start, so a scan never closes a browser a run is using.
-          if (!runner.claimStart(userId)) return send({ error: 'A run is already starting or in progress for this account.' }, 409);
+          if (!await runner.claimStart(userId)) return send({ error: 'A run is already starting or in progress for this account.' }, 409);
           try {
             if (sessionFor(userId)) await stopSignin(userId);
             const ready = await waitForSigninChecks(userId);
@@ -1182,7 +1183,7 @@ function dataApi(): Plugin {
             if (!r.ok) await discardRunStart(runStartId).catch(() => {});
             return send(r.ok ? { ok: true } : { error: r.error }, r.ok ? 200 : 409);
           } finally {
-            runner.releaseStart(userId);
+            await runner.releaseStart(userId);
           }
         });
       }
@@ -1279,7 +1280,7 @@ function dataApi(): Plugin {
       case '/api/run/stop': {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
         return withUser(async (userId) => {
-          const r = runner.stop(userId);
+          const r = await runner.stop(userId);
           return send(r.ok ? { ok: true } : { error: r.error }, r.ok ? 200 : 409);
         });
       }
@@ -1305,11 +1306,11 @@ function dataApi(): Plugin {
           });
           const since = Number(url.searchParams.get('since') ?? 0);
           for (const line of runner.backlog(user.id, since)) {
-            res.write(`data: ${JSON.stringify(line)}\n\n`);
+            writeConsole(res, `data: ${JSON.stringify(line)}\n\n`);
           }
-          const unsub = runner.subscribe(user.id, (line) => res.write(`data: ${JSON.stringify(line)}\n\n`));
-          const ping = setInterval(() => res.write(': ping\n\n'), 25_000);
-          req.on('close', () => {
+          const unsub = runner.subscribe(user.id, (line) => writeConsole(res, `data: ${JSON.stringify(line)}\n\n`));
+          const ping = setInterval(() => writeConsole(res, ': ping\n\n'), 25_000);
+          res.on('close', () => {
             clearInterval(ping);
             unsub();
           });
@@ -1408,7 +1409,7 @@ function dataApi(): Plugin {
       const shutdown = (signal: NodeJS.Signals) => {
         if (stopping) return;
         stopping = true;
-        console.log(`[shutdown] ${signal}: stopping runs and sign-in browsers`);
+        console.log(`[shutdown] ${signal}: closing dashboard and sign-in browsers; independent applications continue`);
         const runsStopped = runner.stopAll();
         stopMarketingWorker();
         const signinsStopped = stopAllSignins();

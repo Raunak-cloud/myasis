@@ -27,6 +27,8 @@ import { repairRuntime, repairedWorkerEnvironment, liveRepairEnvironment } from 
 import { repairPilotEnabled } from './repair-release.js';
 import { claimTechnicalRetries, finishTechnicalRetryLeases, type TechnicalRetryContext } from './technical-retries.js';
 import { TECHNICAL_RETRY_REQUEST, TECHNICAL_RETRY_RESPONSE, PREPAID_RETRY_SUBMITTED } from '../../seek-bot/src/technical-retry-types.js';
+import { RemoteRunPool } from './run-service-client.js';
+import { usesRunService, type RunCompletionPolicy, type RunServiceSnapshot } from './run-service-protocol.js';
 
 export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
   const owners = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [userId]);
@@ -153,6 +155,7 @@ interface RunState {
 }
 
 const MAX_LINES = 2000;
+const MAX_LOG_BYTES = 2 * 1024 * 1024;
 
 /**
  * How many accounts may run at once.
@@ -293,6 +296,7 @@ class Run {
   /** A parallel admin run consumes two machine slots, including preparation. */
   workerSlots = 1;
   private lines: LogLine[] = [];
+  private logBytes = 0;
   private seq = 0;
   private listeners = new Set<(l: LogLine) => void>();
   readonly userId: string;
@@ -312,18 +316,22 @@ class Run {
         stream,
         text: raw,
       };
-      this.lines.push(line);
       // Persist before bounding the live backlog; a crash must not discard earlier errors.
       if (this.runStartId) {
         try {
           const dir = resolve(userDir(this.userId), 'run-logs');
           mkdirSync(dir, { recursive: true });
           const file = resolve(dir, `${this.runStartId}.jsonl`);
-          if (!existsSync(file)) writeFileSync(file, this.lines.map(value => JSON.stringify(value)).join('\n') + '\n', { mode: 0o600 });
+          if (!existsSync(file)) writeFileSync(file, [...this.lines, line].map(value => JSON.stringify(value)).join('\n') + '\n', { mode: 0o600 });
           else appendFileSync(file, JSON.stringify(line) + '\n');
         } catch { console.warn('[diagnostics-unavailable] Could not persist a run console line; live console remains available.'); }
       }
-      if (this.lines.length > MAX_LINES) this.lines.shift();
+      // A count alone did not bound large tool output or slow live viewers.
+      // Keep the original on disk and an independent, bounded display string.
+      if (Buffer.byteLength(line.text) > 128 * 1024) line.text = Buffer.from(line.text).subarray(0, 128 * 1024).toString() + ' [continued in saved log]';
+      this.lines.push(line);
+      this.logBytes += Buffer.byteLength(line.text);
+      while (this.lines.length > MAX_LINES || this.logBytes > MAX_LOG_BYTES) this.logBytes -= Buffer.byteLength(this.lines.shift()!.text);
       // Cheap progress signal for the UI without re-reading applied.json.
       const submitted = raw.match(/✅ submitted(?: \[(external)\])?/);
       if (/^\s*Ready for confirmation:/.test(raw)) this.state.prepared++;
@@ -373,8 +381,10 @@ class Run {
    * child then spawned against an orphaned object, invisible and unstoppable.
    */
   get disposable(): boolean {
-    return !this.state.running && !this.postProcessing && this.state.finishedAt !== null && this.listeners.size === 0;
+    return !this.occupiesSlot && (this.state.finishedAt !== null || this.state.startedAt === null) && this.listeners.size === 0;
   }
+
+  discardBacklog(): void { this.lines = []; this.logBytes = 0; }
 
   /**
    * Spawns the bot as a child process with per-run env overrides, so a
@@ -478,7 +488,7 @@ class Run {
       this.cdpPort = null;
       return { ok: false, error: DEPLOYING_MESSAGE };
     }
-    this.lines = [];
+    this.lines = []; this.logBytes = 0;
     this.seq = 0;
     this.onApplicationSubmitted = onApplicationSubmitted ?? null;
     this.onFinished = onFinished ?? null;
@@ -580,7 +590,7 @@ class Run {
       return { ok: false, error: DEPLOYING_MESSAGE };
     }
 
-    this.lines = [];
+    this.lines = []; this.logBytes = 0;
     this.seq = 0;
     this.state = {
       running: true,
@@ -777,6 +787,14 @@ export class RunPool {
   private runs = new Map<string, Run>();
   private preparing = new Map<string, { slots: number; port: number }>();
 
+  snapshot(): RunServiceSnapshot {
+    const ids = new Set([...this.runs.keys(), ...this.starting, ...this.preparing.keys()]);
+    return { pid: process.pid, at: Date.now(), activeCount: this.activeCount(), activeUserIds: this.activeUserIds(),
+      accounts: Object.fromEntries([...ids].map(id => [id, { state: this.stateFor(id), runId: this.runIdFor(id),
+        browserPort: this.browserPortFor(id), inUse: this.inUse(id) }])) };
+  }
+  finishAccountDeletion(_id: string, _success: boolean): void { /* The local caller owns its deletion marker. */ }
+
   private forUser(userId: string): Run {
     let run = this.runs.get(userId);
     if (!run) {
@@ -789,6 +807,15 @@ export class RunPool {
   /** Drops finished runs nobody is watching, so the map cannot grow forever. */
   private sweep(): void {
     for (const [userId, run] of this.runs) if (!this.preparing.has(userId) && run.disposable) this.runs.delete(userId);
+  }
+
+  pruneIdle(): void {
+    for (const [id, run] of this.runs) {
+      if (this.preparing.has(id) || this.starting.has(id)) continue;
+      const old = run.state.finishedAt === null || Date.parse(run.state.finishedAt) < Date.now() - 5 * 60_000;
+      if (old && run.disposable) this.runs.delete(id);
+      else if (old && !run.occupiesSlot) run.discardBacklog();
+    }
   }
 
   /**
@@ -900,7 +927,20 @@ export class RunPool {
     onFinished?: () => void | Promise<void>,
     runStartId?: string | null,
     repairCaseId?: string,
+    policy?: RunCompletionPolicy,
   ): Promise<{ ok: boolean; error?: string }> {
+    if (policy) {
+      // These callbacks must live beside the worker, never in the dashboard.
+      const { consumeSuccessfulApplication } = await import('./billing.js');
+      const { releaseFreeProxy } = await import('./proxy-pool.js');
+      onApplicationSubmitted = policy.chargeSubmission ? async external => {
+        let usageError: unknown;
+        try { await consumeSuccessfulApplication(userId, external); } catch (error) { usageError = error; }
+        try { await releaseFreeProxy(userId); } catch (error) { if (!usageError) throw error; }
+        if (usageError) throw usageError;
+      } : undefined;
+      onFinished = policy.releaseProxy ? async () => { await releaseFreeProxy(userId); } : undefined;
+    }
     if (accountUnavailable(userId)) return { ok: false, error: 'Account deletion is in progress.' };
     this.sweep();
     const full = this.atCapacity(userId);
@@ -943,7 +983,7 @@ export class RunPool {
   }
 }
 
-export const runner = new RunPool();
+export const runner = usesRunService() ? new RemoteRunPool() : new RunPool();
 
 /** Reads seek-bot/.env into a plain object, skipping comments. */
 export function readEnv(): Record<string, string> {
