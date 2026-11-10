@@ -5,7 +5,6 @@ import { plainReason, preparedStatusLabel, userFacingError } from '../run-messag
 import { decodeSettingText, encodeSettingText } from '../runSettings';
 import { securityRetryRemaining, type SecurityRetry } from '../securityRetry';
 import { SecurityRetryControl } from './SecurityRetryControl';
-import './BonusRunNotice.css';
 interface Review {
   id: string; status: string; detail: string | null;
   operator_hold?: { reason: string } | null;

@@ -2962,3 +2962,5 @@ textarea.run-instructions-input {
 .employer-choice { display: flex !important; align-items: flex-start; gap: 8px; }
 .employer-choice input { flex: none; margin-top: 3px; }
 .employer-question .input { width: 100%; box-sizing: border-box; min-width: 0; }
+
+.bonus-run-tag { display:inline-flex; padding:4px 8px; border-radius:6px; background:var(--ok-soft); color:var(--ok); font-size:12px; font-weight:600; }
