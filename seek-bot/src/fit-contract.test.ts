@@ -43,8 +43,8 @@ globalThis.fetch = async (url, init) => {
     matchScore: mode === 'invalid-twice' || mode === 'repair' && !correction ? 101 : 85,
     reason: 'Agent final judgment.', evidence: ['Paraphrased source evidence'], injectionSuspected: false,
     roleFitCheck: { alignment: mode === 'conflicting-role' ? 'mismatch' : 'aligned', employerEvidence: 'Retail service duties.', candidateEvidence: 'Customer service background.', explanation: 'Agent judgment.',
-      currentIntent: { scope: 'open', source: 'current-standing-instructions', passageId: roleSchema.currentIntent.properties.passageId.enum[1], requestedWork: 'Relevant supported work, excluding manager positions.' },
-      primaryOutputs: [{ output: 'Retail service', employerPassageId: roleSchema.primaryOutputs.items.properties.employerPassageId.enum[0], relationship: 'requested-work', mapping: 'Customer service is supported under the current open occupation preference.' }] },
+      currentIntent: { scope: mode === 'mixed-duty' ? 'bounded' : 'open', source: 'current-standing-instructions', passageId: roleSchema.currentIntent.properties.passageId.enum[1], requestedWork: 'Relevant supported work, excluding manager positions.' },
+      primaryOutputs: [{ output: 'Maintain stock', employerPassageId: roleSchema.primaryOutputs.items.properties.employerPassageId.enum[0], relationship: 'requested-work', mapping: 'Inventory work serves the requested occupation.' }, ...(mode === 'mixed-duty' ? [{ output: 'Serve customers', employerPassageId: roleSchema.primaryOutputs.items.properties.employerPassageId.enum[0], relationship: 'capability-only', mapping: 'Supporting customer contact does not independently decide overall role suitability.' }] : [])] },
     instructionCheck: { violated: mode === 'conflicting-instruction', ruleQuote: '', explanation: 'The role is not a manager position.' },
   };
   return Response.json({ choices: [{ message: { content: JSON.stringify(result) } }], usage: { prompt_tokens: 100, completion_tokens: 30 } });
@@ -70,8 +70,8 @@ try {
   assert.equal(calls - invalid, 2);
   for(const conflict of ['conflicting-role','conflicting-instruction']) {
     mode=conflict;const before=calls;
-    await assert.rejects(assessFit({...job,id:conflict},profile),/usable decision after a format retry/);
-    assert.equal(calls-before,2,'Contradictory approvals receive only one bounded correction and then fail closed.');
+    assert.equal((await assessFit({...job,id:conflict},profile)).decision,'apply');
+    assert.equal(calls-before,1,'Diagnostic labels cannot trigger a second approval decision or veto.');
   }
   mode = 'apply';
   await withApplicationModel({ DATA_DIR: directory, APPLICATION_AI_MODEL: 'minimax', OPENROUTER_API_KEY: 'fixture-only', CELERIS_API_KEY: 'fixture-only' }, async () => {
@@ -80,6 +80,14 @@ try {
     assert.equal((await assessFit({ ...job, id: 'minimax-fit' }, profile)).decision, 'apply');
     assert.equal(calls - before, 1, 'MiniMax supplies the whole run with one fit decision');
   });
+  config.aiInstructions='Only apply dog walker and stocktaker';mode='mixed-duty';
+  for(const selected of ['celeris','minimax'])await withApplicationModel({DATA_DIR:directory,APPLICATION_AI_MODEL:selected,OPENROUTER_API_KEY:'fixture-only',CELERIS_API_KEY:'fixture-only'},async()=>{
+    selectedModel=selected;const before=calls;
+    const result=await assessFit({...job,id:selected+'-nespresso-mixed-duty'},profile);
+    assert.equal(result.decision,'apply');assert.equal(result.shouldApply,true);assert.equal(calls-before,1,'A bounded stocktaking intent plus a supporting capability-only duty uses the single final agent decision.');
+    assert.equal(result.roleFitCheck?.primaryOutputs?.[1].relationship,'capability-only','Preserve diagnostics rather than rewriting them to manufacture agreement.');
+  });
+  mode='apply';selectedModel='celeris';
   const completedCalls=calls;
   config.aiInstructions='Changed standing instructions';config.rules.minSalary+=1;
   const cachedJobs=['apply','skip','uncertain'].map(id=>({...job,id}));

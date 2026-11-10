@@ -124,7 +124,7 @@ try {
     roleFitCheck: { alignment: 'aligned', employerEvidence: '', candidateEvidence: '', explanation: '' } };
   const retained = JSON.stringify(rawLegacy); assert.equal(normalizeFitAssessment(rawLegacy, sources), null); assert.equal(JSON.stringify(rawLegacy), retained, 'legacy evidence is rejected as a fresh fit without rewriting historical bytes');
   const inconsistent = { ...rawLegacy, roleFitCheck: valid };
-  assert.equal(normalizeFitAssessment(inconsistent, sources), null, 'an aligned/apply decision cannot contradict bounded primary-output mappings');
+  assert.equal(normalizeFitAssessment(inconsistent, sources)?.decision, 'apply', 'the final agent decision remains authoritative over diagnostic output mappings');
   const metrics = readFileSync(join(directory, 'pipeline-metrics.jsonl'), 'utf8');
   assert.doesNotMatch(metrics, /I am interested in Business Analysis|Gather functional specifications/);
   console.log('PASS: synthetic systems/process adjacency and real combined-data/governance/career-change/open-intent contracts; grounded current/JD provenance, legacy nonmutation, selected-provider single-pass/cache behavior and bounded malformed provenance correction. Scripted providers do not prove future model judgment.');

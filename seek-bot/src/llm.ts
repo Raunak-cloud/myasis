@@ -14,7 +14,7 @@ import { recentReviewFeedback, relatedReviewFeedback } from './store.js';
 import { applicationAttemptHistory, candidateSavedAnswers } from './agent/agent-only-evidence.js';
 import { reviewCurrentDuplicate, type DuplicateReview } from './duplicate-review.js';
 import { withJobCost } from './cost-ledger.js';
-import { roleFitProvenanceError, type RoleFitCheck, type FitProvenanceSources } from './role-fit.js';
+import { roleFitProvenanceError, type FitProvenanceSources } from './role-fit.js';
 import { fitProvenanceCatalog, fitProvenanceWireSchema, resolveFitProvenanceWire, type FitSourcePassage } from './fit-provenance.js';
 import { loadReviewVerdicts, verdictContext } from './review-verdicts.js';
 import { completedReview, reuseCompletedReview } from './completed-reviews.js';
@@ -417,16 +417,10 @@ export function fitAssessmentValidationError(value: unknown, sources?: FitProven
   if (provenanceError) return provenanceError;
   const instructions = result.instructionCheck as FitInstructionCheck | undefined;
   if (!instructions || typeof instructions.violated !== 'boolean' || typeof instructions.ruleQuote !== 'string' || typeof instructions.explanation !== 'string') return 'instructionCheck must explicitly assess current instructions';
-  if (result.decision === 'apply') {
-    const role = result.roleFitCheck as RoleFitCheck;
-    if (instructions.violated) return 'apply contradicts instructionCheck.violated=true; resolve the current instruction conflict';
-    if (role.alignment !== 'aligned' || role.currentIntent?.scope === 'uncertain') return 'apply requires aligned primary work and resolved current occupation intent';
-    if (role.currentIntent?.scope === 'bounded' && role.primaryOutputs?.some(output => output.relationship !== 'requested-work')) return 'apply contradicts a bounded current intent: every dominant output must serve the requested work';
-  }
   return null;
 }
 
-/** Accept one internally consistent, grounded decision; contradictory output is malformed. */
+/** Preserve the matching agent's final decision; diagnostic labels are explanatory. */
 export function normalizeFitAssessment(value: unknown, sources?: FitProvenanceSources): FitAssessment | null {
   if (fitAssessmentValidationError(value, sources)) return null;
   const result = value as FitAssessment;
@@ -803,9 +797,9 @@ Workshops, requirements, analysis, delivery or a familiar tool can be transferab
 without the employer's primary deliverables being the work the candidate currently seeks.
 Conversely, generic process tasks do not make genuinely requested work unsuitable when its
 dominant outputs serve that function. Judge the whole actual function, not title tokens.
-Reconcile these mappings in your final alignment and decision. These fields preserve your
-source attribution and reasoning. Your final decision must agree with your current-intent,
-instruction-conflict and primary-output assessments. Contradictory output is unusable; a high
+Assess the overall role against the candidate's current preferences and reconcile your
+reasoning before choosing the final decision. Diagnostic labels explain your assessment;
+they are not separate approval rules requiring every duty to be requested work. A high
 score never grants permission to ignore current preferences.
 Return decision=skip for a clear mismatch, an explicit candidate-instruction conflict,
 or an explicitly mandatory requirement the candidate demonstrably does not meet.

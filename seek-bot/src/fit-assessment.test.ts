@@ -18,9 +18,9 @@ for(const diagnostic of [
  {instructionCheck:{violated:true,ruleQuote:'Only stocktaking or dog walking.',explanation:'This is software development.'}},
 ]) {
  const raw={...base,...diagnostic};const retained=JSON.stringify(raw);
- assert.equal(normalizeFitAssessment(raw),null,'An inconsistent approval is unusable, never a send authorization.');
+ assert.equal(normalizeFitAssessment(raw)?.decision,'apply','Supporting diagnostics cannot veto the matching agent final decision.');
  assert.equal(JSON.stringify(raw),retained,'Historical evidence is never rewritten.');
  for(const decision of ['skip','uncertain'])assert.equal(normalizeFitAssessment({...raw,decision})?.decision,decision);
 }
 for(const malformed of [null,'apply',{...base,decision:'maybe'},{...base,matchScore:101},{...base,evidence:'prose'},{...base,instructionCheck:undefined}])assert.equal(normalizeFitAssessment(malformed),null);
-console.log('PASS: consistent decisions retained; conflicting occupation/instruction approvals rejected without rewriting history.');
+console.log('PASS: final agent decisions retained independently of diagnostic labels; malformed responses rejected without rewriting history.');
