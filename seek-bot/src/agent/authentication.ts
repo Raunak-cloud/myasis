@@ -126,9 +126,9 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
   assertLive();
   const purpose = String(args.purpose ?? '');
   if (!['sign_in', 'create_account', 'reset_password'].includes(purpose)) return ok('Choose sign_in, create_account or reset_password from the observed form.', 'invalid-arguments');
-  if(employerCredentialState(credentialUrl(ctx),ctx.profile.email,ctx.job.company).state==='external')return accountHandoff(ctx);
   if(![args.refs,args.targets].some(value=>Array.isArray(value)&&value.length))return ok('Supply current authentication refs or targets. Nothing was filled.','invalid-arguments');
   const account=employerCredentialState(credentialUrl(ctx),ctx.profile.email,ctx.job.company);
+  if(account.state==='external')return accountHandoff(ctx);
   if(purpose==='create_account'&&['accepted','rejected'].includes(account.state))return ok('An Owtomate account already exists for this employer. Reuse its accepted credential or recover that same managed account; do not create another account.','reobserve');
   const refs = Array.isArray(args.refs) ? args.refs.map(String) : [];
   const fields = ctx.observation.fields.filter((field) => refs.includes(field.ref));
@@ -149,7 +149,6 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
     return ok('None of those refs are authentication fields on this page. Supply targets or refs from the current FIELDS list before retrying. Nothing was filled.', 'invalid-arguments');
   }
   const hasPassword = fields.some(isAuthenticationPasswordField);
-  if(account.state==='external'&&(purpose==='create_account'||purpose==='sign_in'&&hasPassword))return accountHandoff(ctx);
   if(purpose==='reset_password'&&hasPassword&&!['accepted','rejected'].includes(account.state)&&!mailboxResetProven(ctx)) {
     return ok('No verified reset access is established for this employer. Use its offered recovery flow and consume a fresh employer reset link/code through the matching candidate inbox before setting a new password. No password was generated or filled.','reobserve');
   }
