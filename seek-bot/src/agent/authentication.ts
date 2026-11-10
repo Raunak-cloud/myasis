@@ -266,7 +266,7 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
       (failed.length ? ` Re-observe and retry fields the site rejected: ${failed.join('; ')}` : '') +
       ` No button was clicked and no account acceptance was established. Inspect the current response and choose the next actual control. Visible enabled controls: ${JSON.stringify(ctx.observation.actions.filter(action => !action.disabled).map(action => action.text).slice(0, 12))}.` +
       (setsPassword ? ' If the site then rejects the password for its rules, call fill_authentication_fields again with password_rules taken from that message.' : ''),
-    failed.length || unsupported.length ? 'failed' : alreadyCorrect.length && !filled.length ? 'reobserve' : 'completed',
+    failed.length || unsupported.length ? 'failed' : 'completed',
   );
 }
 

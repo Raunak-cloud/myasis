@@ -27,7 +27,7 @@ const city: Call = { name: 'browser_action', args: { action: 'fill', selector: '
 const waitForConsent: Call = { name: 'browser_action', args: { action: 'wait', selector: '#allow', state: 'visible' } };
 const form = `<form id=form><label>City<input id=city required value=Sydney></label><button id=send type=button onclick="localStorage.setItem('sends',String(Number(localStorage.getItem('sends')||0)+1));document.body.innerHTML='<main><h1>Application received.</h1></main>'">Submit application</button></form>`;
 
-async function scenario(id: string, body: string, calls: Call[], actualSend = false) {
+async function scenario(id: string, body: string, calls: Array<Call | Call[]>, actualSend = false) {
  config.dryRun = true; process.env.APPLICATION_REVIEW_MODE = actualSend ? '' : 'prepare';
  const context = await browser.newContext(), page = await context.newPage();
  const url = `https://${id}.fixture.invalid/application`;
@@ -41,10 +41,11 @@ async function scenario(id: string, body: string, calls: Call[], actualSend = fa
   assert.ok(!request.tools.some((t:any) => /specialist|consult_application/.test(t.function.name)));
   const guidance = readiness(request); if (guidance) return guidance;
   seen.push(request.messages.filter((m:any)=>m.role==='user').map((m:any)=>typeof m.content==='string'?m.content:JSON.stringify(m.content)).join('\n'));
-  const call = calls[decisions++]; assert.ok(call, `${id}: unexpected extra decision`);
+  const planned = calls[decisions++]; assert.ok(planned, `${id}: unexpected extra decision`);
+  const callsForTurn = Array.isArray(planned) ? planned : [planned];
   if (actualSend) config.dryRun = false;
   return Response.json({ usage: { prompt_tokens: 100, completion_tokens: 10 }, choices: [{ message: { role: 'assistant', content: null,
-   tool_calls: [{ id: `${id}-${decisions}`, type: 'function', function: { name: call.name, arguments: fixtureToolArguments(request, call.name, call.args) } }] } }] });
+   tool_calls: callsForTurn.map((call,index) => ({ id: `${id}-${decisions}-${index}`, type: 'function', function: { name: call.name, arguments: fixtureToolArguments(request, call.name, call.args) } })) } }] });
  };
  try {
   const result = await runAgentOnlyApplication({ simulation: 'isolated-form', page,
@@ -87,11 +88,28 @@ try {
   assert.equal(run.result.outcome.status, 'prepared');
   assert.ok(run.trace.steps.slice(0,2).every((step:any)=>/Already matched the requested candidate values/.test(step.result)),JSON.stringify(run.trace.steps.slice(0,2).map((s:any)=>s.result)));
   assert.ok(run.trace.steps[0].result.includes('Verify email to continue'));
-  assert.ok(run.trace.steps.slice(0,2).every((step:any)=>step.disposition==='reobserve'));
+  assert.ok(run.trace.steps.slice(0,2).every((step:any)=>step.disposition==='completed'));
   assert.equal(run.emailWrites, 0);
   const forced = await scenario('private-fill-native-events', `<main><label>Email<input id=email type=email value="fixture@example.invalid" oninput="localStorage.setItem('email-writes',String(Number(localStorage.getItem('email-writes')||0)+1))"></label><div id=status></div>${form}</main>`,
    [{...fill,args:{...fill.args,refill:true}},city,prepare]);
   assert.equal(forced.result.outcome.status,'prepared'); assert.ok(forced.emailWrites>0,'the agent can still choose a native refill when framework events are needed');
+ });
+ await test('already-correct private values let later evidence reads and form actions run in the same reply', async () => {
+  const fill:Call={name:'fill_authentication_fields',args:{purpose:'sign_in',reason:'Observed candidate email',targets:[{selector:'#email'}]}};
+  const run=await scenario('private-noop-continuation', `<main><label>Email<input id=email type=email value="fixture@example.invalid" oninput="localStorage.setItem('email-writes',String(Number(localStorage.getItem('email-writes')||0)+1))"></label>${form.replace('value=Sydney','')}</main>`,
+   [[fill,{name:'read_candidate_evidence',args:{query:'Fictional'}},city],prepare]);
+  assert.equal(run.result.outcome.status,'prepared');assert.equal(run.decisions,2);assert.equal(run.emailWrites,0);assert.equal(run.sends,0);
+  assert.equal(run.trace.steps[0].disposition,'completed');
+  assert.equal(run.trace.steps[1].tool,'read_candidate_evidence');assert.notEqual(run.trace.steps[1].disposition,'not-executed');
+  assert.equal(run.trace.steps[2].tool,'browser_action');assert.notEqual(run.trace.steps[2].disposition,'not-executed');
+  assert.ok(run.result.captured.some(answer=>answer.answer==='Sydney'));
+ });
+ await test('an actual private-fill error still stops later actions until the agent chooses recovery', async () => {
+  const wrong:Call={name:'fill_authentication_fields',args:{purpose:'sign_in',reason:'Incorrect fixture target',targets:[{selector:'#cv'}]}};
+  const run=await scenario('private-failure-pause', `<main><label>Resume<input id=cv type=file></label>${form.replace('value=Sydney','')}</main>`,[[wrong,city],city,prepare]);
+  assert.equal(run.result.outcome.status,'prepared');assert.equal(run.decisions,3);assert.equal(run.sends,0);
+  assert.equal(run.trace.steps[0].disposition,'failed');assert.equal(run.trace.steps[1].disposition,'not-executed');
+  assert.equal(run.trace.steps[2].disposition,undefined);assert.ok(run.result.captured.some(answer=>answer.answer==='Sydney'));
  });
  await test('a sign-in popup closing after a possible send cannot cause an automatic duplicate submission', async () => {
   const body = `<main><div id=status></div>${form.replace("document.body.innerHTML=", "window.open('/identity','receipt');document.body.innerHTML=")}</main>`;
