@@ -7,7 +7,7 @@ const targets = { type: 'array', minItems: 1, maxItems: 12, items: {
   type: 'object', additionalProperties: false,
   properties: { ...browserTargetProperties, ref: { type: 'string', minLength: 1 }, selector: { type: 'string', minLength: 1 } },
   anyOf: [{ required: ['ref'] }, { required: ['selector'] }, { required: ['locator'] }],
-}, description: 'Actual authentication or code input targets. Include frame scope for embedded forms.' };
+}, description: 'Actual authentication or code input targets. Use current field refs when available; include frame scope for embedded forms.' };
 const cachedVerification = {
   credential_id: { type: 'string', minLength: 1, maxLength: 100, description: 'ID from this tool’s message results. Omit on the first call.' },
   purpose: { type: 'string', enum: [...VERIFICATION_PURPOSES], description: 'The email purpose requested by the site: verification, sign-in or reset_password.' },
@@ -17,7 +17,7 @@ const cachedVerification = {
 
 const AUTHENTICATION_TOOL: ToolSchema = {
     name: 'fill_authentication_fields',
-    description: "Fill actual login, registration or reset fields privately. Check the saved employer account first; reuse accepted credentials. Targets are input fields, not buttons or ordinary application questions. For a new password pass the site’s password_rules. Existing accounts need their genuine reset flow before setting a password. Click Continue/Sign in with browser_action, then record_authentication_result. Pending credentials are not accepted credentials.",
+    description: "Fill login, registration or reset fields privately. Include their current field numbers in refs, for example refs: [\"f0\", \"f1\"], or use supported targets if refs are unavailable. Check the saved employer account first; reuse accepted credentials. For a new password pass the site's password_rules. Click Continue/Sign in with browser_action, then record_authentication_result.",
   parameters: {
       type: 'object',
       properties: {
@@ -79,5 +79,5 @@ const EMAILED_LINK_TOOL: ToolSchema = {
 
 /** Credential and connected-inbox helpers shared by the sole applying agent. */
 export function authenticationTools(): ToolSchema[] {
-  return [{name:'check_employer_account',description:"Check this candidate’s saved account for the current employer. Missing metadata does not prove no account exists. Use the employer’s normal discovery/reset flow; existing/not_found requires its complete explicit message. Returns recovery options, never passwords.",parameters:{type:'object',additionalProperties:false,properties:{outcome:{type:'string',enum:['lookup','existing','not_found']},evidence:{type:'string',maxLength:4000}}}},AUTHENTICATION_TOOL, ...(gmailAvailable() ? [EMAILED_CODE_TOOL, EMAILED_LINK_TOOL] : [])];
+  return [{name:'check_employer_account',description:"Check this candidate's saved account for the current employer. Missing metadata does not prove no account exists. Describe the observed evidence for existing/not_found. An existing account without a verified login is skipped. Never returns passwords.",parameters:{type:'object',additionalProperties:false,properties:{outcome:{type:'string',enum:['lookup','existing','not_found']},evidence:{type:'string',maxLength:4000}}}},AUTHENTICATION_TOOL, ...(gmailAvailable() ? [EMAILED_CODE_TOOL, EMAILED_LINK_TOOL] : [])];
 }
