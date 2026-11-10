@@ -33,7 +33,7 @@ export function runServiceRequest<T>(method: string, args: unknown[] = []): Prom
       } catch (error) { reject(error); }
       socket.end();
     });
-    socket.once('error', reject);
+    socket.once('error', () => reject(new Error('Applications are reconnecting. Try again shortly.')));
     socket.once('close', () => { clearTimeout(timer); reject(new Error('Application service is unavailable. Try again shortly.')); });
   });
 }
@@ -43,10 +43,12 @@ export function runServiceRequest<T>(method: string, args: unknown[] = []): Prom
  * relaunches a browser based on a stale database row. */
 export class RemoteRunPool {
   private snapshot(): RunServiceSnapshot {
-    const state = JSON.parse(readFileSync(runServiceState(), 'utf8')) as RunServiceSnapshot;
-    if (Date.now() - state.at > 10_000) throw new Error('Application service is reconnecting. Try again shortly.');
-    process.kill(state.pid, 0);
-    return state;
+    try {
+      const state = JSON.parse(readFileSync(runServiceState(), 'utf8')) as RunServiceSnapshot;
+      if (Date.now() - state.at > 10_000) throw new Error('Stale application state.');
+      process.kill(state.pid, 0);
+      return state;
+    } catch { throw new Error('Applications are reconnecting. Try again shortly.'); }
   }
   activeCount() { return this.snapshot().activeCount; }
   activeUserIds() { return this.snapshot().activeUserIds; }

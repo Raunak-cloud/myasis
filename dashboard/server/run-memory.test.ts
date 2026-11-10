@@ -27,6 +27,17 @@ test('slow console clients disconnect instead of retaining unlimited output', ()
   assert.equal(writes, 1);
 });
 
+test('a broken console observer cannot interrupt application progress or billing', () => {
+  const pool = new RunPool();
+  const run = Reflect.get(pool, 'forUser').call(pool, 'fixture-viewer');
+  let charges = 0, delivered = 0;
+  run.onApplicationSubmitted = () => { charges++; };
+  pool.subscribe('fixture-viewer', () => { throw new Error('Viewer disconnected'); });
+  pool.subscribe('fixture-viewer', () => { delivered++; });
+  assert.doesNotThrow(() => run.push('out', '✅ submitted [external]'));
+  assert.equal(charges, 1); assert.equal(delivered, 1); assert.equal(run.state.applied, 1);
+});
+
 test('abandoned idle consoles are released while a preparation claim retains its owner', () => {
   const pool = new RunPool();
   const unsubscribe = pool.subscribe('idle-viewer', () => {});

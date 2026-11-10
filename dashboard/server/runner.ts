@@ -314,7 +314,8 @@ class Run {
         seq: ++this.seq,
         ts: new Date().toISOString(),
         stream,
-        text: raw,
+        // Split strings can retain an entire stdout chunk behind a tiny line.
+        text: Buffer.from(raw).toString('utf8'),
       };
       // Persist before bounding the live backlog; a crash must not discard earlier errors.
       if (this.runStartId) {
@@ -343,7 +344,10 @@ class Run {
           );
         }
       }
-      for (const fn of this.listeners) fn(line);
+      for (const fn of this.listeners) {
+        try { fn(line); }
+        catch { this.listeners.delete(fn); console.warn('[applications] disconnected a failed console observer'); }
+      }
     }
   }
 
