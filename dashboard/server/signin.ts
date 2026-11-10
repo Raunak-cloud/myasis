@@ -14,6 +14,7 @@ import { SigninSessions, type SigninTarget } from './signin-sessions.js';
 import { accountUnavailable } from './account-lifecycle.js';
 import { one } from './db/index.js';
 import { browserGmailUrl } from './gmail-access.js';
+import { isAdmin } from './admin-access.js';
 
 const START_URLS: Record<SigninTarget, string> = {
   seek: 'https://www.seek.com.au/oauth/login/',
@@ -27,6 +28,9 @@ const START_URLS: Record<SigninTarget, string> = {
  */
 const desktops = new SigninSessions(async (session, assist) => {
   const { userId, target, id } = session;
+  const owner = await one<{ email: string }>('SELECT email FROM users WHERE id=$1 AND blocked_at IS NULL', [userId]);
+  if (!owner) throw new Error('This account is unavailable.');
+  if (Boolean(session.unlimited) !== isAdmin(owner.email)) throw new Error('Account access changed. Please reopen the browser.');
   ensureUserDataDir(userId);
   const profileDir = userChromeDir(userId);
   if (!await releaseChromeProfile(profileDir)) throw new Error('The previous browser is still closing. Please retry shortly.');
@@ -39,7 +43,7 @@ const desktops = new SigninSessions(async (session, assist) => {
     : { state: 'unavailable', message: 'No Google account is available in this browser profile. Sign in manually.' };
   const desktop = new SigninDesktop({
     profileDir, chromePath: readEnv().CHROME_PATH?.trim() || '/usr/bin/google-chrome',
-    routeArgs: route.args, startUrl: gmailProfile ? browserGmailUrl(gmailProfile.email) : START_URLS[target], password: session.password,
+    routeArgs: route.args, startUrl: gmailProfile ? browserGmailUrl(gmailProfile.email) : START_URLS[target], password: session.password, adminBrowser: isAdmin(owner.email),
     log: message => console.warn(`[signin ${id}] ${message}`),
     onReady: debugPort => {
       if (!account) return;
@@ -62,7 +66,9 @@ export const stopAllSignins = () => desktops.stopAll();
 export async function startSignin(userId: string, target: SigninTarget = 'seek', options: { assist?: boolean; expiresAt?: number } = {}) {
   if (accountUnavailable(userId)) return { ok: false, error: 'Account deletion is in progress.' };
   if (!signinSupported()) return { ok: false, error: 'Remote sign-in is only available on the Linux server. On this machine, use the local Chrome sign-in instead.' };
-  return desktops.start(userId, target, options.assist !== false, options.expiresAt);
+  const owner = await one<{ email: string }>('SELECT email FROM users WHERE id=$1 AND blocked_at IS NULL', [userId]);
+  if (!owner) return { ok: false, error: 'This account is unavailable.' };
+  return desktops.start(userId, target, options.assist !== false, options.expiresAt, isAdmin(owner.email));
 }
 
 /**
@@ -89,23 +95,23 @@ export function attachSigninVnc(server: { on: (ev: string, cb: (...a: any[]) => 
     }
     void currentUser(req.headers?.cookie).then((user) => {
       const live = user ? desktops.desktopFor(user.id) : null;
-      if (!live || live.state !== 'ready') {
+      if (!live || live.state !== 'ready' || (live.adminBrowser && !isAdmin(user?.email))) {
         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
         socket.destroy();
         return;
       }
       wss.handleUpgrade(req, socket, head, (ws) => {
         live.closeViewer?.();
-        live.closeViewer = bridge(ws, live.vncPort);
+        live.closeViewer = bridge(ws, live.vncPort, live.adminBrowser);
       });
     }).catch(() => socket.destroy());
   });
 }
 
-/** The authenticated viewer can enter sign-in details, not drive Chrome's UI. */
-export function bridge(ws: WebSocket, port: number): () => void {
+/** The owner controls their own viewer; admin sessions also expose Chrome controls. */
+export function bridge(ws: WebSocket, port: number, adminBrowser = false): () => void {
   const tcp = createConnection({ host: '127.0.0.1', port });
-  const input = new SigninInputFilter();
+  const input = new SigninInputFilter(adminBrowser);
   let open = true;
   const shutdown = () => {
     if (!open) return;

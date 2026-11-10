@@ -133,6 +133,7 @@ export interface SigninDesktopOptions {
   routeArgs: string[];
   startUrl: string;
   password: string;
+  adminBrowser?: boolean;
   /** Credentials and page contents must never enter these lifecycle logs. */
   log?: (message: string) => void;
   onReady?: (debugPort: number) => void;
@@ -141,6 +142,7 @@ export interface SigninDesktopOptions {
 
 /** Owns a single account's desktop and all of its recovery/cleanup work. */
 export class SigninDesktop {
+  get adminBrowser() { return this.options.adminBrowser === true; }
   state: DesktopState = 'starting';
   revision = 0;
   message = 'Opening the sign-in browser...';
@@ -304,13 +306,13 @@ export class SigninDesktop {
             `--user-data-dir=${this.options.profileDir}`, ...this.options.routeArgs,
             '--no-first-run', '--no-default-browser-check', '--window-position=0,0', '--window-size=1280,900', '--test-type',
             '--remote-debugging-address=127.0.0.1', `--remote-debugging-port=${this.debugPort}`,
-            ...signinChromeArgs(this.options.startUrl),
+            ...signinChromeArgs(this.options.startUrl, this.adminBrowser),
           ], { ...process.env, DISPLAY: `:${this.display}` });
           await this.ready('browser', async () => Boolean(await this.browserInfo()));
         }
         this.launch('viewer', 'x11vnc', ['-display', `:${this.display}`, '-rfbport', String(this.vncPort), '-localhost',
           '-passwdfile', resolve(this.passwordDir, 'passwd'), '-forever', '-shared', '-rfbversion', '3.8',
-          '-input', 'KMB', '-nosel', '-noxdamage', '-quiet']);
+          '-input', 'KMB', ...(this.adminBrowser ? [] : ['-nosel']), '-noxdamage', '-quiet']);
         await this.ready('viewer', () => vncReady(this.vncPort));
         this.assertActive();
         // Every component must still be alive, including ones started earlier.

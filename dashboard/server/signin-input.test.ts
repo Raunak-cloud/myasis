@@ -12,6 +12,18 @@ function ready() { const filter = new SigninInputFilter(); filter.feed(handshake
 test('sign-in Chrome has neither a tab strip nor an editable address bar', () => {
   assert.deepEqual(signinChromeArgs('https://login.example/'), ['--kiosk', '--noerrdialogs', '--disable-session-crashed-bubble', '--app=https://login.example/']);
 });
+test('admin browser supports address bar, tabs, mouse and clipboard in its own session', () => {
+  assert.deepEqual(signinChromeArgs('https://login.example/', true), ['--noerrdialogs', '--disable-session-crashed-bubble', 'https://login.example/']);
+  const filter = new SigninInputFilter(true);
+  filter.feed(handshake);
+  const shortcut = Buffer.concat([key(0xffe3), key(0x6c), key(0x6c, false), key(0xffe3, false)]);
+  assert.deepEqual(Buffer.concat(filter.feed(shortcut)), shortcut);
+  assert.deepEqual(filter.feed(pointer(4)), [pointer(4)]);
+  const clipboard = Buffer.from([6, 0, 0, 0, 0, 0, 0, 1, 65]);
+  assert.deepEqual(filter.feed(clipboard), [clipboard]);
+  filter.feed(key(0xffe3));
+  assert.deepEqual(filter.release(), [key(0xffe3, false)]);
+});
 test('fragmented/coalesced handshake and messages retain their boundaries', () => {
   const source = Buffer.concat([handshake, key(65), key(65, false), pointer(1), pointer(0)]);
   for (let split = 1; split <= source.length; split++) {

@@ -340,7 +340,7 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
         onSelect={selectStep}
         onEngage={engageStep}
       >
-        <SeekSignIn showConnected indeedEnabled={Boolean(entitlements?.indeedApplications)} onVerifyingChange={onVerifyingSignInChange} />
+        <SeekSignIn showConnected adminBrowserAccess={entitlements?.tier === 'admin'} indeedEnabled={Boolean(entitlements?.indeedApplications)} onVerifyingChange={onVerifyingSignInChange} />
       </Step>
 
       {!inline && <GmailConnect />}

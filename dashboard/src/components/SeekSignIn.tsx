@@ -35,10 +35,11 @@ type Status = {
 
 const SITE_NAME = { seek: 'SEEK', indeed: 'Indeed', gmail: 'Gmail' } as const;
 
-export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVerifyingChange }: {
+export function SeekSignIn({ indeedEnabled = false, showConnected = false, adminBrowserAccess = false, onVerifyingChange }: {
   indeedEnabled?: boolean;
   /** Keep the connection state visible on Setup, even after sign-in succeeds. */
   showConnected?: boolean;
+  adminBrowserAccess?: boolean;
   /** Told whenever a sign-in check starts or settles, so the page can hold a run back until it has. */
   onVerifyingChange?: (verifying: boolean) => void;
 }) {
@@ -240,6 +241,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
     const indeedExpired = status.indeed?.signedIn === false;
     return (
       <div className="seek-connect">
+        {adminBrowserAccess && <div className="seek-connect-row"><div><h3>VPS browser</h3><p className="job-meta">Open your own browser on the server.</p></div><button className="btn" disabled={busy} onClick={() => open('seek')}>{busy ? 'Opening…' : 'Open browser'}</button></div>}
         {error && <div className="banner banner-bad">{error}</div>}
         {notice && <div className={`banner ${/signed out|could not/i.test(notice) ? 'banner-bad' : 'banner-ok'}`}>{notice}</div>}
         {(showConnected || !status.seek?.signedIn) && !status.checking && <div className="seek-connect-row">
@@ -291,9 +293,9 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, onVer
         <div className="seek-window-bar">
           <span className={`seek-dot ${connected ? 'on' : ''}`} aria-hidden="true" />
           <span className="seek-window-title">
-            {`${SITE_NAME[status.session.target ?? 'seek']} sign-in`}
+            {status.session.unlimited ? 'VPS browser' : `${SITE_NAME[status.session.target ?? 'seek']} sign-in`}
           </span>
-          <span className="job-meta seek-window-time">{minutesLeft} min left</span>
+          {!status.session.unlimited && <span className="job-meta seek-window-time">{minutesLeft} min left</span>}
           <button className="btn btn-small" disabled={busy} onClick={() => void close(false)}>
             {busy ? 'Closing…' : 'Close'}
           </button>

@@ -11,6 +11,19 @@ function desktop(start = async () => {}, stop = async () => {}) {
   return fake as unknown as SigninDesktop;
 }
 
+test('admin browser remains open beyond normal expiry and can be closed', async () => {
+  const sessions = new SigninSessions(async () => desktop(), 20);
+  const admin = await sessions.start('admin', 'seek', true, undefined, true);
+  const user = await sessions.start('user', 'seek');
+  assert.equal(admin.session?.unlimited, true);
+  assert.equal(user.session?.unlimited, false);
+  await new Promise(done => setTimeout(done, 50));
+  assert.equal(sessions.sessionFor('admin')?.state, 'ready');
+  assert.equal(sessions.sessionFor('user'), null);
+  await sessions.stopAll();
+  assert.equal(sessions.count(), 0);
+});
+
 test('simultaneous opens share one launch; the account is reserved throughout preparation', async () => {
   const gate = deferred(); let preparations = 0;
   const sessions = new SigninSessions(async () => { preparations++; await gate.promise; return desktop(); });

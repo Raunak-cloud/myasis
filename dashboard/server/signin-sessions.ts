@@ -11,6 +11,7 @@ export interface SigninSession {
   password: string;
   startedAt: number;
   expiresAt: number;
+  unlimited?: boolean;
   target: SigninTarget;
   state: SigninDesktop['state'];
   revision: number;
@@ -48,25 +49,27 @@ export class SigninSessions {
   count() { return new Set([...this.entries.keys(), ...this.closing.keys()]).size; }
   desktopFor(userId: string) { return this.entries.get(userId)?.desktop; }
 
-  async start(userId: string, target: SigninTarget, assist = true, expiresAt?: number): Promise<{ok: boolean; session?: SigninSession; error?: string}> {
+  async start(userId: string, target: SigninTarget, assist = true, expiresAt?: number, unlimited = false): Promise<{ok: boolean; session?: SigninSession; error?: string}> {
     let entry = this.entries.get(userId);
     // A Gmail request must not silently return an already open job-board window.
     // Wait for profile cleanup before launching the newly requested destination.
-    if (entry && entry.session.target !== target) { await this.stop(userId); return this.start(userId, target, assist, expiresAt); }
-    if (entry?.desktop?.state === 'failed') { await this.stop(userId); return this.start(userId, target, assist, expiresAt); }
+    if (entry && (entry.session.target !== target || Boolean(entry.session.unlimited) !== unlimited)) { await this.stop(userId); return this.start(userId, target, assist, expiresAt, unlimited); }
+    if (entry?.desktop?.state === 'failed') { await this.stop(userId); return this.start(userId, target, assist, expiresAt, unlimited); }
     if (!entry) {
       const now = Date.now();
       if (expiresAt !== undefined && (!Number.isFinite(expiresAt) || expiresAt <= now)) return {ok: false, error: 'The sign-in window expired. Please open it again.'};
       const session: SigninSession = { id: randomUUID(), userId, target, password: randomBytes(8).toString('base64url').slice(0, 8),
-        display: 0, vncPort: 0, startedAt: now, expiresAt: Math.min(now + this.duration, expiresAt ?? Infinity),
+        display: 0, vncPort: 0, startedAt: now, expiresAt: unlimited ? Number.MAX_SAFE_INTEGER : Math.min(now + this.duration, expiresAt ?? Infinity), unlimited,
         state: 'starting', revision: 0, message: 'Opening the sign-in browser...' };
       entry = { session, cancelled: false, task: Promise.resolve() };
       // Claim the account before prepare/route/profile cleanup can yield.
       this.entries.set(userId, entry);
       const current = entry;
       const priorCleanup = this.closing.get(userId);
-      current.timer = setTimeout(() => void this.stopIfCurrent(userId, current), session.expiresAt - now);
-      current.timer.unref();
+      if (!unlimited) {
+        current.timer = setTimeout(() => void this.stopIfCurrent(userId, current), session.expiresAt - now);
+        current.timer.unref();
+      }
       current.task = (async () => {
         await priorCleanup;
         if (current.cancelled) return;

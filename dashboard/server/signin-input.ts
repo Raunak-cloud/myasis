@@ -11,7 +11,8 @@ const EDIT_KEYS = new Set([0xff08, 0xff09, 0xfe20, 0xff0d, 0xff1b, 0xff50, 0xff5
 const BLOCK_ENCODINGS = new Set([-258, -316, -309, -308, 0xc0a1e5ce | 0]);
 const MAX_MESSAGE = 256 * 1024;
 
-export function signinChromeArgs(startUrl: string): string[] {
+export function signinChromeArgs(startUrl: string, adminBrowser = false): string[] {
+  if (adminBrowser) return ['--noerrdialogs', '--disable-session-crashed-bubble', startUrl];
   return ['--kiosk', '--noerrdialogs', '--disable-session-crashed-bubble', `--app=${startUrl}`];
 }
 
@@ -24,6 +25,8 @@ function keyPacket(key: number, down: boolean): Buffer {
 }
 
 export class SigninInputFilter {
+  private readonly adminBrowser: boolean;
+  constructor(adminBrowser = false) { this.adminBrowser = adminBrowser; }
   private pending: Buffer = Buffer.alloc(0);
   private handshake = 0;
   private controls = new Set<number>();
@@ -73,7 +76,12 @@ export class SigninInputFilter {
       if (size > MAX_MESSAGE) throw new Error('Sign-in input exceeds limit');
       if (this.pending.length < size) break;
       const packet = this.take(size);
-      if (type === 4) output.push(...this.key(packet));
+      if (this.adminBrowser && type === 4) {
+        const key = packet.readUInt32BE(4);
+        if (packet[1]) this.pressed.add(key); else this.pressed.delete(key);
+        output.push(packet);
+      } else if (this.adminBrowser && (type === 5 || type === 6)) output.push(packet);
+      else if (type === 4) output.push(...this.key(packet));
       else if (type === 5) {
         // Only plain left-click and vertical wheel. No context menu, middle-
         // click, back/forward buttons or modified link-opening/drag gestures.
