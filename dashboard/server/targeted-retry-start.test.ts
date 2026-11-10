@@ -138,7 +138,8 @@ export const gmailAccess=async()=>({connected:false}),scheduledStart=async()=>{t
     assert.equal(JSON.parse(launched[1].DISCOVERY_SEED_JOBS_JSON)[0].fitReview,undefined,'a discovery lead carries no approval or fit waiver');
     assert.equal(launched[1].TARGET_SEEK_JOBS,undefined,'leads do not replace the ordinary discovery streams');
     assert.equal(launched[3],undefined,'complimentary applications must not install the credit-deduction callback');
-    assert.equal(typeof launched[4],'function','a temporary network route is still released on completion');
+    assert.equal(launched[4],undefined,'dashboard closures must not own application completion');
+    assert.deepEqual(launched[7],{chargeSubmission:false,releaseProxy:true},'the worker service owns temporary route cleanup without charging complimentary applications');
     const audit=state.queries.findLast((entry:{sql:string})=>entry.sql.includes('UPDATE run_starts SET operator_options'));
     assert.equal(JSON.parse(audit.params[2]).maxEvaluations,400);
     assert.ok(state.queries.every((entry:{sql:string})=>!/(INSERT|UPDATE|DELETE).*?(billing|settings|credit_grants)/i.test(entry.sql)), 'no saved preference or plan mutation');

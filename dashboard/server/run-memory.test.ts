@@ -41,3 +41,22 @@ test('abandoned idle consoles are released while a preparation claim retains its
   pool.releaseStart('preparing'); pool.pruneIdle();
   assert.equal(pool.snapshot().accounts.preparing, undefined);
 });
+
+test('the worker service reconstructs billing and route cleanup without dashboard closures', async () => {
+  const pool = new RunPool();
+  const run = Reflect.get(pool, 'forUser').call(pool, 'fixture-policy');
+  Object.defineProperty(run, 'disposable', { get: () => false });
+  let submitted: unknown, finished: unknown;
+  run.start = async (_mode: unknown, _overrides: unknown, _port: unknown, onSubmitted: unknown, onFinished: unknown) => {
+    submitted = onSubmitted; finished = onFinished; return { ok: true };
+  };
+  for (const policy of [
+    { chargeSubmission: true, releaseProxy: true },
+    { chargeSubmission: false, releaseProxy: true },
+    { chargeSubmission: false, releaseProxy: false },
+  ]) {
+    assert.equal((await pool.start('live', {}, 'fixture-policy', undefined, undefined, null, undefined, policy)).ok, true);
+    assert.equal(typeof submitted, policy.chargeSubmission ? 'function' : 'undefined');
+    assert.equal(typeof finished, policy.releaseProxy ? 'function' : 'undefined');
+  }
+});
