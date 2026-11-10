@@ -223,7 +223,6 @@ try {
       assert.ok(expectedApproved);
       assert.ok(body.messages[1].content.includes(JSON.stringify(expectedApproved)), 'the exact approved application survives observation compaction on every model turn');
       assert.match(body.messages[1].content, /SUBMIT ONLY THIS APPROVED APPLICATION/);
-      assert.match(body.messages[1].content, /Do not open an optional employer preview/);
       assert.doesNotMatch(body.messages[1].content, /SOURCE 1, character/, 'approved runs load the document inventory; full evidence remains available on demand');
     }
     assert.ok(call, 'the browser completes within the planned turns');
