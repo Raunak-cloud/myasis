@@ -78,6 +78,27 @@ test('approved letter renders and uploads byte-exact without model transcription
   const ctx={page,job,profile:{},observation:{},captured:result.captured,actions:[],log:()=>{},coverLetter:result.coverLetter,resumeUsed:'cv',resumeName:'CV.txt',
    uploadedDocuments:[{fileId:renderedFileId,sha256:digest,coverLetterDigest:digest}]} as never;
   assert.equal(await gate(ctx),null,'an unchanged uploaded approved letter must not become a false changed draft');
+  const restoreContext=()=>({...ctx as any,resumeUsed:undefined,resumeName:undefined});
+  for(const missing of [restoreContext(),{...restoreContext(),resumeUsed:'cv'},{...restoreContext(),resumeName:'CV.txt'}]){
+   assert.equal(await gate(missing),null,'approved resume metadata restores without another prepare_application call');
+   assert.equal(missing.resumeUsed,'cv');assert.equal(missing.resumeName,'CV.txt');
+   assert.deepEqual(missing.uploadedDocuments,(ctx as any).uploadedDocuments,'restoring local identity never invents an employer upload');
+  }
+  writeFileSync(join(dir,'resumes','CV.txt'),'Changed account resume bytes');
+  const changedResume=restoreContext();assert.ok(await gate(changedResume));
+  assert.equal(changedResume.resumeUsed,undefined,'changed bytes cannot inherit the approved identity');
+  assert.equal(changedResume.resumeName,undefined);
+  writeFileSync(join(dir,'resumes','CV.txt'),'Fictional CV');
+  const wrongSelection={...restoreContext(),resumeUsed:'other-resume',resumeName:'Other.txt'};
+  assert.ok(await gate(wrongSelection));assert.equal(wrongSelection.resumeUsed,'other-resume','an explicitly different selection is never silently replaced');
+  for(const unverified of [{...draft,resumeHash:undefined},{...draft,resumeId:'unavailable-owner-document'}]){
+   writeFileSync(join(dir,'approved-applications.json'),JSON.stringify([unverified]));
+   const missing=restoreContext();assert.ok(await gate(missing));assert.equal(missing.resumeUsed,undefined);
+  }
+  writeFileSync(join(dir,'approved-applications.json'),JSON.stringify([draft]));
+  process.env.APPLICATION_REVIEW_MODE='prepare';
+  try{const unapproved=restoreContext();assert.ok(await gate(unapproved));assert.equal(unapproved.resumeUsed,undefined,'preparation never inherits unconfirmed resume identity');}
+  finally{process.env.APPLICATION_REVIEW_MODE='approved';}
   await page.locator('#uploaded').evaluate(node=>{node.textContent='';});
   await page.locator('#received').evaluate(node=>{node.textContent='';});
   assert.equal(await gate({...ctx as object,coverLetter:undefined} as never),null,'completed native upload evidence survives a consumed FileList and absent body metadata');

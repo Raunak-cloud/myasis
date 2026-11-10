@@ -7,7 +7,7 @@ import { isCoverLetterField, cleanCoverLetter } from './cover-letter-policy.js';
 export { applicationContent } from './application-review-content.js';
 import { readSavedForm } from './agent/saved-form.js';
 import type { Locator } from 'patchright';
-import { agentOnlyResumePath } from './agent/agent-only-evidence.js';
+import { agentOnlyDocuments, agentOnlyResumePath } from './agent/agent-only-evidence.js';
 import { observedApprovedCoverLetter, typedCoverLetterControls } from './application-letter.js';
 import type { ToolContext, ToolResult } from './agent/context.js';
 import type { JobListing } from './types.js';
@@ -83,7 +83,18 @@ export async function applicationApprovalGate(ctx: ToolContext, _sendControl?: L
   if (form.fields.some(field => field.validationError || field.invalid === 'true' || field.required && !field.currentValue?.trim())) {
     ctx.formAdvisories.push('The browser reports missing or invalid required fields. Inspect the actual saved controls and employer validation; a DOM hint can describe an inactive or consumed control. Resolve real missing required answers using candidate sources.');
   }
-  if (!ctx.resumeName) return { kind: 'ok', disposition: 'failed', message: 'Inspect the selected resume and call prepare_application with its account resume ID, complete answers and cover letter before the final send.' };
+  // Restore source identity, never an employer-upload claim. Existing selected
+  // resumes are not replaced, and only this owner's exact approved bytes qualify.
+  if (approved?.resumeId && approved.resumeHash && (!ctx.resumeUsed || ctx.resumeUsed === approved.resumeId)
+    && (!ctx.resumeUsed || !ctx.resumeName)) {
+    const document = agentOnlyDocuments().find(item => item.id === approved.resumeId);
+    const path = document ? agentOnlyResumePath(document.id) : null;
+    if (document && path && createHash('sha256').update(readFileSync(path)).digest('hex') === approved.resumeHash) {
+      ctx.resumeUsed = document.id;
+      ctx.resumeName = document.fileName;
+    }
+  }
+  if (!ctx.resumeName) return { kind: 'ok', disposition: 'failed', message: 'The selected account resume is not established. Inspect its inventory ID and record it with save_progress or prepare_application, or select it through a native upload. Approved resume bookkeeping is restored automatically when its recorded hash matches the account file.' };
   const answers = new Map(ctx.captured.filter(item => !/password|verification.?code|one.?time|\botp\b/i.test(item.question))
     .map(item => [normal(item.question), { question: item.question, answer: isCoverLetterField(item.question)
       && !ctx.documents?.some(document => document.name === item.answer) ? cleanCoverLetter(item.answer) : item.answer }]));

@@ -9,11 +9,11 @@ import { changesBrowserState } from './browser-commands.js';
 const text = { type: 'string', minLength: 1 };
 const evidence = { type: 'array', minItems: 1, items: text };
 export const recoveryTools: ToolSchema[] = [
-  { name: 'record_recovery_plan', description: 'Optional recovery note when the recovery advisory requests diagnosis. Record a concise cause, a different next approach and observable verification when useful. You may instead act directly on clear current evidence or specialist advice. Performs no browser action.',
+  { name: 'record_recovery_plan', description: 'Optional recovery note available whenever useful. Record a concise cause, a different next approach and observable verification when useful. You may instead act directly on clear current evidence or specialist advice. Performs no browser action.',
     parameters: { type: 'object', additionalProperties: false, properties: {
       observed_issue: text, evidence, previous_approaches: evidence, next_action: text, verification: text,
     }, required: ['observed_issue', 'evidence', 'previous_approaches', 'next_action', 'verification'] } },
-  { name: 'record_recovery_result', description: 'Optional combined recovery/progress-budget assessment when advised. Assess fresh browser evidence once; after a successful fix you may continue or prepare directly without this report. complete requires an actual observed employer receipt and receipt_quote. Otherwise use progress, no_progress or more_evidence. Never submits or approves independently.',
+  { name: 'record_recovery_result', description: 'Optional recovery/progress assessment available whenever useful. Recording a note does not itself grant extra spending. Assess fresh browser evidence once; after a successful fix you may continue or prepare directly without this report. complete requires an actual observed employer receipt and receipt_quote. Otherwise use progress, no_progress or more_evidence. Never submits or approves independently.',
     parameters: { type: 'object', additionalProperties: false, properties: {
       assessment: { type: 'string', enum: ['progress', 'no_progress', 'more_evidence', 'complete'] }, evidence, next_action: text,
       receipt_quote: { type: 'string', maxLength: 4000 },

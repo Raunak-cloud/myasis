@@ -11,6 +11,14 @@ import { changesBrowserState } from './browser-commands.js';
 const observation = (value = '', ref = 'f0'): Observation => ({ url: 'https://employer.invalid/apply', title: 'Apply',
   actions: [], text: 'Apply', fields: [{ ref, label: 'City', kind: 'text', required: true, currentValue: value }] });
 
+test('unrestricted notes only credit a fresh browser result once',()=>{
+ const state=new RecoveryCheckpoint();state.observe(observation());
+ for(let index=0;index<3;index++){state.planned({next_action:'Inspect'});assert.equal(state.verified('progress'),undefined);}
+ state.acted('browser_action',false,{action:'fill',selector:'#city'});state.endTurn();state.observe(observation('Sydney'));
+ assert.ok(state.verified('progress'));
+ for(let index=0;index<3;index++){state.planned({next_action:'Continue'});assert.equal(state.verified('progress'),undefined);}
+});
+
 test('repeated failed tools can request a fresh perspective without denying another action or resetting work',()=>{
  const state=new RecoveryCheckpoint();state.observe(observation());
  state.failed('open_emailed_link',{},observation().url,'Mailbox timed out');assert.equal(state.takePerspectiveRefresh(),false);

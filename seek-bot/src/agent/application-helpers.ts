@@ -158,7 +158,6 @@ export class ApplicationHelpers {
     const digest=createHash('sha256').update(JSON.stringify(definition)).digest('hex');
     const name=`helper_${definition.name}_${digest.slice(0,8)}`;
     if(this.ready.has(name))return {name,status:'already-tested',tests:definition.tests.length};
-    if(this.ready.size>=4)throw Error('Four tested helpers are already available for this application. Reuse them or the original tools.');
     // Validate capabilities before creating any test browser or document.
     for(const step of definition.steps)if(!allowedTools.has(step.tool))throw Error('Unavailable helper capability.');
     this.testing=true;

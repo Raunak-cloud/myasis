@@ -48,6 +48,24 @@ test('agent shorthand inputs become bounded closed schemas without extra model r
  assert.equal(published.status,'fixture-tested');
 });
 
+test('more than four independently tested helpers remain callable within one application',async()=>{
+ const helpers=new ApplicationHelpers(agentOnlyTools),names:string[]=[];
+ for(let index=0;index<6;index++){
+  const definition=structuredClone(filler);definition.name=`fill_and_verify_${index}`;
+  const published=await helpers.test(definition);
+  assert.equal(published.status,'fixture-tested');names.push(String(published.name));
+ }
+ assert.equal(helpers.schemas().length,6);
+ for(const name of [names[0],names[5]]){
+  const result=await helpers.execute(name,{input:{target:'#name',value:'Synthetic applicant'}},async(_tool,args)=>
+   ok(JSON.stringify(args.action==='fill'?{current:{value:'Synthetic applicant'}}:{value:'Synthetic applicant'})),()=>true);
+  assert.equal(result.kind,'ok');assert.equal(JSON.parse(result.kind==='ok'?result.message:'').completedSteps,2);
+ }
+ const bad=structuredClone(filler);bad.name='seventh_broken';bad.tests[0].assertions[0].equals='Wrong';
+ await assert.rejects(helpers.test(bad),/assertion failed/);
+ assert.equal(helpers.schemas().length,6,'removing the count cap never publishes a failing helper');
+});
+
 test('the advertised complete recipe actually renders its asserted document bytes',async()=>{
  const helpers=new ApplicationHelpers(agentOnlyTools);
  assert.equal((await helpers.test({definition_json:JSON.stringify(helperRecipeExample)})).status,'fixture-tested');

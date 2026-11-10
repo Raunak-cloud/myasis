@@ -40,6 +40,34 @@ async function fixture(html:string){
 }
 const form='<main><label>Name<input id="name"></label><button id="send" onclick="document.documentElement.dataset.sent=String(Number(document.documentElement.dataset.sent||0)+1);document.querySelector(\'main\').textContent=\'Application received: BUDGET-FIX\'">Submit application</button></main>';
 
+test('the agent can record recovery notes before failures and repeat them outside advised phases',{timeout:10000},async()=>{
+ const f=await fixture(form);let calls=0;
+ const notes=[plan,plan,result('no_progress'),result('no_progress')];
+ globalThis.fetch=async(_url,init)=>{
+  const body=JSON.parse(String(init?.body)) as Body;calls++;
+  for(const name of ['record_recovery_plan','record_recovery_result'])assert.ok(body.tools?.some(tool=>tool.function.name===name),'both notes are available on every normal turn');
+  assert.ok(calls<=5);return packet([notes[calls-1]??finish()]);
+ };
+ try{
+  const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'skipped');assert.equal(calls,5);
+  const trace=JSON.parse(readFileSync(join(directory,'traces',f.job.id+'.json'),'utf8'));
+  const saved=trace.steps.filter((step:any)=>['record_recovery_plan','record_recovery_result'].includes(step.tool));
+  assert.equal(saved.length,4);for(const step of saved){assert.match(step.result,/recorded/);assert.doesNotMatch(step.result,/unreviewed|Unknown tool|Not run/);}
+  assert.equal(await f.page.locator('#name').inputValue(),'');assert.equal(r.submitPressed,false);
+ }finally{await f.context.close();}
+});
+
+test('freely recorded progress notes cannot create spending credit without browser progress',{timeout:10000},async()=>{
+ const f=await fixture(form);let calls=0;
+ globalThis.fetch=async()=>{calls++;assert.ok(calls<=3,'narration cannot fund another paid decision');return packet([calls===1?plan:result()],.08);};
+ try{
+  const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'error');assert.match(JSON.stringify(r.outcome),/spending budget/);assert.equal(calls,3);
+  const trace=JSON.parse(readFileSync(join(directory,'traces',f.job.id+'.json'),'utf8'));
+  assert.equal(trace.steps.filter((step:any)=>step.tool==='record_recovery_result'&&/recorded/.test(step.result)).length,2,'already-paid notes remain recordable across the budget boundary');
+  assert.equal(await f.page.locator('#name').inputValue(),'');assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),0);
+ }finally{await f.context.close();}
+});
+
 test('Auto apply returns from canonical correction to work without spending the old review reserve',{timeout:10000},async()=>{
  const f=await fixture(form);let calls=0;
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;const specialist=specialistFixtureReply(body);if(specialist)return specialist;calls++;

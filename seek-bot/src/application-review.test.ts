@@ -144,14 +144,16 @@ try {
   process.env.APPLICATION_REVIEW_MODE = 'approved';
   calls = [{ name: 'browser_action', args: { action: 'press', selector: 'input', value: 'Enter' } }] as typeof calls;
   await runAgentOnlyApplication({ page, job, profile, log: () => {} });
-  assert.equal(requests, 0, 'even an approved reconstruction must declare submission intent');
+  assert.equal(requests, 1, 'an already-approved application can use ordinary keyboard submission without a mandatory intent flag');
+  assert.match(await page.locator('body').innerText(),/Application received/);
+  await page.goto(job.url);
   calls = [
     { name: 'prepare_application', args: { submit_selector: '#send', answers: [{ question: 'Name', answer: 'Fixture Applicant' }], resume_id: 'cv' } },
     { name: 'browser_action', args: { action: 'click', locator: { by: 'role', value: 'button', name: 'Send application' }, sends_application: true } },
     { name: 'finish', args: { status: 'applied', reason: 'Fixture accepted', evidence: 'Fixture receipt', receipt: { quote: 'Application received' } } },
   ] as typeof calls;
   const sent = await runAgentOnlyApplication({ page, job, profile, log: () => {} });
-  assert.equal(requests, 1, 'an unchanged application sends only after its exact version was confirmed');
+  assert.equal(requests, 2, 'each explicit fictional test submission sends once after candidate confirmation');
   assert.equal(sent.outcome.status, 'applied');
   process.env.APPLICATION_REVIEW_MODE = 'prepare';
   await page.goto(job.url);
