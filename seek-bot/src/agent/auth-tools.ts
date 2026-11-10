@@ -11,8 +11,8 @@ const targets = { type: 'array', minItems: 1, maxItems: 12, items: {
 const cachedVerification = {
   credential_id: { type: 'string', minLength: 1, maxLength: 100, description: 'ID from this tool’s message results. Omit on the first call.' },
   purpose: { type: 'string', enum: [...VERIFICATION_PURPOSES], description: 'The email purpose requested by the site: verification, sign-in or reset_password.' },
-  allow_recent_cached: { type: 'boolean', description: 'Use a recent cached code/link only when current employer text confirms it is reusable. Supply cached_code_evidence.' },
-  cached_code_evidence: { type: 'string', description: 'Exact current employer message confirming that the existing code/link is reusable.' },
+  allow_recent_cached: { type: 'boolean', description: 'Use a recent cached code/link when the current employer page indicates it is reusable.' },
+  cached_code_evidence: { type: 'string', description: 'Evidence that the current code or link is reusable.' },
 };
 
 const AUTHENTICATION_TOOL: ToolSchema = {

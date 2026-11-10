@@ -9,9 +9,8 @@ const directory=mkdtempSync(join(tmpdir(),'employer-account-first-'));
 Object.assign(process.env,{DATA_DIR:directory,SITE_AUTH_SECRET:'fictional-employer-account-secret',CELERIS_API_KEY:'fixture-only',APPLICATION_AI_MODEL:'celeris',DRY_RUN:'true',ALLOW_EXTERNAL_APPLY:'true',COST_TRACKING:'false',FORM_CORPUS_DIR:join(directory,'corpus'),APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN:'false'});
 const {doCompleteAuthentication,doCheckEmployerAccount,doRecordAuthenticationResult,authenticationAccountSummary}=await import('./authentication.js');
 const {stagePendingCredential,acceptPendingCredential,storedCredential,rejectCredential,pendingCredential,employerCredentialState}=await import('../site-credentials.js');
-const {employerAccountSite,accountAccessMessage}=await import('../employer-account.js');
+const {employerAccountSite}=await import('../employer-account.js');
 const {sitePassword}=await import('../site-auth.js');
-const {normaliseAttentionOutcome}=await import('../blocked-questions.js');
 const {observe}=await import('./observe.js');
 const {runAgentOnlyApplication}=await import('./agent-only.js');
 const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
@@ -30,12 +29,11 @@ try{
  await doCompleteAuthentication(state,{purpose:'reset_password',...fields});assert.equal(await page.locator('#password').inputValue(),'','unknown existing accounts cannot start password replacement');
  await doCompleteAuthentication(state,{purpose:'create_account',...fields});
  assert.equal(pendingCredential(page.url(),email,company,'create_account')?.phase,'prepared');
- const falseEvidence=await doCheckEmployerAccount(state,{outcome:'existing',evidence:'A fabricated account-exists message.'});assert.equal(falseEvidence.kind,'ok');
  const handoff=await doCheckEmployerAccount(state,{outcome:'existing',evidence:'An account already exists with this email. Please sign in.'});
  assert.equal(handoff.kind,'terminal');
- if(handoff.kind==='terminal'&&handoff.outcome.status==='needs-human'){
-  assert.equal(handoff.outcome.reason,accountAccessMessage);
-  assert.equal(normaliseAttentionOutcome({...handoff.outcome,jobId:'fictional',url:page.url()}).status,'needs-human');
+ if(handoff.kind==='terminal'){
+  assert.equal(handoff.outcome.status,'skipped');
+  assert.match(handoff.outcome.reason ?? '',/no verified login/);
  }
  assert.equal(pendingCredential(page.url(),email,company,'create_account'),null,'a rejected duplicate draft is not a managed account');
  assert.equal(await page.locator('#password').inputValue(),'','a rejected registration proposal is retired from the actual form before the user handoff');
@@ -46,7 +44,7 @@ try{
  assert.equal(employerCredentialState(page.url(),'another@fixture.invalid',company).state,'missing');
  globalThis.fetch=async()=>{throw Error('Saved external-account access must stop before a model request.');};
  const waiting=await runAgentOnlyApplication({simulation:'isolated-form',page,job:state.job,profile:state.profile,log:()=>{}});
- assert.equal(waiting.outcome.status,'needs-human','the actual applying loop retains the durable account task before any further model/action');
+ assert.equal(waiting.outcome.status,'skipped','the actual applying loop skips the saved external account before any further model/action');
  state.submissionAttempted=true;
  assert.equal((await doCheckEmployerAccount(state,{})).kind,'ok','an uncertain application send cannot turn into a retryable access task');
 

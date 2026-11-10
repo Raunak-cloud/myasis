@@ -138,7 +138,7 @@ export const agentOnlyTools: ToolSchema[] = [
   schema('save_progress', "Save a brief note of completed work, the current problem and next action. Optionally retain answers, resume_id and letter. Browser unchanged.", { note: string, cover_letter: string, resume_id: string, answers: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { question: string, answer: string }, required: ['question', 'answer'] } } }, ['note']),
   schema('reason_through_problem', "Request deeper reasoning for a difficult form problem. MiniMax already uses high reasoning.", { problem: string }, ['problem']),
   ...authenticationTools(),
-  schema('record_authentication_result', "Record the actual sign-in, registration or reset result. Supply the complete employer message for accepted/rejected/needs_verification; use uncertain when the result is unknown.", {
+  schema('record_authentication_result', "Record the actual sign-in, registration or reset result. Describe the observed evidence for your decision; use uncertain when the result is unknown.", {
     purpose: { type: 'string', enum: ['sign_in', 'create_account', 'reset_password'] },
     outcome: { type: 'string', enum: ['accepted', 'rejected', 'needs_verification','uncertain'] }, evidence: string,
   }, ['purpose', 'outcome', 'evidence']),

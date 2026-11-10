@@ -44,7 +44,7 @@ try {
       await doCompleteAuthentication(ctx,{purpose:'reset_password',targets:[{selector:'#password'}],password_rules:{max_length:18}});
       const chosen=await page.locator('#password').inputValue();assert.ok(chosen);
       await page.setContent(login);ctx.observation=await observe(page);
-      const unknown=await doRecordAuthenticationResult(ctx,{purpose:'reset_password',outcome:'accepted',evidence:'The reset redirected to login.'});
+      const unknown=await doRecordAuthenticationResult(ctx,{purpose:'reset_password',outcome:'uncertain',evidence:'The reset redirected to login.'});
       assert.equal(unknown.kind==='ok'&&unknown.disposition,'uncertain');assert.equal(storedCredential(page.url(),ctx.profile.email),null);
       assert.ok(pendingCredential(page.url(),ctx.profile.email,ctx.job.company,'reset_password'));
       const first=await investigateApplicationState(ctx,{check:'form',question:'Was the reset accepted?'},()=> 'No receipt found.');

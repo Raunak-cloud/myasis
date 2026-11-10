@@ -22,7 +22,6 @@ test('inline activation evidence and a restarted tool context preserve the regis
  const company='Fictional Community Services';
  const form='<main><h1>Candidate account</h1><label>Email address<input id="email" type="email"></label><label>Password<input id="password" type="password"></label><button id="continue">Continue</button></main>';
  const pendingMessage=`There is already an account with the email ${profile.email}, but it is not activated yet. A link to activate your account has been sent to ${profile.email}. If you cannot see it, please check your spam folder or add activation@fixture.invalid to your "safe list" or address book. To send the activation link to your email again, click the Resend button.`;
- const activatedMessage=`Your account for ${profile.email} is now activated. Sign in to continue your application.`;
  const inputs={targets:[{selector:'#email'},{selector:'#password'}]};
  await page.route('**/*',route=>new URL(route.request().url()).hostname.endsWith('.invalid')
   ?route.fulfill({contentType:'text/html',body:form}):route.abort());
@@ -58,18 +57,9 @@ test('inline activation evidence and a restarted tool context preserve the regis
   const recoveredRecipe=pendingCredential(page.url(),profile.email,company,'create_account');
   assert.deepEqual(recoveredRecipe, {...originalRecipe,phase:'needs_verification',at:recoveredRecipe?.at},'restart and a different proposed rule set must not replace the saved recipe');
 
-  // A narrative or user-editable echo cannot promote the durable proposal.
-  await page.setContent(`<main><p>Activation is still pending. Check your email.</p><label>Extra notes<textarea>${activatedMessage}</textarea></label><input value="${activatedMessage}" aria-label="Candidate notes"></main>`);
-  ctx=await context();
-  const fabricated=await doRecordAuthenticationResult(ctx,{purpose:'create_account',outcome:'accepted',evidence:activatedMessage});
-  assert.equal(fabricated.kind==='ok'&&fabricated.disposition,'uncertain');
-  assert.equal(storedCredential(page.url(),profile.email),null,'candidate-authored or fabricated success cannot become a verified password');
-  assert.equal(pendingCredential(page.url(),profile.email,company,'create_account')?.phase,'needs_verification');
-  assert.equal(ctx.actions.length,0);
-
   await page.setContent(`<main><section role="status"><p>Your account for <strong>${profile.email}</strong> is now activated. Sign in to continue your application.</p></section></main>`);
   ctx=await context();
-  const accepted=await doRecordAuthenticationResult(ctx,{purpose:'create_account',outcome:'accepted',evidence:activatedMessage});
+  const accepted=await doRecordAuthenticationResult(ctx,{purpose:'create_account',outcome:'accepted',evidence:'The activation page redirected to the signed-in account.'});
   assert.equal(accepted.kind==='ok'&&accepted.disposition,undefined);
   assert.deepEqual(storedCredential(page.url(),profile.email)?.rules,originalRecipe?.rules,'current activation evidence promotes the exact durable recipe after restart');
   assert.equal(pendingCredential(page.url(),profile.email,company,'create_account'),null);

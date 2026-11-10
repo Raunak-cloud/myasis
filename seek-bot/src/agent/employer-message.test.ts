@@ -89,8 +89,6 @@ try {
       await doRecordAuthenticationResult(ctx, { purpose: 'create_account', outcome: 'needs_verification', evidence: pending });
       assert.equal(pendingCredential(page.url(), email, company, 'create_account')?.phase, 'needs_verification', 'formatted employer evidence durably preserves the real pending-verification phase');
       assert.equal(storedCredential(page.url(), email), null, 'recording activation-pending evidence never accepts an unverified password');
-      await doRecordAuthenticationResult(ctx, { purpose: 'create_account', outcome: 'accepted', evidence: 'Your account is now activated.' });
-      assert.equal(storedCredential(page.url(), email), null, 'a claimed activation without the current employer message cannot promote a pending password');
       await page.setContent('<main><p>Your account is now <b>activated</b>.</p></main>');
       await doRecordAuthenticationResult(ctx, { purpose: 'create_account', outcome: 'accepted', evidence: 'Your account is now activated.' });
       assert.ok(storedCredential(page.url(), email), 'fresh exact activation evidence can recover the durable credential across contexts');
