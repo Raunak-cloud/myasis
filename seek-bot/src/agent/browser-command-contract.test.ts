@@ -27,6 +27,8 @@ globalThis.fetch = (async (_url, init) => {
     assert.match(toolInputIssue({ actions: [{ action: 'script' }] }, batchSchema)!, /\$\.actions\[0\]\.script is required/);
     assert.match(toolInputIssue({ action: 'set_input_files', selector: '#resume' }, schema)!, /\$\.file_ids is required/);
     assert.ok(toolInputIssue({ action: 'wait', timeout_ms: 1000 }, schema));
+    assert.equal(toolInputIssue({ action: 'wait', selector: '#ready', timeout_ms: 30000 }, schema), null);
+    assert.ok(toolInputIssue({ action: 'wait', selector: '#ready', timeout_ms: 30001 }, schema));
     call = { name: 'browser_batch', args: { actions: [
       { action: 'fill', selector: '#name', value: 'Must not run' },
       { action: 'set_input_files', selector: '#resume' },

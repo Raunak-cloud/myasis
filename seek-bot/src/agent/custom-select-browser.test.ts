@@ -3,7 +3,6 @@ import {test} from 'node:test';
 import {chromium} from 'patchright';
 import {nativeReadback,nativeSelect} from './native-browser.js';
 import {observe,renderObservation} from './observe.js';
-import {SpecialistRecovery} from './specialist-recovery.js';
 
 test('async portalled combobox commits the exact chosen option, survives blur and exposes its rendered selection',async()=>{
  const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
@@ -33,11 +32,6 @@ test('async portalled combobox commits the exact chosen option, survives blur an
   assert.match(renderObservation(searching),/query is not a saved answer/);
   await page.locator('#next').click();
   assert.equal((await nativeReadback(school) as any).invalid,'true','search text is not a school selection');
-  const recovery=new SpecialistRecovery();recovery.observe(await observe(page));
-  const goal={kind:'field-value',target:search.label.replace(/\s*\*$/,' *'),value:'Other'};
-  recovery.accept('READ-ONLY SPECIALIST ADVICE.\n'+JSON.stringify({advice:'Choose the observed Other option.',recovery_goal:goal}));
-  let ticket=JSON.parse(recovery.render().match(/RECOVERY ADVISORY\n([^\n]+)/)![1]);
-  recovery.respond({advice_id:ticket.advice_id,decision:'adopt',reason:'Other is the offered truthful fallback.',observation_id:ticket.observation_id,operation_tool:'browser_action',operation_action:'select',operation_purpose:'Commit the observed Other choice.',verification:goal},[{name:'browser_action',description:'Native select',parameters:{type:'object',properties:{action:{enum:['select']}}}}]);
   await nativeSelect(school,'Other');
   const selected=await nativeReadback(school) as any;
   assert.equal(selected.value,'','React search input clears after a committed selection');
@@ -46,9 +40,6 @@ test('async portalled combobox commits the exact chosen option, survives blur an
   const committed=await observe(page),field=committed.fields.find(field=>field.hints?.includes('id=school'))!;
   assert.equal(field.currentValue,'Other','canonical observer and native action readback agree');
   assert.equal(field.searchValue,'');assert.equal(field.selectionState,'selected');
-  recovery.complete('browser_action',{action:'select',selector:'#school',value:'Other'},JSON.stringify(selected),false,true);recovery.observe(committed);
-  ticket=JSON.parse(recovery.render().match(/RECOVERY ADVISORY\n([^\n]+)/)![1]);
-  assert.match(recovery.check({advice_id:ticket.advice_id,observation_id:ticket.observation_id,result_id:ticket.result_id,assessment:'progress',reason:'The actual committed school is Other after blur.'}),/goal currently observed: true/);
   assert.equal(await page.locator('body').getAttribute('data-wrong'),null,'an unrelated portal option is never selected');
   await nativeSelect(page.locator('#native'),'Native B');
   assert.equal(await page.locator('#native').inputValue(),'b');

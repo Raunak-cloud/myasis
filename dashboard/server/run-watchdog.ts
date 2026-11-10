@@ -28,6 +28,7 @@ export function signalRunTree(child: ChildProcess, signal: 'SIGTERM' | 'SIGKILL'
 export function superviseRun(child: ChildProcess, options: {
   timeoutMs: number;
   graceMs?: number;
+  drainTimeoutMs?: number;
   finishCurrent?: boolean;
   signal?: typeof signalRunTree;
   onTimeout: () => void;
@@ -43,6 +44,7 @@ export function superviseRun(child: ChildProcess, options: {
   let outputDrain: ReturnType<typeof setTimeout> | undefined;
   let acknowledgement: ReturnType<typeof setTimeout> | undefined;
   let deadlineReached = false;
+  let drainDeadline: ReturnType<typeof setTimeout> | undefined;
   let resolveFinished: () => void;
   const finished = new Promise<void>((resolve) => { resolveFinished = resolve; });
   const send = (value: 'SIGTERM' | 'SIGKILL') => {
@@ -53,6 +55,7 @@ export function superviseRun(child: ChildProcess, options: {
     stopping = true;
     clearTimeout(deadline);
     clearTimeout(acknowledgement);
+    clearTimeout(drainDeadline);
     send('SIGTERM');
     escalation = setTimeout(() => {
       options.onEscalation();
@@ -63,14 +66,18 @@ export function superviseRun(child: ChildProcess, options: {
     deadlineReached = true;
     options.onTimeout();
     if (!options.finishCurrent || !child.connected || !child.send) { stop(); return; }
-    // Never signal the browser group while a responsive worker drains. Only
-    // an unsupported/unresponsive worker falls back to the old stop watchdog.
+    // Give a responsive worker a bounded chance to finish its current work.
+    // An unsupported/unresponsive worker falls back to the stop watchdog.
     acknowledgement = setTimeout(stop, options.graceMs ?? RUN_STOP_GRACE_MS);
     try { child.send(RUN_DRAIN_REQUEST, error => { if (error) stop(); }); }
     catch (error) { options.onError(error as Error); stop(); }
   }, options.timeoutMs);
   const onMessage = (value: unknown) => {
-    if (value === RUN_DRAIN_ACK && deadlineReached && !stopping && !exited) clearTimeout(acknowledgement);
+    if (value === RUN_DRAIN_ACK && deadlineReached && !stopping && !exited) {
+      clearTimeout(acknowledgement);
+      // Finishing current work cannot disable the run's time budget forever.
+      drainDeadline ??= setTimeout(stop, options.drainTimeoutMs ?? 120_000);
+    }
   };
   child.on('message', onMessage);
   const finish = (code: number | null, exitSignal: NodeJS.Signals | null) => {
@@ -79,6 +86,7 @@ export function superviseRun(child: ChildProcess, options: {
     clearTimeout(deadline);
     clearTimeout(escalation);
     clearTimeout(outputDrain);
+    clearTimeout(drainDeadline);
     clearTimeout(acknowledgement);
     child.off('message', onMessage);
     void Promise.resolve().then(() => options.onFinish(code, exitSignal))
@@ -87,6 +95,7 @@ export function superviseRun(child: ChildProcess, options: {
   };
   child.once('exit', (code, exitSignal) => {
     exited = true;
+    clearTimeout(drainDeadline);
     clearTimeout(deadline);
     clearTimeout(escalation);
     clearTimeout(acknowledgement);

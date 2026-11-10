@@ -25,9 +25,9 @@ type Call={name:string;args:Record<string,unknown>};
 const review=(assessment='ready'):Call=>({name:'record_application_review',args:{assessment,vacancy:'Fictional developer at Fictional Employer, Sydney',
  documents:'Fictional CV and the observed fictional form.',unresolved:assessment==='ready'?[]:['The fictional candidate answer needs correction or clarification.'],
  checks:[{question:'Fictional form',source_evidence:'Controlled fixture candidate evidence',intended_meaning:'Use controlled data',observed_value:'Observed browser form',conclusion:assessment}],next_action:'Continue from the current observed page'}});
-const result=(assessment='progress'):Call=>({name:'record_recovery_result',args:{assessment,evidence:['A new fictional candidate answer is saved in the current form.'],next_action:'Continue with the observed form.'}});
+const result=(assessment='progress'):Call=>({name:'save_progress',args:{note:assessment+': A fictional candidate answer was inspected. Continue with the observed form.'}});
 const finish=(status='skipped',extra:Record<string,unknown>={}):Call=>({name:'finish',args:{status,reason:'Controlled fixture outcome',evidence:'Current fictional employer state',...extra}});
-const plan:Call={name:'record_recovery_plan',args:{observed_issue:'The scripted locator was invalid.',evidence:['The browser tool rejected the invalid schema.'],previous_approaches:['Invalid extra property.'],next_action:'Use a current valid browser target.',verification:'A valid operation succeeds on the observed form.'}};
+const plan:Call={name:'save_progress',args:{note:'The scripted locator was invalid. Use a current valid browser target and verify the observed form.'}};
 let packetSequence=0;
 const packet=(calls:Call[],cost=0)=>Response.json({choices:[{message:{role:'assistant',content:null,tool_calls:calls.map((call,i)=>({id:'fixture-'+ ++packetSequence+'-'+i,type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}))}}],usage:{prompt_tokens:Math.round(cost*1_000_000/CELERIS_RATES.promptUncached),completion_tokens:0}});
 let sequence=0;
@@ -45,14 +45,14 @@ test('the agent can record recovery notes before failures and repeat them outsid
  const notes=[plan,plan,result('no_progress'),result('no_progress')];
  globalThis.fetch=async(_url,init)=>{
   const body=JSON.parse(String(init?.body)) as Body;calls++;
-  for(const name of ['record_recovery_plan','record_recovery_result'])assert.ok(body.tools?.some(tool=>tool.function.name===name),'both notes are available on every normal turn');
+  for(const name of ['save_progress'])assert.ok(body.tools?.some(tool=>tool.function.name===name),'application memory is available on every normal turn');
   assert.ok(calls<=5);return packet([notes[calls-1]??finish()]);
  };
  try{
   const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'skipped');assert.equal(calls,5);
   const trace=JSON.parse(readFileSync(join(directory,'traces',f.job.id+'.json'),'utf8'));
-  const saved=trace.steps.filter((step:any)=>['record_recovery_plan','record_recovery_result'].includes(step.tool));
-  assert.equal(saved.length,4);for(const step of saved){assert.match(step.result,/recorded/);assert.doesNotMatch(step.result,/unreviewed|Unknown tool|Not run/);}
+  const saved=trace.steps.filter((step:any)=>['save_progress'].includes(step.tool));
+  assert.equal(saved.length,4);for(const step of saved){assert.match(step.result,/saved/);assert.doesNotMatch(step.result,/unreviewed|Unknown tool|Not run/);}
   assert.equal(await f.page.locator('#name').inputValue(),'');assert.equal(r.submitPressed,false);
  }finally{await f.context.close();}
 });
@@ -63,7 +63,7 @@ test('freely recorded progress notes cannot create spending credit without brows
  try{
   const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'error');assert.match(JSON.stringify(r.outcome),/spending budget/);assert.equal(calls,3);
   const trace=JSON.parse(readFileSync(join(directory,'traces',f.job.id+'.json'),'utf8'));
-  assert.equal(trace.steps.filter((step:any)=>step.tool==='record_recovery_result'&&/recorded/.test(step.result)).length,2,'already-paid notes remain recordable across the budget boundary');
+  assert.equal(trace.steps.filter((step:any)=>step.tool==='save_progress'&&/saved/.test(step.result)).length,3,'already-paid notes remain recordable across the budget boundary');
   assert.equal(await f.page.locator('#name').inputValue(),'');assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),0);
  }finally{await f.context.close();}
 });
@@ -87,19 +87,18 @@ test('an already-generated recovery plan is saved once across the budget boundar
  };
  try{const r=await runAgentOnlyApplication(f);assert.match(JSON.stringify(r.outcome),/spending budget/);assert.equal(calls,3);
   const trace=JSON.parse(readFileSync(join(directory,'traces',f.job.id+'.json'),'utf8'));
-  const saved=trace.steps.find((step:any)=>step.tool==='record_recovery_plan');assert.match(saved.result,/plan is recorded/);assert.doesNotMatch(saved.result,/Not run/);
+  const saved=trace.steps.find((step:any)=>step.tool==='save_progress');assert.match(saved.result,/saved/);assert.doesNotMatch(saved.result,/Not run/);
  }finally{await f.context.close();}
 });
 
-test('fresh progress verification can use its reserve and fund the next productive decision',{timeout:10000},async()=>{
+test('observed browser progress funds the next decision without a recovery report',{timeout:10000},async()=>{
  const f=await fixture(form);let calls=0;
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;const specialist=specialistFixtureReply(body);if(specialist)return specialist;calls++;
   if(calls===1)return packet([{name:'browser_action',args:{action:'fill',selector:'#name',value:'Fictional Candidate'}}],.19);
   if(calls===2)return packet([{name:'browser_action',args:{action:'take_snapshot'}}],.08);
-  if(calls===3){assert.equal(body.tool_choice?.function?.name,undefined,'progress review is advisory');return packet([result()],.04);}
-  assert.equal(calls,4);return packet([finish()]);
+  assert.equal(calls,3);assert.equal(body.tool_choice?.function?.name,undefined);return packet([finish()],.04);
  };
- try{const r=await runAgentOnlyApplication(f);assert.deepEqual(r.outcome,{status:'skipped',reason:'Controlled fixture outcome'});assert.equal(calls,4);}finally{await f.context.close();}
+ try{const r=await runAgentOnlyApplication(f);assert.deepEqual(r.outcome,{status:'skipped',reason:'Controlled fixture outcome'});assert.equal(calls,3);}finally{await f.context.close();}
 });
 
 test('a final-record-only reply cannot retry a send or claim the skipped retry succeeded',{timeout:10000},async()=>{

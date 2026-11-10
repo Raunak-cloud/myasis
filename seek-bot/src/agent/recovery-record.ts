@@ -16,19 +16,17 @@ export interface RecoveryWork {
 }
 interface Operation { id: string; tool: string; action?: string; mutating: boolean; startedAt: string }
 interface Evidence { tool: string; action?: string; result: string; disposition: string; at: string }
-interface Consultation { calls: number; pending?: { id: string; evidenceVersion: number }; advice?: { key: string; evidenceVersion: number; message: string } }
 export type UncertaintyKind = 'authentication' | 'submission' | 'operation' | 'form';
 interface InvestigationCheck { id: string; key: string; question: string; check: string; status: 'pending' | 'complete'; result?: string; at: string }
 interface Investigation { id: string; key: string; kind: UncertaintyKind; question: string; status: 'investigating' | 'resolved' | 'unresolved';
-  checks: InvestigationCheck[]; stoppingCheckTaken?: boolean; outcome?: string; evidence?: string }
+  checks: InvestigationCheck[]; outcome?: string; evidence?: string }
 interface RecordState {
   schema: 1; id: string; scope: RecoveryScope; revision: number; evidenceVersion: number;
   status: 'active' | 'paused' | 'interrupted' | 'finished'; work?: RecoveryWork;
   controls?: Record<string, unknown>; observation?: unknown; pending?: Operation;
-  evidence: Evidence[]; consultation: Consultation; submissionAttempted: boolean;
+  evidence: Evidence[]; submissionAttempted: boolean;
   investigations?: Investigation[];
 }
-export interface AdviceTicket { id: string; evidenceVersion: number; calls: number }
 export class RecoveryRecordError extends Error {}
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code !== 'ESRCH'; } };
@@ -39,7 +37,7 @@ function addUncertainty(state: RecordState,kind: UncertaintyKind,key: string,que
 
 /** Owner-local durable state, not an instruction log to replay. A live writer
  * never loses its lease on a timer. SQLite serializes cross-process claims;
- * revision checks reject stale updates, including old specialist replies. */
+ * revision checks reject stale updates, including old tool results. */
 export class RecoveryRecord {
   readonly id: string;
   private readonly db: DatabaseSync;
@@ -72,14 +70,13 @@ export class RecoveryRecord {
             this.db.prepare('UPDATE recovery_records SET state=? WHERE id=?').run(JSON.stringify(saved),id);
             uncertainResume=true;return;
           }
-          // A crashed consultation consumes its original allowance; it cannot
-          // retain a lock or later replace evidence from the resumed driver.
-          delete saved.consultation.pending;
+          // Legacy consultation metadata is ignored by the applying agent.
+          delete (saved as unknown as Record<string, unknown>).consultation;
           delete saved.pending; // Only interrupted read-only work reaches here.
           saved.revision++; saved.status = 'active';
           this.db.prepare('UPDATE recovery_records SET state=? WHERE id=?').run(JSON.stringify(saved), id);
         } else {
-          const state: RecordState = { schema: 1, id, scope, revision: 0, evidenceVersion: 0, status: 'active', evidence: [], consultation: { calls: 0 }, submissionAttempted: false };
+          const state: RecordState = { schema: 1, id, scope, revision: 0, evidenceVersion: 0, status: 'active', evidence: [], submissionAttempted: false };
           this.db.prepare('INSERT INTO recovery_records VALUES(?,?)').run(id, JSON.stringify(state));
         }
         this.db.prepare('DELETE FROM recovery_writers WHERE worker=? OR record_id=?').run(worker,id);
@@ -177,32 +174,6 @@ export class RecoveryRecord {
       state.work=this.clean(work,false);state.controls=this.clean(controls);state.evidenceVersion++;
     });
   }
-  reserveAdvice(): AdviceTicket | undefined {
-    let ticket: AdviceTicket | undefined;
-    this.update(state => {
-      if (state.consultation.pending || state.consultation.calls >= 2) return;
-      const id = randomUUID(), evidenceVersion = state.evidenceVersion;
-      state.consultation.pending = { id, evidenceVersion };
-      ticket = { id, evidenceVersion, calls: ++state.consultation.calls };
-    });
-    return ticket;
-  }
-  acceptAdvice(ticket: AdviceTicket, key: string, message: string): boolean {
-    if (this.closed) return false;
-    let accepted = false;
-    this.update(state => {
-      if (state.consultation.pending?.id !== ticket.id) return;
-      delete state.consultation.pending;
-      if (state.evidenceVersion !== ticket.evidenceVersion) return;
-      state.consultation.advice = { key, evidenceVersion: ticket.evidenceVersion, message: String(this.clean(message)) }; accepted = true;
-    });
-    return accepted;
-  }
-  cancelAdvice(ticket: AdviceTicket): void {
-    // A late read-only reply after handoff cannot reclaim or write the lease.
-    if (this.closed) return;
-    this.update(state => { if (state.consultation.pending?.id === ticket.id) delete state.consultation.pending; });
-  }
   evidenceHistory(): ReadonlyArray<Evidence> {
     this.assertWriter();
     return this.db.prepare('SELECT evidence FROM recovery_evidence WHERE record_id=? ORDER BY revision').all(this.id)
@@ -220,9 +191,6 @@ export class RecoveryRecord {
       const issue=state.investigations?.slice().reverse().find(item=>item.status==='investigating'&&(!uncertaintyId||item.id===uncertaintyId));
       if(!issue) throw new RecoveryRecordError('No uncertainty is being investigated.');
       const key=hash([check,target,stateKey]);
-      const previous=issue.checks.find(item=>item.key===key);
-      if(previous) {reservation={cached:previous.result??'This check was interrupted. Its outcome is unknown; inspect a different supported source. No action was replayed.'};return;}
-      if(issue.checks.length>=4) {reservation={cached:'Four investigation checks have been used for this issue. Reuse the evidence, choose a materially different supported recovery with normal tools, or report the unresolved uncertainty honestly. No extra spending or action permission was granted.'};return;}
       const id=randomUUID();issue.checks.push({id,key,question:String(this.clean(question)),check,status:'pending',at:new Date().toISOString()});reservation={id};
     });return reservation;
   }
@@ -232,15 +200,6 @@ export class RecoveryRecord {
       if(!check||check.status!=='pending') throw new RecoveryRecordError('A stale investigation check cannot replace current evidence.');
       check.status='complete';check.result=String(this.clean(result));state.evidenceVersion++;
     });
-  }
-  takeStoppingInvestigation(): boolean {
-    let taken=false;
-    this.update(state=>{
-      for(const issue of state.investigations??[]) if(issue.status==='investigating'&&!issue.stoppingCheckTaken) {
-        issue.stoppingCheckTaken=true;
-        if(!issue.checks.some(check=>check.status==='complete'))taken=true;
-      }
-    });return taken;
   }
   resolveUncertainty(kind: UncertaintyKind, outcome: string, evidence: string, key?: string): void {
     this.update(state=>{
@@ -260,13 +219,13 @@ export class RecoveryRecord {
       }
     });
   }
-  /** Same projection for the parent and read-only specialist. Model-authored
+  /** Compact application memory for the applying agent. Model-authored
    * plans remain labelled separately from observed tool outcomes. No file paths,
    * private credentials, browser handles or executable operations are offered. */
   view(): unknown {
     const state = this.snapshot();
     const observation = state.observation as {url?:string;title?:string;fields?:Array<Record<string,unknown>>}|undefined;
-    const recovery = state.controls?.recovery as {note?:string;phase?:string;transitions?:string[]}|undefined;
+    const memory = (state.controls?.memory ?? state.controls?.recovery) as {note?:string;failedInteractions?:unknown}|undefined;
     const summarize = (result: string): unknown => {
       try {
         const value = JSON.parse(result);
@@ -276,16 +235,15 @@ export class RecoveryRecord {
       } catch { return result.slice(0,900); }
     };
     return { id: state.id, revision: state.revision, evidenceVersion: state.evidenceVersion, status: state.status,
-      policy: { mode: state.scope.mode, browserWriter: 'applying-agent-only', specialist: 'read-only', candidateConfirmationRequired: state.scope.mode !== 'auto', pendingCredentialsAuthorizeSignIn: false },
+      policy: { mode: state.scope.mode, browserWriter: 'applying-agent-only', candidateConfirmationRequired: state.scope.mode !== 'auto', pendingCredentialsAuthorizeSignIn: false },
       completedWork: state.work && { recordedAnswers: state.work.captured.map(answer=>({question:answer.question,answer:answer.answer.slice(0,350)})), verification: 'Recorded answers and generated files are not proof of employer acceptance; inspect actual readbacks.', actions: state.work.actions.slice(-6), resumeId: state.work.resumeUsed,
         coverLetter:state.work.coverLetter?{characters:state.work.coverLetter.length,hash:hash(state.work.coverLetter)}:undefined, generatedFiles: state.work.files.map(file => ({ id: file.id })),
         pendingAuthentication: state.work.pendingCredentials?.map(([site, value]) => ({ site, purpose: value.purpose, state: 'unverified' })) },
       currentObservation:observation&&{url:observation.url,title:observation.title,fields:observation.fields?.filter(field=>field.validationError||field.currentValue).slice(-16)
         .map(field=>({ref:field.ref,label:field.label,value:typeof field.currentValue==='string'?field.currentValue.slice(0,200):undefined,validation:field.validationError}))},
       recentToolEvidence: state.evidence.slice(-6).map(evidence=>({...evidence,result:summarize(evidence.result)})), pendingOperation: state.pending,
-      agentAssessment: recovery&&{note:recovery.note?.slice(-1600),phase:recovery.phase,recentTransitions:recovery.transitions?.slice(-3)}, budget: state.controls?.budget, submissionAttempted: state.submissionAttempted,
-      uncertainty: state.investigations?.slice(-8).map(issue=>({...issue,evidence:issue.evidence?.slice(0,1200),checks:issue.checks.map(check=>({...check,result:check.result?.slice(0,900)}))})),
-      specialistAdvice: state.consultation.advice && { evidenceVersion:state.consultation.advice.evidenceVersion,message:state.consultation.advice.message.slice(0,1400), historical: state.consultation.advice.evidenceVersion !== state.evidenceVersion } };
+      applicationMemory: memory&&{note:memory.note,failedInteractions:memory.failedInteractions}, budget: state.controls?.budget, submissionAttempted: state.submissionAttempted,
+      uncertainty: state.investigations?.slice(-8).map(issue=>({...issue,evidence:issue.evidence?.slice(0,1200),checks:issue.checks.map(check=>({...check,result:check.result?.slice(0,900)}))})) };
   }
   finish(status: RecordState['status']): void { this.update(state => { state.status = status; }); }
   release(): void {

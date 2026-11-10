@@ -94,12 +94,12 @@ try {
     const run = await scenario('unchanged-controls', [...Array.from({ length: 5 }, () => click('#noop')), ...complete]);
     assert.equal(run.specialists, 0); assert.equal(run.result.outcome.status, 'prepared'); assert.equal(run.sends, 0);
   });
-  await test('MiniMax gets repeated-read guidance and completes without specialist advice', async () => {
+  await test('MiniMax chooses its own recovery after repeated evidence reads', async () => {
     const read: Call = { name: 'read_candidate_evidence', args: { query: 'document-inventory' } };
     const run = await scenario('repeated-evidence', [read, read, read, read, ...complete], { model: 'minimax' });
     assert.equal(run.specialists, 0); assert.equal(run.result.outcome.status, 'prepared');
     assert.equal(run.city, 'Sydney'); assert.equal(run.sends, 0);
-    assert.ok(run.trace.steps.some((step: any) => /Repeated evidence reads/.test(step.result)));
+    assert.equal(run.trace.steps.filter((step: any) => step.tool==='read_candidate_evidence').length,4,'the agent can reread evidence without a prescribed recovery workflow');
   });
   await test('an unrecoverable technical error preserves a retry checkpoint without a consultation', async () => {
     const run = await scenario('technical-error', [{ name: 'finish', args: { status: 'error', reason: 'The verification service is unavailable.', evidence: 'The sign-in form still requires a code.' } }]);

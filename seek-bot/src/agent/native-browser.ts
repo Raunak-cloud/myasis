@@ -6,7 +6,7 @@ import { readComboboxStates } from '../combobox-state.js';
 
 export const MAX_BROWSER_BATCH = 32;
 const waitState = { type: 'string', enum: ['visible', 'hidden', 'attached', 'detached'] };
-const waitTimeout = { type: 'integer', minimum: 1, maximum: 15000 };
+const waitTimeout = { type: 'integer', minimum: 1, maximum: 30000 };
 export const browserWaitProperties = {
   state: { ...waitState, description: 'For action=wait with a top-level ref/selector/locator. visible/attached waits for any matching target; hidden/detached waits until none remain in that state.' },
   timeout_ms: { ...waitTimeout, description: 'For action=wait only: maximum wait, never a sleep. Put a follow-up wait after another action inside wait instead.' },
@@ -91,14 +91,14 @@ function describeNativeTargets(targets: Element | Element[]) {
 export async function nativeSelect(target: Locator, value: string): Promise<void> {
   const tag = await target.evaluate(node => node.tagName);
   if (tag === 'SELECT') {
-    await target.selectOption({ label: value }, { timeout: 4000 }).catch(() => target.selectOption(value, { timeout: 4000 }));
+    await target.selectOption({ label: value }, { timeout: 30000 }).catch(() => target.selectOption(value, { timeout: 30000 }));
     return;
   }
   if (await target.getAttribute('role') !== 'combobox') throw Error('select requires a native select or an observed combobox.');
-  await target.click({ timeout: 8000 });
+  await target.click({ timeout: 30000 });
   if (tag === 'INPUT') {
-    await target.fill('', { timeout: 4000 });
-    await target.pressSequentially(value, { timeout: 4000 });
+    await target.fill('', { timeout: 30000 });
+    await target.pressSequentially(value, { timeout: 30000 });
   }
   // Menus can be portalled elsewhere in the same frame. Scope with the
   // control's own ARIA relationship, never an unrelated open dropdown.
@@ -110,8 +110,8 @@ export async function nativeSelect(target: Locator, value: string): Promise<void
   if (!frame) throw Error('Combobox frame changed. Inspect the fresh page.');
   const menu = frame.locator(controls.map(id => `[id=${JSON.stringify(id)}]`).join(','));
   const option = menu.getByRole('option', { name: value, exact: true });
-  await option.click({ timeout: 8000 });
-  await target.press('Tab', { timeout: 4000 });
+  await option.click({ timeout: 30000 });
+  await target.press('Tab', { timeout: 30000 });
   const readback = await nativeReadback(target) as { widgetText?: string; invalid?: string; expanded?: string };
   if (readback.invalid === 'true' || readback.expanded === 'true' || readback.widgetText !== value) {
     throw Error('The chosen option was clicked, but a committed selection is not yet established. Inspect the current field and validation before repeating anything.');
@@ -120,13 +120,13 @@ export async function nativeSelect(target: Locator, value: string): Promise<void
 
 /** Mutation readback remains strict: exactly the target the action addressed. */
 export async function nativeReadback(target: Locator): Promise<unknown> {
-  return browserDeadline('Browser field readback', 5000, () => nativeReadbackNow(target));
+  return browserDeadline('Browser field readback', 30_000, () => nativeReadbackNow(target));
 }
 
 async function nativeReadbackNow(target: Locator): Promise<unknown> {
   const values = await privateAuthenticationValues(target.page());
-  const field=(await target.evaluate(describeNativeTargets, undefined, { timeout: 5000 })).fields[0];
-  const selection=(await target.evaluate(readComboboxStates,undefined,{timeout:5000}))[0];
+  const field=(await target.evaluate(describeNativeTargets, undefined, { timeout: 30_000 })).fields[0];
+  const selection=(await target.evaluate(readComboboxStates,undefined,{timeout:30_000}))[0];
   if(selection&&!field.private&&(!field.controlIdentity||field.controlIdentity===selection.controlIdentity))Object.assign(field,selection);
   return redactPrivateAuthenticationData(field, values);
 }
@@ -134,7 +134,7 @@ async function nativeReadbackNow(target: Locator): Promise<unknown> {
 /** One evaluation reads the current matching nodes together, including privacy
  * masking. Multiple matches are useful evidence, never permission for writes. */
 export async function nativeInspect(target: Locator): Promise<unknown> {
-  return browserDeadline('Browser field inspection', 5000, () => nativeInspectNow(target));
+  return browserDeadline('Browser field inspection', 30_000, () => nativeInspectNow(target));
 }
 
 async function nativeInspectNow(target: Locator): Promise<unknown> {
@@ -152,7 +152,7 @@ async function nativeInspectNow(target: Locator): Promise<unknown> {
  * and scroll-container boundaries without guessed wheel distances. */
 export async function nativeScroll(page: Page, args: Record<string, unknown>): Promise<void> {
   if (!hasBrowserTarget(args)) { await page.mouse.wheel(Number(args.x ?? 0), Number(args.y ?? 650)); return; }
-  const deadline = Date.now() + 8000;
+  const deadline = Date.now() + 30_000;
   const remaining = () => Math.max(1, deadline - Date.now());
   const target = browserTarget(page, args);
   const handle = await target.elementHandle({timeout: remaining()});
@@ -176,7 +176,7 @@ export async function nativeScroll(page: Page, args: Record<string, unknown>): P
 /** Read-only evidence after a failed interaction. Never chooses an index,
  * dismisses an overlay or repeats the operation. Credentials remain masked. */
 export async function browserFailureEvidence(page: Page, args: Record<string, unknown>): Promise<string> {
-  return browserDeadline('Browser failure inspection', 5000, () => browserFailureEvidenceNow(page, args));
+  return browserDeadline('Browser failure inspection', 30_000, () => browserFailureEvidenceNow(page, args));
 }
 
 async function browserFailureEvidenceNow(page: Page, args: Record<string, unknown>): Promise<string> {
@@ -228,7 +228,7 @@ async function maskSnapshots(page: Page, snapshots: string[], before: string[] |
   return snapshots;
 }
 
-export async function nativeSnapshot(target: Locator | Page, timeout = 15_000): Promise<string> {
+export async function nativeSnapshot(target: Locator | Page, timeout = 30_000): Promise<string> {
   return browserDeadline('Browser accessibility inspection', timeout, () => nativeSnapshotNow(target, timeout));
 }
 
@@ -256,7 +256,7 @@ export async function waitAfterAction(page: Page, args: Record<string, unknown>)
   // A timeout is only a bound, not a target. Never turn an already executed
   // click into a selector failure because the agent supplied only that bound.
   if (!wait.url && !hasBrowserTarget(wait)) return;
-  const timeout = Math.min(15000, Math.max(1, Number(wait.timeout_ms ?? 8000)));
+  const timeout = Math.min(30000, Math.max(1, Number(wait.timeout_ms ?? 30000)));
   try {
     if (wait.url) await page.waitForURL(String(wait.url), { timeout, waitUntil: 'domcontentloaded' });
     else {
@@ -292,7 +292,7 @@ export async function evaluateBrowser(page: Page, args: Record<string, unknown>)
     const registered = observedFrame(page, frameSelector);
     if (registered) scope = registered;
     else {
-    const handle = await page.locator(frameSelector).elementHandle({ timeout: 5000 });
+    const handle = await page.locator(frameSelector).elementHandle({ timeout: 30_000 });
     try {
       const frame = await handle?.contentFrame();
       if (!frame) throw new Error('The selected iframe is unavailable. Inspect the current page.');

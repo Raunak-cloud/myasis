@@ -8,7 +8,7 @@ import { rememberedPrivateAuthenticationValues, redactPrivateAuthenticationData 
 
 export const investigationTool: ToolSchema = {
   name:'investigate_application_state',
-  description:'Investigate an unknown outcome with one actual read-only check: fresh whole form, one observed control, or this job\'s owner-scoped attempt history. Returns browser/record evidence, not a success or failure verdict. Retains completed work. Repeated unchanged checks reuse their result; at most four checks per issue. Never clicks, reloads, resets credentials, sends, or changes approval. Act on useful evidence directly; no follow-up report is required.',
+  description:'Investigate an unknown outcome with one actual read-only check: fresh whole form, one observed control, or this job\'s owner-scoped attempt history. Returns browser/record evidence, not a success or failure verdict. Retains completed work. Each requested check reads the selected evidence again, including delayed changes. Never clicks, reloads, resets credentials, sends, or changes approval. Act on useful evidence directly; no follow-up report is required.',
   parameters:{type:'object',additionalProperties:false,properties:{
     question:{type:'string',minLength:1,maxLength:1500},check:{type:'string',enum:['form','control','history']},
     uncertainty_id:{type:'string',minLength:1,description:'Optional active uncertainty ID from this shared recovery record. Use it when several issues need separate checks; other applications/accounts are unavailable.'},
@@ -42,12 +42,11 @@ export async function investigateApplicationState(ctx: ToolContext,args:Record<s
   const field=ctx.observation.fields.find(field=>field.ref===args.ref),action=ctx.observation.actions.find(action=>action.ref===args.ref);
   const target=args.check==='control'?field?{label:field.label,section:field.section,identity:field.controlIdentity}:action?{text:action.text,role:action.role,context:action.context}:{selector:args.selector,locator:args.locator,ref:args.ref}:null;
   // History can change independently of the DOM. Read the local source once
-  // before caching so a newly recorded outcome is never hidden by an old page.
+  // so a newly recorded outcome is never hidden by an old page.
   let historyEvidence:string|undefined,historyFailed=false;
   if(args.check==='history')try{historyEvidence=history();}catch{historyFailed=true;}
   const sourceKey=args.check==='history'?createHash('sha256').update(historyEvidence??'[history unavailable]').digest('hex'):stateKey(ctx);
   const reservation=record.reserveInvestigationCheck(String(args.check),target,sourceKey,String(args.question),args.uncertainty_id as string|undefined);
-  if(!reservation.id)return ok(`UNCHANGED INVESTIGATION CHECK — no browser read or action repeated.\n${reservation.cached}\nThis remains evidence to investigate, not a verdict. Use a different supported check or continue from already verified work.`,'uncertain');
   let result:string;
   try {
     if(args.check==='history'){if(historyFailed)throw Error('History unavailable');result=historyEvidence!;}
@@ -63,8 +62,8 @@ export async function investigateApplicationState(ctx: ToolContext,args:Record<s
     // Browser errors can echo secrets. A failed read cannot establish whether
     // a previous write succeeded, so retain uncertainty and never replay it.
     result='The investigation read could not finish. No current outcome was established. Keep the prior work and uncertainty; use another available evidence source without repeating a possible send.';
-    record.completeInvestigationCheck(reservation.id,result);return ok(result,'uncertain');
+    record.completeInvestigationCheck(reservation.id!,result);return ok(result,'uncertain');
   }
-  record.completeInvestigationCheck(reservation.id,result);
+  record.completeInvestigationCheck(reservation.id!,result);
   return ok(`INVESTIGATION EVIDENCE — read-only; no action replayed and no success/failure inferred.\n${result}\nCompare this evidence with the unknown outcome. Continue directly when it resolves the issue; otherwise choose a different supported check. Candidate confirmation, credential verification and actual receipt requirements still apply.`,'reobserve');
 }

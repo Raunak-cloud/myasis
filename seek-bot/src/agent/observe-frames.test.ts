@@ -4,7 +4,6 @@ import { chromium } from 'patchright';
 import { observe, renderObservation } from './observe.js';
 import { browserTarget,BrowserTargetInputError } from './browser-target.js';
 import { evaluateBrowser, nativeInspect, nativeScroll } from './native-browser.js';
-import { RecoveryCheckpoint } from './recovery-checkpoint.js';
 import { ProgressBudget } from './progress-budget.js';
 import { expectationOf } from '../form-corpus.js';
 
@@ -53,14 +52,11 @@ test('cross-origin and nested form fields, actions and progress are visible with
     const box = await browserTarget(page, {ref:names[0].ref}).boundingBox();
     assert.ok(box && box.y >= 0 && box.y < 720, 'one targeted native scroll reveals a child-frame control through its parent');
     const meter = new ProgressBudget(.20); meter.observe(before.fields, false); meter.recordProvider({prompt: 0, cached: 0, completion: 0, amountUsd: .15});
-    const recovery = new RecoveryCheckpoint(); recovery.observe(before);
     await browserTarget(page, {ref: names[0].ref}).fill('Alex Fixture');
     const after = await observe(page);
     assert.equal(after.fields.find(field => field.ref === names[0].ref)?.currentValue, 'Alex Fixture');
     assert.equal(after.fields.find(field => field.ref === names[1].ref)?.currentValue, '');
     meter.observe(after.fields, true); assert.equal(meter.progressCount, 1); assert.equal(meter.limitUsd, .25);
-    recovery.acted('browser_action', false, {action: 'fill', ref: names[0].ref}); recovery.observe(after);
-    assert.equal(recovery.tool, undefined, 'real child-frame progress is not an unchanged parent page');
     await browserTarget(page, {locator: {frame: names[1].ref.split(':')[0], by: 'label', value: 'Legal name'}}).fill('Nested Fixture');
     const password = before.fields.find(field => field.inputType === 'password');
     if (password) assert.doesNotMatch(JSON.stringify(await nativeInspect(browserTarget(page, {ref: password.ref}))), /frame-private-fixture/);

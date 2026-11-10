@@ -62,6 +62,12 @@ try {
   assert.equal(run.result.outcome.status, 'prepared'); assert.equal(run.sends, 0);
   assert.ok(run.seen.some(text => /missing field may mean/i.test(text)));
  });
+ await test('native action auto-waits beyond the old 15-second limit and submits exactly once', async () => {
+  const delayed = form.replace('id=send type=button', 'id=send disabled type=button') + '<script>setTimeout(()=>document.querySelector("#send").disabled=false,16000)</script>';
+  const run = await scenario('delayed-native-action', delayed, [click('#send', true),
+   { name: 'finish', args: { status: 'applied', reason: 'Employer confirmation is visible.', evidence: 'Application received.', receipt: { quote: 'Application received.' } } }], true);
+  assert.equal(run.result.outcome.status, 'applied'); assert.equal(run.sends, 1); assert.equal(run.decisions, 2);
+ });
  await test('self-closing sign-in popup returns to the original saved form without another agent', async () => {
   const run = await scenario('popup-return', `<main><button id=login onclick="window.open('/identity','consent')">Sign in</button><div id=status></div>${form}</main>`,
    [click('#login'), waitForConsent, click('#allow'), city, prepare]);
@@ -101,6 +107,6 @@ try {
   assert.equal(run.result.outcome.status,'prepared'); assert.equal(run.sends,0);
   assert.match(run.trace.steps[0].result,/action="set_input_files" and file_id/);
   assert.doesNotMatch(run.trace.steps[0].result,/private-native-0/);
-  assert.ok(run.seen.some(text=>text.includes('RECOVERY PERSPECTIVE REFRESH:')),'a repeated wrong tool gets a fresh perspective while the agent still chooses its own next action');
+  assert.ok(run.seen.some(text=>text.includes('previous')||text.includes('failedInteractions')),'observed failed attempts remain in application memory without a prescribed recovery flow');
  });
 } finally { globalThis.fetch = fetchOriginal; await browser.close(); closeCelerisQueues(); rmSync(directory, { recursive: true, force: true }); }

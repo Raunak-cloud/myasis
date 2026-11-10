@@ -49,6 +49,18 @@ test('manual Stop remains immediate during deadline draining', async t => {
   run.events.emit('close', null, 'SIGKILL'); await run.supervisor.finished;
 });
 
+test('acknowledgement cannot leave a hung application draining forever', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const run = fixture(undefined, true);
+  t.mock.timers.tick(1_000); run.events.emit('message', RUN_DRAIN_ACK);
+  t.mock.timers.tick(120_000);
+  assert.deepEqual(run.signals, ['SIGTERM']);
+  run.events.emit('message', RUN_DRAIN_ACK);
+  t.mock.timers.tick(100);
+  assert.deepEqual(run.signals, ['SIGTERM', 'SIGKILL']);
+  run.events.emit('close', null, 'SIGKILL'); await run.supervisor.finished;
+});
+
 test('an unresponsive worker that never acknowledges the deadline still has bounded cleanup', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const run = fixture(undefined, true);

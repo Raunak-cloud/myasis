@@ -383,9 +383,10 @@ async function withMarks<T>(page: Page, work: () => Promise<T>): Promise<T> {
     })
     .catch(() => {});
   try {
+    assertBrowserOperationActive();
     return await work();
   } finally {
-    await page.evaluate(() => document.getElementById('__agent_marks')?.remove()).catch(() => {});
+    await browserCleanup('Screenshot mark cleanup', () => page.evaluate(() => document.getElementById('__agent_marks')?.remove()));
   }
 }
 
@@ -450,7 +451,7 @@ interface ObserveOptions {
 async function captureViewport(page: Page): Promise<Buffer> {
   const session = await page.context().newCDPSession(page);
   try {
-    return await browserDeadline('Application screenshot', 5_000, () => withPrivateAuthenticationMasks(page, async () => {
+    return await browserDeadline('Application screenshot', 30_000, () => withPrivateAuthenticationMasks(page, async () => {
       assertBrowserOperationActive();
       const shot = await session.send('Page.captureScreenshot', {
         format: 'jpeg', quality: 60, fromSurface: true, captureBeyondViewport: false,
@@ -467,7 +468,7 @@ async function captureViewport(page: Page): Promise<Buffer> {
 
 export async function observe(page: Page, options: ObserveOptions = {}): Promise<Observation> {
   for (let attempt = 0; ; attempt++) {
-    try { return await browserDeadline('Browser observation', 15_000, () => observeOnce(page, options)); }
+    try { return await browserDeadline('Browser observation', 30_000, () => observeOnce(page, options)); }
     catch (error) {
       recordDiagnostic({ severity: 'warning', category: 'observation_error', stage: 'observation',
         retry: attempt + 1, message: error instanceof Error ? error.message : String(error), error });
@@ -581,12 +582,11 @@ async function observeOnce(page: Page, options: ObserveOptions): Promise<Observa
 
 /** Add visual evidence without repeating DOM inspection; private inputs remain masked. */
 export async function addObservationScreenshot(page: Page, observation: Observation): Promise<void> {
-  const shot = await withMarks(page, () =>
-    captureViewport(page).catch(error => {
+  const shot = await browserDeadline('Recovery screenshot', 30_000, () => withMarks(page, () => captureViewport(page)))
+    .catch(error => {
       recordDiagnostic({ severity: 'warning', category: 'screenshot_error', stage: 'observation', message: 'Application screenshot failed.', error });
       return null;
-    }),
-  );
+    });
   if (shot) observation.screenshot = `data:image/jpeg;base64,${shot.toString('base64')}`;
 }
 

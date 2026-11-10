@@ -3,7 +3,6 @@ import test from 'node:test';
 import { validToolInput, toolInputIssue } from './tool-input.js';
 import { browserCommandContract } from './browser-command-schema.js';
 import { browserTargetProperties,hasBrowserTarget } from './browser-target.js';
-import {recoveryTools} from './recovery-checkpoint.js';
 
 test('explicit open payloads stay open while ordinary tool contracts stay closed and null stays typed',()=>{
  assert.equal(validToolInput({definition:{arbitrary:'data'}},{type:'object',properties:{definition:{type:'object',additionalProperties:true}}}),true);
@@ -32,12 +31,6 @@ test('frame-only and invented references are rejected before browser dispatch',(
   assert.match(toolInputIssue('frame1',browserTargetProperties.ref)!,/control reference.*locator/);
   assert.equal(validToolInput('',browserTargetProperties.ref),true,'empty optional ref denotes no selected target');
   assert.equal(hasBrowserTarget({ref:''}),false,'an empty reference cannot resolve a writable control');
-});
-
-test('empty unused receipt metadata cannot masquerade as a completed submission',()=>{
- const schema=recoveryTools[1].parameters;
- assert.equal(validToolInput({assessment:'progress',evidence:['Saved field'],next_action:'Inspect',receipt_quote:''},schema),true);
- for(const receipt of [{},{receipt_quote:''}])assert.equal(validToolInput({assessment:'complete',evidence:['Current page'],next_action:'Record',...receipt},schema),false,'complete still requires an actual nonempty receipt');
 });
 
 test('tool dispatch rejects missing, unknown and malformed nested arguments', () => {

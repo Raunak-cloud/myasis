@@ -134,7 +134,7 @@ try {
     const db=new DatabaseSync(join(directory,'application-recovery.sqlite'),{readOnly:true});
     try {
       const saved=JSON.parse(String(db.prepare('SELECT state FROM recovery_records WHERE id=?').get(recordId)!.state));
-      assert.equal(saved.status,'finished');assert.equal(saved.consultation.calls,specialistCalls);assert.ok(specialistCalls<=2);assert.equal(saved.work.files[0].id,fileId);
+      assert.equal(saved.status,'finished');assert.ok(specialistCalls<=2);assert.equal(saved.work.files[0].id,fileId);
       assert.ok(saved.work.captured.some((answer:{question:string;answer:string})=>answer.answer==='Fixture Applicant'));
       assert.equal(db.prepare('SELECT count(*) AS n FROM recovery_writers').get()!.n,0,'writer lease released after completion');
     } finally {db.close();}

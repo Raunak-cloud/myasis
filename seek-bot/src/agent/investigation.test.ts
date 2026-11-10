@@ -33,11 +33,11 @@ test('history checks see new source evidence independently of the page, without 
     assert.equal(failedToolResult(first),false);assert.match(first.kind==='ok'?first.message:'',/no receipt exists yet/);
     assert.ok(!JSON.stringify(first).includes('PRIVATE_FIXTURE_SECRET'));
     const repeated=await investigateApplicationState(ctx,{check:'history',question:'Check again, different wording.'},read);
-    assert.match(repeated.kind==='ok'?repeated.message:'',/UNCHANGED INVESTIGATION CHECK/);
+    assert.match(repeated.kind==='ok'?repeated.message:'',/no receipt exists yet/);
     source='The owner-scoped record now includes a newly received employer acknowledgement.';
     const changed=await investigateApplicationState(ctx,{check:'history',question:'Did new evidence arrive?'},read);
     assert.match(changed.kind==='ok'?changed.message:'',/newly received employer acknowledgement/);
-    assert.equal(record.snapshot().investigations?.[0].checks.length,2);
+    assert.equal(record.snapshot().investigations?.[0].checks.length,3);
     assert.equal(record.snapshot().investigations?.[0].status,'investigating','a source read is evidence; it does not by itself establish acceptance');
     const original=record.snapshot().investigations![0].id;
     record.openUncertainty('authentication','reset','Reset acceptance is also uncertain.');
