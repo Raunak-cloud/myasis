@@ -61,7 +61,7 @@ try {
   const run = await scenario('missing-target', `<main><h1>Vacancy details</h1><button id=apply onclick="this.hidden=true;document.querySelector('#form').hidden=false">Apply</button><div id=status></div>${form.replace('<form id=form>', '<form id=form hidden>')}</main>`,
    [{ name: 'browser_action', args: { action: 'fill', selector: '#email', value: 'example' } }, click('#apply'), city, prepare]);
   assert.equal(run.result.outcome.status, 'prepared'); assert.equal(run.sends, 0);
-  assert.ok(run.seen.some(text => /missing field may mean/i.test(text)));
+  assert.ok(run.seen.some(text => /Inspect the current page, correct the target or change approach/i.test(text)));
  });
  await test('native action auto-waits beyond the old 15-second limit and submits exactly once', async () => {
   const delayed = form.replace('id=send type=button', 'id=send disabled type=button') + '<script>setTimeout(()=>document.querySelector("#send").disabled=false,16000)</script>';
