@@ -61,3 +61,16 @@ test('scalar unions and helper recipe strings remain typed without an added tran
   const args={definition_json:'{"steps":[]}'};
   assert.equal(minimaxToolArguments(simple,args),args);
 });
+
+test('native account tools keep required target alternatives at each object level', () => {
+  const account={name:'fill_authentication_fields',description:'Fill account inputs',parameters:{type:'object',
+    properties:{purpose:{type:'string'},refs:{type:'array',minItems:1,items:{type:'string'}},
+      targets:{type:'array',minItems:1,items:{type:'object',properties:{ref:{type:'string'},selector:{type:'string'}},
+        anyOf:[{required:['ref']},{required:['selector']}]}}},required:['purpose'],anyOf:[{required:['refs']},{required:['targets']}]}};
+  const wire=minimaxToolSchema(account);
+  assert.deepEqual(wire.parameters.anyOf,account.parameters.anyOf);
+  assert.equal(validToolInput({purpose:'sign_in'},wire.parameters),false);
+  assert.equal(validToolInput({purpose:'sign_in',targets:[{}]},wire.parameters),false);
+  assert.equal(validToolInput({purpose:'sign_in',refs:['f1']},wire.parameters),true);
+  assert.equal(validToolInput({purpose:'sign_in',targets:[{selector:'#email'}]},wire.parameters),true);
+});

@@ -1,10 +1,12 @@
 import type { ToolSchema } from './celeris.js';
 
-/** Advertise ordinary typed arguments. Conditional object rules remain in
- * the canonical dispatcher instead of becoming a second schema in prose. */
+/** Advertise ordinary typed arguments. Keep simple required alternatives;
+ * action-dependent rules stay in the canonical dispatcher, not prose. */
 function providerParameters(schema: Record<string, unknown>): Record<string, unknown> {
   const result = { ...schema };
-  if (schema.type === 'object' && schema.properties && Array.isArray(schema.anyOf)) delete result.anyOf;
+  if (schema.type === 'object' && schema.properties && Array.isArray(schema.anyOf)
+    && !schema.anyOf.every(branch => branch && typeof branch === 'object'
+      && Object.keys(branch).length === 1 && Array.isArray(branch.required))) delete result.anyOf;
   if (schema.properties) result.properties = Object.fromEntries(Object.entries(schema.properties as Record<string, Record<string, unknown>>)
     .map(([name, value]) => [name, providerParameters(value)]));
   if (schema.items && typeof schema.items === 'object') result.items = providerParameters(schema.items as Record<string, unknown>);
