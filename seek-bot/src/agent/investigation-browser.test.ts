@@ -50,8 +50,8 @@ try {
       const first=await investigateApplicationState(ctx,{check:'form',question:'Was the reset accepted?'},()=> 'No receipt found.');
       assert.match(first.kind==='ok'?first.message:'',/Sign in to your candidate account/);
       const again=await investigateApplicationState(ctx,{check:'form',question:'Please check it again with a different question.'},()=> 'No receipt found.');
-      assert.match(again.kind==='ok'?again.message:'',/UNCHANGED INVESTIGATION CHECK/);
-      assert.equal(record.snapshot().investigations?.[0].checks.length,1,'wording changes cannot mint another read');
+      assert.match(again.kind==='ok'?again.message:'',/INVESTIGATION EVIDENCE/);
+      assert.equal(record.snapshot().investigations?.[0].checks.length,2,'the agent can inspect the same state again for delayed results');
       assert.equal(record.snapshot().investigations?.[0].status,'investigating');
       assert.ok(!ctx.actions.some(action=>['password-reset','authentication-rejected','signed-in'].includes(action.kind)));
       const blocked=await doCompleteAuthentication(ctx,{purpose:'sign_in',targets:[{selector:'#email'},{selector:'#password'}]});
@@ -87,11 +87,11 @@ try {
   assert.equal(result.outcome.status,'rehearsed');assert.equal(index,4);
   assert.equal(await page.evaluate('window.writes',undefined,undefined,false),1,'an uncertain write is investigated, not replayed');
   assert.equal(await page.evaluate('window.sends',undefined,undefined,false),1,'exactly one fictional send');
-  // An explicitly unknown authentication outcome gets one automatic safe form
-  // check before a technical stop, without manufacturing success or a question.
+  // The agent can stop with an unresolved technical outcome without a forced
+  // inspection or recovery-report turn, and without inventing a personal question.
   await page.setContent('<main><h1>Candidate access is still being checked</h1></main>');index=0;
   const stopCalls=[{name:'record_authentication_result',args:{purpose:'reset_password',outcome:'uncertain',evidence:'No employer verdict yet.'}},
-    ...Array.from({length:2},()=>({name:'finish',args:{status:'skipped',reason:'Reset outcome is still uncertain after safe checks.',evidence:'Candidate access is still being checked'}}))];
+    ...Array.from({length:1},()=>({name:'finish',args:{status:'skipped',reason:'Reset outcome is still uncertain after safe checks.',evidence:'Candidate access is still being checked'}}))];
   globalThis.fetch=(async(_url,init)=>{
     const body=JSON.parse(String(init?.body));
     if(isSpecialistFixtureRequest(body))return Response.json({choices:[{message:{content:JSON.stringify({advice:'The outcome remains unknown; preserve it honestly without another reset.',evidence:[{source:'page',detail:'Candidate access is still being checked'}],unknowns:['Reset acceptance'],nextSteps:['Report unresolved access honestly.']})}}]});
@@ -99,13 +99,13 @@ try {
     return Response.json({choices:[{message:{tool_calls:[{id:'stop-'+index,type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}]}}]});
   }) as typeof fetch;
   const stopped=await runAgentOnlyApplication({simulation:'isolated-form',page,job:{...job,id:'uncertain-stop'},profile:{name:'Fixture Candidate',email:'candidate@fixture.invalid',skills:[]} as never,log:()=>{}});
-  assert.equal(stopped.outcome.status,'rehearsed');assert.match(stopped.outcome.status==='rehearsed'?stopped.outcome.stoppedAt:'',/skipped/);assert.equal(index,3);
+  assert.equal(stopped.outcome.status,'rehearsed');assert.match(stopped.outcome.status==='rehearsed'?stopped.outcome.stoppedAt:'',/skipped/);assert.equal(index,2);
   const db=new DatabaseSync(join(dir,'application-recovery.sqlite'),{readOnly:true});
   try {
     const saved=db.prepare('SELECT state FROM recovery_records').all().map(row=>JSON.parse(String(row.state))).find(state=>state.scope.jobId==='uncertain-stop');
-    assert.equal(saved.investigations[0].status,'unresolved');assert.equal(saved.investigations[0].checks.length,1);
+    assert.equal(saved.investigations[0].status,'unresolved');assert.equal(saved.investigations[0].checks.length,0);
     assert.equal(saved.work.actions.some((action:{kind:string})=>['password-reset','authentication-rejected','signed-in'].includes(action.kind)),false);
   } finally {db.close();}
   await context.close();
-  console.log('PASS: missing reset message stays unknown, safe reads discover delayed evidence, unchanged checks are reused, a write-before-error is not repeated, one fictional send and one bounded stopping investigation. No real applications or provider calls.');
+  console.log('PASS: missing reset message stays unknown, safe reads discover delayed evidence, repeated checks are fresh, a write-before-error is not repeated, one fictional send and no forced stopping investigation. No real applications or provider calls.');
 } finally {globalThis.fetch=originalFetch;await browser.close();closeCelerisQueues();rmSync(dir,{recursive:true,force:true});}
