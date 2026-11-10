@@ -535,12 +535,10 @@ try {
   assert.equal(turns.length, beforeDuplicate, 'the same external entry on another board is resolved by matching without a second agent review');
   writeFileSync(join(directory, 'applied.json'), originalHistory);
 
-  script = [() => [{ name: 'finish', args: { status: 'already-applied', reason: 'Similar old title', evidence: 'Historical role' } }], body => {
-    assert.match(JSON.stringify(body.messages), /only for NEW employer-form evidence/);
-    return [{ name: 'finish', args: { status: 'skipped', reason: 'End controlled test', evidence: 'No employer duplicate was observed' } }];
-  }];
-  const inventedDuplicate = await runApplicationAgent({ page, job: { ...job, id: 'invented-duplicate' }, profile, log: () => {} });
-  assert.equal(inventedDuplicate.outcome.status, 'skipped', 'the applier cannot invent a second duplicate decision from history');
+  script = [() => [{ name: 'finish', args: { status: 'already-applied', reason: 'Employer shows an existing application', evidence: 'The thank-you page and its alreadyApplied status refer to this vacancy.' } }]];
+  const inferredDuplicate = await runApplicationAgent({ page, job: { ...job, id: 'agent-duplicate-decision' }, profile, log: () => {} });
+  assert.equal(inferredDuplicate.outcome.status, 'already-applied', 'the agent can judge combined page and URL evidence without an exact copied message');
+  assert.equal(inferredDuplicate.submitPressed, false);
 
   await page.setContent('<main><h1>Application</h1><p>You already applied to this position on 25 October.</p></main>');
   script = [() => [{ name: 'finish', args: {

@@ -83,7 +83,7 @@ globalThis.fetch=(async(_url,init)=>{
  }else if(turn===3){
   call={name:'browser_action',args:{action:'take_snapshot',target_mode:'ref',ref:refFrom(String(last))!}};
  }else if(turn===4){
-  call={name:'finish',args:{status:'already-applied',reason:'The fictional fixture confirms prior application.',evidence:'You already applied to this position.',duplicate_evidence:{quote:'You already applied to this position.'}}};
+  call={name:'finish',args:{status:'already-applied',reason:'The fictional fixture confirms prior application.',evidence:'The page and its address indicate the application is already on file.'}};
  }else throw Error('Unexpected model request; fixture has no paid fallback');
  const index=turn++;
  return Response.json({choices:[{message:{role:'assistant',content:null,tool_calls:[{id:`snapshot-${index}`,type:'function',function:{name:call.name,arguments:fixtureToolArguments(body,call.name,call.args)}}]}}],usage:{prompt_tokens:30,completion_tokens:10}});

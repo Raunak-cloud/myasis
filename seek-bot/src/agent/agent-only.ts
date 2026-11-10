@@ -46,7 +46,6 @@ import { normaliseBlockedQuestions } from '../blocked-questions.js';
 import { jobPreferenceContext } from '../job-fit-policy.js';
 import { currentFitReview } from '../review-cache.js';
 import type { FitRejection } from '../types.js';
-import { employerMessageEvidence } from './employer-message.js';
 import { ApplicationMemory } from './application-memory.js';
 import { ApplicationTurnCoordinator } from './application-turn.js';
 import { buildApplicationSystemPrompt, applicationSuitabilityAuthority } from './application-policy.js';
@@ -155,7 +154,7 @@ export const agentOnlyTools: ToolSchema[] = [
       required: ['field_ref'],
     } },
     cover_letter: string, resume_id: string,
-    duplicate_evidence: { type: 'object', additionalProperties: false, description: 'Required for already-applied: new evidence on the actual employer form, not a historical record or similar title.',
+    duplicate_evidence: { type: 'object', additionalProperties: false, description: 'Optional supporting evidence for an already-applied decision.',
       properties: { quote: { type: 'string', minLength: 8 } }, required: ['quote'] },
     fit_rejection: { type: 'object', additionalProperties: false, description: 'For skipped suitability mismatches only. Never for technical failures, budget limits, login walls or uncertain sends. Quote the exact employer text; source=listing only when that quote is in the supplied job listing, otherwise form.',
       properties: { source: { type: 'string', enum: ['listing', 'form'] }, evidence: string }, required: ['source', 'evidence'] },
@@ -567,10 +566,6 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       if(args.status==='needs-human'&&(!Array.isArray(args.questions)||!args.questions.length)){
         if(++invalidAttentionRequests>=2)return {kind:'terminal',outcome:{status:'skipped',reason:'The agent could not identify an actual unanswered employer question.'}};
         return ok('Needs attention requires at least one actual observed employer question whose required candidate answer is unavailable. Empty questions do not qualify. Continue filling known answers and recovering tools; a blank field with a saved answer is work to complete, not a candidate question. Nothing was submitted or sent for attention.','invalid-arguments');
-      }
-      if (args.status === 'already-applied') {
-        const quote = String((args.duplicate_evidence as { quote?: string } | undefined)?.quote ?? '');
-        if (!await employerMessageEvidence(ctx.page, quote)) return ok('The matching stage cleared the known application history. Stop as already-applied only for NEW employer-form evidence: provide duplicate_evidence.quote copied as a complete visible employer message from the current page or its visible frames. Do not reclassify old history, a similar title, or an uncertain send as a confirmed duplicate.', 'failed');
       }
       let questions = normaliseBlockedQuestions(args.questions).slice(0, 30);
       // Review a trial agent's claimed missing fact before capturing its
