@@ -3,7 +3,7 @@ import type { ToolSchema } from './celeris.js';
 
 export const applicationReviewTool: ToolSchema = {
   name: 'record_application_review',
-  description: 'Optional self-review by the applying agent, never a separate permission gate. Choose when to inspect and review the application. Assess consequential answers, documents, vacancy and dates against candidate sources. You may record ready, correct or needs_answer, or continue directly with normal tools after assessing the evidence. A report never sends, repairs or authorizes a job. Unsupported required facts still need the candidate; an uncertain send must not be repeated.',
+  description: "Optionally record your review of saved answers and documents against candidate evidence: ready, correct or needs_answer. Does not submit or restrict normal tools.",
   parameters: { type: 'object', additionalProperties: false, properties: {
     assessment: { type: 'string', enum: ['ready', 'correct', 'needs_answer'] },
     vacancy: { type: 'string', minLength: 1, description: 'Actual employer vacancy and location compared with the authorized job.' },

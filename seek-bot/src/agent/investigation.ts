@@ -8,7 +8,7 @@ import { rememberedPrivateAuthenticationValues, redactPrivateAuthenticationData 
 
 export const investigationTool: ToolSchema = {
   name:'investigate_application_state',
-  description:'Investigate an unknown outcome with one actual read-only check: fresh whole form, one observed control, or this job\'s owner-scoped attempt history. Returns browser/record evidence, not a success or failure verdict. Retains completed work. Each requested check reads the selected evidence again, including delayed changes. Never clicks, reloads, resets credentials, sends, or changes approval. Act on useful evidence directly; no follow-up report is required.',
+  description: "Read the current form, a control or this posting’s attempt history to resolve an unknown outcome. No clicks, reloads or sends. Use the evidence to choose your next action.",
   parameters:{type:'object',additionalProperties:false,properties:{
     question:{type:'string',minLength:1,maxLength:1500},check:{type:'string',enum:['form','control','history']},
     uncertainty_id:{type:'string',minLength:1,description:'Optional active uncertainty ID from this shared recovery record. Use it when several issues need separate checks; other applications/accounts are unavailable.'},

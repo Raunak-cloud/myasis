@@ -7,33 +7,22 @@ const targets = { type: 'array', minItems: 1, maxItems: 12, items: {
   type: 'object', additionalProperties: false,
   properties: { ...browserTargetProperties, ref: { type: 'string', minLength: 1 }, selector: { type: 'string', minLength: 1 } },
   anyOf: [{ required: ['ref'] }, { required: ['selector'] }, { required: ['locator'] }],
-}, description: 'Required unless refs are supplied. Agent-selected native locators for the actual credential/code inputs, including frame and section scopes. Prefer these to refs for embedded forms.' };
+}, description: 'Actual authentication or code input targets. Include frame scope for embedded forms.' };
 const cachedVerification = {
-  credential_id: { type: 'string', minLength: 1, maxLength: 100, description: 'Private credential ID chosen by you from this tool’s returned email evidence. Omit on the first call to inspect recent messages. Decide which email and credential match the current page and requested purpose; then call again with that ID. Values stay private.' },
-  purpose: { type: 'string', enum: [...VERIFICATION_PURPOSES], description: 'The current requested email operation: account/application email verification or activation, sign-in, or password reset. A prior activation link cannot reset a password. Select reset_password after requesting password recovery.' },
-  allow_recent_cached: { type: 'boolean', description: 'Set only when visible employer copy says an existing/reusable emailed code or link is still valid. Requires cached_code_evidence. Allows recent cached mail within fifteen minutes; never an unrestricted stale fallback.' },
-  cached_code_evidence: { type: 'string', description: 'Complete exact visible employer message establishing that the existing emailed code/link can still be used. You judge its meaning; the tool verifies the quote against fresh noneditable employer copy.' },
+  credential_id: { type: 'string', minLength: 1, maxLength: 100, description: 'ID from this tool’s message results. Omit on the first call.' },
+  purpose: { type: 'string', enum: [...VERIFICATION_PURPOSES], description: 'The email purpose requested by the site: verification, sign-in or reset_password.' },
+  allow_recent_cached: { type: 'boolean', description: 'Use a recent cached code/link only when current employer text confirms it is reusable. Supply cached_code_evidence.' },
+  cached_code_evidence: { type: 'string', description: 'Exact current employer message confirming that the existing code/link is reusable.' },
 };
 
 const AUTHENTICATION_TOOL: ToolSchema = {
     name: 'fill_authentication_fields',
-    description:
-      'Fill login, account-creation or password-reset fields privately. Fills fields only. Use browser_action separately to click buttons. ' +
-      'First check this candidate\'s saved employer account with check_employer_account or the automatic account summary. Reuse accepted credentials before registration. Existing accounts without saved passwords can use normal recovery through the matching candidate inbox; a genuine employer reset link/code must be consumed before setting a password. Fill sign-in or account-creation fields using the candidate profile and the private site credential. ' +
-      'Use this for email, username, name, phone, password and password-confirmation fields. Pass every authentication FIELD on the page. ' +
-      'Use this private tool for credentials. After filling, click the sign-in, create-account or continue control. ' +
-      "When creating an account or setting a new password, read the site's password requirements (stated beside the field, " +
-      'or in the message after a rejected password) and pass them as password_rules; the password is then built to fit them. ' +
-      'You never see or choose the password itself. An existing-account sign-in requires a previously accepted credential; missing records never authorize generating a password. ' +
-      'After the site responds, call record_authentication_result with accepted, rejected or needs_verification and the exact employer message; choose uncertain when the outcome is not established. Investigate the actual current state without repeating registration/reset or promoting an unverified password merely because a success message is missing. ' +
-      'Pending password proposals survive future runs, scoped to this candidate, site and employer. A prepared draft proves only local filling, not employer acceptance, account existence or a requested email. Resume activation only when the saved employer outcome or current page establishes pending verification; otherwise inspect the current registration or offered recovery flow. Do not treat pending credentials as accepted. After actual activation, record create_account acceptance to recover the saved credential. ' +
-      'Record a successful password reset or account creation before attempting the next sign-in, even if its success message appears above an editable login form. Reset acceptance and sign-in acceptance are separate outcomes. ' +
-      'After rejection, recover through the employer\'s normal flow or use authenticated browser access, rather than resubmitting the same credential. When the employer confirms an existing account without saved credentials, call check_employer_account outcome=existing with its complete noneditable paragraph, excluding separate headings and buttons. It returns the available connected-inbox recovery path or a private-browser sign-in task. Requesting reset email is not the same as successfully setting a new password.',
-    parameters: {
+    description: "Fill actual login, registration or reset fields privately. Check the saved employer account first; reuse accepted credentials. Targets are input fields, not buttons or ordinary application questions. For a new password pass the site’s password_rules. Existing accounts need their genuine reset flow before setting a password. Click Continue/Sign in with browser_action, then record_authentication_result. Pending credentials are not accepted credentials.",
+  parameters: {
       type: 'object',
       properties: {
         targets,
-        refill: { type: 'boolean', description: 'Re-enter already matching values only when you choose to trigger native input events for an uncommitted or rejected field. Otherwise matching values are preserved. Filling never clicks a button or proves account acceptance.' },
+        refill: { type: 'boolean', description: 'Set true only to trigger input events for an uncommitted/rejected value. Otherwise preserve matching values.' },
         refs: {
           type: 'array',
           minItems: 1, items: { type: 'string', minLength: 1 },
@@ -63,10 +52,7 @@ const AUTHENTICATION_TOOL: ToolSchema = {
 
 const EMAILED_CODE_TOOL: ToolSchema = {
   name: 'enter_emailed_code',
-  description:
-    'When the page asks for a code that was emailed to the candidate (verification code, one-time passcode, sign-in code), ' +
-    "call this with the ref of the code FIELD after the email has been requested. The code is read from the candidate's " +
-    'inbox through Gmail MCP. First call without credential_id to inspect sender, subject and masked message evidence. You choose the correct email and code using the current page and context, then call again with its credential_id to fill privately. There is no company-name or sender-matching veto. For separate digit boxes, supply refs in visual reading order instead of ref. Never type a code yourself.',
+  description: "Use only after the site requests an emailed code. First omit credential_id to inspect messages; choose the matching message, then call again with its credential_id and the actual code field targets. Values stay private.",
   parameters: {
     type: 'object',
     properties: {
@@ -83,10 +69,7 @@ const EMAILED_CODE_TOOL: ToolSchema = {
 
 const EMAILED_LINK_TOOL: ToolSchema = {
   name: 'open_emailed_link',
-  description:
-    'When the page says a verification, activation, confirmation or password-reset LINK was emailed to the candidate ' +
-    '(for example "check your email to verify your account"), call this after the email has been requested. The link is read ' +
-    "from the candidate's inbox through Gmail MCP. First call without credential_id to inspect sender, subject and masked message evidence. You decide which email and action link belong to this flow, then call again with its credential_id to open privately in a new tab. Never guess or type a link.",
+  description: "Use only after the site requests an emailed verification, sign-in or reset link. First omit credential_id to inspect messages; choose the matching message, then call again with its credential_id. Opens the link privately in a new tab.",
   parameters: {
     type: 'object',
     properties: { ...cachedVerification, sender_hint: { type: 'string', description: 'The site or company that sent the email, e.g. "Workday" or the employer.' } },
@@ -96,5 +79,5 @@ const EMAILED_LINK_TOOL: ToolSchema = {
 
 /** Credential and connected-inbox helpers shared by the sole applying agent. */
 export function authenticationTools(): ToolSchema[] {
-  return [{name:'check_employer_account',description:'FIRST at an employer sign-in/registration form: check this candidate\'s saved account for this exact employer. Returns status, never passwords. Before creating an account use normal employer account/email discovery when offered. Missing local metadata does not prove no account exists. When the employer confirms an existing account with no saved Owtomate credential, use outcome=existing and its COMPLETE current message; the tool returns normal recovery through a matching connected candidate inbox, or a private-browser sign-in task when no matching inbox is connected. A genuine employer reset link/code must be consumed before setting a new password. Never guess a password or ask for credentials in screening answers. not_found requires an explicit employer response, not a generic reset-email message.',parameters:{type:'object',additionalProperties:false,properties:{outcome:{type:'string',enum:['lookup','existing','not_found']},evidence:{type:'string',maxLength:4000}}}},AUTHENTICATION_TOOL, ...(gmailAvailable() ? [EMAILED_CODE_TOOL, EMAILED_LINK_TOOL] : [])];
+  return [{name:'check_employer_account',description:"Check this candidate’s saved account for the current employer. Missing metadata does not prove no account exists. Use the employer’s normal discovery/reset flow; existing/not_found requires its complete explicit message. Returns recovery options, never passwords.",parameters:{type:'object',additionalProperties:false,properties:{outcome:{type:'string',enum:['lookup','existing','not_found']},evidence:{type:'string',maxLength:4000}}}},AUTHENTICATION_TOOL, ...(gmailAvailable() ? [EMAILED_CODE_TOOL, EMAILED_LINK_TOOL] : [])];
 }

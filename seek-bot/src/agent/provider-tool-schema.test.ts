@@ -13,57 +13,51 @@ const tool = { name: 'browser_action', description: 'Use the native browser', pa
   }, required: ['action'], ...browserCommandContract(['click', 'wait'], true),
 } };
 
-test('JSON-text transport preserves nested waits while the original send and target validation stays mandatory', () => {
+test('ordinary typed arguments preserve nested waits and frame targets without changing dispatch validation', () => {
   const before = structuredClone(tool), wire = minimaxToolSchema(tool);
-  assert.deepEqual(wire.parameters.required, ['arguments_json']);
-  assert.match(wire.description, /sends_application/);
-  const args = { action: 'click', ref: 'a1', sends_application: false,
+  assert.deepEqual(wire.parameters.required, ['action']);
+  assert.equal(wire.parameters.anyOf, undefined);
+  assert.equal(wire.description, tool.description);
+  assert.ok((wire.parameters.properties as Record<string,unknown>).locator);
+  assert.equal((wire.parameters.properties as Record<string,unknown>).arguments_json, undefined);
+  const args = { action: 'click', locator: { by: 'css', value: '#apply', frame: 'frame1' }, sends_application: false,
     wait: { locator: { by: 'css', value: '#fixture' }, state: 'hidden', timeout_ms: 1000 } };
-  assert.deepEqual(minimaxToolArguments(tool, { arguments_json: JSON.stringify(args) }), args);
+  assert.deepEqual(minimaxToolArguments(tool, JSON.parse(JSON.stringify(args))), args);
   assert.equal(validToolInput(args, tool.parameters), true);
   for (const invalid of [{ action: 'click', ref: 'a1' }, { action: 'wait' },
     { action: 'wait', locator: { by: 'css', value: 'body' }, wait: { locator: {} } },
-    { action: 'wait', locator: { by: 'css', value: 'body' }, unauthorized: true }]) {
-    assert.equal(validToolInput(minimaxToolArguments(tool, { arguments_json: JSON.stringify(invalid) }), tool.parameters), false);
+    { action: 'wait', locator: { by: 'css', value: 'body' }, unauthorized: true }, { arguments_json: JSON.stringify(args) }]) {
+    assert.equal(validToolInput(minimaxToolArguments(tool, invalid), tool.parameters), false);
   }
   assert.deepEqual(tool, before);
 });
 
-test('malformed, extra and non-object wire arguments fail closed without echoing private input or repairing JSON', () => {
-  for (const input of [{}, { arguments_json: '{"PRIVATE_ANSWER":42}}' }, { arguments_json: 'null' },
-    { arguments_json: '[]' }, { arguments_json: '{}' , sends_application: true }, { arguments_json: {} }, null, [], 42]) {
-    const decoded = minimaxToolArguments(tool, input as never);
-    assert.equal(validToolInput(decoded, tool.parameters), false);
-    assert.match(String(decoded.__parseError), /No tool operation ran/);
-    assert.doesNotMatch(JSON.stringify(decoded), /PRIVATE_ANSWER/);
-    const canonicalIssue = toolInputIssue(decoded, tool.parameters)!;
-    assert.match(canonicalIssue, /complete arguments as one valid JSON object/);
-    assert.doesNotMatch(canonicalIssue, /arguments_json|PRIVATE_ANSWER/, 'ordinary selected schemas never suggest an undeclared wrapper');
-  }
+test('batch projection preserves nested typed arrays while canonical rules reject unsafe incomplete commands', () => {
+  const batch={name:'browser_batch',description:'Run commands',parameters:{type:'object',additionalProperties:false,
+    properties:{actions:{type:'array',items:tool.parameters}},required:['actions']}};
+  const wire=minimaxToolSchema(batch);
+  const items=((wire.parameters.properties as any).actions.items);
+  assert.equal(items.anyOf,undefined);assert.ok(items.properties.locator.properties.frame);
+  const args={actions:[{action:'click',selector:'#continue',sends_application:false},
+    {action:'wait',wait:{url:'https://fixture.invalid/next'}}]};
+  assert.deepEqual(minimaxToolArguments(batch,args),args);
+  assert.equal(validToolInput(args,batch.parameters),true);
+  assert.equal(validToolInput({actions:[{action:'click',selector:'#send'}]},batch.parameters),false);
 });
 
-test('JSON-decode guidance names only a wrapper declared by the selected schema', () => {
-  const malformed = { __parseError: 'PRIVATE_JSON_INPUT must never be echoed' };
-  const wrapper = minimaxToolSchema(tool).parameters;
-  const issue = toolInputIssue(malformed, wrapper)!;
-  assert.match(issue, /declared arguments_json field.*complete object as valid JSON text/);
-  assert.match(issue, /No tool operation ran/);
-  assert.doesNotMatch(issue, /PRIVATE_JSON_INPUT/);
-  for (const schema of [tool.parameters, { type: 'object', properties: { nested: { type: 'object', properties: { arguments_json: { type: 'string' } } } } },
-    { type: 'object', properties: { arguments_json: { type: 'number' } } }]) {
-    assert.doesNotMatch(toolInputIssue(malformed, schema)!, /arguments_json/, 'unoffered, nested or differently typed fields do not advertise a JSON-text wrapper');
-    assert.equal(validToolInput(malformed, schema), false, 'feedback never makes malformed input executable');
-  }
-  assert.equal(validToolInput({ arguments_json: '{}' }, tool.parameters), false, 'undeclared wrapper input remains rejected by the original strict contract');
+test('malformed input remains non-executable and private parse content is not echoed', () => {
+  const malformed={__parseError:'PRIVATE_JSON_INPUT'};
+  const decoded=minimaxToolArguments(tool,malformed);
+  assert.equal(validToolInput(decoded,tool.parameters),false);
+  const issue=toolInputIssue(decoded,tool.parameters)!;
+  assert.match(issue,/complete arguments as one valid JSON object/);
+  assert.doesNotMatch(issue,/PRIVATE_JSON_INPUT|arguments_json/);
 });
 
-test('simple value unions and the already serialized helper contract retain their existing wire format', () => {
-  const simple = { name: 'simple', description: 'Fixture', parameters: { type: 'object', additionalProperties: false,
-    properties: { value: { anyOf: [{ type: 'string' }, { type: 'number' }] }, definition_json: { type: 'string' } },
-    required: ['definition_json'] } };
-  assert.equal(minimaxToolSchema(simple), simple);
-  const args = { definition_json: '{"steps":[]}' };
-  assert.equal(minimaxToolArguments(simple, args), args);
-  const batch = { ...simple, parameters: { type: 'object', properties: { actions: { type: 'array', items: tool.parameters } } } };
-  assert.deepEqual(minimaxToolSchema(batch).parameters.required, ['arguments_json']);
+test('scalar unions and helper recipe strings remain typed without an added transport wrapper', () => {
+  const simple={name:'helper',description:'Fixture',parameters:{type:'object',additionalProperties:false,
+    properties:{value:{anyOf:[{type:'string'},{type:'number'}]},definition_json:{type:'string'}},required:['definition_json']}};
+  assert.deepEqual(minimaxToolSchema(simple),simple);
+  const args={definition_json:'{"steps":[]}'};
+  assert.equal(minimaxToolArguments(simple,args),args);
 });

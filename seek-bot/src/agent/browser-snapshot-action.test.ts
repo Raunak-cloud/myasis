@@ -35,8 +35,8 @@ for(const args of examples){
  assert.equal(validToolInput(args,action.parameters),true);
  assert.equal(changesBrowserState(args),false);
  assert.equal(isSnapshotOperation('browser_action',args),true);
- const wire=minimaxToolSchema(action);assert.deepEqual(wire.parameters.required,['arguments_json']);
- assert.deepEqual(minimaxToolArguments(action,{arguments_json:JSON.stringify(args)}),args);
+ const wire=minimaxToolSchema(action);assert.deepEqual(wire.parameters.required,['action']);
+ assert.deepEqual(minimaxToolArguments(action,args),args);
 }
 for(const extra of [{sends_application:true},{sends_application:false},{replaces_file_ids:['fixture']},{value:'unsafe'},{script:'document.body.remove()'},
  {file_ids:['fixture']},{wait:{url:'https://other.invalid'}},{page_index:2},{x:10,y:10},{unexpected:true},{screenshot:'yes'}]){

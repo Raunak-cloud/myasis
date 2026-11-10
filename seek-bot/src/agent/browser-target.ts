@@ -47,20 +47,20 @@ export function locate(page: Page, ref: string): Locator | null {
 
 /** Standard Playwright locators, selected by the agent, without widget recipes. */
 export const browserTargetProperties = {
-  target_mode: {type:'string',enum:['ref','selector','locator','page','coordinates'],description:'Explicitly choose one target method. ref uses only ref; selector uses only selector in the main document; locator uses only locator (including any iframe scope). Other target fields and x/y are ignored. page is for untargeted keyboard/scroll or whole-page take_snapshot. coordinates is only for an explicit browser_action click and is unavailable in Semi auto. Legacy calls without this choice retain locator/selector/ref precedence.'},
+  target_mode: {type:'string',enum:['ref','selector','locator','page','coordinates'],description:'Optional target method: ref, selector or locator for a control; page for page inspection; coordinates for a click. Omit unused targets.'},
   ref: { type: 'string', pattern: '^(?:|a[0-9]+|f[0-9]+(?::[0-9]+)?|(?:f[0-9]+)?e[0-9]+|frame[0-9]+:[af][0-9]+(?::[0-9]+)?)$',
-    description: 'Observed control reference, not a frame reference alone. To inspect a whole observed frame, use locator {by:"css",value:"body",frame:"frame1"}; omit all targets for a page snapshot.' },
+    description: 'Current observed control ref. Omit targets for a whole-page snapshot.' },
   selector: { type: 'string' },
   locator: {
     type: 'object', additionalProperties: false,
-    description: 'Direct Playwright locator. Uses exact matching by default and requires a unique element. Scope repeated controls with within (CSS), frame (iframe CSS), or an explicitly chosen zero-based index. Takes precedence over selector/ref.',
+    description: 'Playwright locator. Use within, frame or index to select the intended control.',
     properties: {
       by: { type: 'string', enum: ['role', 'label', 'placeholder', 'text', 'test_id', 'css'] },
       value: { type: 'string', minLength: 1 },
       name: { type: 'string', description: 'Accessible name when by=role.' },
       exact: { type: 'boolean' },
       within: { type: 'string', minLength: 1, description: 'CSS selector for the containing section in the selected frame.' },
-      frame: { type: 'string', description: 'Only for a control explicitly observed inside an iframe: its observed frame reference (for example frame1) or iframe CSS selector. Main-document controls have no frame reference: omit this property or use an empty string. Never carry a previous wizard page\'s iframe onto a main-document control.' },
+      frame: { type: 'string', description: 'Observed iframe ref or iframe CSS selector. Omit for main-document controls.' },
       index: { type: 'integer', minimum: 0 },
     },
     required: ['by', 'value'],

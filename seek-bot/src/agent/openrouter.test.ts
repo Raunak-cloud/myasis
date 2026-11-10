@@ -25,16 +25,17 @@ test('MiniMax wire projection leaves canonical dispatch validation and returned 
   const original = structuredClone(conditional);
   globalThis.fetch = (async (_url, options) => {
     const body = JSON.parse(String(options!.body));
-    assert.deepEqual(body.tools[0].function.parameters.required, ['arguments_json']);
-    assert.match(body.tools[0].function.description, /sends_application/);
+    assert.deepEqual(body.tools[0].function.parameters.required, ['action']);
+    assert.equal(body.tools[0].function.parameters.anyOf,undefined);
+    assert.deepEqual(body.tools[0].function.parameters.properties.sends_application,{type:'boolean'});
     const response = reply();
-    response.choices[0].message.tool_calls[0].function.arguments = JSON.stringify({ arguments_json: '{"action":"click"}' });
+    response.choices[0].message.tool_calls[0].function.arguments = JSON.stringify({ action: 'click' });
     return Response.json(response);
   }) as typeof fetch;
   const result = await applicationChat({ model: 'celeris-1-magnus', messages: [], tools: [conditional] });
   assert.deepEqual(result.toolCalls[0].args, { action: 'click' }, 'transport must not invent missing consent or retry tokens');
   assert.ok(result.message.role === 'assistant');
-  assert.match(result.message.tool_calls![0].function.arguments, /arguments_json/, 'provider transcript retains its original wire arguments');
+  assert.deepEqual(JSON.parse(result.message.tool_calls![0].function.arguments),{action:'click'},'provider transcript retains ordinary arguments');
   assert.equal(validToolInput(result.toolCalls[0].args, conditional.parameters), false);
   assert.deepEqual(conditional, original);
 }));
