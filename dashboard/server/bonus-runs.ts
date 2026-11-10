@@ -1,7 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {query,one} from './db/index.js';
 import {isAdmin} from './billing.js';
-import {runner} from './runner.js';
 import {bonusRunOptions} from './bonus-run-policy.js';
 import type {BonusRun,BonusRunOptions} from '../src/bonus-run.js';
 import type {PoolClient} from 'pg';
@@ -74,6 +73,7 @@ export async function listBonusRuns(userId:string):Promise<BonusRun[]> {
   runId:row.run_start_id,applied:row.applied??0,prepared:Number(row.prepared)}));
 }
 export async function cancelBonusRun(id:string,userId:string):Promise<void> {
+ const {runner}=await import('./runner.js');
  const rows=await query("UPDATE bonus_runs SET status='stopped',finished_at=now() WHERE id=$1 AND user_id=$2 AND status IN ('queued','starting') AND run_start_id IS NULL RETURNING id",[id,userId]);
  if(rows.length)return;
  const row=await one<BonusRow>('SELECT * FROM bonus_runs WHERE id=$1 AND user_id=$2',[id,userId]);
@@ -87,6 +87,7 @@ let dispatching=false,timer:ReturnType<typeof setInterval>|undefined;
 export async function dispatchBonusRuns():Promise<void> {
  if(dispatching)return;dispatching=true;
  try {
+  const {runner}=await import('./runner.js');
   // Reclaim only work that never bound a worker. A bound run is never replayed.
   const stale=await query<{id:string;user_id:string}>("SELECT id,user_id::text FROM bonus_runs WHERE status='starting' AND run_start_id IS NULL AND claimed_at<now()-interval '5 minutes'");
   for(const item of stale)if(!runner.inUse(item.user_id))await query("UPDATE bonus_runs SET status='queued',claimed_at=NULL WHERE id=$1 AND status='starting' AND run_start_id IS NULL",[item.id]);

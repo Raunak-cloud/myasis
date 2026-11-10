@@ -29,7 +29,6 @@ import { claimTechnicalRetries, finishTechnicalRetryLeases, type TechnicalRetryC
 import { TECHNICAL_RETRY_REQUEST, TECHNICAL_RETRY_RESPONSE, PREPAID_RETRY_SUBMITTED } from '../../seek-bot/src/technical-retry-types.js';
 import { RemoteRunPool } from './run-service-client.js';
 import { usesRunService, type RunCompletionPolicy, type RunServiceSnapshot } from './run-service-protocol.js';
-import {bonusRunEnvironment} from './bonus-runs.js';
 
 export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
   const owners = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [userId]);
@@ -51,7 +50,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
   const serverEnv = { ...readEnv(), ...process.env };
   const admin = isAdmin(owner.email);
   const selectedSettings = settings ?? await loadUserSettings(userId);
-  const bonusEnvironment=await bonusRunEnvironment(userId,runStartId,selectedSettings);
+  const bonusEnvironment=selectedSettings.BONUS_RUN_ID ? await (await import('./bonus-runs.js')).bonusRunEnvironment(userId,runStartId,selectedSettings) : {BONUS_RUN_ID:''};
   let operatorReviewLimit = '', operatorTimeout = '';
   let applicationBudget: Record<string,string> = {};
   if (selectedSettings.OPERATOR_APPLICATION_BASE_USD !== undefined || selectedSettings.OPERATOR_APPLICATION_MAXIMUM_USD !== undefined) {

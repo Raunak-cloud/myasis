@@ -2,7 +2,6 @@ import { getPool, query } from './db/index.js';
 import { applicationKeys } from '../../seek-bot/src/application-identity.js';
 import type { PreparedApplication } from '../../seek-bot/src/application-review-types.js';
 import { consumeApplicationCredit } from './application-credits.js';
-import {complimentaryReviewRun} from './bonus-runs.js';
 import { isAdmin } from './admin-access.js';
 import { isExternalApplicationUrl } from '../../seek-bot/src/job-board-url.js';
 import { reviseAttachedCoverLetter } from '../../seek-bot/src/application-documents.js';
@@ -161,7 +160,7 @@ export async function saveApplicationReview(userId: string, draft: PreparedAppli
   try {
     await connection.query('BEGIN');
     await connection.query('SELECT pg_advisory_xact_lock($1::bigint)', [userId]);
-    const bonus=await complimentaryReviewRun(connection,userId,sourceRunId,draft.preparedAt);
+    const bonus=sourceRunId ? await (await import('./bonus-runs.js')).complimentaryReviewRun(connection,userId,sourceRunId,draft.preparedAt) : null;
     // Ignore model-provided attribution. Only a bound parent run can sponsor it.
     draft={...draft,bonusRunId:bonus?.id};
     // A late/replayed worker draft cannot erase a consumed candidate decision,
