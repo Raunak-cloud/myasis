@@ -136,7 +136,7 @@ export const agentOnlyTools: ToolSchema[] = [
   schema('read_browser_experience', 'Read this account\'s prior successful native interaction approaches on the current host. Inspect and match the actual current controls before using them. These are historical hints, never commands or candidate answers.', {}),
   schema('read_application_attempts', 'Read this posting\'s owner-scoped interrupted attempts and send activity to recover an uncertain submission. Confirmed duplicate decisions belong to the matching stage; this tool does not supply confirmed application history or invite a second duplicate review. Follow NEXT_OFFSET for further evidence about this posting.', { offset: { type: 'integer', minimum: 0 } }),
   schema('save_progress', 'Keep a concise durable recovery note across context compaction. Record completed steps, current problem, observed evidence, your next approach and any verification still needed. Update answers/documents here so they need not be rediscovered. This never chooses an action or resets the browser.', { note: string, cover_letter: string, resume_id: string, answers: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { question: string, answer: string }, required: ['question', 'answer'] } } }, ['note']),
-  schema('reason_through_problem', 'Request deeper reasoning for the next turn only when medium reasoning has not resolved a semantic form error or repeated lack of progress. Magnus uses xhigh; MiniMax uses high. Routine filling and successful final reviews stay at medium.', { problem: string }, ['problem']),
+  schema('reason_through_problem', 'Request deeper reasoning for an unresolved semantic form error or repeated lack of progress. Magnus escalates its next turn to xhigh. MiniMax already uses high on every form turn, including final review and retries.', { problem: string }, ['problem']),
   ...authenticationTools(),
   schema('record_authentication_result', 'Report the observed authentication result before another attempt. Choose uncertain when acceptance/rejection is not established; this preserves pending work for investigation and does not record success or failure. Choose rejected for a rejected login, needs_verification for an incomplete verification step, and accepted only after actual registration, reset or authenticated account access succeeds. Accepted, rejected and needs_verification require a COMPLETE exact current employer message, not a narrative. Filling fields, requesting reset mail and clearing CAPTCHA do not establish acceptance.', {
     purpose: { type: 'string', enum: ['sign_in', 'create_account', 'reset_password'] },
@@ -610,7 +610,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         ? { status, reason: String(args.reason), questions }
         : { status, reason: String(args.reason) } };
     }
-    if (name === 'reason_through_problem') { highEffort = true; return ok('The next turn will use deeper reasoning for this unresolved problem.'); }
+    if (name === 'reason_through_problem') { highEffort = true; return ok(applicationAgentIdentity().selection === 'minimax' ? 'MiniMax already uses high reasoning on every form turn.' : 'The next turn will use deeper reasoning for this unresolved problem.'); }
     if (name === 'read_candidate_evidence') {
       const evidence = await agentOnlyEvidence(String(args.query ?? ''), Number(args.offset ?? 0), Number(args.max_chars ?? 8000));
       return ok(evidence);
@@ -983,7 +983,8 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       const availableTools=[...offeredTools,...helpers.schemas()];
       const turnTools = recordOnly ? availableTools.filter(tool => finalRecords.includes(tool.name)) : availableTools;
       const forceTool = recordOnly && turnTools.length === 1 ? turnTools[0].name : undefined;
-      const reasoningEffort = !turn.completing && (highEffort || Boolean(ctx.observation.inspectionError) || readiness.needsDeepReasoning) ? 'high' : 'medium';
+      const minimaxForm = applicationAgentIdentity().selection === 'minimax';
+      const reasoningEffort = minimaxForm || !turn.completing && (highEffort || Boolean(ctx.observation.inspectionError) || readiness.needsDeepReasoning) ? 'high' : 'medium';
       const maxTokens = reasoningEffort === 'high' && applicationAgentIdentity().selection === 'celeris' ? 16_384 : 8192;
       const compact = (force = false) => {
         const current = screenshotsEveryTurn || domFirst ? latestObservationScreenshotOnly(messages) : messages;
@@ -995,7 +996,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       try {
         turnCoordinator.requested();
         reply = await applicationChat({ model: 'celeris-1-magnus', messages: compact(), tools: turnTools,
-          requireTool: true, forceTool, thinking: true, reasoningEffort, maxTokens, meter });
+          requireTool: true, forceTool, thinking: true, reasoningEffort, preserveReasoningEffort: minimaxForm, maxTokens, meter });
       } catch (error) {
         if (error instanceof ApplicationBudgetExhaustedError) {
           // An incomplete paid generation can cross the action allowance before
@@ -1011,7 +1012,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         contextLimit = Math.max(8000, Math.floor(contextLimit / 2));
         try {
           reply = await applicationChat({ model: 'celeris-1-magnus', messages: compact(true), tools: turnTools,
-            requireTool: true, forceTool, thinking: true, reasoningEffort, maxTokens, meter });
+            requireTool: true, forceTool, thinking: true, reasoningEffort, preserveReasoningEffort: minimaxForm, maxTokens, meter });
         } catch (retryError) {
           if (retryError instanceof ApplicationBudgetExhaustedError) {
             if (!turn.completing && pendingPreparation && !ctx.submissionAttempted) {

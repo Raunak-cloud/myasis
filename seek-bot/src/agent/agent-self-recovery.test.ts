@@ -57,7 +57,7 @@ async function scenario(id: string, calls: Call[], options: { specialistFails?: 
     assert.equal(system.length,1);
     assert.equal(system[0].content,buildApplicationSystemPrompt(process.env.COVER_LETTER_INSTRUCTIONS),'only the owner-approved system text reaches either provider');
     assert.ok(body.messages.some((message:any)=>message.role==='user'&&typeof message.content==='string'&&message.content.startsWith('APPLICATION MODE\n')),'mode remains explicit runtime context');
-    if (options.model === 'minimax') assert.equal(body.model, MINIMAX_APPLICATION_MODEL);
+    if (options.model === 'minimax') { assert.equal(body.model, MINIMAX_APPLICATION_MODEL); assert.equal(body.reasoning.effort,'high','every MiniMax form decision uses high'); }
     else assert.equal(body.model, 'celeris-1-magnus', 'applying and supervisory calls use Magnus');
     assert.ok(!isSpecialistFixtureRequest(body), 'recovery must never launch another agent');
     assert.ok(body.tools.every((tool: any) => !/specialist|consult_application/.test(tool.function.name)), 'specialist tools must not be offered');

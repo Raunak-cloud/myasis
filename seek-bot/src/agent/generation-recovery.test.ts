@@ -63,3 +63,13 @@ test('untyped reasoning inputs cannot exceed high and recovery never switches th
  assert.deepEqual(body.chat_template_kwargs,{enable_thinking:true,reasoning_effort:'low'});
  assert.equal(recovery.adapt(body,'unusable',true),false,'unusable replies get only one resample');
 });
+
+
+test('an explicitly preserved effort survives output and timeout recovery without relaxing retry bounds',()=>{
+ const recovery=new GenerationRecovery({model:'celeris-1-magnus',messages:[],reasoningEffort:'high',preserveReasoningEffort:true},60_000,8192);
+ const body={max_tokens:8192,reasoning:{effort:'high'}};
+ assert.equal(recovery.adapt(body,'unusable',true),true);
+ assert.equal(body.reasoning.effort,'high');assert.equal(body.max_tokens,16_384);
+ assert.equal(recovery.adapt(body,'timeout'),true);assert.equal(body.reasoning.effort,'high');
+ assert.equal(recovery.adapt(body,'unusable',true),false);assert.ok(recovery.deadline<=recovery.hardDeadline);
+});

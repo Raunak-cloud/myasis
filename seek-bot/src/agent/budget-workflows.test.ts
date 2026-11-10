@@ -5,7 +5,8 @@ import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,readdirSync,rmSync} fro
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {chromium} from 'patchright';
-import {specialistFixtureReply,isSpecialistFixtureRequest} from './specialist-fixture.js';
+import {withApplicationModel} from '../application-model.js';
+import {specialistFixtureReply,isSpecialistFixtureRequest,fixtureToolArguments} from './specialist-fixture.js';
 
 const directory=mkdtempSync(join(tmpdir(),'owtomate-budget-workflows-'));
 Object.assign(process.env,{DATA_DIR:directory,CELERIS_API_KEY:'fictional-key',COST_TRACKING:'false',FORM_CORPUS_DIR:join(directory,'corpus'),
@@ -248,4 +249,24 @@ test('repeated malformed optional reviews cannot force a skip or stop normal pre
  try{const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'prepared');assert.equal(turns,4);assert.equal(r.submitPressed,false);assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),0);
   const trace=JSON.parse(readFileSync(join(directory,'traces',f.job.id+'.json'),'utf8'));assert.equal(trace.steps.filter((step:any)=>step.tool==='record_application_review'&&step.disposition==='advisory').length,2);
  }finally{process.env.APPLICATION_REVIEW_MODE='';await f.context.close();}
+});
+
+
+test('MiniMax form reasoning stays high in normal work and the budget completion lane',{timeout:10000},async()=>{
+ const f=await fixture('<main><label>What is your visa expiry date?<input type="date" required></label><button id="send">Submit application</button></main>');let turns=0;
+ const fetchBefore=globalThis.fetch;
+ try{
+  await withApplicationModel({...process.env,APPLICATION_AI_MODEL:'minimax',OPENROUTER_API_KEY:'fixture-only'},async()=>{
+   globalThis.fetch=async(_url,init)=>{
+    const body=JSON.parse(String(init?.body)) as Body&{reasoning:{effort:string}};turns++;
+    assert.equal(body.reasoning.effort,'high','completion cannot downgrade form reasoning');
+    if(turns===2)assert.deepEqual(body.tools?.map(tool=>tool.function.name),['finish']);
+    assert.ok(turns<=2);
+    const response=await packet([turns===1?review('needs_answer'):finish('needs-human',{questions:[{field_ref:'f0',form_quote:'What is your visa expiry date?',kind:'text'}]})]).json();
+    for(const call of response.choices[0].message.tool_calls)call.function.arguments=fixtureToolArguments(body,call.function.name,JSON.parse(call.function.arguments));
+    response.usage={prompt_tokens:10,completion_tokens:1,cost:turns===1?.21:0};return Response.json(response);
+   };
+   const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'needs-human');assert.equal(turns,2);assert.equal(r.submitPressed,false);
+  });
+ }finally{globalThis.fetch=fetchBefore;await f.context.close();}
 });

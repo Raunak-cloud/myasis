@@ -221,3 +221,16 @@ test('model routing and credentials stay isolated across simultaneous Celeris an
   ]);
   assert.deepEqual(providers.sort(), ['celeris', 'minimax']);
 }));
+
+
+test('MiniMax form generation keeps high reasoning on the wire after an incomplete reply',async()=>isolated(async()=>{
+ const requests:any[]=[];
+ globalThis.fetch=(async(_url,init)=>{
+  requests.push(JSON.parse(String(init?.body)));
+  return Response.json(reply(.001,requests.length===1?'length':'tool_calls'));
+ }) as typeof fetch;
+ const meter=new CostMeter(1);
+ await applicationChat({model:'celeris-1-magnus',messages:[],tools:[tool],reasoningEffort:'high',preserveReasoningEffort:true,maxTokens:8192,meter});
+ assert.equal(requests.length,2);assert.ok(requests.every(body=>body.reasoning.effort==='high'));
+ assert.equal(requests[1].max_tokens,16_384);assert.equal(meter.totals.costUsd,.002);
+}));

@@ -52,11 +52,11 @@ export class GenerationRecovery {
     const ratio = Math.max(1, Number(body.max_tokens) / this.originalTokens);
     this.timeoutMs = Math.max(this.baseTimeoutMs, Math.min(90_000, this.baseTimeoutMs * ratio));
     const lower = (value: unknown) => boundedReasoningEffort(value, 'low') === 'high' ? 'medium' : 'low';
-    if (body.chat_template_kwargs) {
+    if (!this.request.preserveReasoningEffort && body.chat_template_kwargs) {
       const kwargs = body.chat_template_kwargs as Record<string, unknown>;
       if (kwargs.enable_thinking) body.chat_template_kwargs = { ...kwargs, reasoning_effort: lower(kwargs.reasoning_effort) };
     }
-    if (body.reasoning) body.reasoning = { ...(body.reasoning as object), effort: lower((body.reasoning as Record<string, unknown>).effort) };
+    if (!this.request.preserveReasoningEffort && body.reasoning) body.reasoning = { ...(body.reasoning as object), effort: lower((body.reasoning as Record<string, unknown>).effort) };
     body.messages = [...generationRecoveryTranscript(this.request.messages), { role: 'user', content:
       'The previous generation did not finish. Return one concise, complete response in the required format. Keep every required accuracy check and its source evidence, using brief conclusions. Do not repeat the full history, candidate documents or unrelated unchanged field values. Do not infer missing facts, waive review or replay browser actions. No action from the incomplete response was executed.' } satisfies ChatMessage];
     this.refreshWindow();
