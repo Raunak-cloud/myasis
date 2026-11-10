@@ -81,6 +81,7 @@ import { validateCoverLetterInstructions } from '../seek-bot/src/cover-letter-po
 import { runDeviceFromHeaders } from './src/run-device.js';
 import { autoScheduleFor, startAutoRunner, wakeAutoRunner } from './server/autorun.js';
 import { startBlogScheduler } from './server/blog/index.js';
+import {listBonusRuns,cancelBonusRun,startBonusRunDispatcher} from './server/bonus-runs.js';
 import { handleMarketing } from './server/marketing/api.js';
 import { startMarketingWorker, stopMarketingWorker } from './server/marketing/worker.js';
 import { blogPages } from './server/blog/pages.js';
@@ -1113,6 +1114,16 @@ function dataApi(): Plugin {
           return send({ ...runner.stateFor(userId), hasKey, isOwner: true });
         });
       }
+      case '/api/bonus-runs': {
+        return withUser(async(userId)=>{
+          if(req.method==='GET')return send({runs:await listBonusRuns(userId)});
+          if(req.method!=='POST')return send({error:'GET or POST required'},405);
+          const body=await readJsonBody(req);
+          if(body?.action!=='cancel'||typeof body?.id!=='string'||!body.id.match(/^[a-f\d-]{36}$/i))return send({error:'Choose a bonus run to stop.'},400);
+          try{await cancelBonusRun(body.id,userId);return send({ok:true,runs:await listBonusRuns(userId)});}
+          catch(error){return send({error:(error as Error).message},409);}
+        });
+      }
 
       case '/api/auto-apply': {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
@@ -1391,6 +1402,7 @@ function dataApi(): Plugin {
         })
         .finally(() => {
           startAutoRunner();
+          startBonusRunDispatcher();
           startVisitMaintenance();
           startProfileMaintenance();
           startHealthMaintenance();

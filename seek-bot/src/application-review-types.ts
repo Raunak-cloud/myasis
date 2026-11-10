@@ -40,6 +40,8 @@ export interface PreparedApplication {
   revision: string;
   job: JobListing;
   preparedAt: string;
+  /** Server-recorded complimentary source, never authority supplied by the agent. */
+  bonusRunId?:string;
   formUrl: string;
   answers: Array<{ question: string; answer: string }>;
   coverLetter?: string;

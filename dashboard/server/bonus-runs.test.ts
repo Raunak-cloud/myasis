@@ -1,0 +1,54 @@
+/** One local PostgreSQL connection, TEMP tables only. No real accounts or runs. */
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {getPool,query} from './db/index.js';
+import {createBonusRun,dispatchBonusRuns,cancelBonusRun,listBonusRuns,bonusRunForStart,bindBonusRun} from './bonus-runs.js';
+import {saveApplicationReview} from './application-reviews.js';
+import {runner} from './runner.js';
+import type {PreparedApplication} from '../../seek-bot/src/application-review-types.js';
+
+const pool=getPool();assert.ok(['localhost','127.0.0.1','[::1]'].includes(new URL(String(pool.options.connectionString)).hostname));pool.options.max=1;
+const oldAdmins=process.env.ADMIN_EMAILS;process.env.ADMIN_EMAILS='admin@bonus.fixture.invalid';
+const originalInUse=runner.inUse,originalClaim=runner.claimStart;
+const options={maxApplications:2,applicationMode:'semi-auto' as const,message:'A complimentary run.',salaryDiscountPercent:10};
+const id=randomUUID();
+const draft=(job:string):PreparedApplication=>({id:randomUUID(),revision:'a'.repeat(64),job:{id:job,title:'Synthetic analyst',company:'Fixture',location:'Sydney',platform:'seek',url:`https://www.seek.com.au/job/${job}`},formUrl:`https://www.seek.com.au/job/${job}/apply/review`,preparedAt:new Date().toISOString(),answers:[],resume:'Fixture CV.pdf'});
+try{
+ await query('CREATE TEMP TABLE users(id BIGINT PRIMARY KEY,email TEXT,blocked_at TIMESTAMPTZ)');
+ await query("INSERT INTO users VALUES(1,'admin@bonus.fixture.invalid',NULL),(2,'candidate@bonus.fixture.invalid',NULL),(3,'other@bonus.fixture.invalid',NULL)");
+ await query('CREATE TEMP TABLE run_starts(id BIGINT PRIMARY KEY,user_id BIGINT,mode TEXT,trigger TEXT,started_by BIGINT,started_at TIMESTAMPTZ,finished_at TIMESTAMPTZ,operator_options JSONB,stopped BOOLEAN DEFAULT false,applied INTEGER,exit_code INTEGER)');
+ await query("CREATE TEMP TABLE bonus_runs(id UUID PRIMARY KEY,user_id BIGINT,started_by BIGINT,max_applications INTEGER,application_mode TEXT,message TEXT,salary_discount_percent NUMERIC,status TEXT DEFAULT 'queued',created_at TIMESTAMPTZ DEFAULT now(),claimed_at TIMESTAMPTZ,run_start_id BIGINT,finished_at TIMESTAMPTZ,failure_detail TEXT)");
+ await query("CREATE TEMP TABLE application_reviews(user_id BIGINT,job_key TEXT,id UUID UNIQUE,payload JSONB,status TEXT,detail TEXT,credit_consumed BOOLEAN DEFAULT false,updated_at TIMESTAMPTZ DEFAULT now(),PRIMARY KEY(user_id,job_key))");
+ await query('CREATE TEMP TABLE billing_purchases(id BIGINT,user_id BIGINT,plan_key TEXT); CREATE TEMP TABLE application_credit_grants(id BIGINT,user_id BIGINT,purchase_id BIGINT,credits_total INTEGER,credits_used INTEGER,expires_at TIMESTAMPTZ); CREATE TEMP TABLE monthly_application_usage(user_id BIGINT,month_start DATE,successful_applications INTEGER,PRIMARY KEY(user_id,month_start))');
+ await query("INSERT INTO billing_purchases VALUES(1,2,'job-search-pass'); INSERT INTO application_credit_grants VALUES(1,2,1,10,4,NULL); INSERT INTO monthly_application_usage VALUES(2,date_trunc('month',now())::date,5),(3,date_trunc('month',now())::date,5)");
+ assert.equal(await createBonusRun('2','1',options,id),id);assert.equal(await createBonusRun('2','1',options,id),id);
+ assert.equal((await query('SELECT * FROM bonus_runs')).length,1,'a retry of the same start request never grants a second run');
+ await assert.rejects(createBonusRun('2','1',{...options,maxApplications:3},id),/changed/);
+ await assert.rejects(createBonusRun('3','2',options),/administrator/);
+ runner.inUse=()=>true;await dispatchBonusRuns();assert.equal((await query('SELECT status FROM bonus_runs'))[0].status,'queued','another active run is never interrupted');
+ runner.inUse=()=>false;runner.claimStart=async()=>false;
+ await Promise.all([dispatchBonusRuns(),dispatchBonusRuns()]);assert.equal((await query('SELECT status FROM bonus_runs'))[0].status,'queued','capacity refusal leaves the bonus queued without a new run record');
+ await query("UPDATE bonus_runs SET status='starting',claimed_at=now() WHERE id=$1",[id]);
+ await assert.rejects(bonusRunForStart(id,'3','1'),/authorization/);
+ assert.equal((await bonusRunForStart(id,'2','1')).id,id);
+ await query("INSERT INTO run_starts(id,user_id,mode,trigger,started_by,started_at,operator_options) VALUES(10,2,'live','admin',1,now()-interval '1 minute',$1)",[JSON.stringify({bonusRunId:id,complimentary:true})]);
+ await bindBonusRun(id,'2','10');await assert.rejects(bindBonusRun(id,'2','10'),/no longer/);
+ const first=draft('11111111');await saveApplicationReview('2',first,'10');await saveApplicationReview('2',first,'10');
+ const saved=(await query('SELECT * FROM application_reviews WHERE user_id=2'))[0];assert.equal(saved.credit_consumed,true);assert.equal(saved.payload.bonusRunId,id);
+ assert.equal((await query('SELECT credits_used FROM application_credit_grants'))[0].credits_used,4,'preparing a bonus application consumes no ordinary credit');
+ await query('UPDATE users SET blocked_at=now() WHERE id=1');await saveApplicationReview('2',draft('22222222'),'10');
+ assert.equal((await query('SELECT credits_used FROM application_credit_grants'))[0].credits_used,4,'a promised complimentary draft stays free if its administrator is later blocked');
+ await assert.rejects(saveApplicationReview('2',draft('33333333'),'10'),/complimentary application limit/);
+ assert.equal((await query('SELECT * FROM application_reviews')).length,2,'an over-limit draft rolls back instead of charging ordinary credits');
+ await assert.rejects(saveApplicationReview('3',{...draft('44444444'),bonusRunId:id},'10'),/No application allowance/);
+ await assert.rejects(saveApplicationReview('3',{...draft('55555555'),bonusRunId:id}),/No application allowance/);
+ const ordinary=draft('66666666');ordinary.bonusRunId=id;await saveApplicationReview('2',ordinary);
+ assert.equal((await query('SELECT credits_used FROM application_credit_grants'))[0].credits_used,5,'an ordinary run cannot borrow bonus attribution from a model draft');
+ assert.equal((await query('SELECT payload FROM application_reviews WHERE id=$1',[ordinary.id]))[0].payload.bonusRunId,undefined);
+ await query("UPDATE run_starts SET finished_at=now(),exit_code=1,applied=1 WHERE id=10");
+ const history=await listBonusRuns('2');assert.equal(history.length,1);assert.equal(history[0].status,'error');assert.equal(history[0].applied,1);assert.equal(history[0].prepared,2);assert.deepEqual(await listBonusRuns('3'),[]);
+ await query('UPDATE users SET blocked_at=NULL WHERE id=1');const next=await createBonusRun('2','1',options);await cancelBonusRun(next,'2');
+ assert.equal((await query('SELECT status FROM bonus_runs WHERE id=$1',[next]))[0].status,'stopped');
+ assert.equal((await query('SELECT count(*)::text AS count FROM run_starts'))[0].count,'1','queue cancellation never starts a worker');
+ console.log('PASS: bonus administrator authority, idempotency, queued capacity, owner isolation, durable binding, complimentary prepared applications, ordinary credit protection, cap rollback, historical attribution and safe queue cancellation. TEMP PostgreSQL tables only.');
+}finally{runner.inUse=originalInUse;runner.claimStart=originalClaim;if(oldAdmins===undefined)delete process.env.ADMIN_EMAILS;else process.env.ADMIN_EMAILS=oldAdmins;await pool.end();}

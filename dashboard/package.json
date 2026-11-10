@@ -4,6 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "preview:bonus-run": "node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/preview-bonus-run.mts",
+    "test:bonus-run-ui": "node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-bonus-run-ui.mts",
     "job-index:once": "node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/job-index-worker.mts --once",
     "test:job-index": "node ../seek-bot/node_modules/tsx/dist/cli.mjs --test server/job-index/search-terms.test.ts server/job-index/codex-discovery.test.ts server/job-index/lever.test.ts server/job-index/geography.test.ts server/job-index/config.test.ts server/job-index/extract.test.ts server/job-index/network.test.ts server/job-index/review.test.ts",
     "dev": "vite",

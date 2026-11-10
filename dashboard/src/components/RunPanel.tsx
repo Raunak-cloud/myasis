@@ -24,6 +24,7 @@ import { fmtDateTime } from '../format';
 import { MAX_SEARCH_TERMS } from '../search-limits';
 import { activityEvents, activitySummary, formatActivityReason, runResultLabel, type LogLine } from '../activity';
 import './RunPanel.css';
+import {BonusRunNotice} from './BonusRunNotice';
 
 interface AutoScheduleStatus {
   enabled: boolean;
@@ -681,6 +682,7 @@ export function RunPanel({
   return (
     <div className="run-layout">
       <div className="run-span run-notes">
+        <BonusRunNotice/>
         {setup && <SetupChecklist status={setup} expanded={setupExpanded} onExpandedChange={setSetupExpanded} onVerifyingSignInChange={setVerifyingSignIn} />}
         <BoardResumesNote />
       </div>

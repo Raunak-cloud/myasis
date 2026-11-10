@@ -2,6 +2,7 @@ import { getPool, query } from './db/index.js';
 import { applicationKeys } from '../../seek-bot/src/application-identity.js';
 import type { PreparedApplication } from '../../seek-bot/src/application-review-types.js';
 import { consumeApplicationCredit } from './application-credits.js';
+import {complimentaryReviewRun} from './bonus-runs.js';
 import { isAdmin } from './admin-access.js';
 import { isExternalApplicationUrl } from '../../seek-bot/src/job-board-url.js';
 import { reviseAttachedCoverLetter } from '../../seek-bot/src/application-documents.js';
@@ -151,7 +152,7 @@ export async function releaseApplicationReviewHold(actorUserId: string, userId: 
   finally { connection.release(); }
 }
 
-export async function saveApplicationReview(userId: string, draft: PreparedApplication): Promise<void> {
+export async function saveApplicationReview(userId: string, draft: PreparedApplication,sourceRunId?:string): Promise<void> {
   reviewSelection([{ id: draft.id, revision: draft.revision }]);
   if (!draft.job?.id || !draft.job.url || !Array.isArray(draft.answers)) throw new ApplicationReviewError('Incomplete prepared application.');
   const connection = await getPool().connect().catch((error: Error) => {
@@ -160,6 +161,9 @@ export async function saveApplicationReview(userId: string, draft: PreparedAppli
   try {
     await connection.query('BEGIN');
     await connection.query('SELECT pg_advisory_xact_lock($1::bigint)', [userId]);
+    const bonus=await complimentaryReviewRun(connection,userId,sourceRunId,draft.preparedAt);
+    // Ignore model-provided attribution. Only a bound parent run can sponsor it.
+    draft={...draft,bonusRunId:bonus?.id};
     // A late/replayed worker draft cannot erase a consumed candidate decision,
     // including an approved submission that failed or was stopped. Only an
     // explicit owner edit/retry can alter that retained submission record.
@@ -174,8 +178,12 @@ export async function saveApplicationReview(userId: string, draft: PreparedAppli
     // Operator holds are independent durable records keyed to this owner/job.
     // Importing a newer model draft cannot erase or release an active hold.
     if (saved.rows[0] && !saved.rows[0].credit_consumed) {
+      if(bonus){
+        const counted=await connection.query<{count:string}>("SELECT count(*)::text AS count FROM application_reviews WHERE user_id=$1 AND payload->>'bonusRunId'=$2",[userId,bonus.id]);
+        if(Number(counted.rows[0]?.count??0)>bonus.max_applications)throw Error('This bonus run has reached its complimentary application limit.');
+      }
       const owner = await connection.query<{ email: string }>('SELECT email FROM users WHERE id=$1', [userId]);
-      if (!isAdmin(owner.rows[0]?.email)) {
+      if (!bonus && !isAdmin(owner.rows[0]?.email)) {
         await consumeApplicationCredit(connection, userId, draft.job.applicationMode === 'external' || isExternalApplicationUrl(draft.formUrl));
       }
       await connection.query('UPDATE application_reviews SET credit_consumed=true WHERE user_id=$1 AND job_key=$2',

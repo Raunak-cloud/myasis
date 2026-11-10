@@ -110,6 +110,10 @@ if [ "$REPLAY_REQUIRED" = 1 ]; then
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/agent-owned-submission.test.js dist/agent/saved-form-limits.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/application-readiness-browser.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/application-review.test.js
+  (cd "$APP/dashboard" && node ../seek-bot/node_modules/tsx/dist/cli.mjs --test server/bonus-run-policy.test.ts)
+  (cd "$APP/dashboard" && node ../seek-bot/node_modules/tsx/dist/cli.mjs server/bonus-runs.test.ts)
+  (cd "$APP/dashboard" && CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-bonus-run-ui.mts)
+  (cd "$APP/dashboard" && CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-bonus-run-live-ui.mts)
   node dist/fit-assessment.test.js
   node dist/fit-intent-provenance.test.js
   shopt -s nullglob

@@ -5,11 +5,13 @@ import { plainReason, preparedStatusLabel, userFacingError } from '../run-messag
 import { decodeSettingText, encodeSettingText } from '../runSettings';
 import { securityRetryRemaining, type SecurityRetry } from '../securityRetry';
 import { SecurityRetryControl } from './SecurityRetryControl';
+import './BonusRunNotice.css';
 interface Review {
   id: string; status: string; detail: string | null;
   operator_hold?: { reason: string } | null;
   security_retry?: SecurityRetry | null;
   application: {
+    bonusRunId?:string;
     revision: string; job: { id?: string; platform?: string; title: string; company: string; location: string; url: string };
     resume?: string; coverLetter?: string; answers: Array<{ question: string; answer: string }>;
     preparation?: { version:1; stage:'job-and-letter'; access:'no-login-required'|'signed-in'; checkedAt:string; checkedUrl:string };
@@ -178,7 +180,7 @@ export function PreparedApplications({ running, onStarted, onCountChange, canCha
       <label className="prepared-choice"><input type="checkbox" aria-label={`Select ${item.application.job.title} at ${item.application.job.company}`}
         disabled={item.status !== 'ready' || Boolean(item.operator_hold) || running || busy} checked={!item.operator_hold && selected.has(item.id)}
         onChange={event => setSelected(previous => { const next = new Set(previous); if (event.target.checked) next.add(item.id); else next.delete(item.id); return next; })}/>
-        <span className="prepared-job"><strong>{item.application.job.title}</strong><span className="job-meta">{item.application.job.company} · {item.application.job.location}</span></span>
+        <span className="prepared-job"><strong>{item.application.job.title}</strong><span className="job-meta">{item.application.job.company} · {item.application.job.location}</span>{item.application.bonusRunId&&<span className="bonus-run-tag">Bonus run · Complimentary</span>}</span>
       </label>
       <span className={`prepared-status ${item.operator_hold ? 'held' : item.status}`}>{item.operator_hold ? 'Needs review' : preparedStatusLabel(item.status, running)}</span>
       <AdzunaAttribution platform={item.application.job.platform} jobId={item.application.job.id} />

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { startSimulation, type Simulation } from '../simulation';
 import { SecurityRetrySimulation } from './SecurityRetrySimulation';
 import {PriorRunRepairSimulation} from './PriorRunRepairSimulation';
+import {BonusRunSimulation} from './BonusRunSimulation';
 
 /**
  * Pick a customer state and see the dashboard as that customer does.
@@ -36,12 +37,12 @@ export function SimulateView() {
       .catch((reason) => setError((reason as Error).message));
   }, []);
 
-  if (error) return <div className="admin-stack"><div className="banner banner-bad">{error}</div></div>;
-  if (!simulations) return <div className="admin-stack"><p className="job-meta">Loading…</p></div>;
-
-  const groups = [...new Set(simulations.map((simulation) => simulation.group))];
+  const groups = [...new Set((simulations ?? []).map((simulation) => simulation.group))];
   return (
     <div className="admin-stack">
+      <BonusRunSimulation />
+      {error && <div className="banner banner-bad">{error}</div>}
+      {!simulations && !error && <p className="job-meta">Loading plan scenarios…</p>}
       <PriorRunRepairSimulation />
       <SecurityRetrySimulation />
       <div className="banner">
@@ -53,7 +54,7 @@ export function SimulateView() {
         <section className="card admin-section" key={group}>
           <h3>{group}</h3>
           <div className="simulate-grid">
-            {simulations.filter((simulation) => simulation.group === group).map((simulation) => (
+            {(simulations ?? []).filter((simulation) => simulation.group === group).map((simulation) => (
               <article className="simulate-card" key={simulation.key}>
                 <div className="simulate-card-head">
                   <strong>{simulation.label}</strong>

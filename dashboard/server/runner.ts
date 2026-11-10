@@ -29,6 +29,7 @@ import { claimTechnicalRetries, finishTechnicalRetryLeases, type TechnicalRetryC
 import { TECHNICAL_RETRY_REQUEST, TECHNICAL_RETRY_RESPONSE, PREPAID_RETRY_SUBMITTED } from '../../seek-bot/src/technical-retry-types.js';
 import { RemoteRunPool } from './run-service-client.js';
 import { usesRunService, type RunCompletionPolicy, type RunServiceSnapshot } from './run-service-protocol.js';
+import {bonusRunEnvironment} from './bonus-runs.js';
 
 export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
   const owners = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [userId]);
@@ -50,6 +51,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
   const serverEnv = { ...readEnv(), ...process.env };
   const admin = isAdmin(owner.email);
   const selectedSettings = settings ?? await loadUserSettings(userId);
+  const bonusEnvironment=await bonusRunEnvironment(userId,runStartId,selectedSettings);
   let operatorReviewLimit = '', operatorTimeout = '';
   let applicationBudget: Record<string,string> = {};
   if (selectedSettings.OPERATOR_APPLICATION_BASE_USD !== undefined || selectedSettings.OPERATOR_APPLICATION_MAXIMUM_USD !== undefined) {
@@ -92,7 +94,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
   const credentials = applicationModelCredentials(selected, serverEnv);
   const queuePolicy = Object.fromEntries(['CELERIS_WORKSPACE_ID', 'CELERIS_QUEUE_FILE', 'CELERIS_MAX_CONCURRENT_REQUESTS', 'CELERIS_MIN_INTERVAL_MS']
     .flatMap(key => serverEnv[key]?.trim() ? [[key, serverEnv[key]!]] : []));
-  return { ...queuePolicy, ...applicationBudget, OPERATOR_MAX_EVALUATIONS:operatorReviewLimit, OPERATOR_RUN_TIMEOUT_MINUTES:operatorTimeout, DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
+  return { ...queuePolicy, ...applicationBudget, ...bonusEnvironment, OPERATOR_MAX_EVALUATIONS:operatorReviewLimit, OPERATOR_RUN_TIMEOUT_MINUTES:operatorTimeout, DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
     APPLICATION_AGENT_MODE: agentMode,
     APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: applicationScreenshotsForAccount(selectedSettings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, admin, selected),
     // Only the authorized provider credential enters the account's run context.
@@ -718,7 +720,7 @@ class Run {
       // Fold what this run actually did — new applications, run events — back
       // into userId's Postgres rows. The sync is idempotent, so retries cannot
       // double-count an application or event.
-      syncRunResultsToDb(userId, dataDir)
+      syncRunResultsToDb(userId, dataDir, finishedRunId??undefined)
         .then(async result => { if(finishedRunId)await finishTechnicalRetryLeases(userId,finishedRunId,dataDir);await finishApplicationReviews(userId); return result; })
         .then((r) => this.push('sys', `  synced ${r.applications} application(s), ${r.runEvents} event(s) to your account`))
         .catch((error) => this.push('err', `Could not save this ${kind}'s results: ${(error as Error).message}`)),

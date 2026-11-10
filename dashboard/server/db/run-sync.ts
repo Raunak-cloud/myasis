@@ -280,6 +280,7 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
 export async function syncRunResultsToDb(
   userId: string,
   dir: string,
+  sourceRunId?:string,
 ): Promise<{ applications: number; runEvents: number }> {
   let applications = 0;
   const appliedPath = resolve(dir, 'applied.json');
@@ -327,7 +328,7 @@ export async function syncRunResultsToDb(
       if (!line.trim()) continue;
       try {
         const e = JSON.parse(line) as Record<string, any>;
-        if (e.status === 'prepared') await saveApplicationReview(userId, e.draft);
+        if (e.status === 'prepared') await saveApplicationReview(userId, e.draft,sourceRunId);
         else {
           const matches = approvals.filter(item => item.job.id === e.jobId);
           const reviewId = e.reviewId ?? (matches.length === 1 ? matches[0].id : undefined);

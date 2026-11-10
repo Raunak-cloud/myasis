@@ -34,6 +34,7 @@ import { draftSetupEmail, sendAdminEmail, tailorSetupEmail, adminEmailHistory, v
 import { readSiteState } from './seek-state.js';
 import { sessionFor, stopSignin } from './signin.js';
 import { startRun } from './start-run.js';
+import {createBonusRun,listBonusRuns,dispatchBonusRuns} from './bonus-runs.js';
 import { assignedApplicationModel, assignApplicationModel, ApplicationModelAssignmentError } from './application-model-assignments.js';
 import { applicationModelForAccount, applicationModelCredentials } from './application-model-policy.js';
 import { isApplicationModel, type ApplicationModel } from '../../seek-bot/src/application-model-catalog.js';
@@ -653,6 +654,7 @@ export async function handleAdminRequest(
     const self = target.id === actor.id;
 
     if (!action && method === 'GET') return send(await adminUserDetail(target.id));
+    if(action==='bonus-runs'&&method==='GET')return send({runs:await listBonusRuns(target.id)});
     if(action==='repair-preview'&&method==='GET')return send({applications:await approvedRunRepairs(target.id)});
     if (action === 'dashboard' && method === 'GET') {
       const [attention, applications] = await Promise.all([adminAttention(target.id), listApplicationReviews(target.id)]);
@@ -750,6 +752,14 @@ export async function handleAdminRequest(
         });
         return result.ok ? send({ ok: true, user: await userRow(target),priorRunRepair:result.priorRunRepair??null,
           notice:result.priorRunRepair?priorRunRepairMessage(result.priorRunRepair.count):null }) : send({ error: result.error }, result.status);
+      }
+      case 'bonus-run': {
+        if(typeof body?.requestId!=='string')return send({error:'A bonus run request ID is required.'},400);
+        try{
+          const id=await createBonusRun(target.id,actor.id,body?.options,body.requestId);
+          void dispatchBonusRuns().catch(error=>console.error('Bonus run dispatch failed:',(error as Error).message));
+          return send({ok:true,id,runs:await listBonusRuns(target.id)});
+        }catch(error){return send({error:(error as Error).message},400);}
       }
       case 'email-draft': {
         const result = await tailorSetupEmail(target, actor, String(body?.instruction ?? ''));

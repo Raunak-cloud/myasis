@@ -11,6 +11,7 @@ import { VisitorsView } from './VisitorsView';
 import { AdminEmailDialog } from './AdminEmailDialog';
 import { AdminUserPreferences } from './AdminUserPreferences';
 import { AdminUserDashboard } from './AdminUserDashboard';
+import {AdminBonusRun} from './AdminBonusRun';
 import type { AdminPreferenceSection } from '../admin-user-preferences';
 import { RunDiagnostics } from './RunDiagnostics';
 import type { RouteStatus } from '../route';
@@ -583,6 +584,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
               </div>
 
               <AdminUserDashboard key={user.id} userId={user.id} email={user.email} onChanged={onChanged} />
+              <AdminBonusRun key={`bonus-${user.id}`} userId={user.id} mode={user.autoApply.applicationMode??'auto'}/>
               <AdminUserPreferences sections={user.preferences ?? []} />
 
               <div className="section">

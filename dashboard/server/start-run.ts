@@ -47,6 +47,8 @@ import { VIP_RUN_PLAN, sponsoredRunAllowance, sponsoredRunEntitlements } from '.
 import { discoverySeeds } from '../../seek-bot/src/discovery-seeds.js';
 import {approvedRunRepairs} from './approved-run-repairs.js';
 import type {PriorRunRepair} from '../src/priorRunRepair.js';
+import {bonusRunForStart,bindBonusRun} from './bonus-runs.js';
+import {bonusRunAllowance,bonusSalaryFloor} from './bonus-run-policy.js';
 
 const BOARD_NAMES: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed' };
 const listNames = (boards: string[]) => boards.map((board) => BOARD_NAMES[board] ?? board).join(' and ');
@@ -68,6 +70,8 @@ type StartRunOutcome =
   | { ok: false; status: number; error: string };
 
 interface StartRunRequest {
+  /** Private dispatcher only. The recorded administrator grant is authoritative. */
+  bonusRunId?:string;
   userId: string;
   email?: string | null;
   mode: RunMode;
@@ -168,6 +172,14 @@ export async function startRun(request: StartRunRequest): Promise<StartRunOutcom
 
 async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcome> {
   const { userId, email, mode, trigger } = request;
+  let bonus:Awaited<ReturnType<typeof bonusRunForStart>>|undefined;
+  if(request.bonusRunId){
+    if(trigger!=='admin'||mode!=='live'||request.oneTime||request.approvals||request.clientOverrides||request.jobIds||request.externalUrl||request.repairPriorRuns||request.scope)
+      return {ok:false,status:403,error:'Bonus runs use their recorded administrator settings and the customer’s saved preferences.'};
+    try{bonus=await bonusRunForStart(request.bonusRunId,userId,request.startedBy);}
+    catch(error){return {ok:false,status:403,error:(error as Error).message};}
+    request={...request,applicationMode:bonus.application_mode};
+  }
   let priorRunRepair:PriorRunRepair|undefined;
   if(request.requirePriorRunRepair!==undefined&&typeof request.requirePriorRunRepair!=='boolean')return {ok:false,status:400,error:'Invalid repair-only option.'};
   if(request.requirePriorRunRepair&&!request.repairPriorRuns)return {ok:false,status:400,error:'A repair-only run requires prior-run recovery.'};
@@ -301,6 +313,11 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * had not picked boards itself.
    */
   const overrides = applyRunPolicy(settings, entitlements, admin && effectiveTrigger === 'manual' ? 'manual' : 'auto', settingsSnapshot.saved[PLATFORMS_CHOSEN_KEY] === '1', settingsSnapshot.saved[EMPLOYER_SOURCES_CHOSEN_KEY] === '1');
+  if(bonus){
+    overrides.BONUS_RUN_ID=bonus.id;
+    overrides.MAX_APPS_PER_RUN=String(bonus.max_applications);
+    overrides.MIN_SALARY=bonusSalaryFloor(settings.MIN_SALARY,Number(bonus.salary_discount_percent));
+  }
   if (sponsored) overrides.OPERATOR_PLAN = VIP_RUN_PLAN.plan;
   overrides.DISCOVERY_SEED_JOBS_JSON = JSON.stringify(seeds);
   overrides.APPLICATION_REVIEW_MODE = request.applicationMode === 'semi-auto' ? 'prepare' : '';
@@ -389,13 +406,13 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   if (consumes) {
     try {
       const accountAllowance = await billingStatus(userId, email);
-      const allowance = sponsored ? sponsoredRunAllowance(accountAllowance) : accountAllowance;
+      const allowance = bonus ? bonusRunAllowance(accountAllowance,bonus.max_applications) : sponsored ? sponsoredRunAllowance(accountAllowance) : accountAllowance;
       const unlimitedApplications = allowance.paid.unlimitedApplications === true;
       if (unlimitedApplications && !admin) {
         overrides.APPLICATIONS_UNLIMITED = 'true';
         // Unlimited ordinary runs still honor an administrator's explicit
         // one-time diagnostic cap and a direct single-vacancy preparation.
-        if (request.oneTime?.maxApplications === undefined && !directExternalUrl && !sponsored) overrides.MAX_APPS_PER_RUN = 'none';
+        if (request.oneTime?.maxApplications === undefined && !directExternalUrl && !sponsored && !bonus) overrides.MAX_APPS_PER_RUN = 'none';
         // Every account has a daily ceiling, including unlimited passes.
         const chosenDailyCap = String(request.clientOverrides?.MAX_APPS_PER_DAY
           ?? (settingsSnapshot.saved[DAILY_APPLICATION_CAP_CHOSEN] === '1' ? settingsSnapshot.saved.MAX_APPS_PER_DAY : '') ?? '').trim();
@@ -440,7 +457,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
         if (refused) return refused;
         // Paid credits already receive a dedicated pooled address. Accounts
         // with only their free allowance borrow one until a submission lands.
-        borrowFreeProxy = accountAllowance.paid.remaining < 1 && (sponsored || allowance.free.remaining > 0 || Boolean(selections));
+        borrowFreeProxy = accountAllowance.paid.remaining < 1 && (sponsored || Boolean(bonus) || allowance.free.remaining > 0 || Boolean(selections));
         if (!selections && !unlimitedApplications) overrides.MAX_APPS_PER_RUN = String(Math.min(Number(overrides.MAX_APPS_PER_RUN || 1), allowance.totalRemaining));
       }
     } catch (error) {
@@ -585,6 +602,12 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     const launch = async (): Promise<StartRunOutcome> => {
       const runStartId = await recordRunStart(userId, mode, effectiveTrigger, request.startedBy, request.initiatorDevice, Boolean(selections));
       if (!runStartId) throw new Error('Could not save the run start.');
+      if(bonus){
+        await query("UPDATE run_starts SET operator_options=COALESCE(operator_options,'{}'::jsonb)||$3::jsonb WHERE id=$1 AND user_id=$2",
+          [runStartId,userId,JSON.stringify({bonusRunId:bonus.id,bonus:true,complimentary:true,maxApplications:bonus.max_applications,
+            minimumSalary:overrides.MIN_SALARY,originalMinimumSalary:settings.MIN_SALARY,salaryDiscountPercent:Number(bonus.salary_discount_percent)})]);
+        await bindBonusRun(bonus.id,userId,runStartId);
+      }
       if (sponsored) await query('UPDATE run_starts SET operator_options=$3::jsonb WHERE id=$1 AND user_id=$2',
         [runStartId,userId,JSON.stringify({plan:VIP_RUN_PLAN.plan,complimentary:true,maxEvaluations:Number(overrides.MAX_EVALUATIONS),maxApplications:Number(overrides.MAX_APPS_PER_RUN),timeoutMinutes:VIP_RUN_PLAN.timeoutMinutes,
           keywords:overrides.KEYWORDS,seedSeekJobIds:seeds.map(job=>job.id)})]);
@@ -600,9 +623,10 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
         undefined,
         runStartId,
         request.repairCaseId,
-        { chargeSubmission: mode === 'live' && !admin && !selections && !sponsored, releaseProxy: borrowFreeProxy },
+        { chargeSubmission: mode === 'live' && !admin && !selections && !sponsored && !bonus, releaseProxy: borrowFreeProxy },
       );
       if (!result.ok) {
+        if(bonus)await query("UPDATE bonus_runs SET status='queued',run_start_id=NULL WHERE id=$1 AND user_id=$2 AND run_start_id=$3",[bonus.id,userId,runStartId]);
         await discardRunStart(runStartId).catch(() => {});
         return { ok: false, status: /already|in progress|being prepared|installing an update/i.test(result.error ?? '') ? 409 : 503, error: result.error ?? 'Could not start the run.' };
       }

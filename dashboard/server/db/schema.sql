@@ -1090,6 +1090,26 @@ CREATE TABLE IF NOT EXISTS admin_attention_dismissals (
 -- A sponsored run records its operator authorization without changing the account's pass or settings.
 ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS operator_options JSONB;
 
+-- Durable, administrator-authorized complimentary runs. Independent from the
+-- customer's schedule and application-credit grants; queued work survives restart.
+CREATE TABLE IF NOT EXISTS bonus_runs (
+ id UUID PRIMARY KEY,
+ user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ started_by BIGINT NOT NULL,
+ max_applications INTEGER NOT NULL CHECK(max_applications BETWEEN 1 AND 50),
+ application_mode TEXT NOT NULL CHECK(application_mode IN ('auto','semi-auto')),
+ message TEXT NOT NULL DEFAULT '' CHECK(length(message)<=240),
+ salary_discount_percent NUMERIC NOT NULL DEFAULT 0 CHECK(salary_discount_percent BETWEEN 0 AND 10),
+ status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued','starting','running','completed','stopped','error')),
+ created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ claimed_at TIMESTAMPTZ,
+ run_start_id BIGINT UNIQUE REFERENCES run_starts(id) ON DELETE SET NULL,
+ finished_at TIMESTAMPTZ,
+ failure_detail TEXT
+);
+CREATE INDEX IF NOT EXISTS bonus_runs_owner_idx ON bonus_runs(user_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS bonus_runs_queued_idx ON bonus_runs(created_at) WHERE status IN ('queued','starting','running');
+
 -- BEGIN completed job reviews
 -- Every completed fit decision belongs to one account and stable vacancy identity.
 -- Unlike the visible run history, these rows do not expire or depend on a model version.
