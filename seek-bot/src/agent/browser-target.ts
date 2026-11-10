@@ -49,7 +49,7 @@ export function locate(page: Page, ref: string): Locator | null {
 export const browserTargetProperties = {
   target_mode: {type:'string',enum:['ref','selector','locator','page','coordinates'],description:'Optional target method: ref, selector or locator for a control; page for page inspection; coordinates for a click. Omit unused targets.'},
   ref: { type: 'string', pattern: '^(?:|a[0-9]+|f[0-9]+(?::[0-9]+)?|(?:f[0-9]+)?e[0-9]+|frame[0-9]+:[af][0-9]+(?::[0-9]+)?)$',
-    description: 'Current observed control ref. Omit targets for a whole-page snapshot.' },
+    description: 'Observed control reference. For a whole frame use locator; omit targets for a page snapshot.' },
   selector: { type: 'string' },
   locator: {
     type: 'object', additionalProperties: false,
