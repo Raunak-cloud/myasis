@@ -65,13 +65,7 @@ export function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: (
 
 interface TraceStep {
   step: number;
-  url: string;
-  label: string;
-  result?: string;
   screenshot?: string;
-  disposition?: string;
-  startedAt?: string;
-  completedAt?: string;
 }
 
 /**
@@ -126,26 +120,17 @@ function TraceContent({ jobId, questions, endpoint }: { jobId: string; questions
           {questions.map((question) => <div key={questionKey(question)}>{questionText(question)}</div>)}
         </div>
       )}
-      {error && <div className="job-meta">{userFacingError(error)}</div>}
-      {!steps && !error && <div className="job-meta">Loading steps…</div>}
-      {steps && steps.length > 0 && !steps.some(step => step.screenshot) && (
-        <div className="trace-text-only job-meta">Screenshots weren’t saved for this application. Its recorded steps are shown below.</div>
+      {error && <div className="job-meta">Could not load screenshots. Please try again.</div>}
+      {!steps && !error && <div className="job-meta">Loading screenshots…</div>}
+      {steps && captures.length === 0 && (
+        <div className="trace-text-only job-meta">No screenshots were saved for this application.</div>
       )}
-      {steps?.map((s, index) => (
-        <div key={`${s.step}-${index}`} className={`trace-step${s.screenshot ? '' : ' trace-step-text'}`}>
-          {s.screenshot ? (
+      {captures.map((s, index) => (
+        <div key={`${s.step}-${index}`} className="trace-step">
             <button className="trace-shot-button" onClick={() => setEnlarged(s)} title="Open full size">
-              <img className="trace-shot" src={s.screenshot} alt={`Step ${s.step}`} loading="lazy" />
+              <img className="trace-shot" src={s.screenshot} alt={`Application screenshot ${index + 1}`} loading="lazy" />
             </button>
-          ) : null}
-          <div className="trace-caption job-meta">
-            <strong>{s.step}.</strong> {s.label}
-            {s.disposition === 'failed' && <span className="badge bad">Tool error</span>}
-            {s.disposition === 'reobserve' && <span className="badge warn">Reinspection needed</span>}
-            {s.startedAt && !s.completedAt && <span className="badge warn">No completion recorded</span>}
-            {s.result && <details><summary>Full tool result</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{s.result}</pre></details>}
-            {s.result ? <span className="trace-result"> → {s.result}</span> : null}
-          </div>
+          <div className="trace-caption job-meta">Screenshot {index + 1}</div>
         </div>
       ))}
 
@@ -161,7 +146,7 @@ function TraceContent({ jobId, questions, endpoint }: { jobId: string; questions
           <div className="card trace-zoom" onClick={(event) => event.stopPropagation()}>
             <div className="trace-zoom-bar">
               <span className="job-meta">
-                <strong>Step {enlarged.step}</strong> · {enlarged.label}
+                <strong>Screenshot {captureIndex + 1}</strong>
               </span>
               <div className="trace-zoom-controls">
                 <button className="btn btn-small" disabled={captureIndex <= 0} onClick={() => moveCapture(-1)}>Previous</button>
@@ -170,7 +155,7 @@ function TraceContent({ jobId, questions, endpoint }: { jobId: string; questions
                 <button className="btn btn-small" autoFocus onClick={() => setEnlarged(null)}>Close</button>
               </div>
             </div>
-            <img src={enlarged.screenshot} alt={`Step ${enlarged.step}`} />
+            <img src={enlarged.screenshot} alt={`Application screenshot ${captureIndex + 1}`} />
           </div>
         </div>
       )}

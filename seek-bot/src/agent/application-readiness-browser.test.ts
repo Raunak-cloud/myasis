@@ -37,8 +37,8 @@ try {
   const personalForm = '<main><form onsubmit="event.preventDefault();window.factSends++;document.querySelector(\'main\').textContent=\'Application received: FACT123\'"><label>Employment start month<input id=date type=month required></label><button id=send>Submit application</button></form></main>';
   await page.setContent(personalForm); await page.evaluate('window.factSends=0', undefined, undefined, false);
   script = [body => {
-    assert.match(String(body.messages[0].content), /Never fabricate personal facts/);
-    assert.match(String(body.messages[0].content), /Explicit candidate answers override inferences/);
+    assert.match(String(body.messages[0].content), /Never (?:invent|fabricate) personal facts/);
+    assert.match(String(body.messages[0].content), /Explicit candidate answers (?:override inferences|take priority)/);
     return [{ name: 'read_candidate_evidence', args: { query: 'employment dates' } }];
   }, async body => {
     assert.match(JSON.stringify(body.messages), /OWNER-SCOPED CANDIDATE EVIDENCE/);
@@ -88,7 +88,7 @@ try {
   await page.evaluate('window.noticeSends=0', undefined, undefined, false);
   writeFileSync(join(directory, 'answers.json'), JSON.stringify([{question:'Current notice period',answer:'One week only; no alternative is authorized.'}]));
   script = [body => {
-    assert.match(String(body.messages[0].content), /Never fabricate personal facts/);
+    assert.match(String(body.messages[0].content), /Never (?:invent|fabricate) personal facts/);
     return [{name:'read_candidate_evidence',args:{query:'notice period'}}];
   }, async body => {
     assert.match(JSON.stringify(body.messages), /One week only/);

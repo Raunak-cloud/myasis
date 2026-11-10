@@ -121,18 +121,10 @@ interface UserDetail extends AdminUser {
   recentApplications: Array<{ jobId: string; title: string; company: string; platform: string; external: boolean; appliedAt: string }>;
 }
 
-interface LogLine {
-  seq?: number;
-  ts: string;
-  stream: string;
-  text: string;
-}
-
 const TIME_ZONE = 'Australia/Sydney';
 const when = (iso: string | null) =>
   iso ? new Intl.DateTimeFormat('en-AU', { dateStyle: 'medium', timeStyle: 'short', timeZone: TIME_ZONE }).format(new Date(iso)) : '-';
-const clock = (iso: string) =>
-  new Intl.DateTimeFormat('en-AU', { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: TIME_ZONE }).format(new Date(iso));
+
 
 function NextRun({ user }: { user: Pick<AdminUser, 'autoApply' | 'blockedAt'> }) {
   const now = useNow();
@@ -166,71 +158,17 @@ function runStatus(run: AdminRun): { label: string; tone: string } {
 const TRIGGER_LABEL: Record<string, string> = { manual: 'Manually started', onboarding: 'First run', auto: 'Scheduled', admin: 'By an admin' };
 
 
-// ------------------------------------------------------------------ run console
+// ------------------------------------------------------------------ run screenshots
 function RunLog({ run, onClose }: { run: AdminRun; onClose: () => void }) {
-  const [lines, setLines] = useState<LogLine[]>([]);
-  const [live, setLive] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const body = useRef<HTMLPreElement>(null);
-
-  useEffect(() => {
-    let source: EventSource | null = null;
-    let cancelled = false;
-    api<{ lines: LogLine[]; live: boolean; userId: string }>(`/runs/${run.id}/log`)
-      .then((log) => {
-        if (cancelled) return;
-        setLines(log.lines);
-        setLive(log.live);
-        if (log.live) {
-          // Follow a run still going: the stream replays its console, then keeps it coming.
-          setLines([]);
-          source = new EventSource(`/api/admin/users/${log.userId}/stream`);
-          source.onmessage = (event) => {
-            const line = JSON.parse(event.data) as LogLine;
-            setLines((current) => [...current.slice(-4000), line]);
-          };
-        }
-      })
-      .catch((reason) => setError((reason as Error).message));
-    return () => {
-      cancelled = true;
-      source?.close();
-    };
-  }, [run.id]);
-
-  useEffect(() => {
-    body.current?.scrollTo({ top: body.current.scrollHeight });
-  }, [lines]);
-
-  return (
-    <div className="overlay" onClick={onClose}>
-      <div className="card admin-log" role="dialog" aria-modal="true" aria-label="Run console" onClick={(event) => event.stopPropagation()}>
-        <div className="admin-log-head">
-          <div>
-            <h2>{run.name || run.email}</h2>
-            <p className="job-meta">
-              {when(run.startedAt)} · {TRIGGER_LABEL[run.trigger] ?? run.trigger}{run.startedBy ? ` (${run.startedBy})` : ''} · {duration(run)}
-              {' · '}{runDeviceLabel(run.initiatorDevice, run.trigger)}
-              {live ? ' · live' : ''}
-            </p>
-          </div>
-          <button className="btn" onClick={onClose}>Close</button>
-        </div>
-        {error && <div className="banner banner-bad">{error}</div>}
-        <RunDiagnostics runId={run.id} />
-        <pre ref={body} className="admin-log-body">
-          {lines.length
-            ? lines.map((line, index) => (
-                <span key={`${line.seq ?? index}-${index}`} className={`admin-log-line ${line.stream}`}>
-                  <time>{clock(line.ts)}</time> {line.text}
-                  {'\n'}
-                </span>
-              ))
-            : error ? '' : 'No console was saved for this run.'}
-        </pre>
+  return <div className="overlay" onClick={onClose}>
+    <div className="card admin-log" role="dialog" aria-modal="true" aria-label="Run screenshots" onClick={event => event.stopPropagation()}>
+      <div className="admin-log-head">
+        <div><h2>{run.name || run.email}</h2><p className="job-meta">{when(run.startedAt)}</p></div>
+        <button className="btn" onClick={onClose}>Close</button>
       </div>
+      <RunDiagnostics runId={run.id} />
     </div>
-  );
+  </div>;
 }
 
 // ------------------------------------------------------------------ runs table
@@ -276,7 +214,7 @@ function RunsTable({ runs, onOpen, showUser = true }: { runs: AdminRun[]; onOpen
                 <td className="nowrap" title={runCostTitle(run.cost)}>{formatRunCost(run.cost)}</td>
                 <td><span className={`badge ${status.tone}`}>{status.label}</span></td>
                 <td className="nowrap">
-                  <button className="btn btn-small" onClick={() => onOpen(run)}>{run.running ? 'Watch / errors' : 'Errors / log'}</button>
+                  <button className="btn btn-small" onClick={() => onOpen(run)}>Screenshots</button>
                 </td>
               </tr>
             );
