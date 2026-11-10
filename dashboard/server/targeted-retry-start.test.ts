@@ -32,6 +32,10 @@ test('normal startRun resolves retained metadata and still enforces mode, accoun
     writeFileSync(join(directory, 'boundary.mjs'), `
 export const state={credits:5,sent:0,busy:false,starts:[],queries:[],events:[],pending:['seek:held-fixture'],repairs:[],approvedDrafts:[]};
 export const approvedRunRepairs=async()=>state.repairs;
+export const bonusRunForStart=async()=>{throw Error('No bonus run is authorized in this fixture');};
+export const bindBonusRun=async()=>{throw Error('No bonus run is authorized in this fixture');};
+export const bonusRunAllowance=()=>{throw Error('No bonus run is authorized in this fixture');};
+export const bonusSalaryFloor=()=>{throw Error('No bonus run is authorized in this fixture');};
 export const query=async(sql,params)=>{state.queries.push({sql,params});if(sql.includes('FROM run_events'))return state.events;
   if(sql.includes('UPDATE run_starts SET operator_options'))return [];
   if(sql.includes('FROM run_starts'))return [{id:'1145',user_id:'183',finished_at:'2026-11-02T17:45:00Z'}];
