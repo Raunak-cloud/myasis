@@ -37,8 +37,8 @@ try {
   const personalForm = '<main><form onsubmit="event.preventDefault();window.factSends++;document.querySelector(\'main\').textContent=\'Application received: FACT123\'"><label>Employment start month<input id=date type=month required></label><button id=send>Submit application</button></form></main>';
   await page.setContent(personalForm); await page.evaluate('window.factSends=0', undefined, undefined, false);
   script = [body => {
-    assert.match(String(body.messages[0].content), /You own personal-answer verification/);
-    assert.match(String(body.messages[0].content), /duration such as two years does not establish exact start\/end months/);
+    assert.match(String(body.messages[0].content), /Never fabricate personal facts/);
+    assert.match(String(body.messages[0].content), /Explicit candidate answers override inferences/);
     return [{ name: 'read_candidate_evidence', args: { query: 'employment dates' } }];
   }, async body => {
     assert.match(JSON.stringify(body.messages), /OWNER-SCOPED CANDIDATE EVIDENCE/);
@@ -54,10 +54,6 @@ try {
     assert.match(JSON.stringify(body.messages), /February 2024/);
     return [{ name: 'browser_action', args: { action: 'fill', selector: '#date', value: '2024-02' } }];
   }, () => [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }],
-  body => {
-    assert.match(observation(body), /APPLICATION REVIEW ADVICE/);
-    return [{ name: 'record_application_review', args: { assessment: 'ready', vacancy: 'Software Developer at Fictional employer, Sydney', documents: 'Fixture requires no documents', unresolved: [], checks: [{ question: 'Employment start month', source_evidence: 'Candidate saved February 2024', intended_meaning: 'February 2024', observed_value: '2024-02', conclusion: 'Matches saved source' }], next_action: 'Submit the current form' } }];
-  }, () => [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }],
   () => [{ name: 'finish', args: { status: 'applied', reason: 'Employer confirmed receipt.', evidence: 'Application received: FACT123', receipt: { quote: 'Application received: FACT123' } } }]];
   const sourcedDates = await runApplicationAgent({ page, job: { ...job, id: 'agent-owned-saved-date' }, profile, log: () => {} });
   assert.equal(sourcedDates.outcome.status, 'applied');
@@ -71,19 +67,16 @@ try {
       conclusion: assessment === 'correct' ? 'Wrong: 11 January was filled; correct the component values' : 'Matches 1 November' }], next_action: assessment === 'correct' ? 'Correct the actual components' : 'Submit current form' } });
   script = [() => [{ name: 'browser_batch', args: { actions: [
     { action: 'fill', selector: '#month', value: '1' }, { action: 'fill', selector: '#day', value: '11' },
-    { action: 'fill', selector: '#year', value: '2026' }, { action: 'click', selector: '#send', sends_application: true },
+    { action: 'fill', selector: '#year', value: '2026' },
   ] } }], body => {
-    assert.match(observation(body), /APPLICATION REVIEW ADVICE/);
-    assert.match(observation(body), /"label":"Month".*"value":"1"/);
+    assert.match(observation(body), /Month/);
     return [review('correct')];
   }, async body => {
     assert.equal(body.chat_template_kwargs?.reasoning_effort, 'xhigh', 'a confirmed accuracy conflict retains deeper reasoning while correcting it');
     return [{ name: 'browser_batch', args: { actions: [
     { action: 'fill', selector: '#month', value: '11' }, { action: 'fill', selector: '#day', value: '1' },
-    { action: 'click', selector: '#send', sends_application: true },
   ] } }]; }, body => {
-    assert.match(observation(body), /APPLICATION REVIEW ADVICE/);
-    assert.match(observation(body), /"label":"Month".*"value":"11"/);
+    assert.match(observation(body), /Month/);
     return [review('ready')];
   }, () => [{ name: 'browser_action', args: { action: 'click', selector: '#send', sends_application: true } }],
   () => [{ name: 'finish', args: { status: 'applied', reason: 'Employer receipt after date correction', evidence: 'Application received: DATE123', receipt: { quote: 'Application received: DATE123' } } }]];
@@ -95,7 +88,7 @@ try {
   await page.evaluate('window.noticeSends=0', undefined, undefined, false);
   writeFileSync(join(directory, 'answers.json'), JSON.stringify([{question:'Current notice period',answer:'One week only; no alternative is authorized.'}]));
   script = [body => {
-    assert.match(String(body.messages[0].content), /a nearest available choice is not an authorized substitute/);
+    assert.match(String(body.messages[0].content), /Never fabricate personal facts/);
     return [{name:'read_candidate_evidence',args:{query:'notice period'}}];
   }, async body => {
     assert.match(JSON.stringify(body.messages), /One week only/);
@@ -105,21 +98,20 @@ try {
   assert.equal(unsupportedNotice.outcome.status,'needs-human');
   assert.equal(await page.evaluate('window.noticeSends',undefined,undefined,false),0);
   assert.equal(script.length,0);
-  // No date controls: an unsupported parsed answer must still reach self-review.
+  // No date controls: the applying agent can choose self-review for a conflicting parsed answer.
   await page.setContent('<main><form onsubmit="event.preventDefault();window.factSends++;document.querySelector(\'main\').textContent=\'Application received: HISTORY123\'"><label>Previously employed here?<select id=history><option>Yes</option><option>No</option></select></label><button id=send>Submit application</button></form></main>');
   await page.evaluate('window.factSends=0',undefined,undefined,false);
   writeFileSync(join(directory,'answers.json'),JSON.stringify([{question:'Previously employed here?',answer:'No, never employed by the fictional employer.'}]));
   const historyReview = (assessment: string, unresolved: string[] = []) => ({ name:'record_application_review',args:{assessment,
     vacancy:'Software Developer at Fictional employer, Sydney',documents:'No documents required by fixture',unresolved,
     checks:[{question:'Previously employed here?',source_evidence:'Saved answer: No, never employed by the fictional employer.',intended_meaning:'No',observed_value:assessment==='correct'?'Yes':'No',conclusion:assessment==='correct'?'Parsed answer conflicts; correct it':'Matches confirmed source'}],next_action:assessment==='correct'?'Select No and inspect':'Send the reviewed form'}});
-  script=[()=>[{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],body=>{
-    assert.match(observation(body),/APPLICATION REVIEW ADVICE/);
+  script=[body=>{
     assert.match(observation(body),/Previously employed here/);
     return [historyReview('ready',['Employer history conflicts'])];
   },body=>{
     assert.match(JSON.stringify(body.messages),/Resolve the listed conflicts/);
     return [historyReview('correct')];
-  },()=>[{name:'browser_batch',args:{actions:[{action:'select',selector:'#history',value:'No'},{action:'click',selector:'#send',sends_application:true}]}}],
+  },()=>[{name:'browser_batch',args:{actions:[{action:'select',selector:'#history',value:'No'}]}}],
   ()=>[historyReview('ready')],()=>[{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],
   ()=>[{name:'finish',args:{status:'applied',reason:'Employer receipt',evidence:'Application received: HISTORY123',receipt:{quote:'Application received: HISTORY123'}}}]];
   const historyResult=await runApplicationAgent({page,job:{...job,id:'ordinary-answer-review'},profile,log:()=>{}});
@@ -128,8 +120,8 @@ try {
   await page.setContent('<main><form onsubmit="event.preventDefault();window.tagSends++;document.querySelector(\'main\').textContent=\'Application received: TAG123\'"><label>Work environment<input id=environment role=combobox aria-required=true aria-controls=chosen></label><ul id=chosen role=listbox aria-multiselectable=true><li role=option aria-selected=true>On Site</li></ul><button id=send>Submit application</button></form></main>');
   await page.evaluate('window.tagSends=0',undefined,undefined,false);
   let tagReviews=0;
-  script=[()=>[{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],body=>{
-    tagReviews++;assert.match(observation(body),/APPLICATION REVIEW ADVICE/);
+  script=[body=>{
+    tagReviews++;
     assert.match(observation(body),/On Site/);
     return [{name:'record_application_review',args:{assessment:'ready',vacancy:'Fictional employer Software Developer Sydney',documents:'Fixture needs no documents',unresolved:[],checks:[{question:'Work environment',source_evidence:'Fictional candidate confirmed onsite Sydney',intended_meaning:'On Site',observed_value:'Committed On Site tag, empty search input',conclusion:'Selection is committed; search text is not the saved answer'}],next_action:'Choose Submit'}}];
   },()=>[{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],

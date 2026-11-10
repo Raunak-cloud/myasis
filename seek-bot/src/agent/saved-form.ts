@@ -20,7 +20,7 @@ export interface SavedForm {
 }
 
 export async function readSavedForm(page: Page): Promise<SavedForm> {
-  return browserDeadline('Saved application inspection', 15_000, () => readSavedFormNow(page));
+  return readSavedFormNow(page);
 }
 
 /** Compare only successful hidden controls owned by the chosen send control's
@@ -90,6 +90,5 @@ async function readSavedFormNow(page: Page): Promise<SavedForm> {
     sections.push(`Frame ${frameIndex}:\n${text.length > 16000 ? `${text.slice(0, 8000)}\n…\n${text.slice(-8000)}` : text}`);
   }
   const form = { url: page.url(), fields, text: sections.join('\n\n') };
-  if (JSON.stringify(form).length > 120000) throw new Error('The saved form is too large to review completely.');
   return redactPrivateAuthenticationData(form, await privateAuthenticationValues(page));
 }

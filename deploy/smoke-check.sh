@@ -107,6 +107,8 @@ if [ "$REPLAY_REQUIRED" = 1 ]; then
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/authentication-state.test.js dist/agent/authentication-contract.test.js dist/site-auth.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/employer-account-first.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/budget-workflows.test.js
+  CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/agent-owned-submission.test.js dist/agent/saved-form-limits.test.js
+  CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node dist/agent/application-readiness-browser.test.js
   node dist/fit-assessment.test.js
   node dist/fit-intent-provenance.test.js
   shopt -s nullglob

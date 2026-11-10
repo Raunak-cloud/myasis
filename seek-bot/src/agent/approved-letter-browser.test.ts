@@ -31,12 +31,12 @@ test('approved letter renders and uploads byte-exact without model transcription
     const action=body.tools.find((t:any)=>t.function.name==='browser_action').function.parameters;
     const batch=body.tools.find((t:any)=>t.function.name==='browser_batch').function.parameters;
     for(const command of [action,batch.properties.actions.items]){
-     assert.ok(!command.properties.action.enum.includes('script'),'approved browser tools must not advertise rejected scripts');
-     assert.equal(validToolInput({action:'script',script:'return document.title'},command),false);
+     assert.ok(command.properties.action.enum.includes('script'),'approved retries have the full browser tools');
+     assert.equal(validToolInput({action:'script',script:'return document.title'},command),true);
      assert.equal(validToolInput({action:'click',selector:'#send',sends_application:false},command),true);
     }
     assert.equal(validToolInput({action:'dialog',value:'dismiss'},action),true,'dismissing a dialog remains available');
-    assert.equal(validToolInput({action:'dialog',value:'accept'},action),false,'the contract excludes accepting dialogs');
+    assert.equal(validToolInput({action:'dialog',value:'accept'},action),true,'approved retries can accept dialogs');
     assert.match(action.properties.file_ids.description,/render_approved_cover_letter/);
     const schema=body.tools.find((t:any)=>t.function.name==='render_approved_cover_letter').function.parameters;
     assert.equal(schema.properties.text,undefined,'the model never has to transcribe the approved text');

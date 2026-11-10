@@ -106,7 +106,7 @@ export const agentOnlyTools: ToolSchema[] = [
       file_ids: fileIdsProperty, replaces_file_ids: { type: 'array', maxItems: 10, items: { type: 'string', minLength: 1 }, description: 'For set_input_files only: exact previously uploaded IDs that you observed are replaced/removed by this upload or clear, including when a widget remounts. Never infer replacement from a filename or DOM position.' }, file_chooser: { type: 'boolean' },
       script: { type: 'string', minLength: 1, description: 'For action=script: the same browser-side function, expression or async body accepted by browser_action. Executes once in order; runtime failure stops the batch.' },
       script_intent: { type: 'string', enum: ['inspect', 'act'], description: 'For script only: inspect declares read-only inspection; act declares interaction. The normal browser_action permissions still apply.' },
-      ...browserTargetProperties, ...browserWaitProperties, value: string, sends_application: { type: 'boolean', description: 'Required on every click/press in Semi auto and approved reconstruction: true transmits the application; false is preparatory.' },
+      ...browserTargetProperties, ...browserWaitProperties, value: string, sends_application: { type: 'boolean', description: 'Required on every click/press in Semi auto preparation: true transmits the application; false is preparatory.' },
     }, required: ['action'], ...browserCommandContract(batchActions) } },
   }, ['actions']),
   schema('browser_action', 'action=take_snapshot reads the current accessibility tree, including iframe refs, with optional screenshot and target arguments only. Target a form, widget or section using an observed ref, selector or locator. Multiple matching sections return one bounded page snapshot with consistent refs. Required arguments: action=script needs script containing your complete code; action=set_input_files needs file_ids (an array of inventory IDs, even for one file) and a target; action=wait needs a current target or wait with a target/URL condition. A timeout alone is not a wait. Act directly on the observed browser. You author values, choose interactions and decide when to submit. inspect reads current values and constraints for all matching targets in one evaluation, labelling each result; private values are masked. Clicks and writes require one intended target. Fill/select/check report actual readback and validation. type appends text with native keyboard events; fill replaces text using normal input events. Use type when an inspected widget needs key events, clearing first when replacing text. For autocomplete: first open the field, type, wait for fresh suggestions, then select an exact observed option. action=select supports native selects and ARIA comboboxes: supply the exact visible option label; it opens, types, waits, clicks that option and verifies the committed display after blur. It never chooses a fallback. Input search text alone is not a committed selection; widgetText shows the nearby rendered value even when the search input clears. Native date inputs use YYYY-MM-DD; text dates follow the observed placeholder/description. Re-observe after dynamic changes. Use an observed ref, a standard Playwright locator (role/label/placeholder/text/test_id/css), or a CSS selector. Script accepts a browser-side function or async JavaScript body with return, never Node code.', {
@@ -119,7 +119,7 @@ export const agentOnlyTools: ToolSchema[] = [
     script: { type: 'string', description: 'Required and nonempty for action=script: your complete browser-side function or async body with return. Unused for other actions.' },
     script_intent: { type: 'string', enum: ['inspect', 'act'], description: 'For script only: inspect declares read-only evidence gathering, not execution of a repair. Use act for any DOM write, interaction or navigation. Default act. This does not grant permissions, bypass Semi auto or change send confirmation.' },
     x: { type: 'number' }, y: { type: 'number' }, page_index: { type: 'integer', minimum: 0 },
-    sends_application: { type: 'boolean', description: 'Your judgement that this action transmits the application, including scripted/keyboard submission. Required on every click/press in Semi auto and approved reconstruction; use false for preparatory interactions.' },
+    sends_application: { type: 'boolean', description: 'Your judgement that this action transmits the application, including scripted/keyboard submission. Required on every click/press in Semi auto preparation; use false for preparatory interactions.' },
   }, ['action'], browserCommandContract(browserActions)),
   schema('create_file', 'Render exactly your supplied text in your explicitly chosen format. Returns a private file_id for native set_input_files; never uploads, selects a form field or judges acceptance. Inspect employer requirements before choosing the format. Record cover-letter text separately with save_progress or prepare_application.', {
     name: { type: 'string', description: 'Plain document filename or title. If an extension is supplied, it must match format; otherwise the explicitly chosen format is appended.' }, text: string, format: { type: 'string', enum: ['pdf', 'docx', 'doc', 'rtf', 'txt'] },
@@ -238,17 +238,17 @@ export async function runAgentOnlyApplication(options: AgentRunOptions): Promise
 async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryRecord): Promise<AgentRunResult> {
   // Do not offer a preparation-only tool to an Auto apply run. Email drafts
   // retain their explicit-confirmation path in both modes.
-  const approvedBrowserActions=browserActions.filter(action=>action!=='script');
-  const approvedBatchActions=batchActions.filter(action=>action!=='script');
-  const offeredTools = reviewingApplications() ? agentOnlyTools.map(tool=>{
+  const preparationBrowserActions=browserActions.filter(action=>action!=='script');
+  const preparationBatchActions=batchActions.filter(action=>action!=='script');
+  const offeredTools = preparingApplications() ? agentOnlyTools.map(tool=>{
     const properties=tool.parameters.properties as Record<string,Record<string,unknown>>;
     const targetMode={...browserTargetProperties.target_mode,enum:browserTargetProperties.target_mode.enum.filter(mode=>mode!=='coordinates')};
-    if(tool.name==='browser_action')return {...tool,description:'CURRENT MODE: preparation or approved submission. Use only the advertised native actions. select commits an exact agent-chosen label in a native select or ARIA combobox and verifies after blur. fill/type only change search text. inspect returns widgetText, values and validation; take_snapshot reads current accessible options. Scripts, coordinate clicks and accepting dialogs are unavailable. Use native inspect/take_snapshot rather than requesting scripts. '+tool.description.replace(/action=script needs script containing your complete code; /g,'').replace(/Script accepts a browser-side function or async JavaScript body with return, never Node code\./g,''),parameters:{...tool.parameters,properties:{...properties,action:{...properties.action,enum:approvedBrowserActions},target_mode:targetMode},...browserCommandContract(approvedBrowserActions,true)}};
+    if(tool.name==='browser_action')return {...tool,description:'CURRENT MODE: Semi-auto preparation. Use only the advertised native actions. select commits an exact agent-chosen label in a native select or ARIA combobox and verifies after blur. fill/type only change search text. inspect returns widgetText, values and validation; take_snapshot reads current accessible options. Scripts, coordinate clicks and accepting dialogs are unavailable. Use native inspect/take_snapshot rather than requesting scripts. '+tool.description.replace(/action=script needs script containing your complete code; /g,'').replace(/Script accepts a browser-side function or async JavaScript body with return, never Node code\./g,''),parameters:{...tool.parameters,properties:{...properties,action:{...properties.action,enum:preparationBrowserActions},target_mode:targetMode},...browserCommandContract(preparationBrowserActions,true)}};
     if(tool.name!=='browser_batch')return tool;
     const command=properties.actions.items as Record<string,unknown>;
-    return {...tool,description:'CURRENT MODE: preparation or approved submission. Native actions only; scripts are unavailable. Use inspect/take_snapshot for page evidence. '+tool.description.replace('browser scripts and ','').replace('Scripts follow the same contract and permissions as browser_action. ',''),parameters:{...tool.parameters,properties:{...properties,actions:{...properties.actions,
-      items:{...command,properties:{...(command.properties as Record<string,unknown>),action:{...((command.properties as Record<string,unknown>).action as Record<string,unknown>),enum:approvedBatchActions},target_mode:targetMode},...browserCommandContract(approvedBatchActions,true)}}}}};
-  }) : agentOnlyTools.filter(tool => tool.name !== 'prepare_application');
+    return {...tool,description:'CURRENT MODE: Semi-auto preparation. Native actions only; scripts are unavailable. Use inspect/take_snapshot for page evidence. '+tool.description.replace('browser scripts and ','').replace('Scripts follow the same contract and permissions as browser_action. ',''),parameters:{...tool.parameters,properties:{...properties,actions:{...properties.actions,
+      items:{...command,properties:{...(command.properties as Record<string,unknown>),action:{...((command.properties as Record<string,unknown>).action as Record<string,unknown>),enum:preparationBatchActions},target_mode:targetMode},...browserCommandContract(preparationBatchActions,true)}}}}};
+  }) : agentOnlyTools.filter(tool => reviewingApplications() || tool.name !== 'prepare_application');
   const helpers=options.continuation?.helpers??new ApplicationHelpers(offeredTools);
   if (retiredJobSource(options.job)) return { outcome: { status: 'skipped', reason: RETIRED_SOURCE_MESSAGE }, captured: [], actions: [], submitPressed: false, steps: 0, usage: 'No model calls: job source removed.' };
 
@@ -291,7 +291,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
   const suitabilityAuthority = applicationSuitabilityAuthority(options.job.source === 'chosen', Boolean(fitReview), Boolean(approved));
   const reviewInstruction = !reviewingApplications() ? '' : preparingApplications()
     ? 'SEMI AUTO: fill this application completely, including its documents and letter, but do not send it. At the final review call prepare_application with the exact answers, selected resume ID and letter. Only the candidate can authorize sending later. Use observed controls; browser scripts and coordinate actions are unavailable in this mode.'
-    : `SUBMIT ONLY THIS APPROVED APPLICATION. The browser is already at its allowed entry point. Inspect the actual saved answers, letter and resume; keep matching values instead of refilling them or re-uploading unchanged documents. Any document marked requiresUpload was revised by the candidate: use its exact approved file_id when uploading, even if the employer shows the same filename. Supporting documents still require upload verification. For an approved cover letter, lack of separate code-level attachment proof does not block submission and must not by itself cause repeated page revisits or a technical stop. You still own choosing the correct letter option and inspecting employer acceptance; never claim inclusion without observed evidence. At a complete final review, compare the saved content in place, call prepare_application, then submit. Do not open an optional employer preview or revisit completed steps unless needed to resolve missing or mismatched content. If the saved review is unavailable, follow observed application controls; do not navigate to formUrl yourself (some boards share that address across different jobs). Reopen/refill only missing or different fields using these exact approved answers, letter and resume; do not rewrite or paraphrase the recorded question labels or answers. When the employer needs a cover-letter attachment, use render_approved_cover_letter to render the exact confirmed text without retyping it. Call prepare_application with the selected resume ID after inspecting it; answers from earlier steps are retained, so only supply additions/corrections using actual question labels. This job is already approved: never return it to Prepared or ask the candidate to approve it again. If the form asks new questions, complete them truthfully from candidate evidence. Restore missing or mismatched approved answers and documents in place. If a required consequential fact is unavailable, report its exact question through Needs attention; technical failures remain technical blockers. After a complete verified final review, submit and inspect the employer receipt. ${JSON.stringify(approved)}`;
+    : `SUBMIT ONLY THIS APPROVED APPLICATION. The browser is already at its allowed entry point. Inspect the actual saved answers, letter and resume; keep matching values instead of refilling them or re-uploading unchanged documents. Any document marked requiresUpload was revised by the candidate: use its exact approved file_id when uploading, even if the employer shows the same filename. Supporting documents still require upload verification. For an approved cover letter, lack of separate code-level attachment proof does not block submission and must not by itself cause repeated page revisits or a technical stop. You still own choosing the correct letter option and inspecting employer acceptance; never claim inclusion without observed evidence. At a complete final review, compare the saved content in place, call prepare_application, then submit. Do not open an optional employer preview or revisit completed steps unless needed to resolve missing or mismatched content. If the saved review is unavailable, choose how to recover using the live employer page and available tools. Reopen/refill only missing or different fields using these exact approved answers, letter and resume; do not rewrite or paraphrase the recorded question labels or answers. When the employer needs a cover-letter attachment, use render_approved_cover_letter to render the exact confirmed text without retyping it. Call prepare_application with the selected resume ID after inspecting it; answers from earlier steps are retained, so only supply additions/corrections using actual question labels. This job is already approved: never return it to Prepared or ask the candidate to approve it again. If the form asks new questions, complete them truthfully from candidate evidence. Restore missing or mismatched approved answers and documents in place. If a required consequential fact is unavailable, report its exact question through Needs attention; technical failures remain technical blockers. After a complete verified final review, submit and inspect the employer receipt. ${JSON.stringify(approved)}`;
   const messages: ChatMessage[] = [
     { role: 'system', content: buildApplicationSystemPrompt(applicationModelEnvironment().COVER_LETTER_INSTRUCTIONS) },
     // The first two messages survive both observation compaction and budget
@@ -456,7 +456,9 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       return result;
     },()=>!meter.actionExhausted);
     if (name === applicationReviewTool.name) {
-      const canonicalReview = readiness.requested;
+      const form = await readSavedForm(ctx.page);
+      readiness.observe({ ...ctx.observation, url: form.url, fields: form.fields.map(field => field.frame ? { ...field, section: `Frame ${field.frame}: ${field.section ?? ''}` } : field) });
+      const canonicalReview = readiness.request() || readiness.requested;
       readiness.record(String(args.assessment), args.unresolved as string[]);
       if (canonicalReview) recovery.applicationReviewed();
       if (canonicalReview && args.assessment === 'ready') meter.reviewedProgress('canonical-application-review-ready');
@@ -485,7 +487,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     if (pendingDialog) {
       if (name === 'browser_action' && args.action === 'dialog') {
         const value = String(args.value ?? '');
-        if (reviewingApplications() && value !== 'dismiss') return ok('Use dismiss in Semi auto. Accepting a browser dialog can bypass candidate confirmation.', 'failed');
+        if (preparingApplications() && value !== 'dismiss') return ok('Use dismiss in Semi auto. Accepting a browser dialog can bypass candidate confirmation.', 'failed');
         dialogs.delete(ctx.page);
         if (value === 'dismiss') await pendingDialog.dismiss();
         else await pendingDialog.accept(value === 'accept' ? undefined : value);
@@ -541,7 +543,6 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       ctx.coverLetter = cleanCoverLetter(String(args.cover_letter ?? ''));
       const nextDraftKey = JSON.stringify([String(args.to ?? '').trim().toLowerCase(), String(args.subject ?? '').trim(), ctx.coverLetter, args.resume_id, args.attach_cover_letter === true]);
       if (nextDraftKey !== emailDraftKey) { readiness.invalidate(); emailDraftKey = nextDraftKey; }
-      if (readiness.request()) return ok('Before preparing this email, review the employer recipient, exact letter, selected resume and their candidate sources; record_application_review is optional. No email was prepared or sent.', 'reobserve');
       return prepareEmailApplication(ctx, args);
     }
     if (name === 'prepare_application') {
@@ -551,7 +552,6 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       files.witnessApprovedLetter(form.fields);
       ctx.letterWitness = files.checkpointLetterWitness();
       readiness.observe({ ...ctx.observation, url: form.url, fields: form.fields.map(field => field.frame ? { ...field, section: `Frame ${field.frame}: ${field.section ?? ''}` } : field) });
-      if (readiness.request()) return ok('Before preparing, compare actual saved answers, documents and vacancy with candidate sources; record_application_review is optional. Nothing was prepared or sent.', 'reobserve');
       if (!args.submit_ref && !args.submit_selector) return ok('Identify the actual final send control using submit_ref or submit_selector. A listing with email instructions is not a filled online form; use prepare_email_application for it.', 'failed');
       const controlArgs = { ref: args.submit_ref, selector: args.submit_selector };
       await assertCurrentRef(ctx, controlArgs);
@@ -624,7 +624,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       if(args.status==='error')return {kind:'terminal',outcome:{status:'error',reason:String(args.reason),recoveryId:shared.id,retryable:!ctx.submissionAttempted}};
       if (config.dryRun) return { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: `Agent judgement: ${args.status}. ${args.evidence}` } };
       const status = args.status as 'applied' | 'skipped' | 'needs-human' | 'already-applied';
-      if (status === 'applied' && reviewingApplications() && !ctx.submissionAttempted) return ok('No application has been submitted. In Semi auto, finish filling and use prepare_application for candidate confirmation.', 'failed');
+      if (status === 'applied' && preparingApplications() && !ctx.submissionAttempted) return ok('No application has been submitted. In Semi auto, finish filling and use prepare_application for candidate confirmation.', 'failed');
       // The applying agent interprets the employer response. Require an audit
       // record, not a second classification or a later DOM-text verdict.
       if (status === 'applied' && !String((args.receipt as { quote?: string } | undefined)?.quote ?? '').trim()) {
@@ -703,13 +703,13 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       return ok(JSON.stringify(await files.combineApprovedDocuments()));
     }
     if (name !== 'browser_action') throw new Error('Unknown agent-only browser tool.');
-    if (reviewingApplications() && ['click', 'press'].includes(String(args.action)) && typeof args.sends_application !== 'boolean') {
-      return ok('In Semi auto and approved reconstruction, every click or keypress must explicitly set sends_application: true for an application-transmitting action, false for a preparatory interaction. Missing intent cannot bypass candidate confirmation. Nothing was executed.', 'invalid-arguments');
+    if (preparingApplications() && ['click', 'press'].includes(String(args.action)) && typeof args.sends_application !== 'boolean') {
+      return ok('In Semi auto preparation, every click or keypress must explicitly set sends_application: true for an application-transmitting action, false for a preparatory interaction. Missing intent cannot bypass candidate confirmation. Nothing was executed.', 'invalid-arguments');
     }
-    if (reviewingApplications() && (args.action === 'script' || (args.action === 'click' && coordinateTarget(args)) || args.action === 'dialog' && args.value !== 'dismiss')) {
+    if (preparingApplications() && (args.action === 'script' || (args.action === 'click' && coordinateTarget(args)) || args.action === 'dialog' && args.value !== 'dismiss')) {
       return ok('Use the observed form controls in Semi auto. Scripts, coordinate clicks and accepting browser dialogs are unavailable because they can bypass application confirmation.', 'failed');
     }
-    if (reviewingApplications() && args.action === 'navigate' && args.value !== ctx.job.url) {
+    if (preparingApplications() && args.action === 'navigate' && args.value !== ctx.job.url) {
       return ok('Follow the observed application controls in Semi auto. Direct navigation is limited to this job listing so a send URL cannot bypass confirmation.', 'failed');
     }
     const coordinateClick = args.action === 'click' && coordinateTarget(args) && typeof args.x === 'number' && typeof args.y === 'number';
@@ -737,11 +737,6 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       ||args.action==='navigate') {
       files.clearLetterWitness();ctx.letterWitness=undefined;
     }
-    if (sendsApplication) {
-      const form = await readSavedForm(ctx.page);
-      readiness.observe({ ...ctx.observation, url: form.url, fields: form.fields.map(field => field.frame ? { ...field, section: `Frame ${field.frame}: ${field.section ?? ''}` } : field) });
-    }
-    if (sendsApplication && readiness.request()) return ok('Before this send, review actual saved answers, documents and vacancy with candidate sources; record_application_review is optional. No send was attempted or queued. Inspect the next observation and choose your current action after review.', 'reobserve');
     if (sendsApplication && reviewingApplications()) {
       const approval = await applicationApprovalGate(ctx, hasBrowserTarget(args) && !coordinateClick ? target(ctx, args) : undefined);
       if (approval) return approval;
@@ -1083,7 +1078,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         // later judgement from a plan whose preceding action did not run.
         const receiptResult = call.name === 'record_recovery_result' && call.args.assessment === 'complete'
           && typeof call.args.receipt_quote === 'string' && Boolean(call.args.receipt_quote.trim());
-        const assessmentOnly = call.name === checkpoint&&checkpoint===applicationReviewTool.name || recoveryTools.some(tool => tool.name === call.name) && call.name === recovery.tool;
+        const assessmentOnly = call.name === applicationReviewTool.name || recoveryTools.some(tool => tool.name === call.name) && call.name === recovery.tool;
         // Saving a prepared draft or asking for its canonical review cannot
         // transmit an application. Do not discard that paid final record just
         // because its generation crossed the ordinary browser-action allowance.

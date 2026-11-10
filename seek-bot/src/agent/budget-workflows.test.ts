@@ -43,7 +43,7 @@ const form='<main><label>Name<input id="name"></label><button id="send" onclick=
 test('Auto apply returns from canonical correction to work without spending the old review reserve',{timeout:10000},async()=>{
  const f=await fixture(form);let calls=0;
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;const specialist=specialistFixtureReply(body);if(specialist)return specialist;calls++;
-  if(calls===1)return packet([{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],.10);
+  if(calls===1)return packet([{name:'browser_action',args:{action:'inspect',selector:'body'}}],.10);
   assert.equal(calls,2,'an unaffordable repair must not start another paid model turn');
   assert.equal(body.tool_choice?.function?.name,undefined,'a review report is never forced');return packet([review('correct')],.13);
  };
@@ -79,7 +79,7 @@ test('a final-record-only reply cannot retry a send or claim the skipped retry s
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;
   if(isSpecialistFixtureRequest(body))return packet([{name:'return_application_advice',args:{advice:'Use the existing evidence.',evidence:[],unknowns:[],nextSteps:[],recovery_goal:{kind:'visible-text',target:'Application received: BUDGET-FIX',value:'Application received: BUDGET-FIX'}}}],.03);
   turns++;
-  if(turns===1)return packet([{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],.01);
+  if(turns===1)return packet([{name:'browser_action',args:{action:'inspect',selector:'body'}}],.01);
   if(turns===2)return packet([review()],.01);
   if(turns===3)return packet([{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],.17);
   if(turns===4)return packet([{name:'browser_action',args:{action:'inspect',selector:'body'}}],.03);
@@ -138,7 +138,7 @@ test('Semi auto preparation, exact approval and in-place answer repair keep thei
 test('required missing answers can be recorded after the paid canonical review crosses the action allowance',{timeout:10000},async()=>{
  const f=await fixture('<main><label>What is your visa expiry date?<input type="date" required></label><button id="send">Submit application</button></main>');let turns=0;
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;turns++;
-  if(turns===1)return packet([{name:'browser_action',args:{action:'click',selector:'#send',sends_application:true}}],.01);
+  if(turns===1)return packet([{name:'browser_action',args:{action:'inspect',selector:'body'}}],.01);
   if(turns===2)return packet([review('needs_answer')],.20);
   assert.equal(turns,3);assert.deepEqual(body.tools?.map(tool=>tool.function.name),['finish']);
   return packet([finish('needs-human',{questions:[{field_ref:'f0',form_quote:'What is your visa expiry date?',kind:'text'}]})]);
@@ -162,7 +162,7 @@ test('a stale question reference receives recoverable feedback and the current g
  }finally{await f.context.close();}
 });
 
-test('email preparation retains an already-paid draft and changes to its recipient require a fresh agent review',{timeout:10000},async()=>{
+test('email preparation saves the chosen recipient immediately without a forced review',{timeout:10000},async()=>{
  const f=await fixture('<main>Apply by email to first@fixture.invalid or second@fixture.invalid, with a cover letter and resume.</main>');let turns=0,reviews=0;
  const draft=(to:string):Call=>({name:'prepare_email_application',args:{to,subject:'Fictional application',cover_letter:'Dear team,\n\nI am applying using my fictional candidate CV.\n\nFictional Candidate',resume_id:'cv'}});
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;turns++;
@@ -170,7 +170,7 @@ test('email preparation retains an already-paid draft and changes to its recipie
   if(reviewAdvice(body)){reviews++;return packet([review()]);}
   return packet([draft(turns===1?'first@fixture.invalid':'second@fixture.invalid')],turns===5?.25:.01);
  };
- try{const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'prepared');assert.equal(reviews,2);assert.equal(turns,5);assert.equal(r.submitPressed,false);if(r.outcome.status==='prepared')assert.equal(r.outcome.draft.email?.to,'second@fixture.invalid');}finally{await f.context.close();}
+ try{const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'prepared');assert.equal(reviews,0);assert.equal(turns,1);assert.equal(r.submitPressed,false);if(r.outcome.status==='prepared')assert.equal(r.outcome.draft.email?.to,'first@fixture.invalid');}finally{await f.context.close();}
 });
 
 test('cleanup failure cannot overwrite a completed result or the primary provider error',{timeout:10000},async()=>{
@@ -201,7 +201,7 @@ test('malformed final review retries the same assessment once without pretending
  const f=await fixture(form);process.env.APPLICATION_REVIEW_MODE='prepare';let turns=0;
  const prepare:Call={name:'prepare_application',args:{answers:[],resume_id:'cv',submit_selector:'#send'}};
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;turns++;
-  if(turns===1)return packet([prepare]);
+  if(turns===1)return packet([{name:'browser_action',args:{action:'inspect',selector:'body'}}]);
   if(turns===2){assert.equal(body.tool_choice?.function?.name,undefined,'a review report is never forced');return packet([{name:'record_application_review',args:{assessment:'ready'}}],.08);}
   if(turns===3){assert.equal(body.tool_choice?.function?.name,undefined,'a review report is never forced');return packet([review()],.15);}
   assert.equal(turns,4,'only the completed local draft should follow the corrected review');return packet([prepare]);
@@ -214,7 +214,8 @@ test('repeated malformed optional reviews cannot force a skip or stop normal pre
  const prepare:Call={name:'prepare_application',args:{answers:[],resume_id:'cv',submit_selector:'#send'}};
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;turns++;assert.ok(turns<=4,'no mandatory reporting loop');
   assert.equal(body.tool_choice?.function?.name,undefined,'normal tools remain available after malformed optional reports');
-  if(turns===1||turns===4)return packet([prepare]);
+  if(turns===1)return packet([{name:'browser_action',args:{action:'inspect',selector:'body'}}]);
+  if(turns===4)return packet([prepare]);
   return packet([{name:'record_application_review',args:{assessment:'ready'}}]);
  };
  try{const r=await runAgentOnlyApplication(f);assert.equal(r.outcome.status,'prepared');assert.equal(turns,4);assert.equal(r.submitPressed,false);assert.equal(await f.page.evaluate(()=>Number(document.documentElement.dataset.sent||0)),0);
