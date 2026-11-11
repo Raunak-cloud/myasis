@@ -23,7 +23,7 @@ const pendingKey = (url: string, email: string, employer: string, purpose: Crede
 const legacyPendingKey = (url: string, email: string, employer: string, purpose: CredentialPurpose) =>
   JSON.stringify([hostOf(url), email.trim().toLowerCase(), employerName(employer), purpose]);
 const matchesProposal = (value: SiteCredential, expected?: SiteCredential) => !expected
-  || JSON.stringify([value.format, value.rules ?? {}, value.derivationScope]) === JSON.stringify([expected.format, expected.rules ?? {}, expected.derivationScope]);
+  || JSON.stringify([value.format, value.rules ?? {}, value.derivationScope, value.username]) === JSON.stringify([expected.format, expected.rules ?? {}, expected.derivationScope, expected.username]);
 
 function readRecords<T>(file: string): Record<string, T> {
   if (!existsSync(file)) return {};
@@ -130,7 +130,7 @@ function credentialRecord(url:string,email:string,employer=''): {id:string;recor
 export function storedCredential(url: string, email: string, employer=''): SiteCredential | null {
   const record = credentialRecord(url,email,employer)?.record;
   if (!record || (record.status !== undefined && record.status !== 'accepted') || record.format !== 'readable-v1') return null;
-  return { format: record.format, ...(record.rules ? { rules: record.rules } : {}),...(record.derivationScope?{derivationScope:record.derivationScope}:{}) };
+  return { format: record.format, ...(record.username ? { username: record.username } : {}), ...(record.rules ? { rules: record.rules } : {}),...(record.derivationScope?{derivationScope:record.derivationScope}:{}) };
 }
 export function employerCredentialState(url:string,email:string,employer:string) {
   const known=credentialRecord(url,email,employer);

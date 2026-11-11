@@ -48,6 +48,8 @@ export interface PasswordRules {
  */
 export interface SiteCredential {
   format: 'readable-v1';
+  /** Employer login name, separate from the candidate email when required. */
+  username?: string;
   rules?: PasswordRules;
   /** New accounts bind password derivation to the employer realm. Omission preserves old passwords. */
   derivationScope?: string;
@@ -137,6 +139,7 @@ export function authenticationValue(
     // that our generated password belongs to an existing employer account.
     return credential ? sitePassword(pageUrl, profile.email, undefined, credential) : null;
   }
+  if (field.inputType !== 'email' && /\b(user ?name|user id|login id)\b/.test(label) && !/\be-?mail\b/.test(label)) return credential?.username || profile.email || null;
   if (field.inputType === 'email' || /\b(e-?mail|email address|login id|user ?name)\b/.test(label)) {
     return profile.email || null;
   }

@@ -22,6 +22,8 @@ const AUTHENTICATION_TOOL: ToolSchema = {
       type: 'object',
       properties: {
         targets,
+        username: { type: 'string', minLength: 1, maxLength: 320, description: 'For registration, the employer login name if different from email. Include it when filling the new password so it is saved with that password. Reuse the saved name for future sign-in.' },
+        use_pending: { type: 'boolean', description: 'For sign_in: use the saved pending registration/reset when page evidence supports trying it. Keeps it pending until you record the observed result; never creates another password.' },
         refill: { type: 'boolean', description: 'Set true only to trigger input events for an uncommitted/rejected value. Otherwise preserve matching values.' },
         refs: {
           type: 'array',

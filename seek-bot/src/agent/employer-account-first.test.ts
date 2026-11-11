@@ -27,8 +27,6 @@ try{
  let state=await ctx();
  const lookup=await doCheckEmployerAccount(state,{});assert.equal(lookup.kind,'ok');assert.equal(await page.evaluate(()=>(window as any).writes),0,'first lookup cannot write any field');
  await doCompleteAuthentication(state,{purpose:'reset_password',...fields});assert.equal(await page.locator('#password').inputValue(),'','unknown existing accounts cannot start password replacement');
- await doCompleteAuthentication(state,{purpose:'create_account',...fields});
- assert.equal(pendingCredential(page.url(),email,company,'create_account')?.phase,'prepared');
  const handoff=await doCheckEmployerAccount(state,{outcome:'existing',evidence:'An account already exists with this email. Please sign in.'});
  assert.equal(handoff.kind,'terminal');
  if(handoff.kind==='terminal'){
@@ -37,7 +35,7 @@ try{
  }
  assert.equal(pendingCredential(page.url(),email,company,'create_account'),null,'a rejected duplicate draft is not a managed account');
  assert.equal(await page.locator('#password').inputValue(),'','a rejected registration proposal is retired from the actual form before the user handoff');
- assert.equal(state.pendingCredentials?.size,0);
+ assert.equal(state.pendingCredentials?.size??0,0);
  state=await ctx();
  assert.equal((await doCompleteAuthentication(state,{purpose:'sign_in',...fields})).kind,'terminal','existing-account handoff survives a fresh applying context');
  assert.equal(await page.locator('#password').inputValue(),'');
