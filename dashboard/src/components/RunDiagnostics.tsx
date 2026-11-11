@@ -3,6 +3,17 @@ import { api } from '../adminApi';
 import type { RunDiagnostics as Diagnostics } from '../run-diagnostics';
 import { TraceSteps } from './AttentionPanel';
 
+const jobStatuses: Record<string, { label: string; tone: string }> = {
+  applied: { label: 'Submitted', tone: 'ok' },
+  prepared: { label: 'Prepared', tone: 'info' },
+  skipped: { label: 'Skipped', tone: 'muted' },
+  'already-applied': { label: 'Already applied', tone: 'info' },
+  error: { label: 'Failed', tone: 'bad' },
+  interrupted: { label: 'Interrupted', tone: 'warn' },
+  'needs-human': { label: 'Needs your input', tone: 'warn' },
+  rehearsed: { label: 'Test completed', tone: 'info' },
+};
+
 /** Screenshots for operators. Raw diagnostics remain available to backend inspection. */
 export function RunDiagnostics({ runId }: { runId: string }) {
   const [data, setData] = useState<Diagnostics | null>(null);
@@ -23,10 +34,15 @@ export function RunDiagnostics({ runId }: { runId: string }) {
     {!data && !error && <p>Loading screenshots…</p>}
     {data && <>
       {data.attempts.length === 0 && <p>No application screenshots are available yet.</p>}
-      {data.attempts.map(item => <div className="run-attempt" key={item.attemptId}>
+      {data.attempts.map(item => {
+        const status = jobStatuses[item.outcome ?? ''] ?? {
+          label: data.live ? 'In progress' : 'Status unavailable', tone: 'muted',
+        };
+        return <div className="run-attempt" key={item.attemptId}>
         <strong>{item.title}</strong> · {item.company}{' '}
+        <span className={`badge ${status.tone}`} aria-label={`Application status: ${status.label}`}>{status.label}</span>{' '}
         <button className="btn btn-small" onClick={() => setAttempt(current => current === item.attemptId ? null : item.attemptId)}>View screenshots</button>
-      </div>)}
+      </div>;})}
       {attempt && <><button className="btn btn-small" onClick={() => setAttempt(null)}>Close screenshots</button>
         <TraceSteps jobId="" endpoint={`/api/admin/runs/${runId}/attempts/${attempt}`} /></>}
     </>}
