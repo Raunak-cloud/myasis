@@ -14,6 +14,7 @@ import { CUSTOM_MIN_SCORE, MAX_MATCH_SCORE } from '../pricing';
 import { USER_RUN_LIMITS, userRunLimitError } from '../../../seek-bot/src/run-limits.js';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
 import { TermsInput } from './TermsInput';
+import { EmployerSourceEditor } from './EmployerSourceEditor';
 import { SeekSignIn } from './SeekSignIn';
 import { GmailConnect } from './GmailConnect';
 import { LiveActionViewer } from './LiveActionViewer';
@@ -1169,13 +1170,11 @@ export function RunPanel({
                 {employerSourceSelected && !isAdmin && <p className="job-meta">Employer sources are included with Get Owtomated. No SEEK or Indeed sign-in is needed for these sources.</p>}
                 {isAdmin && EMPLOYER_SOURCES.filter(source => platforms.includes(source.id)).map(source => (
                   <div key={source.id} className="field run-review-wide" data-field={source.key}>
-                    <FieldLabel label={source.id === 'workday' ? 'Additional Workday employers' : `${source.label} employers`} help={`${source.help} Up to 20 manually added employers per source.`} />
-                    <input aria-label={source.id === 'smartrecruiters' ? 'SmartRecruiters employer identifiers' : `${source.label} employers`} value={val(source.key)} onChange={event => setEdit(source.key, event.target.value)} />
-                    <span className="field-help">{source.help}</span>
+                    <EmployerSourceEditor source={source} value={val(source.key)} onChange={value => setEdit(source.key, value)} />
                     {fieldError(source.key)}
                   </div>
                 ))}
-                {isAdmin && platforms.some(isEmployerSource) && <p className="job-meta">Admin pilot. No job-board sign-in required. The selected employer feeds share your normal fit checks and application limits. Test without applying uses your listing-age filter and checks up to 10 jobs, without saving drafts or opening application forms.</p>}
+                {isAdmin && platforms.some(isEmployerSource) && <p className="job-meta">These sources use your usual job preferences and application limits. No job-board sign-in is needed.</p>}
                 <p className="job-meta recommended-first-note">
                   New jobs are prioritised. Unchanged rejected jobs do not use another AI review; changed listings or preferences can be checked again.
                 </p>

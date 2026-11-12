@@ -18,6 +18,7 @@
     "test:forms-page": "node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-form-lab-page.mts",
     "test:files-ui": "node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-files-panel-ui.mts",
     "test:smartrecruiters-ui": "npm run build && node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-smartrecruiters-ui.mts",
+    "test:employer-sources-ui": "node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-employer-sources-ui.mts",
     "preview": "vite preview"
   },
   "dependencies": {

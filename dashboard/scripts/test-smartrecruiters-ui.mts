@@ -1,6 +1,6 @@
 import { sealQuestionSnapshot } from '../../seek-bot/src/question-snapshot-node.js';
 import { EMPLOYER_SOURCES } from '../../seek-bot/src/employer-source-config.js';
-import { PLAN_LIMITS } from '../src/pricing.js';
+import { aud, PAID_PLANS, PLAN_LIMITS } from '../src/pricing.js';
 import { withCoverLetter } from '../../seek-bot/src/application-review-content.js';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -190,11 +190,11 @@ try {
       assert.equal(await dialog.getByRole('combobox', { name: 'Application model', exact: true }).count(), 0);
       assert.equal(await dialog.getByRole('combobox', { name: 'Employer browser', exact: true }).count(), 0, 'employer forms use the native browser');
       await dialog.locator('button.chip').filter({ hasText: 'SmartRecruiters' }).waitFor();
-      assert.equal(await dialog.locator('[data-field=SMARTRECRUITERS_COMPANIES] input').inputValue(), 'Canva,KPMGAustralia1,Colliers');
-      assert.match(await dialog.textContent() ?? '', /no job-board sign-in required/i);
+      assert.match(await dialog.locator('[data-field=SMARTRECRUITERS_COMPANIES]').innerText(), /Canva[\s\S]*KPMG Australia[\s\S]*Colliers/);
+      assert.match(await dialog.textContent() ?? '', /no job-board sign-in is needed/i);
       for (const source of EMPLOYER_SOURCES.filter(source => source.id !== 'smartrecruiters')) {
         await dialog.locator('button.chip').filter({ hasText: source.label }).click();
-        assert.equal(await dialog.locator(`[data-field=${source.key}] input`).inputValue(), source.defaults);
+        assert.equal(await dialog.locator(`[data-field=${source.key}] .employer-company-list li`).count(), source.defaults.split(',').length);
         await dialog.locator('button.chip').filter({ hasText: source.label }).click();
       }
     } else {
@@ -224,7 +224,13 @@ try {
       await page.getByRole('button', { name: 'Start Auto apply', exact: true }).click();
       await dialog.waitFor();
     assert.equal(await dialog.getByRole('combobox', { name: 'Application decisions', exact: true }).count(), 0);
-      await dialog.getByLabel('SmartRecruiters employer identifiers').fill('ALDIStores,MedHealth3');
+      const companies = dialog.locator('[data-field=SMARTRECRUITERS_COMPANIES]');
+      while (await companies.getByRole('button', { name: /^Remove / }).count()) await companies.getByRole('button', { name: /^Remove / }).first().click();
+      for (const company of ['ALDIStores', 'MedHealth3']) {
+        await companies.getByRole('button', { name: '+ Add company', exact: true }).click();
+        await companies.getByLabel('Company careers page', { exact: true }).fill(`https://jobs.smartrecruiters.com/${company}`);
+        await companies.getByRole('button', { name: 'Add company', exact: true }).click();
+      }
       for (const source of EMPLOYER_SOURCES.filter(source => source.id !== 'smartrecruiters')) await dialog.locator('button.chip').filter({ hasText: source.label }).click();
       await dialog.getByRole('button', { name: 'Test without applying', exact: true }).click();
       await dialog.waitFor({ state: 'hidden' });
@@ -289,7 +295,7 @@ try {
         if (source.id !== 'smartrecruiters') await button.click();
       }
       await dialog.getByText('Employer sources are included with Get Owtomated. No SEEK or Indeed sign-in is needed for these sources.', { exact: true }).waitFor();
-      await dialog.getByText(/^AI reviews up to 100 jobs each run\./).waitFor();
+      await dialog.getByText(new RegExp(`^AI reviews up to ${PLAN_LIMITS['intensive-pass'].evaluationsPerRun} jobs each run\\.`)).waitFor();
       assert.equal(await dialog.getByRole('button', { name: 'Test without applying', exact: true }).count(), 0);
       await dialog.getByRole('button', { name: label, exact: true }).click();
       await dialog.waitFor({ state: 'hidden' });
@@ -299,7 +305,7 @@ try {
       for (const source of EMPLOYER_SOURCES) assert.equal(source.key in started.overrides, false);
       assert.equal(writes.filter(write => write.path === '/api/run').length, directRunsBefore, 'a customer schedules work instead of using the admin run endpoint');
       assert.deepEqual(errors, []);
-      console.log(`PASS ${width}px ${mode}: normal Get Owtomated employer sources, 100-review limit, scheduled confirmation, no Admin mode or board sign-in.`);
+      console.log(`PASS ${width}px ${mode}: normal Get Owtomated employer sources, current review limit, scheduled confirmation, no Admin mode or board sign-in.`);
       await context.close();
     }
   }
@@ -323,7 +329,7 @@ try {
     await page.getByRole('button', { name: 'Semi auto', exact: true }).click();
     await page.getByRole('button', { name: 'Start Semi auto', exact: true }).click();
     const dialog = page.getByRole('dialog');
-    await dialog.getByText('This run fills applications and saves them for your review. Owtomate submits only the jobs you later confirm from the prepared list.', { exact: true }).waitFor();
+    await dialog.getByText('This run prepares matching jobs and cover letters, and checks application access. Forms are filled only after you choose Apply from the prepared list.', { exact: true }).waitFor();
     await dialog.getByText('AI reviews up to 30 jobs each run. Each prepared application uses one credit. Confirming it uses no additional credit.', { exact: true }).waitFor();
     await dialog.getByRole('button', { name: 'Start Semi auto', exact: true }).click();
     await dialog.waitFor({ state: 'hidden' });
@@ -712,12 +718,12 @@ try {
       await planCard.getByText(new RegExp(`${runs} scheduled run${runs === 1 ? '' : 's'} each day`)).waitFor();
       if (name === 'Active Search' || name === 'Get Owtomated') await planCard.getByText('Choose your minimum match score: 60% to 100%', { exact: true }).waitFor();
       if (name === 'Active Search') {
-        await planCard.getByText('A$19.99', { exact: true }).waitFor();
+        await planCard.getByText(aud(PAID_PLANS['job-search-pass'].priceCents), { exact: true }).waitFor();
         await planCard.getByText('30 days of access', { exact: true }).waitFor();
       }
     }
     const card = page.locator('.pricing-card').filter({ has: page.getByRole('heading', { name: 'Get Owtomated', exact: true }) });
-    await card.getByText('A$59.99', { exact: true }).waitFor();
+    await card.getByText(aud(PAID_PLANS['intensive-pass'].priceCents), { exact: true }).waitFor();
     await card.getByText('Unlimited applications', { exact: true }).last().waitFor();
     await card.getByText('Daily limit: 100 applications', { exact: true }).waitFor();
     await card.getByText('30 days of access', { exact: true }).waitFor();

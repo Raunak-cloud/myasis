@@ -1,0 +1,19 @@
+.employer-source-editor { min-width: 0; padding: 16px; border: 1px solid var(--border, #cddceb); border-radius: 10px; background: var(--surface, #fff); }
+.employer-source-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.employer-source-head h4 { margin: 0; font-size: 14px; }
+.employer-source-head p { margin: 4px 0 0; font-size: 12px; color: var(--text-dim, #52677e); }
+.employer-source-head .btn { flex-shrink: 0; min-height: 40px; }
+.employer-source-note { margin: 12px 0 0; font-size: 12px; line-height: 1.5; color: var(--text-dim, #52677e); }
+.employer-company-list { display: flex; flex-wrap: wrap; gap: 8px; padding: 0; margin: 14px 0 0; list-style: none; }
+.employer-company-list li { display: inline-flex; align-items: center; max-width: 100%; min-width: 0; gap: 6px; padding: 1px 4px 1px 11px; border-radius: 7px; background: #f0f5fa; border: 1px solid #e0e8f0; font-size: 12px; }
+.employer-company-list li span { overflow-wrap: anywhere; }
+.employer-company-list button { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 32px; height: 34px; border: 0; border-radius: 5px; background: transparent; color: #52677e; cursor: pointer; font-size: 19px; }
+.employer-company-list button:hover { background: #dfe9f3; color: #102c4b; }
+.employer-list-toggle { margin-top: 12px; padding: 6px 0; border: 0; background: transparent; color: #255da0; cursor: pointer; font: inherit; font-size: 12px; }
+.employer-company-add { display: grid; gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border, #cddceb); }
+.employer-company-add label { display: grid; gap: 6px; font-size: 12px; font-weight: 600; }
+.employer-company-add input { box-sizing: border-box; width: 100%; min-width: 0; height: 42px; padding: 10px 12px; border: 1px solid #b9cde1; border-radius: 7px; background: #fff; color: #102c4b; font: inherit; font-weight: 400; }
+.employer-company-add .employer-source-note, .employer-company-add .field-error { margin: 0; }
+.employer-company-add > .btn { justify-self: start; }
+.employer-source-editor button:focus-visible, .employer-company-add input:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+@media (max-width: 480px) { .employer-source-editor { padding: 12px; } .employer-source-head { align-items: flex-start; } .employer-source-head .btn { padding: 8px 10px; } }
