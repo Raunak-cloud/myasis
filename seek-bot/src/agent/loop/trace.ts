@@ -23,7 +23,7 @@ export interface TraceStep {
   /** Trusted dispatcher audit. Absence on older traces means unknown. */
   execution?: 'started'|'not-started';
   disposition?: string;
-  /** The image observed before this decision, when a capture was available. */
+  /** Decision image, or the fresh completion page for a successful terminal record. */
   screenshot?: string;
 }
 

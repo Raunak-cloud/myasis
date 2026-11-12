@@ -1029,8 +1029,8 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       for (const call of reply.toolCalls) {
         const traceStep: TraceStep = { step: steps, url: ctx.page.url(), tool: call.name, args: call.args,
           label: `${call.name} ${String(call.args.action ?? '')}`, startedAt: new Date().toISOString(),
-          // Reuse the decision's actual observation; saving history must not
-          // add browser captures or model calls, or show a later page as evidence.
+          // Keep the decision image. A successful terminal record below gets
+          // its own fresh completion image, even in DOM-first mode.
           screenshot: ctx.observation.screenshot };
         trace.push(traceStep);
         // A returned model reply is not proof its tool completed. Persist the
@@ -1095,6 +1095,14 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
               : failureKind==='arguments' ? ok(`Browser/tool error: ${(error as Error).message}`,'invalid-arguments')
               : ok(`Browser/tool error: ${(error as Error).message}${call.name === 'browser_action' ? await browserFailureEvidence(ctx.page, call.args).catch(() => '') : ''}`, 'failed');
           }
+        }
+        if (result.kind === 'terminal' && (result.outcome.status === 'applied' || result.outcome.status === 'prepared'
+          || isolated && result.outcome.status === 'rehearsed' && call.name === 'finish' && call.args.status === 'applied')) {
+          // Archive the current page before the browser is released. Never
+          // substitute an old form image when this best-effort capture fails.
+          const completion = { ...ctx.observation, screenshot: undefined };
+          await addObservationScreenshot(ctx.page, completion);
+          traceStep.screenshot = completion.screenshot;
         }
         const text = result.kind === 'ok' ? result.message : JSON.stringify(result.outcome);
         const disposition = result.kind === 'ok' ? result.disposition : 'terminal';
