@@ -77,10 +77,12 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
       } catch { console.warn(`[${source}] Shared employer discovery unavailable; configured companies remain enabled.`); }
     }
     if(Object.keys(directory).length){
-      mkdirSync(userDir(userId),{recursive:true});publicEmployerDirectoryFile=resolve(userDir(userId),'public-employer-directory.json');
-      const temporary=publicEmployerDirectoryFile+'.'+randomUUID()+'.tmp';
-      try{writeFileSync(temporary,JSON.stringify(directory),{mode:0o600});renameSync(temporary,publicEmployerDirectoryFile);}
-      finally{if(existsSync(temporary))unlinkSync(temporary);}
+      try{
+        mkdirSync(userDir(userId),{recursive:true});publicEmployerDirectoryFile=resolve(userDir(userId),'public-employer-directory.json');
+        const temporary=publicEmployerDirectoryFile+'.'+randomUUID()+'.tmp';
+        try{writeFileSync(temporary,JSON.stringify(directory),{mode:0o600});renameSync(temporary,publicEmployerDirectoryFile);}
+        finally{if(existsSync(temporary))unlinkSync(temporary);}
+      }catch{publicEmployerDirectoryFile='';console.warn('[employers] Directory snapshot unavailable; configured companies remain enabled.');}
     }
   }
   const bonusEnvironment=selectedSettings.BONUS_RUN_ID ? await (await import('./bonus-runs.js')).bonusRunEnvironment(userId,runStartId,selectedSettings) : {BONUS_RUN_ID:''};
