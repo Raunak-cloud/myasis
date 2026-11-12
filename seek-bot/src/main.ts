@@ -30,10 +30,8 @@ fetchJobDetail as fetchJobDetailIndeed,
 search as searchIndeed,
 } from './discovery-indeed.js';
 import {
-discoveryTarget as calculateDiscoveryTarget,
 DISCOVERY_PRIORITY_FLOOR,
 discoveryBatchEnd,
-shouldStopDiscovery,
 } from './discovery-policy.js';
 import { fetchJobDetail, search } from './discovery.js';
 import { discoverySearches, type DiscoverySearch } from './discovery-search.js';
@@ -308,7 +306,6 @@ async function main() {
 
     /** Keep enough backups for unavailable/already-applied listings. */
     const candidateCap = Math.max(12, config.limits.maxApplicationsPerRun * 3);
-    const discoveryTarget = calculateDiscoveryTarget(config.limits.maxEvaluations, candidateCap);
     let rankingAvailable = true;
     const priorRejections = new Set<string>();
     const listingKey = (job: JobListing) => `${job.platform ?? 'seek'}:${job.id}`;
@@ -396,7 +393,6 @@ async function main() {
     const isPromising = (job: JobListing): boolean =>
       passesListingAge(job, config.rules.maxAgeDays) && !priorRejections.has(listingKey(job)) && !(job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode))
       && (!rankingAvailable || (reviewPriorities.get(reviewKey(job))?.priority ?? 0) >= DISCOVERY_PRIORITY_FLOOR);
-    const promisingCount = (): number => shortlist.filter(isPromising).length;
 
     // Sign in before querying date-filtered searches. Homepage recommendations
     // have no date filter and are deliberately not part of automatic discovery.
@@ -418,7 +414,7 @@ async function main() {
       try {
         await adapter.assertSignedIn(page);
         if (runDeadline.reached) break;
-        console.log(adapter.apiDiscovery ? `${adapter.label} public job feed ready (admin only).` : `${adapter.label} session OK.`);
+        console.log(adapter.apiDiscovery ? `${adapter.label} public job feed enabled.` : `${adapter.label} session OK.`);
       } catch (error) {
         console.log(`\n⚠ ${adapter.label}: ${(error as Error).message}`);
         console.log(`  Skipping ${adapter.label} for this run.${platforms.length > 1 ? ' Continuing with the other platform(s).' : ''}`);
@@ -534,106 +530,73 @@ async function main() {
       return runScope() === 'all' ? 0 : Number(!a.applicationMode || a.applicationMode === 'unknown') - Number(!b.applicationMode || b.applicationMode === 'unknown');
     };
 
-    let nextPage = 1;
+    let nextStream = 0;
     const liveStreams = () => streams.filter((stream) => !stream.exhausted && !blockedPlatforms.has(stream.adapter.id));
     /** Whether the job-title searches have pages they have not read yet. */
     const searchesLeft = () => liveStreams().length > 0;
+    const boardSearchesLeft = () => liveStreams().some(stream => !stream.adapter.apiDiscovery);
     const discoveryLeft = () => searchesLeft();
-    /** Reads the next result page of every search still yielding. */
-    const searchPageRound = async (): Promise<void> => {
-      const pageNumber = nextPage++;
-      const round: JobListing[][] = [];
-      for (const stream of liveStreams()) {
-        if (runDeadline.reached) break;
-        // The round's list was taken before it started: a board walled earlier in this round is not asked again.
-        if (blockedPlatforms.has(stream.adapter.id)) {
-          stream.exhausted = true;
-          continue;
-        }
-        let results: JobListing[];
-        try {
-          results = await readPlatform(stream.adapter.id, async () => {
-            await sitePacer.ready(stream.adapter.id);
-            if (runDeadline.reached) return [];
-            try {
-              return await measured(
-                'discovery',
-                () => stream.adapter.search(page, stream.keyword, pageNumber, stream.scope),
-                { platform: stream.adapter.id },
-              );
-            } finally {
-              sitePacer.done(stream.adapter.id, config.limits.searchDelayMs, config.limits.searchDelayMs * 1.8);
-            }
-          });
-        } catch (error) {
-          // A search that fails ends that search, not the run.
-          stream.exhausted = true;
-          if (isVerificationWall(error)) blockPlatform(stream.adapter, error);
-          else console.warn(`  ! ${stream.adapter.label} search for "${stream.keyword}" failed: ${(error as Error).message}`);
-          continue;
-        }
-        stream.pages++;
-        stream.total += results.length;
-        stream.ended = discoveryBatchEnd(results, stream.seen, config.rules.maxAgeDays, stream.adapter.newestFirst === true);
-        stream.exhausted = Boolean(stream.ended);
-        round.push(ingest(results, stream.adapter));
+    /** Search one batch, then hand its jobs to review and applying. SEEK and
+     * Indeed take turns first; employer feeds are the fallback when they run out. */
+    const searchNextBatch = async (): Promise<void> => {
+      if (runDeadline.reached) return;
+      const live = liveStreams();
+      const boardsLeft = live.some(stream => !stream.adapter.apiDiscovery);
+      const available = new Set(live.filter(stream => !boardsLeft || !stream.adapter.apiDiscovery));
+      let stream: SearchStream | undefined;
+      for (let turn = 0; turn < streams.length; turn++) {
+        const candidate = streams[nextStream++ % streams.length];
+        if (available.has(candidate)) { stream = candidate; break; }
       }
-
-      await rankNew(round.flat());
+      if (!stream) return;
+      const current = stream;
+      const pageNumber = current.pages + 1;
+      if (current.adapter.apiDiscovery && !streams.some(other => other.adapter === current.adapter && other.pages)) {
+        console.log(`${current.adapter.label} public job feed ready (admin only).`);
+      }
+      let results: JobListing[];
+      try {
+        results = await readPlatform(current.adapter.id, async () => {
+          await sitePacer.ready(current.adapter.id);
+          if (runDeadline.reached) return [];
+          try {
+            return await measured(
+              'discovery',
+              () => current.adapter.search(page, current.keyword, pageNumber, current.scope),
+              { platform: current.adapter.id },
+            );
+          } finally {
+            sitePacer.done(current.adapter.id, config.limits.searchDelayMs, config.limits.searchDelayMs * 1.8);
+          }
+        });
+      } catch (error) {
+        // A search that fails ends that search, not the run.
+        current.exhausted = true;
+        if (isVerificationWall(error)) blockPlatform(current.adapter, error);
+        else console.warn(`  ! ${current.adapter.label} search for "${current.keyword}" failed: ${(error as Error).message}`);
+        return;
+      }
+      current.pages++;
+      current.total += results.length;
+      current.ended = discoveryBatchEnd(results, current.seen, config.rules.maxAgeDays, current.adapter.newestFirst === true);
+      current.exhausted = Boolean(current.ended);
+      const previousFound = seen.size;
+      await rankNew(ingest(results, current.adapter));
+      console.log(
+        `  [${current.adapter.label}] "${current.keyword}" → ${current.total} results` +
+        (current.scope ? ` · ${current.scope.label}` : '') +
+        (current.pages > 1 ? ` (${current.pages} pages)` : '') +
+        (current.ended === 'age' ? ' · listing-age cutoff reached' : ''),
+      );
+      if (seen.size !== previousFound) console.log(`${seen.size} unique listings discovered across ${active.length} platform(s).`);
     };
-
-    let stoppedEarly = shouldStopDiscovery({
-      promisingJobs: promisingCount(),
-      target: discoveryTarget,
-    });
-    if (stoppedEarly) {
-      console.log(
-        `  Discovery paused after selected jobs: ` +
-        `${promisingCount()} promising unseen listings fill this run's ${discoveryTarget} review slots.`,
-      );
-    }
-
-    while (!runDeadline.reached && !stoppedEarly && searchesLeft()) {
-      await searchPageRound();
-      const pageNumber = nextPage - 1;
-      if (shouldStopDiscovery({
-        promisingJobs: promisingCount(),
-        target: discoveryTarget,
-      })) {
-        stoppedEarly = true;
-        console.log(
-          `  Adaptive discovery stopped after page ${pageNumber}: ` +
-          `${promisingCount()} promising unseen listings fill this run's ${discoveryTarget} review slots.`,
-        );
-      }
-    }
-
-    for (const stream of [...streams].sort((a, b) => searchAdapters.indexOf(a.adapter) - searchAdapters.indexOf(b.adapter))) {
-      console.log(
-        `  [${stream.adapter.label}] "${stream.keyword}" → ${stream.total} results` +
-        (stream.scope ? ` · ${stream.scope.label}` : '') +
-        (stream.pages > 1 ? ` (${stream.pages} pages)` : '') +
-        (stream.ended === 'age' ? ' · listing-age cutoff reached' : ''),
-      );
-    }
-    console.log(
-      `\n${seen.size} unique listings discovered across ${active.length} platform(s)` +
-      `${stoppedEarly ? ' (adaptive stop)' : ''}.`,
-    );
 
     /** New batches were ranked as they arrived; sort the combined queue once. */
     shortlist.sort(reviewOrder);
 
-    /**
-     * An early stop is a bet, not a decision. When board recommendations
-     * already fill the review slots the searches are skipped, and when those
-     * recommendations then all fail review the run used to end with nothing to
-     * apply for, its job-title searches never read (30 Sep: 28 "promising"
-     * recommendations, 0 suitable, 0 applied). Once review has gone through
-     * the promising buffer, the searches carry on from the page they stopped at,
-     * and only what is new is reviewed: listings already applied for, recently
-     * rejected or already seen are dropped on the way in, as always.
-     */
+    /** Refill only when the current promising jobs have been reviewed. Every
+     * search resumes its own page; the existing review and application budgets
+     * decide when the pipeline ends, rather than an up-front discovery buffer. */
     let searchResumed = false;
     const searchMore = async (): Promise<void> => {
       if (!searchResumed) {
@@ -641,20 +604,23 @@ async function main() {
         console.log('\n  Suitable jobs ran short, so the job-title search continues.');
       }
       const before = shortlist.length;
-      const pageNumber = nextPage;
-      await searchPageRound();
+      await searchNextBatch();
       const added = shortlist.splice(before).sort(reviewOrder);
       shortlist.push(...added);
       shortlist.sort(reviewOrder);
-      console.log(`  Search page ${pageNumber}: ${added.length} new listing(s) to review.`);
+      console.log(`  Search batch: ${added.length} new listing(s) to review.`);
     };
-    // Only fallback discovery still owns the persistent search page. Recheck
+    // Incremental discovery owns the persistent search page. Recheck
     // the queue after acquiring it: another worker may already have refilled it.
     const discoveryMutex = new AsyncMutex();
-    const refillReviews = () => discoveryMutex.run(async () => {
+    const refillReviews = (accept: (job: JobListing) => boolean) => discoveryMutex.run(async () => {
 
-      if (!hasPromisingUnreviewed() && searchesLeft()) {
-        await showLiveActivity({ phase: 'reviewing', detail: 'Finding more job listings.' }, page);
+      if (!hasPromisingUnreviewed(accept) && canSearchMore()) {
+        if (pendingFits.some(item => accept(item.job))) {
+          await flushFits();
+          if (candidates.some(candidate => accept(candidate.job))) return;
+        }
+        await showLiveActivity({ phase: 'waiting', detail: 'Finding more job listings.' }, page);
         try { await searchMore(); }
         finally { await showLiveActivity({ phase: 'waiting', detail: 'Looking for the next matching job.' }); }
       }
@@ -823,11 +789,13 @@ async function main() {
     const reviewClaimed = new Set<string>();
     const hasUnreviewed = (accept: (job: JobListing) => boolean = () => true) =>
       shortlist.some(job => !reviewClaimed.has(reviewReservationKey(job)) && accept(job));
-    const hasPromisingUnreviewed = () => hasUnreviewed(job => isPromising(job) && !stoppedPlatform(job.platform ?? 'seek'));
+    const hasPromisingUnreviewed = (accept: (job: JobListing) => boolean = () => true) =>
+      hasUnreviewed(job => accept(job) && isPromising(job) && !stoppedPlatform(job.platform ?? 'seek'));
     let evaluated = 0;
     let reviewStopped = false;
     let workersRemaining = 1;
     const activeReviews = new Set<Promise<void>>();
+    const readingListings = new Set<JobListing>();
     const reviewReservations = new Set<string>();
     const reviewReservationKey = (job: JobListing) => `${job.platform ?? 'seek'}:${job.id}`;
     /** Unusable reviews and late duplicate discoveries must leave room for another new job. */
@@ -844,6 +812,16 @@ async function main() {
     const reviewDone = () => limitReached() || reviewStopped || (!hasUnreviewed() && !discoveryLeft());
     /** Nothing left to review and no fit check still out. */
     const reviewExhausted = () => limitReached() || (reviewDone() && !pendingFits.length && !activeReviews.size);
+    const isHostedBoardJob = (job: JobListing) => !ADAPTERS.get(job.platform ?? 'seek')?.apiDiscovery
+      && job.applicationMode !== 'external' && !stoppedPlatform(job.platform ?? 'seek');
+    const hostedWorkPending = () => candidates.some(candidate => isHostedBoardJob(candidate.job))
+      || hasPromisingUnreviewed(isHostedBoardJob)
+      || [...readingListings].some(isHostedBoardJob)
+      || pendingFits.some(item => isHostedBoardJob(item.job));
+    // An idle second worker must not open employer feeds while the first can
+    // still satisfy the run with hosted work. Its progress wakes the idle worker.
+    const canSearchMore = () => searchesLeft()
+      && (searchOnly || boardSearchesLeft() || (!busyWorkers && !hostedWorkPending()));
 
     /** Reviews the next listing in the pre-ranked queue. */
     const jobLabel = (job: JobListing) => `${job.title} @ ${job.company}`;
@@ -862,11 +840,11 @@ async function main() {
       }
       const stub = shortlist.find(job => !reviewClaimed.has(reviewReservationKey(job)) && accept(job));
       if (!stub) {
-        await refillReviews();
+        await refillReviews(accept);
         return;
       }
-      if (!isPromising(stub) && !hasPromisingUnreviewed() && searchesLeft()) { await refillReviews(); return; }
-      if (priorRejections.has(listingKey(stub)) && searchesLeft()) { await refillReviews(); return; }
+      if (!isPromising(stub) && !hasPromisingUnreviewed(accept) && searchesLeft()) { await refillReviews(accept); return; }
+      if (priorRejections.has(listingKey(stub)) && searchesLeft()) { await refillReviews(accept); return; }
       reviewClaimed.add(reviewReservationKey(stub));
       const adapter = ADAPTERS.get(stub.platform ?? 'seek');
       if (!adapter || reviewBlockedPlatforms.has(adapter.id) || abortedPlatforms.has(adapter.id)) return;
@@ -883,6 +861,7 @@ async function main() {
       const revalidating = priorRejections.has(listingKey(stub)) || previouslyReviewed;
       if (!revalidating) { evaluated++; reviewReservations.add(reviewReservationKey(stub)); }
       let retained = false;
+      readingListings.add(stub);
       try {
         await readPlatform(adapter.id, async () => {
           if (limitReached()) return;
@@ -1050,6 +1029,7 @@ async function main() {
           if (pendingFits.length >= config.limits.fitConcurrency) await flushFits();
         });
       } finally {
+        readingListings.delete(stub);
         if (!retained) restoreReviewSlot(stub, false);
       }
     };
@@ -1060,7 +1040,8 @@ async function main() {
       try {
         await settleAnswered();
         if (limitReached()) return false;
-        if (!reviewDone() && (hasUnreviewed(accept) || !hasUnreviewed())) {
+        const reviewReady = hasPromisingUnreviewed(accept) || (!searchesLeft() && hasUnreviewed(accept));
+        if (!reviewDone() && (reviewReady || canSearchMore())) {
           if (hasUnreviewed(accept)) await showLiveActivity({ phase: 'reviewing', detail: 'Checking job listings and matching your profile.' }, reviewPage);
           const review = reviewNext(reviewPage, accept);
           activeReviews.add(review);
@@ -1105,19 +1086,13 @@ async function main() {
       const sourcePriority = Number(b.job.source === 'recommended') - Number(a.job.source === 'recommended');
       return sourcePriority || b.score - a.score;
     };
-    /**
-     * The best qualified job still to try. An employer-site one waits until
-     * review can find no hosted one, but only while hosted applications are
-     * in this run's scope: in an employer-sites-only run every candidate is
-     * an employer site, and waiting had the run review every listing it could
-     * find (up to the evaluation cap, half an hour) before its first application.
-     */
+    /** Prefer SEEK/Indeed hosted applications. Employer forms wait only for
+     * those boards' promising work, never for every employer-feed review. */
     const bestCandidate = (accept: (job: JobListing) => boolean = () => true) => {
       const best = candidates.filter((c) => accept(c.job) && !stoppedPlatform(c.job.platform ?? 'seek')).sort(preference)[0];
       if (!best) return undefined;
-      // Preparation only checks access and drafts a letter. A ready employer
-      // match must not wait for every hosted listing to be reviewed first.
-      if (!preparingApplications() && hostedFirst(best.job) === 1 && active.some(adapter => !adapter.apiDiscovery) && !outsideScope('hosted') && !reviewExhausted()) return undefined;
+      const hostedWorkLeft = boardSearchesLeft() || hostedWorkPending();
+      if (hostedFirst(best.job) === 1 && !outsideScope('hosted') && !reviewExhausted() && hostedWorkLeft) return undefined;
       return best;
     };
     const takeCandidate = (accept: (job: JobListing) => boolean) => {
@@ -1152,6 +1127,7 @@ async function main() {
     };
 
     const printSummary = () => {
+      console.log(`\n${seen.size} unique listings discovered across ${active.length} platform(s).`);
       if (!limitReached() && evaluated >= config.limits.maxEvaluations) {
         console.log(`  … evaluation cap (${config.limits.maxEvaluations}) reached`);
       }

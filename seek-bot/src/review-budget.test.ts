@@ -17,7 +17,7 @@ const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
 
 /** Exercise the compiled main loop with offline boundary adapters, real history
  * and a one-review budget. No browser, model or employer is contacted. */
-function run(jobs: FixtureJob[], options: { targetedIds?:string[]; scope?: 'all' | 'external' | 'hosted'; waiting?: Array<{ job: FixtureJob; questions: BlockedQuestion[] }>; savedAnswers?: unknown[]; attentionOnFit?: { job: FixtureJob; questions: BlockedQuestion[] }; repairTarget?: FixtureJob; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; completed?: Array<{job:FixtureJob;decision:'apply'|'skip'|'uncertain'}>; retries?:TechnicalRetryCandidate[]; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[]; workArrangements?: string[]; onsiteCity?: string } = {}) {
+function run(jobs: FixtureJob[], options: { targetedIds?:string[]; scope?: 'all' | 'external' | 'hosted'; waiting?: Array<{ job: FixtureJob; questions: BlockedQuestion[] }>; savedAnswers?: unknown[]; attentionOnFit?: { job: FixtureJob; questions: BlockedQuestion[] }; repairTarget?: FixtureJob; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; completed?: Array<{job:FixtureJob;decision:'apply'|'skip'|'uncertain'}>; retries?:TechnicalRetryCandidate[]; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[]; workArrangements?: string[]; onsiteCity?: string; platforms?: string[] } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-review-budget-'));
   const url = (file: string) => pathToFileURL(join(directory, file)).href;
   try {
@@ -47,7 +47,7 @@ export const waitForEvent = async ({stage,id}) => {
     writeFileSync(join(directory, 'config.mjs'), `
 export * from ${JSON.stringify(new URL('./config.js', import.meta.url).href)};
 import { config } from ${JSON.stringify(new URL('./config.js', import.meta.url).href)};
-Object.assign(config, {keywords:['fixture'],platforms:${JSON.stringify(options.workers === 2 ? ['seek', 'indeed'] : [options.platform ?? 'seek'])},aiInstructions:${JSON.stringify(options.instructions ?? '')},allowExternalApply:${options.externalLimit !== 0}});
+Object.assign(config, {keywords:['fixture'],platforms:${JSON.stringify(options.platforms ?? (options.workers === 2 ? ['seek', 'indeed'] : [options.platform ?? 'seek']))},aiInstructions:${JSON.stringify(options.instructions ?? '')},allowExternalApply:${options.externalLimit !== 0}});
 Object.assign(config.coverLetter, {mode:'tailored'});
 Object.assign(config.rules, {minScore:${options.minScore ?? 0},maxAgeDays:${options.maxAgeDays ?? 20},workArrangements:${JSON.stringify(options.workArrangements ?? ['onsite'])},onsiteCity:${JSON.stringify(options.onsiteCity ?? 'Sydney')}});
 Object.assign(config.search, {location:'',radiusKm:0});
@@ -81,6 +81,22 @@ export const fetchJobDetail = async (_page, job) => {
   if(job.loadingFirst && count === 1) return {...job,description:'',alreadyApplied:false};
   return {...job,applicationMode:job.detailApplicationMode??job.applicationMode,description:job.detailDescription??'Build software in Sydney.',alreadyApplied:job.detailApplied===true,appliedNote:'You applied on 1 October'};
 };
+`);
+    writeFileSync(join(directory, 'feeds.mjs'), `
+export class EmployerFeedDiscovery {
+  constructor(source) { this.source=source; }
+  async search(keyword,page) {
+    const {search}=await import('./discovery.mjs?platform='+this.source);
+    return search({worker:'feed-'+this.source},keyword,page);
+  }
+  async detail(job) {
+    const {fetchJobDetail}=await import('./discovery.mjs?platform='+this.source);
+    return fetchJobDetail({worker:'feed-'+this.source},job);
+  }
+}
+export class SmartRecruitersDiscovery extends EmployerFeedDiscovery {
+  constructor(){super('smartrecruiters');}
+}
 `);
     writeFileSync(join(directory, 'browser.mjs'), `
 import { record } from './boundary.mjs';
@@ -137,6 +153,7 @@ const performFixtureWork = async (_page,job) => {
 export const applyToJobWithAgent = async (...args) => {record('form-fill',args[1].id);return performFixtureWork(...args);};
 export const prepareMatchedJob = async (job) => {record('prepare-only',job.id);return performFixtureWork(undefined,job);};
 export const applyToIndeedJob = applyToJobWithAgent;
+export const applyToEmployerJob = applyToJobWithAgent;
 `);
     writeFileSync(join(directory, 'blocker.mjs'), "export const WALL_STATES = new Set(['captcha','login','identity']); export const judgePage = async () => ({state:'loading',reason:'Fixture delayed listing'});");
     writeFileSync(join(directory,'retry.mjs'),`
@@ -150,6 +167,7 @@ export const claimTechnicalRetryFallback=async shortfall=>{if(!enabled||!retries
     const overrides: Record<string, string> = {
       './config.js': 'config.mjs', './browser.js': 'browser.mjs', './llm.js': 'llm.mjs', './technical-retry-client.js':'retry.mjs',
       './discovery.js': 'discovery.mjs', './discovery-indeed.js': 'discovery.mjs',
+      './employer-feeds.js':'feeds.mjs', './smartrecruiters.js':'feeds.mjs', './agent/apply-employer-job.js':'apply.mjs',
       './agent/apply-agent.js': 'apply.mjs', './apply-indeed.js': 'apply.mjs', './prepare-job.js':'apply.mjs', './blocker.js': 'blocker.mjs',
     };
     const main = readFileSync(new URL(options.queue ? './queue.js' : './main.js', import.meta.url), 'utf8').replace(
@@ -176,7 +194,7 @@ ${options.queue ? "process.argv[1]='queue.js';" : ''} await import('./main.mjs')
       env: { ...process.env, DATA_DIR: directory, PROFILE_PATH: join(directory, 'profile.txt'),
         CELERIS_API_KEY: 'fixture-only', COVER_LETTER_MODE: 'tailored',
         APPLICATION_REVIEW_MODE: options.prepare ? 'prepare' : options.approvedIds ? 'approved' : '', APPLY_ONLY: options.scope ?? 'all',
-        APPLICATION_WORKERS: String(options.workers ?? 1), DIRECT_EXTERNAL_JOB_URL: '', TARGETED_JOBS_JSON: '', TARGET_SEEK_JOBS: JSON.stringify(jobs.filter(item=>options.platform!=='indeed'&&options.targetedIds?.includes(item.id)).map(item=>({job_id:item.id,title:item.title,company:item.company}))), TARGET_INDEED_JOBS:JSON.stringify(jobs.filter(item=>options.platform==='indeed'&&options.targetedIds?.includes(item.id)).map(item=>({job_id:item.id,title:item.title,company:item.company}))), OWTOMATE_REPAIR_CASE_ID: options.repairTarget ? 'fixture-repair' : '', TARGET_REPAIR_JOB_JSON: options.repairTarget ? JSON.stringify(options.repairTarget) : '', EMPLOYER_FEEDS_ADMIN_ENABLED: 'false', SMARTRECRUITERS_ADMIN_ENABLED: 'false' },
+        APPLICATION_WORKERS: String(options.workers ?? 1), DIRECT_EXTERNAL_JOB_URL: '', TARGETED_JOBS_JSON: '', TARGET_SEEK_JOBS: JSON.stringify(jobs.filter(item=>options.platform!=='indeed'&&options.targetedIds?.includes(item.id)).map(item=>({job_id:item.id,title:item.title,company:item.company}))), TARGET_INDEED_JOBS:JSON.stringify(jobs.filter(item=>options.platform==='indeed'&&options.targetedIds?.includes(item.id)).map(item=>({job_id:item.id,title:item.title,company:item.company}))), OWTOMATE_REPAIR_CASE_ID: options.repairTarget ? 'fixture-repair' : '', TARGET_REPAIR_JOB_JSON: options.repairTarget ? JSON.stringify(options.repairTarget) : '', EMPLOYER_FEEDS_ADMIN_ENABLED: options.platforms?.some(id => !['seek', 'indeed'].includes(id)) ? 'true' : 'false', SMARTRECRUITERS_ADMIN_ENABLED: 'false' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const events = readFileSync(join(directory, 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
@@ -187,6 +205,82 @@ ${options.queue ? "process.argv[1]='queue.js';" : ''} await import('./main.mjs')
     rmSync(directory, { recursive: true, force: true });
   }
 }
+
+for (const prepare of [false, true]) test(`${prepare ? 'Semi auto':'Auto apply'} starts its first ready job without collecting a full discovery buffer`, () => {
+  const result=run(Array.from({length:25},(_,i)=>job(`page-${i+1}`,{searchPage:i+1})),{apply:true,prepare,reviews:200,cap:1});
+  assert.deepEqual(result.events.filter(e=>e.stage==='search').map(e=>e.pageNumber),[1]);
+  assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['page-1']);
+  assert.equal(result.history.length,prepare?0:1);
+});
+
+test('an unsuitable first batch resumes discovery but does not delay the next ready application for later pages', () => {
+  const result=run([job('rejected',{fitReject:true}),job('next-match',{searchPage:2}),job('unneeded',{searchPage:3})],{apply:true,reviews:200,cap:1});
+  assert.deepEqual(result.events.filter(e=>e.stage==='search').map(e=>e.pageNumber),[1,2]);
+  assert.deepEqual(result.events.filter(e=>e.stage==='fit').map(e=>e.id),['rejected','next-match']);
+  assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['next-match']);
+});
+
+for (const prepare of [false,true]) test(`${prepare?'Semi auto':'Auto apply'} never searches employer feeds when SEEK and Indeed fill the application target`, () => {
+  const result=run([job('seek-match'),job('indeed-match',{platform:'indeed'}),job('unneeded-feed',{platform:'pageup',applicationMode:'external'})],
+    {apply:true,prepare,platforms:['pageup','indeed','seek'],reviews:200,cap:2});
+  assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['seek-match','indeed-match']);
+  assert.equal(result.events.some(e=>e.stage==='search'&&e.id==='pageup'),false);
+  assert.doesNotMatch(result.output,/PageUp public job feed ready/,'the activity panel must not claim to search an unused fallback');
+});
+
+test('hosted-board pagination gets its chance before the first employer-feed search', () => {
+  const result=run([job('seek-rejection',{fitReject:true}),job('indeed-rejection',{platform:'indeed',fitReject:true}),
+    job('later-hosted-match',{searchPage:2}),job('unneeded-feed',{platform:'pageup',applicationMode:'external'})],
+    {apply:true,platforms:['seek','indeed','pageup'],reviews:200,cap:1});
+  assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['later-hosted-match']);
+  assert.equal(result.events.some(e=>e.stage==='search'&&e.id==='pageup'),false);
+});
+
+test('an idle parallel worker does not search employer feeds while hosted applications can fill the target', () => {
+  const result=run([job('hosted-one',{delayMs:80}),job('hosted-two',{delayMs:80}),
+    job('unneeded-feed',{platform:'pageup',applicationMode:'external'})],
+    {apply:true,workers:2,platforms:['seek','indeed','pageup'],reviews:200,cap:2});
+  assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['hosted-one','hosted-two']);
+  assert.equal(result.events.some(e=>e.stage==='search'&&e.id==='pageup'),false);
+});
+
+test('employer feeds fill the remaining shortfall after hosted results and then apply before unrelated feed reviews', () => {
+  const result=run([job('seek-rejection',{fitReject:true}),job('indeed-match',{platform:'indeed'}),
+    job('feed-match',{platform:'pageup',applicationMode:'external',reviewPriority:100}),
+    ...Array.from({length:8},(_,i)=>job(`other-feed-review-${i}`,{platform:'pageup',applicationMode:'external',reviewPriority:80,fitReject:true})),
+  ],{apply:true,platforms:['pageup','seek','indeed'],reviews:200,cap:2});
+  assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['indeed-match','feed-match']);
+  const feedSearch=result.events.findIndex(e=>e.stage==='search'&&e.id==='pageup');
+  assert.ok(feedSearch>result.events.findIndex(e=>e.stage==='finish'&&e.id==='indeed-match'));
+  assert.ok(result.events.filter(e=>e.stage==='search'&&['seek','indeed'].includes(e.id)).every(e=>result.events.indexOf(e)<feedSearch));
+  assert.equal(result.events.some(e=>e.stage==='detail'&&e.id.startsWith('other-feed-review')),false,'a ready employer match must not wait for the entire feed review queue');
+  assert.equal(result.history.length,2);
+});
+
+test('a worker with weak listings waits for the hosted attempt, then resumes employer discovery without spinning', () => {
+  const result=run([job('hosted-match',{delayMs:80}),job('weak-board-result',{platform:'indeed',reviewPriority:10,fitReject:true}),
+    job('feed-shortfall',{platform:'pageup',applicationMode:'external'})],
+    {apply:true,workers:2,platforms:['seek','indeed','pageup'],reviews:200,cap:2});
+  assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['hosted-match','feed-shortfall']);
+  assert.ok(result.events.findIndex(e=>e.stage==='search'&&e.id==='pageup')>result.events.findIndex(e=>e.stage==='finish'&&e.id==='hosted-match'));
+  assert.equal(result.events.some(e=>e.stage==='fit'&&e.id==='weak-board-result'),false);
+});
+
+test('a ready SEEK employer form waits for a later hosted match while preserving independent search pagination', () => {
+  const result=run([job('employer-form',{applicationMode:'external',reviewPriority:100}),
+    job('hosted-next-page',{searchPage:2,reviewPriority:80}),job('unneeded-feed',{platform:'pageup',applicationMode:'external'})],
+    {apply:true,platforms:['pageup','seek'],reviews:200,cap:1});
+  assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['hosted-next-page']);
+  assert.deepEqual(result.events.filter(e=>e.stage==='search'&&e.id==='seek').map(e=>e.pageNumber),[1,2]);
+  assert.equal(result.events.some(e=>e.stage==='search'&&e.id==='pageup'),false);
+});
+
+test('an unavailable board cannot prevent the employer-source fallback from submitting a matching job', () => {
+  const result=run([job('board-wall',{wall:true}),job('feed-backup',{platform:'pageup',applicationMode:'external'})],
+    {apply:true,platforms:['seek','pageup'],reviews:200,cap:1});
+  assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['feed-backup']);
+  assert.equal(result.history.length,1);
+});
 
 test('operator discovery leads recheck the live employer, age and fit while ordinary discovery continues',()=>{
   const previous=process.env.DISCOVERY_SEED_JOBS_JSON;
@@ -317,7 +411,7 @@ test('the existing exact operator repair target may recapture a pending question
   assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), [target.id]);
 });
 
-for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply'} searches the office city and nationwide remote before using the review allowance`, () => {
+for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply'} applies the office match before continuing the independent nationwide remote search`, () => {
   const wrongCity = Array.from({ length: 15 }, (_, i) => job(`wrong-city-${i}`, { searchScope: 'unscoped', location: 'Brisbane QLD', cardConflict: true }));
   const result = run([...wrongCity,
     job('local-fit', { searchScope: 'office', location: 'Wollongong NSW', workArrangement: 'On-site' }),
@@ -325,8 +419,8 @@ for (const prepare of [false, true]) test(`${prepare ? 'Semi auto' : 'Auto apply
   ], { apply: true, prepare, onsiteCity: 'Wollongong', workArrangements: ['onsite', 'hybrid', 'remote'], reviews: 15, cap: 2 });
   const searches = result.events.filter(event => event.stage === 'search');
   assert.deepEqual(searches.slice(0, 2).map(event => [event.scope.location, event.scope.arrangements]), [['Wollongong', ['onsite', 'hybrid']], ['', ['remote']]]);
-  const firstFit = result.events.findIndex(event => event.stage === 'fit');
-  assert.ok(result.events.findIndex(event => event.stage === 'search' && event.scope.arrangements[0] === 'remote') < firstFit, 'local candidates cannot stop discovery before the remote stream is searched');
+  const firstApply = result.events.findIndex(event => event.stage === 'apply');
+  assert.ok(firstApply < result.events.findIndex(event => event.stage === 'search' && event.scope.arrangements[0] === 'remote'), 'a ready local application starts without waiting for another search; the remote stream still gets its turn');
   assert.deepEqual(result.events.filter(event => event.stage === 'fit').map(event => event.id), ['local-fit', 'remote-fit']);
   assert.deepEqual(result.events.filter(event => event.stage === 'apply').map(event => event.id), ['local-fit', 'remote-fit']);
   assert.equal(result.history.length, prepare ? 0 : 2);
@@ -388,13 +482,13 @@ test('Semi auto prepares only its run cap without entering the form-filling adap
   assert.match(result.output, /Semi auto complete: 2 application/);
 });
 
-for(const prepare of [true,false])test(`${prepare?'Semi auto starts a ready employer-site draft':'Auto apply retains its hosted-first review policy'}`,()=>{
+for(const prepare of [true,false])test(`${prepare?'Semi auto':'Auto apply'} gives promising hosted work priority before using an employer-site fallback`,()=>{
   const external=job('ready-employer-site',{applicationMode:'external',reviewPriority:100});
   const later=job('later-hosted-rejection',{applicationMode:'hosted',reviewPriority:80,fitReject:true});
   const result=run([external,later],{apply:true,prepare,reviews:2,cap:1});
   assert.deepEqual(result.events.filter(event=>event.stage==='apply').map(event=>event.id),[external.id]);
-  assert.equal(result.events.some(event=>event.stage==='detail'&&event.id===later.id),!prepare,
-    'preparation must not exhaust other reviews before checking an already matched employer application');
+  assert.equal(result.events.some(event=>event.stage==='detail'&&event.id===later.id),true,
+    'the fallback starts once the promising hosted listing has been checked');
   assert.equal(result.events.some(event=>event.stage==='form-fill'),!prepare);
   assert.equal(result.history.filter(record=>record.submittedByMyasis).length,prepare?0:1);
 });
@@ -808,7 +902,8 @@ test('parallel workers resume fallback discovery once and share its new listings
     job('fallback', { searchOnlyJob: true, source: 'search', detailDelayMs: 20 }),
   ], { apply: true, workers: 2, cap: 1, reviews: 1 });
   assert.equal(result.events.filter(event => event.stage === 'search' && event.id === 'seek').length, 1);
-  assert.equal(result.events.filter(event => event.stage === 'search' && event.id === 'indeed').length, 1);
+  assert.ok(result.events.filter(event => event.stage === 'search' && event.id === 'indeed').length <= 1,
+    'the other board is unnecessary if the first fresh application already fills the target');
   // Either platform may claim the final shared slot first. If the fresh job
   // submits first, the old listing need not be opened at all.
   assert.ok(result.events.filter(event => event.stage === 'detail' && event.id === 'old').length <= 1);

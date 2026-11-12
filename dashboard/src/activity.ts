@@ -174,6 +174,7 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
   let explained = false;
   let boards: string[] = [];
   let boardsEvent: ActivityEvent | null = null;
+  let discoveryEvent: ActivityEvent | null = null;
   let applicationLimitEvent: ActivityEvent | null = null;
   let reviewLimitEvent: ActivityEvent | null = null;
   let review: ActivityEvent | null = null;
@@ -255,12 +256,14 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
             : 'Owtomate will try again on the next run.'}`,
       );
     } else if ((match = text.match(/(\d+) unique listings discovered/i))) {
-      add(line, `Found ${match[1]} job listings`, 'done', 'Ones already applied to or recently checked are skipped.');
+      const title = `Found ${match[1]} job listings`;
+      if (discoveryEvent) discoveryEvent.title = title;
+      else discoveryEvent = add(line, title, 'done', 'Ones already applied to or recently checked are skipped.');
     } else if (/job-title search continues/i.test(text)) {
       add(line, 'Searching for more jobs', 'neutral', 'Looking for more jobs that match your preferences.');
-    } else if ((match = text.match(/Search page (\d+): (\d+) new listing/i))) {
+    } else if ((match = text.match(/Search (?:page \d+|batch): (\d+) new listing/i))) {
       const last = events.at(-1);
-      if (last?.title === 'Searching for more jobs') last.detail = `Found ${match[2]} more jobs to review.`;
+      if (last?.title === 'Searching for more jobs') last.detail = `Found ${match[1]} more jobs to review.`;
     } else if (cardRejection.test(text)) {
       reviewed++;
       if (!review) review = add(line, 'Reviewing jobs', 'neutral', reviewDetail());

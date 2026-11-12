@@ -3,7 +3,7 @@ import test from 'node:test';
 import { discoverySearches } from './discovery-search.js';
 import { searchUrl as seekUrl } from './discovery.js';
 import { searchUrl as indeedUrl } from './discovery-indeed.js';
-import { discoveryBatchEnd, shouldStopDiscovery } from './discovery-policy.js';
+import { discoveryBatchEnd } from './discovery-policy.js';
 import type { JobListing } from './types.js';
 
 const address = { location: 'Robertson NSW 2577', radiusKm: 0 };
@@ -65,7 +65,6 @@ test('local exhaustion does not consume a nationwide remote stream or its pagina
   assert.equal(discoveryBatchEnd([local], seen[0], 20, true), undefined);
   assert.equal(discoveryBatchEnd([local], seen[0], 20, true), 'repeat');
   assert.equal(discoveryBatchEnd([local], seen[1], 20, true), undefined, 'a duplicate across scopes does not exhaust the other scope');
-  assert.equal(shouldStopDiscovery({ promisingJobs: 1, target: 15 }), false);
   assert.equal(new URL(seekUrl('Officer', 2, scopes[1])).searchParams.get('workarrangement'), '3');
   assert.equal(new URL(seekUrl('Officer', 2, scopes[1])).searchParams.has('where'), false);
 });

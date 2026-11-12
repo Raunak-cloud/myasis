@@ -4,23 +4,6 @@ import type { JobListing } from './types.js';
 /** Lightweight-ranking score that counts as useful discovery yield. */
 export const DISCOVERY_PRIORITY_FLOOR = 50;
 
-/**
- * Discovery only needs enough strong stubs to fill the detail-review buffer;
- * collecting more cannot improve a run once neither the evaluation nor
- * candidate budget can consume them.
- */
-export function discoveryTarget(maxEvaluations: number, candidateCap: number): number {
-  return Math.max(0, Math.min(maxEvaluations, candidateCap));
-}
-
-export function shouldStopDiscovery(input: {
-  promisingJobs: number;
-  target: number;
-}): boolean {
-  return input.target > 0
-    && input.promisingJobs >= input.target;
-}
-
 /** Transport batches continue without a page budget. Only date-ordered boards
  * may end at an age boundary; unordered feeds must reach actual exhaustion. */
 export function discoveryBatchEnd(jobs: JobListing[], seen: Set<string>, maxAgeDays: number, newestFirst: boolean): 'end' | 'age' | 'repeat' | undefined {

@@ -5,6 +5,18 @@ import { plainReason } from '../src/run-messages.ts';
 
 const log = (texts) => texts.map((text, seq) => ({ seq, stream: 'out', text }));
 
+test('incremental discovery updates one listing total while reviews and applications continue', () => {
+  const lines = log(['12 unique listings discovered across 2 platform(s).',
+    '✓ 90 · Analyst @ Employer', '→ Applying: Analyst @ Employer', '✅ submitted (1)',
+    '24 unique listings discovered across 2 platform(s).',
+    '24 unique listings discovered across 2 platform(s).']);
+  const events = activityEvents(lines, Infinity);
+  assert.equal(events.filter(event => /^Found \d+ job listings$/.test(event.title)).length, 1);
+  assert.ok(events.some(event => event.title === 'Found 24 job listings'));
+  assert.equal(activitySummary(lines).found, 24);
+  assert.ok(events.some(event => event.title === 'Applied to Analyst'));
+});
+
 test('a drained deadline displays completion and saved results rather than a timeout failure', () => {
   const lines=log(['Run reached its 60-minute time limit; finishing current applications before exiting.',
     'Ready for confirmation: Example role @ Example employer',

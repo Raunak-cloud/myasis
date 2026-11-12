@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { boardAgeWindow, discoveryBatchEnd, discoveryTarget, shouldStopDiscovery } from './discovery-policy.js';
+import { boardAgeWindow, discoveryBatchEnd } from './discovery-policy.js';
 import { parseAgeDays } from './discovery.js';
 import { searchUrl as seekSearchUrl } from './discovery.js';
 import { searchUrl as indeedSearchUrl } from './discovery-indeed.js';
@@ -8,16 +8,6 @@ import { listingAgeDays, passesListingAge } from './listing-age.js';
 import type { JobListing } from './types.js';
 import { deterministicExclusion } from './scoring.js';
 import { config } from './config.js';
-
-test('caps discovery at the smaller review or candidate budget', () => {
-  assert.equal(discoveryTarget(80, 24), 24);
-  assert.equal(discoveryTarget(10, 12), 10);
-});
-
-test('does not stop early until enough promising unseen jobs exist', () => {
-  assert.equal(shouldStopDiscovery({ promisingJobs: 11, target: 12 }), false);
-  assert.equal(shouldStopDiscovery({ promisingJobs: 12, target: 12 }), true);
-});
 
 test('age-window discovery continues beyond six short batches, ending only on age, exhaustion or repeats', () => {
   const seen = new Set<string>();
