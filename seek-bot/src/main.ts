@@ -515,6 +515,9 @@ async function main() {
      * the matching agent has identified promising search results.
      */
     const recommendedFirst = (job: JobListing): number => (job.source === 'recommended' || job.source === 'chosen' ? 0 : 1);
+    /** Only a confirmed board form has hosted priority. An unknown CTA can
+     * still redirect to an employer and belongs with the fallback candidates. */
+    const hostedFirst = (job: JobListing): number => job.applicationMode === 'hosted' ? 0 : 1;
     const reviewOrder = (a: JobListing, b: JobListing) => {
       const scoped = scopeRank(a) - scopeRank(b);
       if (scoped) return scoped;
@@ -523,6 +526,8 @@ async function main() {
       if (known) return known;
       const promising = Number(!isPromising(a)) - Number(!isPromising(b));
       if (promising) return promising;
+      const hosted = hostedFirst(a) - hostedFirst(b);
+      if (hosted) return hosted;
       const recommended = recommendedFirst(a) - recommendedFirst(b);
       if (recommended) return recommended;
       const priority = (reviewPriorities.get(reviewKey(b))?.priority ?? 0) - (reviewPriorities.get(reviewKey(a))?.priority ?? 0);
@@ -813,7 +818,7 @@ async function main() {
     /** Nothing left to review and no fit check still out. */
     const reviewExhausted = () => limitReached() || (reviewDone() && !pendingFits.length && !activeReviews.size);
     const isHostedBoardJob = (job: JobListing) => !ADAPTERS.get(job.platform ?? 'seek')?.apiDiscovery
-      && job.applicationMode !== 'external' && !stoppedPlatform(job.platform ?? 'seek');
+      && job.applicationMode === 'hosted' && !stoppedPlatform(job.platform ?? 'seek');
     const hostedWorkPending = () => candidates.some(candidate => isHostedBoardJob(candidate.job))
       || hasPromisingUnreviewed(isHostedBoardJob)
       || [...readingListings].some(isHostedBoardJob)
@@ -1079,7 +1084,6 @@ async function main() {
      * in this run came from. With a run cap in play, spending it on hosted
      * listings first means more applications actually land.
      */
-    const hostedFirst = (job: JobListing): number => (job.applicationMode === 'external' ? 1 : 0);
     const preference = (a: (typeof candidates)[number], b: (typeof candidates)[number]) => {
       const hosted = hostedFirst(a.job) - hostedFirst(b.job);
       if (hosted) return hosted;

@@ -275,6 +275,22 @@ test('a ready SEEK employer form waits for a later hosted match while preserving
   assert.equal(result.events.some(e=>e.stage==='search'&&e.id==='pageup'),false);
 });
 
+for(const prepare of [false,true])test(`${prepare?'Semi auto':'Auto apply'} prioritizes confirmed hosted forms over unknown redirects in the same batch`,()=>{
+  const result=run([job('unknown-redirect',{applicationMode:'unknown',reviewPriority:100}),
+    job('confirmed-hosted',{reviewPriority:80})],{apply:true,prepare,reviews:200,cap:1});
+  assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['confirmed-hosted']);
+  assert.equal(result.events.some(e=>e.stage==='detail'&&e.id==='unknown-redirect'),false);
+});
+
+test('an unknown application link stays available as fallback after hosted-board search has run out',()=>{
+  const result=run([job('unknown-fallback',{applicationMode:'unknown',reviewPriority:100}),
+    job('unneeded-feed',{platform:'pageup',applicationMode:'external'})],{apply:true,platforms:['seek','pageup'],reviews:200,cap:1});
+  assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['unknown-fallback']);
+  const applyAt=result.events.findIndex(e=>e.stage==='apply');
+  assert.ok(result.events.some((e,i)=>e.stage==='search'&&e.id==='seek'&&e.pageNumber===2&&i<applyAt));
+  assert.equal(result.events.some(e=>e.stage==='search'&&e.id==='pageup'),false,'known board leads are tried before collecting additional employer feeds');
+});
+
 test('an unavailable board cannot prevent the employer-source fallback from submitting a matching job', () => {
   const result=run([job('board-wall',{wall:true}),job('feed-backup',{platform:'pageup',applicationMode:'external'})],
     {apply:true,platforms:['seek','pageup'],reviews:200,cap:1});
