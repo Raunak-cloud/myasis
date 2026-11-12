@@ -5,6 +5,7 @@ import { smartRecruitersIdentity } from './smartrecruiters.js';
 import type { JobListing } from './types.js';
 import { parseAgeDays } from './listing-age.js';
 import {workdayDirectoryTargets} from './workday-directory.js';
+import {publicEmployerTarget,publicEmployerTargets} from './public-employer-directory.js';
 
 type NewSource = Exclude<EmployerSourceId, 'smartrecruiters'>;
 type FeedOptions = { fetch?: typeof fetch; warn?: (message: string) => void; timeoutMs?: number; gapMs?: number; retryDelayMs?: number; now?: () => number; additionalTargets?:string[]; shouldStop?:()=>boolean };
@@ -66,6 +67,13 @@ class CareerSiteHttpError extends Error {
   constructor(readonly status: number) { super(`Public career site returned HTTP ${status}.`); }
 }
 
+function pageupBrand(document: ReturnType<typeof parseHTML>['document']):string {
+  const title=document.title.match(/^(?:(?:Current|Career)\s+)?(?:opportunities|careers|jobs|vacancies|search results)\s*[-|–]\s*(.+)$/i)?.[1]?.trim();
+  const logo=document.querySelector('header img[alt],#header img[alt],.logo img[alt],a.logo img[alt],img[id*="logo"][alt],img[src*="logo"][alt]')?.getAttribute('alt')?.trim();
+  const name=title&&!/^(search results?|job search|listing|pageup(?:people)?)$/i.test(title)?title:logo;
+  return name&&name.length<=100&&!/^(logo|home|pageup(?:people)?|email|facebook|twitter|linkedin)$/i.test(name)?name.replace(/\s+logo$/i,''):'';
+}
+
 class PublicReader {
   private readyAt = 0;
   constructor(private options: FeedOptions) {}
@@ -85,14 +93,24 @@ class PublicReader {
       }
     }
   }
-  private async readOnce(url: string, body?: object): Promise<string> {
+  private async readOnce(url: string, body?: object, redirects = 0): Promise<string> {
     const wait = this.readyAt - Date.now();
     if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
     this.readyAt = Date.now() + (this.options.gapMs ?? 250);
-    const response = await (this.options.fetch ?? fetch)(url, { redirect: 'error', signal: AbortSignal.timeout(this.options.timeoutMs ?? 15_000),
+    const pageupRoot = publicEmployerTarget('pageup', url);
+    const response = await (this.options.fetch ?? fetch)(url, { redirect: pageupRoot ? 'manual' : 'error', signal: AbortSignal.timeout(this.options.timeoutMs ?? 15_000),
       headers: { Accept: 'application/json,text/html', ...(body ? { 'Content-Type': 'application/json' } : {}) },
       ...(body ? { method: 'POST', body: JSON.stringify(body) } : {}),
     });
+    if (pageupRoot && [301,302,303,307,308].includes(response.status)) {
+      await response.body?.cancel();
+      const location = response.headers.get('location');
+      const next = location ? new URL(location, url) : null;
+      if (redirects >= 2 || !next || publicEmployerTarget('pageup', next.href) !== pageupRoot || !/\/(search|listing)\/$/i.test(next.pathname)) throw Error('PageUp career-site redirect is outside this public results page.');
+      // Some PageUp themes redirect search/ to listing/ and omit the filters.
+      for (const [key,value] of new URL(url).searchParams) if(!next.searchParams.has(key))next.searchParams.set(key,value);
+      return this.readOnce(next.href, undefined, redirects + 1);
+    }
     if (!response.ok) { await response.body?.cancel(); throw new CareerSiteHttpError(response.status); }
     const reader = response.body?.getReader();
     if (!reader) throw new Error('Empty career-site response.');
@@ -113,12 +131,14 @@ export class EmployerFeedDiscovery {
   private readonly reader: PublicReader;
   private readonly boardCache = new Map<string, Promise<any[]>>();
   private readonly countryFilters = new Map<string, Record<string, string[]>>();
+  private readonly employerNames = new Map<string,string>();
   private readonly now: () => number;
   constructor(readonly source: NewSource, raw?: string, private options: FeedOptions = {}) {
     const spec = EMPLOYER_SOURCES.find(item => item.id === source)!;
     if (!spec) throw new Error('This job source is no longer available.');
     this.targets = employerTargets(source, raw ?? spec.defaults);
     if(source==='workday') this.targets = workdayDirectoryTargets([...this.targets,...(options.additionalTargets??[])]);
+    if(source==='pageup') this.targets = publicEmployerTargets('pageup',[...this.targets,...(options.additionalTargets??[])]);
     this.reader = new PublicReader(options); this.now = options.now ?? Date.now;
   }
 
@@ -140,7 +160,7 @@ export class EmployerFeedDiscovery {
       const site = careerTarget('pageup', target); url = new URL(raw.url, site.url).href;
       const identity = employerJobIdentity('pageup', url);
       if (identity.namespace !== site.url.href || expired(raw.closes, this.now())) return null;
-      id = identity.posting; title = clean(raw.title, 300); company = site.name || `PageUp employer ${site.url.pathname.split('/')[1]}`;
+      id = identity.posting; title = clean(raw.title, 300); company = site.name || this.employerNames.get(target) || `PageUp employer ${site.url.pathname.split('/')[1]}`;
       location = clean(raw.location, 500); description = clean(raw.teaser, 1000); at = raw.published;
     }
     if (!title || !location) return null;
@@ -206,11 +226,12 @@ export class EmployerFeedDiscovery {
           search.search = new URLSearchParams({ 'search-keyword': keyword.slice(0, 150), page: String(page), 'page-items': '20' }).toString();
           const { document } = parseHTML(await this.reader.read(search.href));
           if (!document.querySelector('#search-results-content')) throw new Error('PageUp search layout is not recognised; no jobs were assumed.');
+          const brand=pageupBrand(document);if(brand)this.employerNames.set(target,brand);
           rows = [...document.querySelectorAll('#search-results-content a.job-link')].slice(0, 20).map(anchor => {
-            const row = anchor.closest('tr');
+            const row = anchor.closest('tr,.job-listing');
             return { url: anchor.getAttribute('href'), title: anchor.textContent, location: row?.querySelector('.location')?.textContent,
               published: row?.querySelector('.open-date time')?.getAttribute('datetime'),
-              closes: row?.querySelector('.close-date time')?.getAttribute('datetime'), teaser: row?.nextElementSibling?.classList.contains('summary') ? row.nextElementSibling.textContent : '' };
+              closes: row?.querySelector('.close-date time')?.getAttribute('datetime'), teaser: row?.querySelector('.job-listing-left > p')?.textContent ?? (row?.nextElementSibling?.classList.contains('summary') ? row.nextElementSibling.textContent : '') };
           });
           rows = this.normalise(target, rows);
         }
@@ -237,12 +258,18 @@ export class EmployerFeedDiscovery {
       if (job) job = { ...job, description: feedText(raw.jobDescription), ...dates(raw.startDate, this.now()), ...(raw.remoteType ? { workArrangement: clean(raw.remoteType) } : {}) };
     } else {
       const { document } = parseHTML(await this.reader.read(stub.url));
+      const brand=pageupBrand(document);if(brand)this.employerNames.set(target,brand);
       const content = document.querySelector('#job-content');
       const jobNo = clean(content?.querySelector('.job-externalJobNo')?.textContent);
       const closes = content?.querySelector('.close-date time')?.getAttribute('datetime');
-      if (jobNo !== identity.posting || !content?.querySelector('a.apply-link') || expired(closes, this.now())) throw new Error('PageUp job is closed or its identity changed.');
-      job = this.listing(target, { url: stub.url, title: content.querySelector('h2')?.textContent, location: content.querySelector('.location')?.textContent });
-      if (job) job = { ...job, description: feedText(content.querySelector('#job-details')?.innerHTML), ...dates(content.querySelector('.open-date time')?.getAttribute('datetime'), this.now()) };
+      const apply = content?.querySelector('a.apply-link') || [...(content?.querySelectorAll('a[href]')??[])].find(anchor=>{
+        try{const u=new URL(anchor.getAttribute('href')!,stub.url);return u.protocol==='https:'&&!u.username&&!u.password&&!u.port&&/^secure(?:\.dc\d+)?\.pageuppeople\.com$/.test(u.hostname)
+          &&u.pathname===`/apply/${new URL(identity.namespace).pathname.split('/')[1]}/gateway/default.aspx`&&u.searchParams.get('c')==='apply'&&u.searchParams.get('lJobID')===identity.posting;}catch{return false;}
+      });
+      if (jobNo !== identity.posting || !apply || expired(closes, this.now())) throw new Error('PageUp job is closed or its identity changed.');
+      job = this.listing(target, { url: stub.url, title: content!.querySelector('h1,h2')?.textContent, location: content!.querySelector('.location')?.textContent });
+      if(job&&!careerTarget('pageup',target).name&&!this.employerNames.has(target)&&stub.company&&!/^PageUp employer \d+$/i.test(stub.company))job.company=stub.company;
+      if (job) job = { ...job, description: feedText(content!.querySelector('#job-details,.section-job-overview')?.innerHTML), ...dates(content!.querySelector('.open-date time')?.getAttribute('datetime'), this.now()) };
     }
     if (!job || job.id !== stub.id || !job.description) throw new Error('Employer job is closed, changed or missing its description.');
     return { ...job, source: stub.source ?? 'search' };

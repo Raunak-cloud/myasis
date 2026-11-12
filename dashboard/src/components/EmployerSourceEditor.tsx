@@ -66,10 +66,10 @@ export function EmployerSourceEditor({ source, value, onChange }: { source: Sour
 
   return <section className="employer-source-editor" aria-labelledby={`${id}-title`}>
     <div className="employer-source-head">
-      <div><h4 id={`${id}-title`}>{source.label}</h4><p>{entries.length} {entries.length === 1 ? 'company' : 'companies'}{source.id === 'workday' ? ' added' : ' included'}</p></div>
+      <div><h4 id={`${id}-title`}>{source.label}</h4><p>{entries.length} {entries.length === 1 ? 'company' : 'companies'}{source.id !== 'greenhouse' ? ' added' : ' included'}</p></div>
       <button className="btn" type="button" aria-expanded={adding} aria-controls={`${id}-add`} onClick={() => { setAdding(!adding); setError(''); }}> {adding ? 'Cancel' : '+ Add company'}</button>
     </div>
-    {source.id === 'workday' && <p className="employer-source-note">Owtomate also searches its growing Workday directory automatically. Add extra companies here.</p>}
+    {source.id !== 'greenhouse' && <p className="employer-source-note">Owtomate also searches its growing {source.label} directory automatically. Add extra companies here.</p>}
     <ul className="employer-company-list" aria-label={`${source.label} companies`}>
       {visible.map((entry, index) => <li key={`${entry}-${index}`}><span>{companyName(entry)}</span><button type="button" aria-label={`Remove ${companyName(entry)} from ${source.label}`} onClick={() => {
         onChange(entries.filter((_, position) => position !== index).join(','));

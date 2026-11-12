@@ -64,6 +64,25 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
       try{writeFileSync(temporary,JSON.stringify(workdaySites),{mode:0o600});renameSync(temporary,workdayDirectoryFile);}finally{if(existsSync(temporary))unlinkSync(temporary);}
     } catch { workdayDirectoryFile=''; console.warn('[workday] Shared employer discovery unavailable; configured career sites remain enabled.'); }
   }
+  let publicEmployerDirectoryFile = '';
+  if (selectedSettings.EMPLOYER_FEEDS_ADMIN_ENABLED === 'true' || selectedSettings.SMARTRECRUITERS_ADMIN_ENABLED === 'true') {
+    const { publicDirectorySources } = await import('../../seek-bot/src/public-employer-directory.js');
+    const { expandedPublicEmployerSites } = await import('./public-employer-directory.js');
+    const directory: Record<string,string[]> = {};
+    const discovery = selectedSettings.APPLICATION_REVIEW_MODE !== 'approved' && !selectedSettings.TARGET_REPAIR_JOB_JSON;
+    for (const source of publicDirectorySources.filter(source => selectedSettings.PLATFORMS?.split(',').includes(source))) {
+      try {
+        const key=source==='pageup'?'PAGEUP_SITES':'SMARTRECRUITERS_COMPANIES';
+        directory[source]=await expandedPublicEmployerSites(source,selectedSettings[key]??'',selectedSettings.KEYWORDS??'',discovery);
+      } catch { console.warn(`[${source}] Shared employer discovery unavailable; configured companies remain enabled.`); }
+    }
+    if(Object.keys(directory).length){
+      mkdirSync(userDir(userId),{recursive:true});publicEmployerDirectoryFile=resolve(userDir(userId),'public-employer-directory.json');
+      const temporary=publicEmployerDirectoryFile+'.'+randomUUID()+'.tmp';
+      try{writeFileSync(temporary,JSON.stringify(directory),{mode:0o600});renameSync(temporary,publicEmployerDirectoryFile);}
+      finally{if(existsSync(temporary))unlinkSync(temporary);}
+    }
+  }
   const bonusEnvironment=selectedSettings.BONUS_RUN_ID ? await (await import('./bonus-runs.js')).bonusRunEnvironment(userId,runStartId,selectedSettings) : {BONUS_RUN_ID:''};
   let operatorReviewLimit = '', operatorTimeout = '';
   let applicationBudget: Record<string,string> = {};
@@ -112,7 +131,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
     APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: applicationScreenshotsForAccount(selectedSettings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, admin, selected),
     // Only the authorized provider credential enters the account's run context.
     ADZUNA_ENABLED: serverEnv.ADZUNA_ENABLED || '', ADZUNA_APP_ID: serverEnv.ADZUNA_APP_ID || '', ADZUNA_APP_KEY: serverEnv.ADZUNA_APP_KEY || '',
-    ...credentials, WORKDAY_DIRECTORY_FILE: workdayDirectoryFile };
+    ...credentials, WORKDAY_DIRECTORY_FILE: workdayDirectoryFile, PUBLIC_EMPLOYER_DIRECTORY_FILE: publicEmployerDirectoryFile };
 }
 
 /** Retired experiment settings and credentials never reach a new worker. */

@@ -1187,3 +1187,13 @@ CREATE TABLE IF NOT EXISTS workday_directory (
 CREATE TABLE IF NOT EXISTS workday_directory_searches (
  query TEXT NOT NULL,day DATE NOT NULL DEFAULT current_date,PRIMARY KEY(query,day)
 );
+CREATE TABLE IF NOT EXISTS public_employer_directory (
+ source TEXT NOT NULL CHECK(source IN ('pageup','smartrecruiters')),identity TEXT NOT NULL,
+ target TEXT NOT NULL,label TEXT NOT NULL DEFAULT '',
+ first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+ PRIMARY KEY(source,identity)
+);
+CREATE TABLE IF NOT EXISTS public_employer_directory_searches (
+ source TEXT NOT NULL CHECK(source IN ('pageup','smartrecruiters')),query TEXT NOT NULL,
+ day DATE NOT NULL DEFAULT current_date,PRIMARY KEY(source,query,day)
+);

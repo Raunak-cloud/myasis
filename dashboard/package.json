@@ -19,6 +19,7 @@
     "test:files-ui": "node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-files-panel-ui.mts",
     "test:smartrecruiters-ui": "npm run build && node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-smartrecruiters-ui.mts",
     "test:employer-sources-ui": "node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-employer-sources-ui.mts",
+    "test:employer-directory": "node ../seek-bot/node_modules/tsx/dist/cli.mjs --test server/public-employer-directory.test.ts server/workday-directory.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {

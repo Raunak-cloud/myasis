@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { JobListing } from './types.js';
 import { listingAgeCutoff } from './listing-age.js';
+import { publicEmployerTargets } from './public-employer-directory.js';
 
 const SMARTRECRUITERS_DEFAULT_COMPANIES = 'Canva,KPMGAustralia1,Colliers';
 const SMARTRECRUITERS_PAGE_SIZE = 50;
@@ -54,14 +55,17 @@ export function smartRecruitersListing(raw: unknown, company: string, now = Date
   if (!postingId.test(posting) || typeof data.name !== 'string' || !data.name.trim()
     || data.location?.country?.toLowerCase() !== 'au' || data.active === false
     || (data.visibility !== undefined && data.visibility !== 'PUBLIC')
-    || (data.company?.identifier && data.company.identifier !== company)) return null;
+    || (data.company?.identifier && String(data.company.identifier).toLowerCase() !== company.toLowerCase())) return null;
+  // Public links can vary in case. Use the provider's actual identifier so
+  // every discovered alias produces the same job ID and working detail URL.
+  company = String(data.company?.identifier || company);
   const canonical = `https://jobs.smartrecruiters.com/${company}/${posting}`;
   // Do not trust ref/applyUrl to send either the server or browser elsewhere.
   const safeUrl = (value: unknown) => {
     if (typeof value !== 'string' || !value) return canonical;
     const identity = smartRecruitersIdentity(value);
-    if (identity.company !== company || identity.posting !== posting) throw new Error('SmartRecruiters returned a different job address.');
-    return value;
+    if (identity.company.toLowerCase() !== company.toLowerCase() || identity.posting !== posting) throw new Error('SmartRecruiters returned a different job address.');
+    return identity.company === company ? value : canonical;
   };
   const description = Object.values(data.jobAd?.sections ?? {})
     .map((section: any) => plainText(section?.text)).filter(Boolean).join('\n\n').slice(0, 50_000);
@@ -84,14 +88,14 @@ export class SmartRecruitersDiscovery {
   private readyAt = 0;
   private readonly options: {
     fetch?: typeof fetch; warn?: (message: string) => void;
-    gapMs?: number; timeoutMs?: number; maxAgeDays?: number;
+    gapMs?: number; timeoutMs?: number; maxAgeDays?: number; additionalTargets?: string[]; shouldStop?: () => boolean;
   };
 
   constructor(raw = SMARTRECRUITERS_DEFAULT_COMPANIES, options: {
     fetch?: typeof fetch; warn?: (message: string) => void;
-    gapMs?: number; timeoutMs?: number; maxAgeDays?: number;
+    gapMs?: number; timeoutMs?: number; maxAgeDays?: number; additionalTargets?: string[]; shouldStop?: () => boolean;
   } = {}) {
-    this.companies = smartRecruitersCompanies(raw);
+    this.companies = publicEmployerTargets('smartrecruiters', [...smartRecruitersCompanies(raw), ...(options.additionalTargets ?? [])]);
     this.options = options;
   }
 
@@ -129,6 +133,7 @@ export class SmartRecruitersDiscovery {
     const jobs = new Map<string, JobListing>();
     let successful = 0;
     for (const company of this.companies) {
+      if (this.options.shouldStop?.()) break;
       try {
         const data = await this.request(company, `?${params}`);
         if (!Array.isArray(data.content)) throw new Error('SmartRecruiters returned an invalid posting list.');
@@ -143,13 +148,13 @@ export class SmartRecruitersDiscovery {
         this.options.warn?.(`SmartRecruiters employer ${company} could not be searched: ${(error as Error).message}`);
       }
     }
-    if (!successful) throw new Error('None of the selected SmartRecruiters employers could be searched.');
+    if (!successful && !this.options.shouldStop?.()) throw new Error('None of the selected SmartRecruiters employers could be searched.');
     return [...jobs.values()];
   }
 
   async detail(stub: JobListing): Promise<JobListing> {
     const { company, posting } = smartRecruitersIdentity(stub.url);
-    if (!this.companies.includes(company)) throw new Error('This employer is outside the SmartRecruiters watchlist.');
+    if (!this.companies.some(saved => saved.toLowerCase() === company.toLowerCase())) throw new Error('This employer is outside the SmartRecruiters watchlist.');
     const data = await this.request(company, `/${posting}`);
     const job = smartRecruitersListing(data, company);
     if (!job || data.active !== true || data.visibility !== 'PUBLIC' || String(data.id) !== posting || job.id !== stub.id || !job.description) {

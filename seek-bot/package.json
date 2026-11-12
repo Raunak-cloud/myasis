@@ -24,6 +24,7 @@
     "test:capmonster": "tsc && node scripts/test-capmonster.mjs",
     "test:ranking": "tsc && node scripts/test-ranking.mjs",
     "test:review-cache": "tsc && node --test dist/review-cache.test.js",
+    "test:employer-directory": "tsc && node --test dist/public-employer-directory.test.js dist/workday-directory.test.js dist/employer-feeds.test.js dist/smartrecruiters.test.js",
     "test:fit-live": "tsc && node scripts/test-fit-live.mjs",
     "queue": "tsc && node dist/queue.js",
     "test:pacing": "tsc && node --test dist/pacing.test.js",

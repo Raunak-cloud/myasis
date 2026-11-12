@@ -41,6 +41,8 @@ import { discoverySeeds } from './discovery-seeds.js';
 import { passesListingAge } from './listing-age.js';
 import { EmployerFeedDiscovery } from './employer-feeds.js';
 import {workdaySearchCache} from './workday-search-cache.js';
+import {publicEmployerSearchCache} from './public-employer-search-cache.js';
+import type {PublicDirectorySource} from './public-employer-directory.js';
 import {resolve} from 'node:path';
 import {readFileSync} from 'node:fs';
 import { EMPLOYER_SOURCES, employerFeedsEnabled } from './employer-source-config.js';
@@ -75,6 +77,10 @@ const searchOnly = process.argv.includes('--search-only');
 const doSync = process.argv.includes('--sync');
 function discoveredWorkdaySites(): string[] {
   try {const sites=JSON.parse(readFileSync(process.env.WORKDAY_DIRECTORY_FILE??'','utf8'));return Array.isArray(sites)?sites:[];}
+  catch{return [];}
+}
+function discoveredPublicSites(source:PublicDirectorySource):string[] {
+  try {const sites=JSON.parse(readFileSync(process.env.PUBLIC_EMPLOYER_DIRECTORY_FILE??'','utf8'));return Array.isArray(sites[source])?sites[source]:[];}
   catch{return [];}
 }
 
@@ -137,6 +143,8 @@ if (adzunaConfigured()) {
 if (employerFeedsEnabled(process.env)) {
   const discovery = new SmartRecruitersDiscovery(process.env.SMARTRECRUITERS_COMPANIES || undefined, {
     warn: message => console.warn(`  ! ${message}`), maxAgeDays: config.rules.maxAgeDays,
+    additionalTargets:discoveredPublicSites('smartrecruiters'),shouldStop:()=>runDeadline.reached,
+    fetch:publicEmployerSearchCache(resolve(import.meta.dirname,'../data/public-employer-search-cache')),
   });
   ADAPTERS.set('smartrecruiters', {
     id: 'smartrecruiters', label: 'SmartRecruiters', apiDiscovery: true,
@@ -152,7 +160,8 @@ if (employerFeedsEnabled(process.env)) {
     if (source.id === 'smartrecruiters' || !config.platforms.includes(source.id)) continue;
     const discovery = new EmployerFeedDiscovery(source.id, process.env[source.key] || undefined, {
       warn: message => console.warn(`  ! ${message}`), shouldStop:()=>runDeadline.reached,
-      ...(source.id==='workday'?{additionalTargets:discoveredWorkdaySites(),fetch:workdaySearchCache(resolve(import.meta.dirname,'../data/public-workday-search-cache'))}:{}) });
+      ...(source.id==='workday'?{additionalTargets:discoveredWorkdaySites(),fetch:workdaySearchCache(resolve(import.meta.dirname,'../data/public-workday-search-cache'))}
+        :source.id==='pageup'?{additionalTargets:discoveredPublicSites('pageup'),fetch:publicEmployerSearchCache(resolve(import.meta.dirname,'../data/public-employer-search-cache'))}:{}) });
     ADAPTERS.set(source.id, {
       id: source.id, label: source.label, apiDiscovery: true,
       assertSignedIn: async () => {},
