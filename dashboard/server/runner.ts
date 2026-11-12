@@ -1,6 +1,7 @@
 import { cpus, totalmem } from 'node:os';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, appendFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, appendFileSync, renameSync, unlinkSync } from 'node:fs';
+import {randomUUID} from 'node:crypto';
 import { resolve } from 'node:path';
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { exportUserForRun, syncRunResultsToDb } from './db/run-sync.js';
@@ -50,6 +51,19 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
   const serverEnv = { ...readEnv(), ...process.env };
   const admin = isAdmin(owner.email);
   const selectedSettings = settings ?? await loadUserSettings(userId);
+  let workdaySites: string[] = [];
+  let workdayDirectoryFile = '';
+  if (selectedSettings.PLATFORMS?.split(',').includes('workday') && (selectedSettings.EMPLOYER_FEEDS_ADMIN_ENABLED === 'true' || selectedSettings.SMARTRECRUITERS_ADMIN_ENABLED === 'true')) {
+    try {
+      const { expandedWorkdaySites } = await import('./workday-directory.js');
+      const discovery = selectedSettings.APPLICATION_REVIEW_MODE !== 'approved' && !selectedSettings.TARGET_REPAIR_JOB_JSON;
+      workdaySites = await expandedWorkdaySites(selectedSettings.WORKDAY_SITES ?? '', selectedSettings.KEYWORDS ?? '', discovery);
+      mkdirSync(userDir(userId),{recursive:true});
+      workdayDirectoryFile=resolve(userDir(userId),'workday-directory.json');
+      const temporary=workdayDirectoryFile+'.'+randomUUID()+'.tmp';
+      try{writeFileSync(temporary,JSON.stringify(workdaySites),{mode:0o600});renameSync(temporary,workdayDirectoryFile);}finally{if(existsSync(temporary))unlinkSync(temporary);}
+    } catch { workdayDirectoryFile=''; console.warn('[workday] Shared employer discovery unavailable; configured career sites remain enabled.'); }
+  }
   const bonusEnvironment=selectedSettings.BONUS_RUN_ID ? await (await import('./bonus-runs.js')).bonusRunEnvironment(userId,runStartId,selectedSettings) : {BONUS_RUN_ID:''};
   let operatorReviewLimit = '', operatorTimeout = '';
   let applicationBudget: Record<string,string> = {};
@@ -98,7 +112,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
     APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: applicationScreenshotsForAccount(selectedSettings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, admin, selected),
     // Only the authorized provider credential enters the account's run context.
     ADZUNA_ENABLED: serverEnv.ADZUNA_ENABLED || '', ADZUNA_APP_ID: serverEnv.ADZUNA_APP_ID || '', ADZUNA_APP_KEY: serverEnv.ADZUNA_APP_KEY || '',
-    ...credentials };
+    ...credentials, WORKDAY_DIRECTORY_FILE: workdayDirectoryFile };
 }
 
 /** Retired experiment settings and credentials never reach a new worker. */

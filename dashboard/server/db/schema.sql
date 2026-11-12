@@ -1179,3 +1179,11 @@ CREATE TABLE IF NOT EXISTS technical_application_retries (
 CREATE INDEX IF NOT EXISTS technical_application_retries_pending_idx
   ON technical_application_retries(user_id,failed_at) WHERE status='pending';
 -- END technical application retries
+-- Shared public career-site roots only; no candidate data or credentials.
+CREATE TABLE IF NOT EXISTS workday_directory (
+ site TEXT PRIMARY KEY, label TEXT NOT NULL DEFAULT '',
+ first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS workday_directory_searches (
+ query TEXT NOT NULL,day DATE NOT NULL DEFAULT current_date,PRIMARY KEY(query,day)
+);

@@ -4,9 +4,10 @@ import { careerTarget, employerTargets, EMPLOYER_SOURCES, type EmployerSourceId 
 import { smartRecruitersIdentity } from './smartrecruiters.js';
 import type { JobListing } from './types.js';
 import { parseAgeDays } from './listing-age.js';
+import {workdayDirectoryTargets} from './workday-directory.js';
 
 type NewSource = Exclude<EmployerSourceId, 'smartrecruiters'>;
-type FeedOptions = { fetch?: typeof fetch; warn?: (message: string) => void; timeoutMs?: number; gapMs?: number; retryDelayMs?: number; now?: () => number };
+type FeedOptions = { fetch?: typeof fetch; warn?: (message: string) => void; timeoutMs?: number; gapMs?: number; retryDelayMs?: number; now?: () => number; additionalTargets?:string[]; shouldStop?:()=>boolean };
 const key = (source: string, namespace: string, id: string) => `${source}-${createHash('sha256').update(`${namespace}:${id}`).digest('hex').slice(0, 32)}`;
 const clean = (value: unknown, limit = 50_000): string => typeof value === 'string' ? value.trim().slice(0, limit) : '';
 export function feedText(value: unknown): string {
@@ -117,6 +118,7 @@ export class EmployerFeedDiscovery {
     const spec = EMPLOYER_SOURCES.find(item => item.id === source)!;
     if (!spec) throw new Error('This job source is no longer available.');
     this.targets = employerTargets(source, raw ?? spec.defaults);
+    if(source==='workday') this.targets = workdayDirectoryTargets([...this.targets,...(options.additionalTargets??[])]);
     this.reader = new PublicReader(options); this.now = options.now ?? Date.now;
   }
 
@@ -174,6 +176,7 @@ export class EmployerFeedDiscovery {
     if (!Number.isSafeInteger(page) || page < 1) throw new Error('Invalid employer-feed search batch.');
     const jobs = new Map<string, JobListing>(); let successful = 0;
     for (const target of this.targets) {
+      if(this.options.shouldStop?.())break;
       try {
         let rows: any[];
         if (this.source === 'greenhouse') {
@@ -214,7 +217,7 @@ export class EmployerFeedDiscovery {
         successful++; for (const job of rows as JobListing[]) jobs.set(job.id, job);
       } catch (error) { this.options.warn?.(`${this.source} employer ${target} could not be searched: ${(error as Error).message}`); }
     }
-    if (!successful) throw new Error(`None of the selected ${this.source} employers could be searched.`);
+    if (!successful && !this.options.shouldStop?.()) throw new Error(`None of the selected ${this.source} employers could be searched.`);
     return [...jobs.values()];
   }
 

@@ -10,7 +10,7 @@ export const EMPLOYER_SOURCES = [
     kind: 'urls', help: 'Employer name|PageUp career-site URL, separated by commas. Use careers.pageuppeople.com roots; custom employer domains are not supported in this pilot.' },
   { id: 'workday', label: 'Workday', key: 'WORKDAY_SITES', baseUrl: 'https://myworkdayjobs.com',
     defaults: 'Nine|https://nine.wd105.myworkdayjobs.com/en-US/Nine_External_Career_Site,Garvan Institute|https://garvan.wd3.myworkdayjobs.com/en-US/garvan_institute',
-    kind: 'urls', help: 'Employer name|Workday career-site URL, separated by commas. Include the myworkdayjobs.com host, locale and career-site name. Public career sites only.' },
+    kind: 'urls', help: 'Publicly discovered Workday employers are included automatically. Add extra sites as Employer name|Workday career-site URL, separated by commas. Include the myworkdayjobs.com host, locale and career-site name.' },
 ] as const;
 
 export type EmployerSourceId = typeof EMPLOYER_SOURCES[number]['id'];

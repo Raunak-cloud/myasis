@@ -1169,7 +1169,7 @@ export function RunPanel({
                 {employerSourceSelected && !isAdmin && <p className="job-meta">Employer sources are included with Get Owtomated. No SEEK or Indeed sign-in is needed for these sources.</p>}
                 {isAdmin && EMPLOYER_SOURCES.filter(source => platforms.includes(source.id)).map(source => (
                   <div key={source.id} className="field run-review-wide" data-field={source.key}>
-                    <FieldLabel label={`${source.label} employers`} help={`${source.help} Up to 20 employers per source.`} />
+                    <FieldLabel label={source.id === 'workday' ? 'Additional Workday employers' : `${source.label} employers`} help={`${source.help} Up to 20 manually added employers per source.`} />
                     <input aria-label={source.id === 'smartrecruiters' ? 'SmartRecruiters employer identifiers' : `${source.label} employers`} value={val(source.key)} onChange={event => setEdit(source.key, event.target.value)} />
                     <span className="field-help">{source.help}</span>
                     {fieldError(source.key)}

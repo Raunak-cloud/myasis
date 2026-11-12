@@ -40,6 +40,9 @@ import { discoverySearches, type DiscoverySearch } from './discovery-search.js';
 import { discoverySeeds } from './discovery-seeds.js';
 import { passesListingAge } from './listing-age.js';
 import { EmployerFeedDiscovery } from './employer-feeds.js';
+import {workdaySearchCache} from './workday-search-cache.js';
+import {resolve} from 'node:path';
+import {readFileSync} from 'node:fs';
 import { EMPLOYER_SOURCES, employerFeedsEnabled } from './employer-source-config.js';
 import { assertExternalJobUrl, guardExternalNavigations } from './external-url.js';
 import { configureLiveWorkers, resetLiveWorkers } from './live-workers.js';
@@ -70,6 +73,10 @@ import { fetchAdzunaDetail, applyToAdzunaJob } from './adzuna-browser.js';
 
 const searchOnly = process.argv.includes('--search-only');
 const doSync = process.argv.includes('--sync');
+function discoveredWorkdaySites(): string[] {
+  try {const sites=JSON.parse(readFileSync(process.env.WORKDAY_DIRECTORY_FILE??'','utf8'));return Array.isArray(sites)?sites:[];}
+  catch{return [];}
+}
 
 /**
  * One entry per platform with a real adapter. `main.ts` no longer talks to
@@ -143,7 +150,9 @@ if (employerFeedsEnabled(process.env)) {
 if (employerFeedsEnabled(process.env)) {
   for (const source of EMPLOYER_SOURCES) {
     if (source.id === 'smartrecruiters' || !config.platforms.includes(source.id)) continue;
-    const discovery = new EmployerFeedDiscovery(source.id, process.env[source.key] || undefined, { warn: message => console.warn(`  ! ${message}`) });
+    const discovery = new EmployerFeedDiscovery(source.id, process.env[source.key] || undefined, {
+      warn: message => console.warn(`  ! ${message}`), shouldStop:()=>runDeadline.reached,
+      ...(source.id==='workday'?{additionalTargets:discoveredWorkdaySites(),fetch:workdaySearchCache(resolve(import.meta.dirname,'../data/public-workday-search-cache'))}:{}) });
     ADAPTERS.set(source.id, {
       id: source.id, label: source.label, apiDiscovery: true,
       assertSignedIn: async () => {},
