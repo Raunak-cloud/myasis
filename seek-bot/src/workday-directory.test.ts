@@ -3,6 +3,8 @@ import {workdaySite,workdayDirectoryTargets} from './workday-directory.js';impor
 const root='https://fixture.wd105.myworkdayjobs.com/en-US/Careers';
 test('public Workday discovery strips job paths and tracking; locales do not create duplicate employers',()=>{
  assert.equal(workdaySite(root+'/job/Sydney/Analyst_R123/apply?source=indeed'),root);
+ assert.equal(workdaySite('https://bunnings.wd3.myworkdayjobs.com/Careers'), 'https://bunnings.wd3.myworkdayjobs.com/en-US/Careers');
+ assert.equal(workdaySite('https://bunnings.wd3.myworkdayjobs.com/Careers/job/Sydney/Analyst_R1'), 'https://bunnings.wd3.myworkdayjobs.com/en-US/Careers');
  assert.equal(workdayDirectoryTargets(['Fixture|'+root,root.replace('en-US','en-GB')]).length,1);
  for(const u of ['https://private.invalid/en-US/Careers','http://fixture.wd1.myworkdayjobs.com/en-US/Careers','https://x:y@fixture.wd1.myworkdayjobs.com/en-US/Careers','https://fixture.wd1.myworkdayjobs.com/en-US/Login'])assert.equal(workdaySite(u),null);
 });

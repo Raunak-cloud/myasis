@@ -22,17 +22,21 @@ export async function expandedWorkdaySites(raw:string,keywords:string,discover=t
  if(catalog){try{candidates.push(...workdayCandidates((await catalog.targets()).map(target=>({url:target.split('|').at(-1)!}))));}catch{/* Configured sources remain usable when the external index is unavailable. */}}
 
  if(discover&&catalog?.key){
-  for(const term of ['Australian jobs',...safeKeywords(keywords)].slice(0,2)){
+  for(const term of ['',...safeKeywords(keywords)].slice(0,2)){
    const text=`site:myworkdayjobs.com "Australia" ${term}`;
    const reserved=await db('INSERT INTO workday_directory_searches(query) VALUES($1) ON CONFLICT DO NOTHING RETURNING query',[text]);
    if(!reserved.length)continue;
    try{
     if(!await catalog.reserveSearch())continue;
     const offset=Math.floor((options.now??Date.now)()/86400_000)%10;
-    const u=new URL('https://api.search.brave.com/res/v1/web/search');u.search=new URLSearchParams({q:text,country:'au',count:'20',offset:String(offset)}).toString();
-    const response=await network(u,{redirect:'error',headers:{Accept:'application/json','X-Subscription-Token':catalog.key},signal:AbortSignal.timeout(12_000)});
-    if(!response.ok)throw Error('Employer discovery unavailable.');
-    const data=await response.json();candidates.push(...workdayCandidates((data.web?.results??[]).filter((v:any)=>typeof v.url==='string').map((v:any)=>({url:v.url}))));
+    const search=async(page:number)=>{
+      const u=new URL('https://api.search.brave.com/res/v1/web/search');u.search=new URLSearchParams({q:text,country:'au',count:'20',offset:String(page)}).toString();
+      const response=await network(u,{redirect:'error',headers:{Accept:'application/json','X-Subscription-Token':catalog.key!},signal:AbortSignal.timeout(12_000)});
+      if(!response.ok)throw Error('Employer discovery unavailable.');return (await response.json()).web?.results??[];
+    };
+    let results=await search(offset);
+    if(!results.length&&offset!==0&&await catalog.reserveSearch())results=await search(0);
+    candidates.push(...workdayCandidates(results.filter((v:any)=>typeof v.url==='string').map((v:any)=>({url:v.url}))));
    }catch{await db('DELETE FROM workday_directory_searches WHERE query=$1 AND day=current_date',[text]);}
   }
  }

@@ -16,3 +16,10 @@ test('all users share discovered public employer roots; search is budgeted and r
  const c=await expandedWorkdaySites('', 'Nurse',false,options);assert.equal(c.length,5);assert.equal(calls,2,'approved application runs do not create discovery searches');
  assert.deepEqual(workdayCandidates([{url:'https://invalid.example/jobs'}]),[]);
 });
+test('empty rotated provider pages fall back to the first page within the same global search budget',async()=>{
+ const sites=new Map<string,string>();let calls=0,budget=0;
+ const db=(async(sql:string,p:any[]=[])=>{if(sql.includes('SELECT DISTINCT url,company'))return [];if(sql.startsWith('INSERT INTO workday_directory_searches'))return [{query:p[0]}];if(sql.startsWith('INSERT INTO workday_directory(')){sites.set(p[0],p[1]);return [];}if(sql.startsWith('SELECT site,label'))return [...sites].map(([site,label])=>({site,label}));throw Error(sql);}) as typeof query;
+ const catalog={key:'fixture',reserveSearch:async()=>{budget++;return true;},targets:async()=>[]};
+ const network:typeof fetch=async(input)=>{calls++;return Response.json({web:{results:new URL(String(input)).searchParams.get('offset')==='0'?[{url:'https://bunnings.wd3.myworkdayjobs.com/Careers'}]:[]}});};
+ const result=await expandedWorkdaySites('','',true,{db,catalog,network,now:()=>86400000});assert.deepEqual(result,['https://bunnings.wd3.myworkdayjobs.com/en-US/Careers']);assert.equal(calls,2);assert.equal(budget,2);
+});

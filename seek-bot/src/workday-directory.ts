@@ -2,9 +2,10 @@ import {careerTarget} from './employer-source-config.js';
 /** Canonical public Workday board root, never a login, application or private URL. */
 export function workdaySite(raw:string):string|null {
  try{const u=new URL(raw);if(u.protocol!=='https:'||u.username||u.password||u.port)return null;
- const parts=u.pathname.split('/').filter(Boolean);if(parts.length<2)return null;
- if(/^(login|signin|apply|candidatehome)$/i.test(parts[1]))return null;
- const root=`${u.origin}/${parts.slice(0,2).join('/')}`;
+ const parts=u.pathname.split('/').filter(Boolean);if(!parts.length)return null;
+ const hasLocale=/^[a-z]{2}-[A-Z]{2}$/.test(parts[0]);
+ const site=parts[hasLocale?1:0];if(!site||/^(login|signin|apply|candidatehome)$/i.test(site))return null;
+ const root=`${u.origin}/${hasLocale?parts[0]:'en-US'}/${site}`;
  return careerTarget('workday',root).url.href;
  }catch{return null;}
 }
