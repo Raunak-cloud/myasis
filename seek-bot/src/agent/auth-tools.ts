@@ -52,9 +52,14 @@ const AUTHENTICATION_TOOL: ToolSchema = {
     },
   };
 
+export const EMAILED_CODE_EXAMPLES = [
+  { purpose: 'account_verification', refs: ['f0'] },
+  { purpose: 'account_verification', refs: ['f0'], credential_id: '<ID from message results>' },
+] as const;
+
 const EMAILED_CODE_TOOL: ToolSchema = {
   name: 'enter_emailed_code',
-  description: "Use only after the site requests an emailed code. First omit credential_id to inspect messages; choose the matching message, then call again with its credential_id and the actual code field targets. Values stay private.",
+  description: `Use only after the site requests an emailed code. Both calls need the current code-field refs, ref or targets. First omit credential_id to inspect messages. Then call again with the matching credential_id, the same purpose and current code fields to enter it privately. Replace all example values with the actual purpose, refs and returned ID. First call: ${JSON.stringify(EMAILED_CODE_EXAMPLES[0])}. Second call: ${JSON.stringify(EMAILED_CODE_EXAMPLES[1])}.`,
   parameters: {
     type: 'object',
     properties: {

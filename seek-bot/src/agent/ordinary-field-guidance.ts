@@ -1,6 +1,18 @@
 import type { FormField } from '../types.js';
 
-export const BROWSER_FIELD_GUIDANCE = 'Enter text with action="fill" and value. Choose a dropdown option with action="select" and value. Upload documents with action="set_input_files" and file_ids (an array of document IDs). A field ref such as f0 identifies a control, not a document.';
+export const BROWSER_ACTION_EXAMPLES = [
+  { action: 'click', ref: 'a0', sends_application: false },
+  { action: 'fill', ref: 'f0', value: '<answer from candidate evidence>' },
+  { action: 'select', ref: 'f1', value: '<observed option>' },
+  { action: 'check', ref: 'f2', value: 'true' },
+  { action: 'set_input_files', ref: 'f3', file_ids: ['<document ID from inventory>'] },
+  { action: 'take_snapshot' },
+  { action: 'wait', ref: 'a1', state: 'visible', timeout_ms: 30000 },
+  { action: 'navigate', value: 'https://employer.example/apply' },
+] as const;
+
+export const BROWSER_FIELD_GUIDANCE = `Use one action per call with its matching arguments. These examples are placeholders: replace targets, answers, options, URLs and document IDs with actual current values. Field refs identify controls; file_ids identify documents. For check, value="true" checks and value="false" unchecks. Examples:
+${BROWSER_ACTION_EXAMPLES.map(example => JSON.stringify(example)).join('\n')}`;
 
 /** Advice about the observed control only. Never supplies a candidate answer
  * or changes which operations the agent can execute. */

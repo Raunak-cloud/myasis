@@ -62,6 +62,11 @@ try {
         state.accepted++;
         return reply({ accepted: true, message: receipt });
       }
+      if (![`/apply/${fixture}`, '/apply/success'].includes(url.pathname)) return reply({ message: 'Not found' }, 404);
+      // A reload must retain the employer's actual state. Returning a new form
+      // for every guessed URL creates fake evidence that no send occurred.
+      if (state.accepted) return route.fulfill({ contentType: 'text/html', body: `<main><h1>Data Analyst at Fictional Employer</h1><p>${receipt}</p></main>` });
+      if (fixture === 'unconfirmed-success-url' && state.posts) return route.fulfill({ contentType: 'text/html', body: '<main><h1>Data Analyst at Fictional Employer</h1><p>Application for Alex Fixture.</p><p>Processing request. Receipt cannot be confirmed. Check later; do not send another application.</p></main>' });
       return route.fulfill({ contentType: 'text/html', body: html(fixture) });
     });
     const page = await context.newPage(), url = `https://submission.fixture.invalid/apply/${fixture}`;
@@ -114,7 +119,10 @@ try {
         assert.equal(state.accepted, 1);
         if (fixture === 'validation-recovery') assert.equal(state.saved.size, 2, 'Both required entries must be accepted by the employer fixture');
         assert.equal(final.status, 'applied');
-        assert.equal(final.receipt?.quote, receipt, 'Quote the complete actual receipt, not an invented summary');
+        const quote = String(final.receipt?.quote ?? '').replace(/\s+/g, ' ').trim();
+        const observed = (await page.locator('main').innerText()).replace(/\s+/g, ' ').trim();
+        assert.ok(quote.includes(receipt), 'The quote must include the complete actual receipt');
+        assert.ok(observed.includes(quote), 'Every quoted word must occur in the fresh employer page; its visible job heading is valid context');
         assert.equal(result.outcome.status, 'rehearsed');
       }
       results.push({ fixture, passed: true, finalStatus: final.status, posts: state.posts, accepted: state.accepted, savedEntries: state.saved.size,

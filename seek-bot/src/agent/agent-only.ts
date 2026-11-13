@@ -110,7 +110,8 @@ export const agentOnlyTools: ToolSchema[] = [
       ...browserTargetProperties, ...browserWaitProperties, value: string, sends_application: { type: 'boolean', description: 'Required on every click/press in Semi auto preparation: true transmits the application; false is preparatory.' },
     }, required: ['action'], ...browserCommandContract(batchActions) } },
   }, ['actions']),
-  schema('browser_action', `Operate the current page using current refs, selectors or locators, including the right iframe. ${BROWSER_FIELD_GUIDANCE} Click with action="click". Navigate uses value=URL; press uses value=key; select_page uses page_index. Read the page with action="take_snapshot"; add screenshot=true when useful. Scripts use script; waits need a target or URL condition. Mark sends_application=true when transmitting the application, false for other clicks. Inspect results after page changes.`, {
+  schema('browser_action', `Operate the current page using current refs, selectors or locators, including the right iframe. ${BROWSER_FIELD_GUIDANCE}
+Press uses value=key; select_page uses page_index. For take_snapshot, add screenshot=true when useful. Scripts use script; waits need a target or URL condition. Mark sends_application=true when transmitting the application, false for other clicks. Inspect results after page changes.`, {
     action: { type: 'string', enum: browserActions },
     file_ids: fileIdsProperty,
     replaces_file_ids: { type: 'array', maxItems: 10, items: { type: 'string', minLength: 1 }, description: 'For set_input_files only: exact previously uploaded IDs that you observed are replaced/removed by this upload or clear, including when a widget remounts. Native selection does not establish employer acceptance. Retired selections remain in recovery history.' },
@@ -144,7 +145,7 @@ export const agentOnlyTools: ToolSchema[] = [
   }, ['purpose', 'outcome', 'evidence']),
   schema('wait_for_verification', "Use the configured service for a visible security challenge, then inspect the page.", {}),
   investigationTool,
-  schema('wait_for_submission_result', "Wait up to ten seconds for the employer response without resending. Inspect the page afterwards.", {}),
+  schema('wait_for_submission_result', "Wait for the employer response to change, up to 30 seconds, without resending. Inspect the page afterwards. Waiting alone does not confirm submission.", {}),
   schema('finish', 'End this attempt from fresh employer evidence. Before applied, inspect the post-send response for this candidate and job; copy its complete confirmation into receipt.quote. Repair remaining form errors. Uncertain delivery uses error with reason="Submission unconfirmed: ..."; do not repeat an uncertain send. Closed/expired jobs use skipped; access or technical failures use error. Needs-human is only for a required unanswered personal question.', {
     status: { type: 'string', enum: ['applied', 'skipped', 'needs-human', 'already-applied', 'error'] },
     reason: string, evidence: string,
