@@ -60,8 +60,11 @@ export function toolInputIssue(value: unknown, schema: Record<string, unknown>, 
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const object = value as Record<string, unknown>, properties = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
     const missing = (schema.required as string[] | undefined)?.find(key => !(key in object));
-    if (missing) return `${path}.${missing} is required.`;
+    if (missing) return `${path}.${missing} is required.` + (missing === 'file_ids' && object.action === 'set_input_files'
+      ? ' Uploads need file_ids, an array of document IDs. To enter text instead, use action="fill" with value; to choose a dropdown option, use action="select" with value.' : '');
     const unknown = schema.type === 'object' ? Object.keys(object).filter(key => !properties[key]) : [];
+    if (unknown.includes('file_id') && object.action === 'set_input_files' && properties.file_ids)
+      return `${path}.file_id is not an upload argument. Use file_ids (plural), an array of document IDs. This tool call did not run.`;
     if (unknown.length) return `${path} contains undeclared properties: ${unknown.map(key => JSON.stringify(key)).join(', ')}. Allowed: ${Object.keys(properties).join(', ')}. This tool call did not run; remove the undeclared properties or use the documented structure.`;
     for (const [key, item] of Object.entries(object).filter(([key]) => properties[key])) {
       const issue = toolInputIssue(item, properties[key], `${path}.${key}`);

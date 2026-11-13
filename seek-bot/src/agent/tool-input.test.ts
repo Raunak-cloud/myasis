@@ -118,3 +118,20 @@ test('action-specific browser contracts require executable script, files and wai
   const batch = { type: 'array', items: schema };
   assert.match(toolInputIssue([{ action: 'click', ref: 'a0' }, { action: 'set_input_files', ref: 'f0' }], batch)!, /\$\[1\]\.file_ids is required/);
 });
+
+test('the failing upload calls explain plural document IDs and ordinary typing without rewriting arguments', () => {
+  const schema = { type: 'object', additionalProperties: false, properties: {
+    action: { type: 'string', enum: ['fill', 'select', 'set_input_files'] },
+    ...browserTargetProperties, value: { type: 'string' }, file_ids: { type: 'array', items: { type: 'string' } },
+  }, required: ['action'], ...browserCommandContract(['fill', 'select', 'set_input_files']) };
+  const wrong = { action: 'set_input_files', ref: 'f0', value: 'PRIVATE_CANDIDATE_CITY' };
+  const original = structuredClone(wrong);
+  const issue = toolInputIssue(wrong, schema)!;
+  assert.match(issue, /file_ids is required.*array of document IDs.*action="fill" with value/);
+  assert.doesNotMatch(issue, /PRIVATE_CANDIDATE_CITY/);
+  assert.deepEqual(wrong, original);
+  assert.equal(validToolInput(wrong, schema), false);
+  assert.match(toolInputIssue({ action: 'set_input_files', ref: 'f0', file_id: 'PRIVATE_DOCUMENT' }, schema)!, /file_id is not an upload argument.*file_ids \(plural\)/);
+  assert.equal(validToolInput({ action: 'fill', ref: 'f0', value: 'Sydney' }, schema), true);
+  assert.equal(validToolInput({ action: 'set_input_files', ref: 'f0', file_ids: ['cv'] }, schema), true);
+});

@@ -12,6 +12,7 @@ import { rememberPrivateAuthenticationValue, preparePrivateAuthenticationFields 
 import { VERIFICATION_PURPOSES, verificationSiteUrl, type VerificationPurpose } from '../verification-email-local.js';
 import { VerificationChoices } from './verification-choices.js';
 import { GMAIL_IO_TIMEOUT_MS } from '../gmail-mcp-client.js';
+import { ordinaryFieldGuidance } from './ordinary-field-guidance.js';
 
 // Private credential transport. Magnus chooses controls; native fill emits normal input events.
 const pendingSignIns = new WeakMap<ToolContext, SiteCredential & { purpose: CredentialPurpose }>();
@@ -261,7 +262,7 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
     `${filled.length} authentication field(s) completed${filled.length ? `: ${filled.join('; ')}` : ''}.` +
       (alreadyCorrect.length ? ` Already matched the requested candidate values: ${alreadyCorrect.join('; ')}. Those inputs were left unchanged; repeating this fill will not advance the form. Use refill=true only if you choose to trigger native input events for an uncommitted field.` : '') +
       (unsupported.length
-        ? ` This private login tool cannot complete these ordinary form controls: ${unsupported.map((entry) => entry.field.label).join('; ')}. Choose browser_action with action="set_input_files" and file_id for a file input, action="fill" and an evidence-supported value for a text input, or action="click" for a button. Use its actual observed ref or the locator you selected, never a private-native marker. For a cover-letter text field, add_cover_letter is also available. Repeating fill_authentication_fields on these controls will not complete them.`
+        ? ` These are ordinary application controls, not login fields. ${unsupported.map(({ field }) => ordinaryFieldGuidance(field)).join(' ')} Use their refs or locators from the current page.`
         : '') +
       (failed.length ? ` Re-observe and retry fields the site rejected: ${failed.join('; ')}` : '') +
       ` No button was clicked and no account acceptance was established. Inspect the current response and choose the next actual control. Visible enabled controls: ${JSON.stringify(ctx.observation.actions.filter(action => !action.disabled).map(action => action.text).slice(0, 12))}.` +

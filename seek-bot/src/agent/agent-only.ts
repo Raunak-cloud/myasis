@@ -55,6 +55,7 @@ import { addIndeedCoverLetter } from './indeed-cover-letter.js';
 import { jobBoardForUrl } from '../job-board-url.js';
 import { extractEmployerQuestions } from './question-evidence.js';
 import { browserCommandContract } from './browser-command-schema.js';
+import { BROWSER_FIELD_GUIDANCE } from './ordinary-field-guidance.js';
 import {isSnapshotOperation} from './browser-snapshot-command.js';
 import { RecoveryRecord, RecoveryRecordError, recoveryContextHash, type RecoveryWork } from './recovery-record.js';
 import { currentApplicationWorker } from '../application-workers.js';
@@ -109,7 +110,7 @@ export const agentOnlyTools: ToolSchema[] = [
       ...browserTargetProperties, ...browserWaitProperties, value: string, sends_application: { type: 'boolean', description: 'Required on every click/press in Semi auto preparation: true transmits the application; false is preparatory.' },
     }, required: ['action'], ...browserCommandContract(batchActions) } },
   }, ['actions']),
-  schema('browser_action', "Operate the current page. Click a visible control with action=click and its ref, selector or locator. Fill/type/select/check use value. Navigate uses value=URL; press uses value=key; select_page uses page_index. Upload uses action=set_input_files and file_ids. Read the page with action=take_snapshot; add screenshot=true when useful. Scripts use script; waits need a target or URL condition. Use current targets, including the right iframe. Mark sends_application=true when transmitting the application, false for other clicks. Inspect results after page changes.", {
+  schema('browser_action', `Operate the current page using current refs, selectors or locators, including the right iframe. ${BROWSER_FIELD_GUIDANCE} Click with action="click". Navigate uses value=URL; press uses value=key; select_page uses page_index. Read the page with action="take_snapshot"; add screenshot=true when useful. Scripts use script; waits need a target or URL condition. Mark sends_application=true when transmitting the application, false for other clicks. Inspect results after page changes.`, {
     action: { type: 'string', enum: browserActions },
     file_ids: fileIdsProperty,
     replaces_file_ids: { type: 'array', maxItems: 10, items: { type: 'string', minLength: 1 }, description: 'For set_input_files only: exact previously uploaded IDs that you observed are replaced/removed by this upload or clear, including when a widget remounts. Native selection does not establish employer acceptance. Retired selections remain in recovery history.' },
