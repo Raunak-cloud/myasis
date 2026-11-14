@@ -6,6 +6,7 @@ import type { JobListing } from '../../types.js';
 import { isExternal } from '../browser-boundaries.js';
 import type { AgentTermination } from '../context.js';
 import { currentAttempt, recordDiagnostic } from '../attempt-diagnostics.js';
+import { browserToolCall } from '../../../../shared/browser-tool-calls.mjs';
 
 // Audit records shared by the active application agent.
 
@@ -94,8 +95,11 @@ export function persistTrace(job: JobListing, outcome: AgentTermination, trace: 
     const host = hostOf(finalUrl);
     if (outcome.status === 'applied' && host && isExternal(finalUrl) && trace.length) {
       const hints = loadSiteHints();
-      const commands = trace.flatMap(step => step.tool === 'browser_batch' && Array.isArray(step.args.actions)
-        ? step.args.actions as Record<string, unknown>[] : step.tool === 'browser_action' ? [step.args] : []);
+      const commands = trace.flatMap(step => {
+        const operation = browserToolCall(step.tool, step.args);
+        return step.tool === 'browser_batch' && Array.isArray(step.args.actions)
+          ? step.args.actions as Record<string, unknown>[] : operation.name === 'browser_action' ? [operation.args] : [];
+      });
       // Store only interaction types and explicit locators, never answer values,
       // private credentials, scripts or transient observation refs.
       hints[host] = { steps: commands.filter(command => (command.locator || command.selector)

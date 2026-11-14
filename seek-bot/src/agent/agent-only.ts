@@ -55,6 +55,7 @@ import { addIndeedCoverLetter } from './indeed-cover-letter.js';
 import { jobBoardForUrl } from '../job-board-url.js';
 import { extractEmployerQuestions } from './question-evidence.js';
 import { browserCommandContract } from './browser-command-schema.js';
+import { browserToolCall, splitBrowserTools } from './browser-tools.js';
 import { BROWSER_FIELD_GUIDANCE } from './ordinary-field-guidance.js';
 import {isSnapshotOperation} from './browser-snapshot-command.js';
 import { RecoveryRecord, RecoveryRecordError, recoveryContextHash, type RecoveryWork } from './recovery-record.js';
@@ -85,10 +86,10 @@ const schema = (name: string, description: string, properties: Record<string, un
 });
 
 /** The sole application tool surface. The agent owns answers and receipt decisions. */
-export const agentOnlyTools: ToolSchema[] = [
+const applicationToolDefinitions: ToolSchema[] = [
   helperBuilderTool,
   applicationReviewTool,
-  schema('add_cover_letter', "Indeed only: attach your supplied letter through Supporting documents. For other sites use browser_action.", { text: { type: 'string', minLength: 1 } }, ['text']),
+  schema('add_cover_letter', "Indeed only: attach your supplied letter through Supporting documents. For other sites use browser_fill or browser_upload.", { text: { type: 'string', minLength: 1 } }, ['text']),
   schema('prepare_application', "Semi auto: save the completed form for confirmation. Supply resume_id, exact answers (or [] to retain captured answers), and attached letter/supporting file IDs. Does not submit.", {
     resume_id: string, cover_letter: string,
     cover_letter_file_id: { type: 'string', minLength: 1, description: 'Exact file_id of the attached cover letter. Its authoritative source text and bytes are retained without retranscription.' },
@@ -101,7 +102,7 @@ export const agentOnlyTools: ToolSchema[] = [
     to: string, subject: string, cover_letter: string, resume_id: string,
     attach_cover_letter: { type: 'boolean', description: 'Also attach the approved letter as a text document if requested. The letter is always included in the email body.' },
   }, ['to', 'subject', 'cover_letter', 'resume_id']),
-  schema('browser_batch', "Run observed browser actions in order using browser_action arguments. Stops on an error or page handoff; inspect the results before continuing.", {
+  schema('browser_batch', "Run observed browser actions in order. Each item needs action (click, fill, set_input_files, etc.) and its matching arguments. Stops on an error or page handoff; inspect results before continuing.", {
     actions: { type: 'array', minItems: 1, maxItems: MAX_BROWSER_BATCH, items: { type: 'object', additionalProperties: false, properties: {
       action: { type: 'string', enum: batchActions },
       file_ids: fileIdsProperty, replaces_file_ids: { type: 'array', maxItems: 10, items: { type: 'string', minLength: 1 }, description: 'For set_input_files only: exact previously uploaded IDs that you observed are replaced/removed by this upload or clear, including when a widget remounts. Never infer replacement from a filename or DOM position.' }, file_chooser: { type: 'boolean' },
@@ -166,6 +167,8 @@ Press uses value=key; select_page uses page_index. For take_snapshot, add screen
     {properties:{status:{enum:['applied','skipped','already-applied','error']}}},
   ]}),
 ];
+
+export const agentOnlyTools = applicationToolDefinitions.flatMap(tool => splitBrowserTools(tool));
 
 export { AGENT_ONLY_PROMPT } from './application-policy.js';
 
@@ -241,7 +244,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
   // retain their explicit-confirmation path in both modes.
   const preparationBrowserActions=browserActions.filter(action=>action!=='script');
   const preparationBatchActions=batchActions.filter(action=>action!=='script');
-  const offeredTools = preparingApplications() ? agentOnlyTools.map(tool=>{
+  const modeTools = preparingApplications() ? applicationToolDefinitions.map(tool=>{
     const properties=tool.parameters.properties as Record<string,Record<string,unknown>>;
     const targetMode={...browserTargetProperties.target_mode,enum:browserTargetProperties.target_mode.enum.filter(mode=>mode!=='coordinates')};
     if(tool.name==='browser_action')return {...tool,description:'CURRENT MODE: Semi-auto preparation. Use native actions; scripts, coordinate clicks and accepting dialogs are unavailable. '+tool.description.replace('Scripts use script; ','').replace(/action=script needs script containing your complete code; /g,'').replace(/Script accepts a browser-side function or async JavaScript body with return, never Node code\./g,''),parameters:{...tool.parameters,properties:{...properties,action:{...properties.action,enum:preparationBrowserActions},target_mode:targetMode},...browserCommandContract(preparationBrowserActions,true)}};
@@ -249,8 +252,12 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     const command=properties.actions.items as Record<string,unknown>;
     return {...tool,description:'CURRENT MODE: Semi-auto preparation. Native actions only; scripts are unavailable. Use inspect/take_snapshot for page evidence. '+tool.description.replace('browser scripts and ','').replace('Scripts follow the same contract and permissions as browser_action. ',''),parameters:{...tool.parameters,properties:{...properties,actions:{...properties.actions,
       items:{...command,properties:{...(command.properties as Record<string,unknown>),action:{...((command.properties as Record<string,unknown>).action as Record<string,unknown>),enum:preparationBatchActions},target_mode:targetMode},...browserCommandContract(preparationBatchActions,true)}}}}};
-  }) : agentOnlyTools.filter(tool => reviewingApplications() || tool.name !== 'prepare_application');
-  const helpers=options.continuation?.helpers??new ApplicationHelpers(offeredTools);
+  }) : applicationToolDefinitions.filter(tool => reviewingApplications() || tool.name !== 'prepare_application');
+  const offeredTools = modeTools.flatMap(tool => splitBrowserTools(tool, preparingApplications()));
+  // Older saved recipes and in-flight transcripts retain their command format.
+  // It is not advertised as a second way to perform the dedicated operations.
+  const legacyBrowserTool = modeTools.find(tool => tool.name === 'browser_action')!;
+  const helpers=options.continuation?.helpers??new ApplicationHelpers([...offeredTools.filter(tool => tool.name !== 'browser_action'), legacyBrowserTool]);
   if (retiredJobSource(options.job)) return { outcome: { status: 'skipped', reason: RETIRED_SOURCE_MESSAGE }, captured: [], actions: [], submitPressed: false, steps: 0, usage: 'No model calls: job source removed.' };
 
   const isolated = options.simulation === 'isolated-form';
@@ -449,7 +456,8 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         if(browserEffectEpoch>effectBefore)shared.openUncertainty('operation',`${name}:${primitive}`,'A helper primitive raised an execution error after browser work started. Inspect actual employer state before retrying; completed operations must not be replayed.');
         throw error;
       }
-      if(result.kind==='ok'&&!failedToolResult(result)&&primitive==='browser_action'&&changesBrowserState(input)){
+      const operation=browserToolCall(primitive,input);
+      if(result.kind==='ok'&&!failedToolResult(result)&&operation.name==='browser_action'&&changesBrowserState(operation.args)){
         browserMutated=true;
       }
       if(failedToolResult(result))recordDiagnostic({severity:'warning',category:'helper_operation_error',stage:'tool',tool:primitive,message:result.kind==='ok'?result.message:'Helper failed.'});
@@ -663,7 +671,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       const file=await files.createApprovedLetter(String(args.name), args.format as DocumentFormat);
       const selected=files.checkpointUploads().some(upload=>upload.files.some(item=>item.id===file.file_id));
       return ok(JSON.stringify({...file,role:'cover-letter',uploadable:true,native_upload_recorded:selected,
-        next_step:selected?'Inspect employer acceptance of the selected file; rendering is not an employer receipt.':`Creating this file did not attach it. Choose the actual cover-letter upload control from the current page, then use browser_action action=set_input_files with file_ids=${JSON.stringify([file.file_id])}. Inspect employer acceptance before preparing. The resume has a different file_id.`}));
+        next_step:selected?'Inspect employer acceptance of the selected file; rendering is not an employer receipt.':`Creating this file did not attach it. Choose the actual cover-letter upload control from the current page, then use browser_upload with file_ids=${JSON.stringify([file.file_id])}. Inspect employer acceptance before preparing. The resume has a different file_id.`}));
     }
     if (name === 'convert_file') return ok(JSON.stringify(await files.convert(String(args.file_id), args.format as DocumentFormat)));
     if (name === 'combine_approved_documents') {
@@ -866,6 +874,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
   // Condition-based browser operations always return control to the agent.
   const act = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
     assertBrowserOperationActive();
+    ({ name, args } = browserToolCall(name, args));
     // Each batch command already runs through act(). Its finite action count
     // bounds the total; later commands receive their own 30-second allowance.
     // Failed commands still stop the batch and retain completed results.
@@ -1032,6 +1041,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       let interruptionNote = 'Not run: the prior action failed, finished or exhausted the resource budget.';
       let planActions = 0;
       for (const call of reply.toolCalls) {
+        const operation = browserToolCall(call.name, call.args);
         const traceStep: TraceStep = { step: steps, url: ctx.page.url(), tool: call.name, args: call.args,
           label: `${call.name} ${String(call.args.action ?? '')}`, startedAt: new Date().toISOString(),
           // Keep the decision image. A successful terminal record below gets
@@ -1071,21 +1081,21 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
           planActions++;
           try {
             if (!tool) throw new Error('Unknown tool. Use the currently offered tools.');
-            const issue = toolInputIssue(call.args, tool.parameters);
+            const issue = toolInputIssue(call.args, call.name === 'browser_action' ? legacyBrowserTool.parameters : tool.parameters);
             if (issue) throw new Error(`Invalid tool input: ${issue}`);
             failureKind='execution';
             operationMayMutate=helpers.has(call.name)||['fill_authentication_fields','enter_emailed_code','open_emailed_link','add_cover_letter','wait_for_verification'].includes(call.name)
-                || call.name==='browser_action'&&call.args.action==='script'
-                || call.name==='browser_action'&&changesBrowserState(call.args)
+                || operation.name==='browser_action'&&operation.args.action==='script'
+                || operation.name==='browser_action'&&changesBrowserState(operation.args)
                 || call.name==='browser_batch'&&Array.isArray(call.args.actions)&&call.args.actions.some(changesBrowserState);
-            operationId = shared.begin(call.name, typeof call.args.action==='string'?call.args.action:undefined,operationMayMutate);
+            operationId = shared.begin(call.name, typeof operation.args.action==='string'?operation.args.action:undefined,operationMayMutate);
             dispatchStarted=true;
             turnCoordinator.executed(call.name);
             result = await act(call.name, call.args);
             failureKind='validation';
             if (result.kind === 'ok' && result.disposition!=='uncertain' && !readiness.requested && !failedToolResult(result) && (call.name === 'browser_batch' && Array.isArray(call.args.actions) && call.args.actions.some(changesBrowserState)
               || ['fill_authentication_fields', 'enter_emailed_code', 'open_emailed_link'].includes(call.name)
-              || call.name === 'browser_action' && changesBrowserState(call.args))) browserMutated = true;
+              || operation.name === 'browser_action' && changesBrowserState(operation.args))) browserMutated = true;
             ownedPages.add(ctx.page);
           } catch (error) {
             if (error instanceof RecoveryRecordError) throw error;
@@ -1098,7 +1108,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
               ? ok(error.message, 'reobserve')
               : error instanceof BrowserTargetInputError ? ok(error.message,'invalid-arguments')
               : failureKind==='arguments' ? ok(`Browser/tool error: ${(error as Error).message}`,'invalid-arguments')
-              : ok(`Browser/tool error: ${(error as Error).message}${call.name === 'browser_action' ? await browserFailureEvidence(ctx.page, call.args).catch(() => '') : ''}`, 'failed');
+              : ok(`Browser/tool error: ${(error as Error).message}${operation.name === 'browser_action' ? await browserFailureEvidence(ctx.page, operation.args).catch(() => '') : ''}`, 'failed');
           }
         }
         if (result.kind === 'terminal' && (result.outcome.status === 'applied' || result.outcome.status === 'prepared'
@@ -1112,7 +1122,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         const text = result.kind === 'ok' ? result.message : JSON.stringify(result.outcome);
         const disposition = result.kind === 'ok' ? result.disposition : 'terminal';
         if(result.kind==='ok'&&failedToolResult(result)&&dispatchStarted&&browserEffectEpoch>effectBefore&&diagnosticError)
-          shared.openUncertainty('operation',`${call.name}:${String(call.args.action??'')}`,`The ${call.name} operation returned an execution error. Its actual effect must be investigated from fresh readback before retrying; an error alone is not proof that nothing happened.`);
+          shared.openUncertainty('operation',`${call.name}:${String(operation.args.action??'')}`,`The ${call.name} operation returned an execution error. Its actual effect must be investigated from fresh readback before retrying; an error alone is not proof that nothing happened.`);
         if (operationId) shared.complete(operationId, text, disposition??'completed', recoveryWork(), Boolean(ctx.submissionAttempted), recoveryControls());
         recordToolDiagnostic(steps, call.name, text, disposition, diagnosticError, failureKind);
         messages.push({ role: 'tool', tool_call_id: call.id, content: text });

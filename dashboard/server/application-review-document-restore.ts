@@ -1,5 +1,6 @@
 /// <reference path="../../seek-bot/src/shims.d.ts" />
 import {randomUUID,createHash} from 'node:crypto';
+import { browserToolCall } from '../../shared/browser-tool-calls.mjs';
 import {existsSync,lstatSync,readFileSync,realpathSync} from 'node:fs';
 import {basename,isAbsolute,relative,resolve,sep} from 'node:path';
 import {getPool} from './db/index.js';
@@ -44,7 +45,8 @@ function nativeProof(trace:Record<string,any>,fileId:string,name:string):{step:n
   let proof:{step:number;nativeUploadCompletedAt:string;nativeReadback:'confirmed'|'unavailable'}|undefined;
   for(const step of trace.steps){
     if(step.execution==='not-started'||step.disposition==='not-executed')continue;
-    const commands=step.tool==='browser_batch'?step.args?.actions:step.tool==='browser_action'?[step.args]:[];
+    const operation=browserToolCall(step.tool,step.args??{});
+    const commands=step.tool==='browser_batch'?step.args?.actions:operation.name==='browser_action'?[operation.args]:[];
     if(!Array.isArray(commands))continue;
     if(commands.some((command:any)=>command?.sends_application===true))throw new ApplicationReviewError('The source attempt contains an application-send action.');
     if(step.execution!=='started'||!step.completedAt)continue;

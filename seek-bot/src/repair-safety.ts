@@ -1,3 +1,5 @@
+import { browserToolCall } from '../../shared/browser-tool-calls.mjs';
+
 export function traceProvesNoSend(trace: Record<string, any>, runId: string, attemptId: string): boolean {
   if (String(trace.runStartId) !== runId || trace.attemptId !== attemptId || trace.outcome?.status !== 'skipped'
     || trace.sendAudit?.attempted !== false || !Array.isArray(trace.steps)) return false;
@@ -6,7 +8,8 @@ export function traceProvesNoSend(trace: Record<string, any>, runId: string, att
     if (!step.completedAt) return false;
     if (step.disposition === 'not-executed') continue;
     if (step.execution === 'not-started') continue;
-    const commands = step.tool === 'browser_batch' ? step.args?.actions : step.tool === 'browser_action' ? [step.args] : [];
+    const operation = browserToolCall(step.tool, step.args ?? {});
+    const commands = step.tool === 'browser_batch' ? step.args?.actions : operation.name === 'browser_action' ? [operation.args] : [];
     if (!Array.isArray(commands)) return false;
     for (const command of commands) {
       if (!command || command.sends_application === true || ['script','press','mouse_click'].includes(command.action))return false;

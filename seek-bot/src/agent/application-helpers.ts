@@ -12,6 +12,7 @@ import {browserTarget} from './browser-target.js';
 import {nativeInspect,nativeReadback,evaluateBrowser,waitAfterAction,nativeScroll} from './native-browser.js';
 import {observe} from './observe.js';
 import {toolInputIssue} from './tool-input.js';
+import {browserToolCall,namedBrowserToolCall} from './browser-tools.js';
 
 type ObjectValue=Record<string,unknown>;
 export interface HelperDefinition {
@@ -23,7 +24,7 @@ type Prepared={definition:HelperDefinition;schema:ToolSchema;digest:string};
 type Pending={name:string;next:number;results:unknown[]};
 type Executor=(name:string,args:ObjectValue)=>Promise<ToolResult>;
 const forbiddenKeys=new Set(['__proto__','constructor','prototype']);
-const allowedTools=new Set(['browser_action','create_file','convert_file']);
+const allowedTools=new Set(['browser_fill','browser_click','browser_upload','browser_action','create_file','convert_file']);
 const allowedActions=new Set(['fill','type','click','check','select','press','inspect','script','wait','hover','scroll','set_input_files']);
 const objectSchema={type:'object',additionalProperties:true};
 const inputSchema={type:'object',additionalProperties:false,properties:{type:{type:'string',enum:['object']},properties:objectSchema,required:{type:'array',maxItems:30,items:{type:'string',maxLength:100}},additionalProperties:{type:'boolean',enum:[false]}},required:['properties']};
@@ -35,7 +36,7 @@ export const helperRecipeExample={name:'join_document',description:'Create one t
  tests:[{html:'<main>Isolated document fixture</main>',input:{first:'Letter',second:'CV'},assertions:[{step:0,path:'name',equals:'Combined.txt'},{step:0,path:'bytes',equals:10}]}]};
 export const helperBrowserRecipeExample={name:'fill_field',description:'Fill one supplied current field and read its actual saved value.',
  parameters:{properties:{selector:{type:'string'},value:{type:'string'}},required:['selector','value']},
- steps:[{tool:'browser_action',args:{action:'fill',selector:{$input:'selector'},value:{$input:'value'}}},
+ steps:[{tool:'browser_fill',args:{selector:{$input:'selector'},value:{$input:'value'}}},
    {tool:'browser_action',args:{action:'inspect',selector:{$input:'selector'}}}],
  tests:[{html:'<label>Example<input id=example></label>',input:{selector:'#example',value:'Dummy'},
    assertions:[{step:0,path:'current.value',equals:'Dummy'},{step:1,path:'value',equals:'Dummy'}]}]};
@@ -77,7 +78,7 @@ function parameterSchema(schema:unknown,depth=0):void{
   if(s.enum!==undefined&&(!Array.isArray(s.enum)||s.enum.length>50||s.enum.some(v=>v!==null&&!['string','number','boolean'].includes(typeof v))))throw Error('Use small scalar parameter enums.');
 }
 const helperDefinitionTool:ToolSchema={name:'test_application_helper',description:
-  'Build a temporary helper from browser_action/create_file/convert_file steps. No authentication, host code or submission. Templates: {$input:"field"}, {$result:"0.field"}, {$concat:[...]}, {$json:template}. Supply dummy HTML/input tests and expected step results. Only passing helpers become callable; inspect their live results. Example: '+JSON.stringify(helperBrowserRecipeExample),
+  'Build a temporary helper from browser_fill/browser_click/browser_upload/browser_action/create_file/convert_file steps. No authentication, host code or submission. Templates: {$input:"field"}, {$result:"0.field"}, {$concat:[...]}, {$json:template}. Supply dummy HTML/input tests and expected step results. Only passing helpers become callable; inspect their live results. Example: '+JSON.stringify(helperBrowserRecipeExample),
   parameters:{type:'object',additionalProperties:false,properties:{
     name:{type:'string',pattern:'^[a-z][a-z0-9_]{1,38}$'},description:{type:'string',minLength:10,maxLength:1200},parameters:{...inputSchema,description:'Input schema example: {"properties":{"letter":{"type":"string"},"resume":{"type":"string"}},"required":["letter","resume"]}. Object type and closed properties are applied automatically. String maxLength defaults to 40000, array maxItems to 32; smaller bounds are welcome. Only typed properties, required, enums and scalar size/range constraints. No patterns or refs.'},
     steps:{type:'array',minItems:1,maxItems:12,items:{type:'object',additionalProperties:false,properties:{tool:{type:'string',enum:[...allowedTools]},args:objectSchema},required:['tool','args']}},
@@ -137,9 +138,11 @@ export class ApplicationHelpers {
     if(!allowedTools.has(step.tool))throw Error('Helpers may only compose the advertised browser and document primitives.');
     const args=expand(step.args,input,results) as ObjectValue;
     if(JSON.stringify(args).length>100000)throw Error('Expanded helper arguments are too large.');
-    if(step.tool==='browser_action'&&(!allowedActions.has(String(args.action))||args.sends_application===true||args.target_mode==='coordinates'))throw Error('A helper must prepare or inspect, never submit, accept dialogs or change browser ownership.');
-    const schema=this.base.find(t=>t.name===step.tool);if(!schema)throw Error('Helper primitive unavailable in this mode.');
-    const issue=toolInputIssue(args,schema.parameters);if(issue)throw Error(`${step.tool}: ${issue}`);
+    const operation=browserToolCall(step.tool,args);
+    if(operation.name==='browser_action'&&(!allowedActions.has(String(operation.args.action))||args.sends_application===true||args.target_mode==='coordinates'))throw Error('A helper must prepare or inspect, never submit, accept dialogs or change browser ownership.');
+    const named=namedBrowserToolCall(step.tool,args);
+    const schema=this.base.find(t=>t.name===named.name)??this.base.find(t=>t.name===step.tool);if(!schema)throw Error('Helper primitive unavailable in this mode.');
+    const issue=toolInputIssue(schema.name===named.name?named.args:args,schema.parameters);if(issue)throw Error(`${step.tool}: ${issue}`);
     return {name:step.tool,args};
   }
   async test(raw:unknown):Promise<ObjectValue>{
@@ -244,6 +247,7 @@ export class ApplicationHelpers {
 /** Same native primitives on synthetic inputs only; no candidate profile,
  * authentication connection, approval or live browser executor is available. */
 async function testPrimitive(page:Page,files:AgentFiles,name:string,args:ObjectValue):Promise<unknown>{
+  ({name,args}=browserToolCall(name,args));
   if(name==='create_file')return files.create(String(args.name),String(args.text),args.format as never);
   if(name==='convert_file')return files.convert(String(args.file_id),args.format as never);
   if(args.action==='script')return evaluateBrowser(page,args);

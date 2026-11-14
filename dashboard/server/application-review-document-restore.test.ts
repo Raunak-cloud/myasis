@@ -39,7 +39,7 @@ async function fixture(options:{coverLetter?:string;status?:string;credit?:boole
   journal.push(JSON.stringify({ts:preparedAt,status:'prepared',draft:original}));writeFileSync(resolve(directory,'run-log.jsonl'),journal.join('\n')+'\n');
   const completedAt=new Date(Date.parse(preparedAt)-1000).toISOString();
   const trace={runStartId:'1',attemptId,jobId:job,job:original.job,startedAt:new Date(Date.parse(preparedAt)-5000).toISOString(),savedAt:preparedAt,
-    outcome:{status:'prepared',draft:original},sendAudit:{attempted:false},steps:[{step:1,tool:'browser_action',args:{action:'set_input_files',file_ids:['supporting:1']},
+    outcome:{status:'prepared',draft:original},sendAudit:{attempted:false},steps:[{step:1,tool:number%2===0?'browser_upload':'browser_action',args:{...number%2===0?{}:{action:'set_input_files'},file_ids:['supporting:1']},
       execution:'started',completedAt,result:JSON.stringify({action:'set_input_files',file_ids:['supporting:1'],current:options.nullReadback?null:{files:[filename],invalid:false,validation:''}})}]};
   const tracePath=resolve(directory,'traces',`attempt-${attemptId}.json`);writeFileSync(tracePath,JSON.stringify(trace));
   const hold=await holdApplicationReview(actor,owner,{id:original.id,revision:original.revision},'Investigate missing metadata.','1');

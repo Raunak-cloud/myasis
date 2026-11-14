@@ -17,7 +17,7 @@ const cachedVerification = {
 
 const AUTHENTICATION_TOOL: ToolSchema = {
     name: 'fill_authentication_fields',
-    description: "Fill private credentials on login, registration or password-reset forms. Ordinary application answers such as name, city and country use browser_action fill/select with value. Supply the current authentication field numbers in refs, or targets when refs are unavailable. Check the saved employer account first. For a new password supply the site's password_rules. Click Continue/Sign in with browser_action, then record_authentication_result.",
+    description: "Fill private credentials on login, registration or password-reset forms. Ordinary application answers use browser_fill, or browser_action select for dropdowns. Supply current authentication field numbers in refs, or targets when refs are unavailable. Check the saved employer account first. For a new password supply password_rules. Click Continue/Sign in with browser_click, then record_authentication_result.",
   parameters: {
       type: 'object',
       properties: {

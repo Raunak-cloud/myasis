@@ -1,4 +1,5 @@
 import {readFileSync,lstatSync,realpathSync} from 'node:fs';
+import { browserToolCall } from '../../shared/browser-tool-calls.mjs';
 import {resolve} from 'node:path';
 import {createHash} from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';
@@ -24,14 +25,15 @@ export function approvedRepairProof(trace:any,state:any,revision:string):boolean
   if(step.execution==='not-started'||step.disposition==='not-executed')continue;
   if(step.tool==='send_email_application')return false;
   if(String(step.tool).startsWith('helper_'))return false;
-  const commands=step.tool==='browser_batch'?step.args?.actions:step.tool==='browser_action'?[step.args]:[];
+  const operation=browserToolCall(step.tool,step.args??{});
+  const commands=step.tool==='browser_batch'?step.args?.actions:operation.name==='browser_action'?[operation.args]:[];
   if(!Array.isArray(commands))return false;
   for(const c of commands){
    if(!c||['script','press','mouse_click'].includes(c.action))return false;
    if(c.target_mode!==undefined&&!['ref','selector','locator','page'].includes(c.target_mode))return false;
    if(c.action!=='scroll'&&c.target_mode===undefined&&(c.x!==undefined||c.y!==undefined))return false;
    if(c.sends_application===true){
-    const refusal=step.tool==='browser_action'&&['failed','reobserve'].includes(step.disposition)
+    const refusal=operation.name==='browser_action'&&['failed','reobserve'].includes(step.disposition)
      && ['Before this send, review actual saved answers, documents and vacancy with candidate sources using record_application_review. No send was attempted or queued.',
       'Inspect the selected resume and call prepare_application with its account resume ID, complete answers and cover letter before the final send.'].some(prefix=>String(step.result).startsWith(prefix));
     if(!refusal)return false;

@@ -24,6 +24,18 @@ const filler:HelperDefinition={name:'fill_and_verify',description:'Fill one curr
  steps:[{tool:'browser_action',args:{action:'fill',selector:{$input:'target'},value:{$input:'value'}}},{tool:'browser_action',args:{action:'inspect',selector:{$input:'target'}}}],
  tests:[{html:'<label>Duplicate name<input id=other></label><label>Actual name<input id=name oninput="window.events=(window.events||0)+1"></label>',input:{target:'#name',value:'Synthetic applicant'},assertions:[{step:1,path:'value',equals:'Synthetic applicant'}]}]};
 
+test('temporary helpers compose named upload and click tools with normal document IDs',async()=>{
+ const helpers=new ApplicationHelpers(agentOnlyTools);
+ const definition:HelperDefinition={name:'attach_and_continue',description:'Create a supplied text document, attach its original bytes and continue.',
+  parameters:{properties:{text:{type:'string'}},required:['text']},
+  steps:[{tool:'create_file',args:{name:'Fixture.txt',text:{$input:'text'},format:'txt'}},
+   {tool:'browser_upload',args:{selector:'#document',file_ids:[{$result:'0.file_id'}]}},
+   {tool:'browser_click',args:{selector:'#next',sends_application:false}}],
+  tests:[{html:'<input id=document type=file><button id=next onclick="this.textContent=\'Continued\'">Continue</button>',input:{text:'Dummy fixture text'},
+   assertions:[{step:1,path:'current.files.0',equals:'Fixture.txt'},{step:2,path:'current.text',equals:'Continued'}]}]};
+ assert.equal((await helpers.test(definition)).status,'fixture-tested');
+});
+
 test('helpers publish only after actual native fixture assertions; bad contracts and failed tests expose no tool',async()=>{
  const helpers=new ApplicationHelpers(agentOnlyTools);
  const published=await helpers.test(filler);assert.equal(published.status,'fixture-tested');assert.equal(helpers.schemas().length,1);

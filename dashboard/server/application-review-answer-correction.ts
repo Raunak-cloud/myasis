@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import { browserToolCall } from '../../shared/browser-tool-calls.mjs';
 import {lstatSync,readFileSync,realpathSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {getPool} from './db/index.js';
@@ -58,7 +59,8 @@ function preparedNoSend(trace:any,start:number,end:number):boolean {
     if(!step||!Number.isFinite(Date.parse(step.completedAt))||Date.parse(step.completedAt)<start||Date.parse(step.completedAt)>end)return false;
     if(step.execution==='not-started'||step.disposition==='not-executed')continue;
     if(step.execution!=='started'||step.tool==='send_email_application'||step.tool==='finish'&&step.args?.status==='applied')return false;
-    const commands=step.tool==='browser_batch'?step.args?.actions:step.tool==='browser_action'?[step.args]:[];
+    const operation=browserToolCall(step.tool,step.args??{});
+    const commands=step.tool==='browser_batch'?step.args?.actions:operation.name==='browser_action'?[operation.args]:[];
     if(!Array.isArray(commands))return false;
     for(const command of commands){
       if(!command||command.sends_application===true||command.action==='mouse_click'

@@ -40,7 +40,7 @@ async function fixture(answer='I prepared accurate reports using Excel and Ficti
   const completedAt=new Date(Date.parse(preparedAt)-1000).toISOString();
   const trace:any={runStartId:'1',attemptId,jobId:job,job:original.job,mode:'prepare',startedAt:new Date(Date.parse(preparedAt)-5000).toISOString(),savedAt:preparedAt,
     outcome:{status:'prepared',draft:original},sendAudit:{attempted:false},steps:[
-      {step:1,tool:'browser_action',args:{action:'fill'},execution:'started',completedAt},
+      {step:1,tool:number%2===0?'browser_fill':'browser_action',args:number%2===0?{ref:'f0',value:answer}:{action:'fill'},execution:'started',completedAt},
       {step:2,tool:'browser_action',args:{action:'press',sends_application:false},execution:'started',completedAt},
       {step:3,tool:'browser_action',args:{action:'script',script_intent:'inspect'},execution:'started',completedAt},
       {step:4,tool:'browser_action',args:{action:'invalid-argument'},execution:'not-started',completedAt},

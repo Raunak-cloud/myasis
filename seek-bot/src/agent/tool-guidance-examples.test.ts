@@ -5,6 +5,7 @@ import { authenticationTools, EMAILED_CODE_EXAMPLES } from './auth-tools.js';
 import { BROWSER_ACTION_EXAMPLES } from './ordinary-field-guidance.js';
 import { minimaxToolSchema, minimaxToolArguments } from './provider-tool-schema.js';
 import { validToolInput, toolInputIssue } from './tool-input.js';
+import { namedBrowserToolCall } from './browser-tools.js';
 
 test('all advertised browser examples are executable contracts for both providers and applicable batches', () => {
   const browser = agentOnlyTools.find(tool => tool.name === 'browser_action')!;
@@ -12,10 +13,11 @@ test('all advertised browser examples are executable contracts for both provider
   const batchItems = ((batch.parameters.properties as Record<string, Record<string, unknown>>).actions.items as Record<string, unknown>);
   const batchActions = ((batchItems.properties as Record<string, Record<string, unknown>>).action.enum as string[]);
   for (const example of BROWSER_ACTION_EXAMPLES) {
-    assert.ok(browser.description.includes(JSON.stringify(example)), 'The tested example must be the one the model sees');
-    assert.equal(validToolInput(example, browser.parameters), true, toolInputIssue(example, browser.parameters) ?? '');
-    assert.equal(validToolInput(example, minimaxToolSchema(browser).parameters), true);
-    assert.deepEqual(minimaxToolArguments(browser, structuredClone(example)), example, 'Examples need no argument coercion');
+    const call = namedBrowserToolCall('browser_action', { ...example });
+    const tool = agentOnlyTools.find(tool => tool.name === call.name)!;
+    assert.equal(validToolInput(call.args, tool.parameters), true, toolInputIssue(call.args, tool.parameters) ?? '');
+    assert.equal(validToolInput(call.args, minimaxToolSchema(tool).parameters), true);
+    assert.deepEqual(minimaxToolArguments(tool, structuredClone(call.args)), call.args, 'Examples need no argument coercion');
     if (batchActions.includes(example.action)) assert.equal(validToolInput({ actions: [example] }, batch.parameters), true);
   }
   for (const incomplete of [

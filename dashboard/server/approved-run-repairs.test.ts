@@ -5,6 +5,17 @@ const revision='a'.repeat(64);
 const fixture=()=>({trace:{jobId:'12345678',runStartId:'42',mode:'approved',job:{url:'https://fixture.invalid/job/12345678'},outcome:{status:'skipped'},
  sendAudit:{attempted:false,approvedRevision:revision},steps:[{completedAt:'now',execution:'started',tool:'browser_action',args:{action:'click',sends_application:false},disposition:'completed'}]},
  state:{status:'finished',submissionAttempted:false,pending:null,scope:{runId:'42',jobId:'12345678',mode:'approved'}}});
+
+test('named browser tools retain the same no-send decisions as their original commands',()=>{
+ const f=fixture(),step=f.trace.steps[0];
+ for(const tool of ['browser_click','browser_fill','browser_upload']){
+  assert.equal(approvedRepairProof({...f.trace,steps:[{...step,tool,args:{ref:'a1',sends_application:false}}]},f.state,revision),true);
+  assert.equal(approvedRepairProof({...f.trace,steps:[{...step,tool,args:{ref:'a1',sends_application:true}}]},f.state,revision),false);
+ }
+ assert.equal(approvedRepairProof({...f.trace,steps:[{...step,tool:'browser_click',args:{ref:'a1'}}]},f.state,revision),false);
+ for(const url of [f.trace.job.url,'https://fixture.invalid/other'])
+  assert.equal(approvedRepairProof({...f.trace,steps:[{...step,tool:'browser_navigate',args:{url}}]},f.state,revision),url===f.trace.job.url);
+});
 test('only the exact approved revision with a finished durable no-send record can be selected',()=>{
  const f=fixture();assert.equal(approvedRepairProof(f.trace,f.state,revision),true);
  assert.equal(approvedRepairProof(f.trace,f.state,'b'.repeat(64)),false);
