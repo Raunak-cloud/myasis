@@ -1073,32 +1073,16 @@ async function main() {
       }
     };
 
-    /**
-     * Jobs the board hosts itself go first; the employer's own site is the
-     * fallback for when those run out.
-     *
-     * Not a quality judgement — a hosted application is simply a far better
-     * bet. It is one short known flow, it costs a fraction as much to complete,
-     * and the resume and profile are already attached. External sites are every
-     * vendor's form at once: longer, slower, and where every failed application
-     * in this run came from. With a run cap in play, spending it on hosted
-     * listings first means more applications actually land.
-     */
+    /** Prefer ready hosted applications, then the candidate's source and fit. */
     const preference = (a: (typeof candidates)[number], b: (typeof candidates)[number]) => {
       const hosted = hostedFirst(a.job) - hostedFirst(b.job);
       if (hosted) return hosted;
       const sourcePriority = Number(b.job.source === 'recommended') - Number(a.job.source === 'recommended');
       return sourcePriority || b.score - a.score;
     };
-    /** Prefer SEEK/Indeed hosted applications. Employer forms wait only for
-     * those boards' promising work, never for every employer-feed review. */
-    const bestCandidate = (accept: (job: JobListing) => boolean = () => true) => {
-      const best = candidates.filter((c) => accept(c.job) && !stoppedPlatform(c.job.platform ?? 'seek')).sort(preference)[0];
-      if (!best) return undefined;
-      const hostedWorkLeft = boardSearchesLeft() || hostedWorkPending();
-      if (hostedFirst(best.job) === 1 && !outsideScope('hosted') && !reviewExhausted() && hostedWorkLeft) return undefined;
-      return best;
-    };
+    /** Start a ready match without waiting for more searches or reviews. */
+    const bestCandidate = (accept: (job: JobListing) => boolean = () => true) =>
+      candidates.filter((c) => accept(c.job) && !stoppedPlatform(c.job.platform ?? 'seek')).sort(preference)[0];
     const takeCandidate = (accept: (job: JobListing) => boolean) => {
       const best = bestCandidate(accept);
       if (best) candidates.splice(candidates.indexOf(best), 1);

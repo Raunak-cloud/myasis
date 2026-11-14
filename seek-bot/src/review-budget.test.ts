@@ -266,12 +266,12 @@ test('a worker with weak listings waits for the hosted attempt, then resumes emp
   assert.equal(result.events.some(e=>e.stage==='fit'&&e.id==='weak-board-result'),false);
 });
 
-test('a ready SEEK employer form waits for a later hosted match while preserving independent search pagination', () => {
+test('a ready SEEK employer form starts before searching for a later hosted match', () => {
   const result=run([job('employer-form',{applicationMode:'external',reviewPriority:100}),
     job('hosted-next-page',{searchPage:2,reviewPriority:80}),job('unneeded-feed',{platform:'pageup',applicationMode:'external'})],
     {apply:true,platforms:['pageup','seek'],reviews:200,cap:1});
-  assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['hosted-next-page']);
-  assert.deepEqual(result.events.filter(e=>e.stage==='search'&&e.id==='seek').map(e=>e.pageNumber),[1,2]);
+  assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['employer-form']);
+  assert.deepEqual(result.events.filter(e=>e.stage==='search'&&e.id==='seek').map(e=>e.pageNumber),[1]);
   assert.equal(result.events.some(e=>e.stage==='search'&&e.id==='pageup'),false);
 });
 
@@ -282,12 +282,11 @@ for(const prepare of [false,true])test(`${prepare?'Semi auto':'Auto apply'} prio
   assert.equal(result.events.some(e=>e.stage==='detail'&&e.id==='unknown-redirect'),false);
 });
 
-test('an unknown application link stays available as fallback after hosted-board search has run out',()=>{
+test('an unknown application link starts when ready without waiting for empty hosted-board searches',()=>{
   const result=run([job('unknown-fallback',{applicationMode:'unknown',reviewPriority:100}),
     job('unneeded-feed',{platform:'pageup',applicationMode:'external'})],{apply:true,platforms:['seek','pageup'],reviews:200,cap:1});
   assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['unknown-fallback']);
-  const applyAt=result.events.findIndex(e=>e.stage==='apply');
-  assert.ok(result.events.some((e,i)=>e.stage==='search'&&e.id==='seek'&&e.pageNumber===2&&i<applyAt));
+  assert.deepEqual(result.events.filter(e=>e.stage==='search'&&e.id==='seek').map(e=>e.pageNumber),[1]);
   assert.equal(result.events.some(e=>e.stage==='search'&&e.id==='pageup'),false,'known board leads are tried before collecting additional employer feeds');
 });
 
@@ -498,13 +497,14 @@ test('Semi auto prepares only its run cap without entering the form-filling adap
   assert.match(result.output, /Semi auto complete: 2 application/);
 });
 
-for(const prepare of [true,false])test(`${prepare?'Semi auto':'Auto apply'} gives promising hosted work priority before using an employer-site fallback`,()=>{
+for(const prepare of [true,false])test(`${prepare?'Semi auto':'Auto apply'} starts a ready employer form without waiting for an unfinished hosted review`,()=>{
   const external=job('ready-employer-site',{applicationMode:'external',reviewPriority:100});
-  const later=job('later-hosted-rejection',{applicationMode:'hosted',reviewPriority:80,fitReject:true});
-  const result=run([external,later],{apply:true,prepare,reviews:2,cap:1});
+  const later=job('later-hosted-rejection',{applicationMode:'hosted',reviewPriority:80,fitReject:true,fitDelayMs:200});
+  const result=run([external,later],{apply:true,prepare,reviews:2,concurrency:2,cap:1});
   assert.deepEqual(result.events.filter(event=>event.stage==='apply').map(event=>event.id),[external.id]);
-  assert.equal(result.events.some(event=>event.stage==='detail'&&event.id===later.id),true,
-    'the fallback starts once the promising hosted listing has been checked');
+  const applyAt=result.events.findIndex(event=>event.stage==='apply');
+  assert.equal(result.events.some((event,index)=>event.stage==='fit-finish'&&event.id===later.id&&index<applyAt),false,
+    'an unfinished hosted review must not hold a ready match');
   assert.equal(result.events.some(event=>event.stage==='form-fill'),!prepare);
   assert.equal(result.history.filter(record=>record.submittedByMyasis).length,prepare?0:1);
 });
