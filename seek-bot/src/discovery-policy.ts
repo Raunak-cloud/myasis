@@ -4,6 +4,19 @@ import type { JobListing } from './types.js';
 /** Lightweight-ranking score that counts as useful discovery yield. */
 export const DISCOVERY_PRIORITY_FLOOR = 50;
 
+/** Preserve hosted-board preference for promising jobs. Below that band,
+ * the matching agent's priority comes before source/recommendation badges:
+ * a low-quality hosted result must not outrank a stronger employer result. */
+export function discoveryReviewOrder(
+  a: { priority: number; hosted: boolean; recommended: boolean },
+  b: { priority: number; hosted: boolean; recommended: boolean },
+): number {
+  const promising = Number(b.priority >= DISCOVERY_PRIORITY_FLOOR) - Number(a.priority >= DISCOVERY_PRIORITY_FLOOR);
+  if (promising) return promising;
+  if (a.priority < DISCOVERY_PRIORITY_FLOOR && a.priority !== b.priority) return b.priority - a.priority;
+  return Number(b.hosted) - Number(a.hosted) || Number(b.recommended) - Number(a.recommended) || b.priority - a.priority;
+}
+
 /** Transport batches continue without a page budget. Only date-ordered boards
  * may end at an age boundary; unordered feeds must reach actual exhaustion. */
 export function discoveryBatchEnd(jobs: JobListing[], seen: Set<string>, maxAgeDays: number, newestFirst: boolean): 'end' | 'age' | 'repeat' | undefined {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { boardAgeWindow, discoveryBatchEnd } from './discovery-policy.js';
+import { boardAgeWindow, discoveryBatchEnd, discoveryReviewOrder } from './discovery-policy.js';
 import { parseAgeDays } from './discovery.js';
 import { searchUrl as seekSearchUrl } from './discovery.js';
 import { searchUrl as indeedSearchUrl } from './discovery-indeed.js';
@@ -8,6 +8,16 @@ import { listingAgeDays, passesListingAge } from './listing-age.js';
 import type { JobListing } from './types.js';
 import { deterministicExclusion } from './scoring.js';
 import { config } from './config.js';
+
+test('agent ranking beats weak board badges while promising hosted matches retain first preference', () => {
+  const rank = (priority: number, hosted = false, recommended = false) => ({ priority, hosted, recommended });
+  assert.ok(discoveryReviewOrder(rank(45), rank(5, true, true)) < 0);
+  assert.ok(discoveryReviewOrder(rank(80, true), rank(95)) < 0);
+  assert.ok(discoveryReviewOrder(rank(80), rank(49, true, true)) < 0);
+  assert.ok(discoveryReviewOrder(rank(40), rank(0, false, true)) < 0);
+  const items = [rank(0,true,true),rank(40),rank(90),rank(80,true),rank(10)];
+  assert.deepEqual(items.sort(discoveryReviewOrder).map(item => item.priority), [80,90,40,10,0]);
+});
 
 test('age-window discovery continues beyond six short batches, ending only on age, exhaustion or repeats', () => {
   const seen = new Set<string>();

@@ -4,6 +4,7 @@ import { resolve, dirname } from 'node:path';
 import { config } from './config.js';
 import type { AppliedRecord, ApplyOutcome } from './types.js';
 import type { ReviewCacheMetadata } from './review-cache.js';
+import type { ApplicationSkipState } from './application-outcome-journal.js';
 import type { TechnicalAttempt } from './technical-retry-types.js';
 import { recordSubmittedCost } from './cost-ledger.js';
 import { sameApplication } from './application-identity.js';
@@ -100,7 +101,7 @@ export function recordUnconfirmedApplication(index: AppliedIndex, job: JobListin
   return true;
 }
 
-export function logOutcome(outcome: ApplyOutcome & { title?: string; company?: string; url?: string; reviewId?: string; reviewCache?: ReviewCacheMetadata; technicalAttempt?:TechnicalAttempt }) {
+export function logOutcome(outcome: ApplyOutcome & { title?: string; company?: string; url?: string; reviewId?: string; reviewCache?: ReviewCacheMetadata; technicalAttempt?:TechnicalAttempt; applicationSkip?:ApplicationSkipState }) {
   if (outcome.status === 'applied') recordSubmittedCost(outcome.jobId);
   ensureDir();
   const line = JSON.stringify({ ts: new Date().toISOString(), ...outcome });

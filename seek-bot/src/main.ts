@@ -32,6 +32,7 @@ search as searchIndeed,
 import {
 DISCOVERY_PRIORITY_FLOOR,
 discoveryBatchEnd,
+discoveryReviewOrder,
 } from './discovery-policy.js';
 import { fetchJobDetail, search } from './discovery.js';
 import { discoverySearches, type DiscoverySearch } from './discovery-search.js';
@@ -52,6 +53,7 @@ import { measured, metric } from './pipeline.js';
 import { enabledPlatforms, type PlatformId } from './platforms.js';
 import { REVIEW_TTL, ReviewCache, applicationRejectionCache, listingFingerprint, reviewCacheMetadata, reviewContentFingerprint, reviewContextFingerprint } from './review-cache.js';
 import { completedReview } from './completed-reviews.js';
+import { ApplicationSkipMemory } from './application-skip-memory.js';
 import { chosenListings, loadReviewVerdicts } from './review-verdicts.js';
 import { countHealth } from './run-health.js';
 import { outsideScope, runScope, SCOPE_LABEL, scopeSkipReason } from './run-scope.js';
@@ -205,6 +207,7 @@ async function main() {
     allowExternalApply: config.allowExternalApply && runScope() !== 'hosted',
   });
   const reviewContext = reviewContextFingerprint(profile);
+  const applicationSkips = new ApplicationSkipMemory();
   const rememberExistingApplication = (job: JobListing, reason: string) => {
     if (index.hasApplication(job)) return;
     index.add({
@@ -268,13 +271,22 @@ async function main() {
     };
     const targetedAdapters = new Set<PlatformId>();
     const bump = (reason: string) => skips.set(reason, (skips.get(reason) ?? 0) + 1);
+    const explicitlyRequested = (job: JobListing): boolean => Boolean(approvedApplication(job) || job.source === 'chosen'
+      || targeted.some(item => item.job_id === job.id && (job.platform ?? 'seek') === 'seek')
+      || targetedIndeed.some(item => item.job_id === job.id && job.platform === 'indeed')
+      || repairTarget && repairTarget.id === job.id && repairTarget.platform === (job.platform ?? 'seek'));
+    const unchangedApplicationSkip = (job: JobListing): boolean => {
+      if (explicitlyRequested(job)) return false;
+      const prior = applicationSkips.prior(job, reviewContext);
+      if (!prior) return false;
+      bump('previously skipped (unchanged)');
+      console.log(`  – unchanged application skip: ${job.title} @ ${job.company} — ${prior.reason}`);
+      return true;
+    };
     const waitingOnCandidate = (job: JobListing): boolean => {
       // These existing explicit flows may inspect/recapture an old question;
       // none grants an answer, changes approval or permits an extra send.
-      if (approvedApplication(job) || job.source === 'chosen'
-        || targeted.some(item => item.job_id === job.id && (job.platform ?? 'seek') === 'seek')
-        || targetedIndeed.some(item => item.job_id === job.id && job.platform === 'indeed')
-        || repairTarget && repairTarget.id === job.id && repairTarget.platform === (job.platform ?? 'seek')) return false;
+      if (explicitlyRequested(job)) return false;
       return waitingForCurrentAnswers(job,preparingApplications()?'preparation':'application');
     };
     const skipExistingApplication = (job: JobListing): boolean => {
@@ -322,6 +334,7 @@ async function main() {
         job.discoveryFingerprint = listingFingerprint(job);
 
         if (skipExistingApplication(job)) continue;
+        if (unchangedApplicationSkip(job)) continue;
         if (!approvedApplications().length && job.source!=='chosen' && applicationKeys(job).some(key=>technicalRetryKeys.has(key))) {
           bump('saved for application retry');continue;
         }
@@ -510,28 +523,22 @@ async function main() {
       if (!job.applicationMode || job.applicationMode === 'unknown') return 0; // the board's panel will say
       return outsideScope(job.applicationMode) ? 2 : 0;
     };
+    const hostedFirst = (job: JobListing): number => job.applicationMode === 'hosted' ? 0 : 1;
     /**
      * Prefer board recommendations within the same discovery-quality band.
      * A weak recommendation must not consume the last review slots while
      * the matching agent has identified promising search results.
      */
-    const recommendedFirst = (job: JobListing): number => (job.source === 'recommended' || job.source === 'chosen' ? 0 : 1);
-    /** Only a confirmed board form has hosted priority. An unknown CTA can
-     * still redirect to an employer and belongs with the fallback candidates. */
-    const hostedFirst = (job: JobListing): number => job.applicationMode === 'hosted' ? 0 : 1;
     const reviewOrder = (a: JobListing, b: JobListing) => {
       const scoped = scopeRank(a) - scopeRank(b);
       if (scoped) return scoped;
       if (a.source === 'chosen' || b.source === 'chosen') return a.source === b.source ? 0 : a.source === 'chosen' ? -1 : 1;
       const known = Number(priorRejections.has(listingKey(a))) - Number(priorRejections.has(listingKey(b)));
       if (known) return known;
-      const promising = Number(!isPromising(a)) - Number(!isPromising(b));
-      if (promising) return promising;
-      const hosted = hostedFirst(a) - hostedFirst(b);
-      if (hosted) return hosted;
-      const recommended = recommendedFirst(a) - recommendedFirst(b);
-      if (recommended) return recommended;
-      const priority = (reviewPriorities.get(reviewKey(b))?.priority ?? 0) - (reviewPriorities.get(reviewKey(a))?.priority ?? 0);
+      const priority = discoveryReviewOrder({ priority: reviewPriorities.get(reviewKey(a))?.priority ?? 0,
+        hosted: a.applicationMode === 'hosted', recommended: a.source === 'recommended' },
+      { priority: reviewPriorities.get(reviewKey(b))?.priority ?? 0,
+        hosted: b.applicationMode === 'hosted', recommended: b.source === 'recommended' });
       if (priority) return priority;
       return runScope() === 'all' ? 0 : Number(!a.applicationMode || a.applicationMode === 'unknown') - Number(!b.applicationMode || b.applicationMode === 'unknown');
     };
@@ -888,6 +895,7 @@ async function main() {
           // Check it before reading pauses and fit/model calls; an early return
           // gives the temporary evaluation reservation back to the run.
           if (skipExistingApplication(job)) return;
+          if (unchangedApplicationSkip(job)) return;
 
           // Resolve run scope as soon as the listing CTA is known. In particular,
           // do not make a page-judgement model call or simulate reading time for an
@@ -1373,8 +1381,10 @@ async function main() {
             outcome = normaliseAttentionOutcome(outcome);
             finalOutcome = outcome;
             const rejectionCache = applicationRejectionCache(job, outcome, reviewContext);
+            const applicationSkip = applicationSkips.remember(job, outcome, reviewContext);
             logOutcome({ ...outcome, title: job.title, company: job.company, url: outcome.status==='needs-human'&&outcome.accountAccess?outcome.url:job.url, reviewId: selectedApproval?.id,
               technicalAttempt:attemptMetadata(outcome),
+              ...(applicationSkip ? { applicationSkip } : {}),
               ...(rejectionCache ? { reviewCache: rejectionCache } : {}) });
             // Accounts, sign-ins and documents added are the candidate's business whatever the outcome.
             for (const action of outcome.actions ?? []) console.log(`  ℹ ${action.detail}`);

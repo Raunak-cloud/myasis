@@ -1,6 +1,7 @@
 import { loadReviewMemory } from '../job-review-memory.js';
 import { exportCompletedJobReviews, syncCompletedJobReviews } from '../completed-job-reviews.js';
 import { exportTechnicalRetries, importTechnicalAttemptJournal } from '../technical-retries.js';
+import { archiveApplicationOutcomes } from '../../../seek-bot/src/application-outcome-journal.js';
 import { writeFileSync, existsSync, unlinkSync, readFileSync, renameSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
@@ -205,6 +206,7 @@ export async function exportUserForRun(userId: string): Promise<{ dir: string; o
   // Fresh log for this run only, so `syncRunResultsToDb` reads exactly what
   // THIS run wrote — never re-syncs an earlier run's already-migrated lines.
   const logPath = resolve(dir, 'run-log.jsonl');
+  archiveApplicationOutcomes(dir);
   if (existsSync(logPath)) unlinkSync(logPath);
   // Written only after a run reaches its final fit-qualified candidate count.
   // Removing it here prevents a failed/aborted run from inheriting an older

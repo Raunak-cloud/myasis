@@ -73,7 +73,7 @@ if [ "$REPLAY_REQUIRED" = 1 ]; then
   node --test dist/prepare-job.test.js dist/application-review-session.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/direct-external.test.js
   node --test dist/application-model.test.js dist/application-model-cache.test.js dist/agent/stage-model-routing.test.js
-  node --test dist/completed-reviews.test.js dist/application-limits.test.js
+  node --test dist/application-skip-memory.test.js dist/completed-reviews.test.js dist/application-limits.test.js
   node --test dist/technical-retry.test.js dist/technical-retry-ipc.test.js
   node dist/fit-contract.test.js
   node --test --test-name-pattern='completed|Get Owtomated|technical fallback' dist/review-budget.test.js
