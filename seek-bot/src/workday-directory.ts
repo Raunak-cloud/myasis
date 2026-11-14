@@ -5,6 +5,9 @@ export function workdaySite(raw:string):string|null {
  const parts=u.pathname.split('/').filter(Boolean);if(!parts.length)return null;
  const hasLocale=/^[a-z]{2}-[A-Z]{2}$/.test(parts[0]);
  const site=parts[hasLocale?1:0];if(!site||/^(login|signin|apply|candidatehome)$/i.test(site))return null;
+ // Publisher's current public career bootstrap identifies wd103; wd3 returns 422.
+ // Resolve the old address at read time without rewriting anyone's preferences.
+ if(u.hostname==='accenture.wd3.myworkdayjobs.com'&&site==='AccentureCareers')u.hostname='accenture.wd103.myworkdayjobs.com';
  const root=`${u.origin}/${hasLocale?parts[0]:'en-US'}/${site}`;
  return careerTarget('workday',root).url.href;
  }catch{return null;}

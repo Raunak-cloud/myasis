@@ -22,6 +22,7 @@ const job = smartRecruitersListing({
 const sourceJobs = [
   { platform: 'greenhouse', url: 'https://job-boards.greenhouse.io/FixtureEmployer/jobs/123' },
   { platform: 'pageup', url: 'https://careers.pageuppeople.com/999/cw/en/job/123/fixture-developer' },
+  { platform: 'pageup', url: 'https://careers.fixture.org/jobs/fixture-developer-sydney' },
   { platform: 'workday', url: 'https://fixture.wd105.myworkdayjobs.com/en-US/External/job/Sydney/Fixture-Developer_JR123' },
 ] as const;
 const fixtureUrls = new Set([job.url, ...sourceJobs.map(source => source.url)]);

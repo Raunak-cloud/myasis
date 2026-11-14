@@ -158,6 +158,7 @@ if (employerFeedsEnabled(process.env)) {
     if (source.id === 'smartrecruiters' || !config.platforms.includes(source.id)) continue;
     const discovery = new EmployerFeedDiscovery(source.id, process.env[source.key] || undefined, {
       warn: message => console.warn(`  ! ${message}`), shouldStop:()=>runDeadline.reached,
+      ...(source.id === 'pageup' || source.id === 'workday' ? { healthDirectory: resolve(import.meta.dirname, '../data/public-employer-feed-health') } : {}),
       ...(source.id==='workday'?{additionalTargets:discoveredWorkdaySites(),fetch:workdaySearchCache(resolve(import.meta.dirname,'../data/public-workday-search-cache'))}
         :source.id==='pageup'?{additionalTargets:discoveredPublicSites('pageup'),fetch:publicEmployerSearchCache(resolve(import.meta.dirname,'../data/public-employer-search-cache'))}:{}) });
     ADAPTERS.set(source.id, {

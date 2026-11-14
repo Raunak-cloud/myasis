@@ -66,6 +66,8 @@ export interface JobListing {
   url: string;
   /** Original aggregator link, retained when the vacancy URL is resolved. */
   listingSourceUrl?: string;
+  /** Provider-owned board that verified a branded employer career-site redirect. */
+  sourceCareerSite?: string;
   teaser?: string;
   /** Where this candidate came from. Recommended jobs are evaluated first. */
   /** Where review found it; 'chosen' is a skipped job the candidate said they would have applied to. */
