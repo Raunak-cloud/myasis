@@ -52,6 +52,14 @@ test('PageUp supports a public crawler that already followed the branded redirec
   assert.equal((await api.search('analyst', 1))[0].url, jobUrl);
 });
 
+test('a fresh background-index task can verify and refresh a branded PageUp job after its reader follows redirects', async () => {
+  const options={validatePublicUrl,gapMs:0,fetch:async(input:Parameters<typeof fetch>[0])=>new Response(new URL(String(input)).pathname.includes('/jobs/revenue-')?detail():listing())};
+  const first=new EmployerFeedDiscovery('pageup',board,options),[job]=await first.search('analyst',1);
+  const fresh=new EmployerFeedDiscovery('pageup',board,options);
+  const refreshed=await fresh.detail({...job,sourceCareerSite:undefined});
+  assert.equal(refreshed.id,job.id);assert.equal(refreshed.description,'Analyse Australian revenue in Power BI.');
+});
+
 test('PageUp verification pages are reported as blocked access, never an empty successful search', async () => {
   const warnings:string[]=[];let calls=0;
   const api=new EmployerFeedDiscovery('pageup',board,{gapMs:0,validatePublicUrl,warn:s=>warnings.push(s),fetch:async input=>{

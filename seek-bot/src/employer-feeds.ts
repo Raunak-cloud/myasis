@@ -377,7 +377,12 @@ export class EmployerFeedDiscovery {
         ?? (!stub.sourceCareerSite && this.targets.length === 1 ? this.targets[0] : undefined);
       if (!target || key('pageup', identity.namespace, identity.posting) !== stub.id) throw Error('The branded job is outside its verified PageUp board.');
       if (!this.brandedSearches.has(target)) {
-        try { await this.reader.read(careerTarget('pageup', target).url.href + '/search/'); }
+        try {
+          const root=careerTarget('pageup', target).url.href;
+          const html=await this.reader.read(root + '/search/');
+          const {document}=parseHTML(html),action=document.querySelector('form.job-search-results-form[action]')?.getAttribute('action');
+          if(action)this.brandedSearches.set(target,brandedPageupSearch(html,new URL(action,root).href).action);
+        }
         catch (error) { if (error instanceof PageUpCareerRedirect) await this.brandedSearch(target, '', 1, error.destination); else throw error; }
       }
       const verified = this.brandedSearches.get(target);
