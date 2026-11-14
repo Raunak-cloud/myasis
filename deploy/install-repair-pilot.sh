@@ -8,7 +8,7 @@ mkdir -p "$install/dashboard/server" "$install/dashboard/scripts" "$install/depl
 mkdir -p "$install/seek-bot/src" /opt/owtomate-repair-releases/tickets
 install -d -o root -g root -m 755 "$install/dashboard/node_modules"
 ln -sfnT "$app/seek-bot/node_modules/typescript" "$install/dashboard/node_modules/typescript"
-for name in repair-pilot repair-release repair-safety; do
+for name in repair-pilot repair-release repair-safety browser-tool-calls; do
   install -o root -g root -m 644 "$app/seek-bot/src/$name.ts" "$install/seek-bot/src/$name.ts"
 done
 mkdir -p /var/lib/owtomate-repair/cases

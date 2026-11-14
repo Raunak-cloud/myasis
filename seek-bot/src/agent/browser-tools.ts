@@ -1,7 +1,7 @@
 import type { ToolSchema } from './celeris.js';
 import { browserCommandContract } from './browser-command-schema.js';
-import { BROWSER_TOOL_ACTIONS as operations } from '../../../shared/browser-tool-calls.mjs';
-export { browserToolCall } from '../../../shared/browser-tool-calls.mjs';
+import { BROWSER_TOOL_ACTIONS as operations } from '../browser-tool-calls.js';
+export { browserToolCall } from '../browser-tool-calls.js';
 
 export function namedBrowserToolCall(name: string, args: Record<string, unknown>) {
   if (name !== 'browser_action') return { name, args };

@@ -1,5 +1,5 @@
 import {readFileSync,lstatSync,realpathSync} from 'node:fs';
-import { browserToolCall } from '../../shared/browser-tool-calls.mjs';
+import { browserToolCall } from '../../seek-bot/src/browser-tool-calls.js';
 import {resolve} from 'node:path';
 import {createHash} from 'node:crypto';
 import {DatabaseSync} from 'node:sqlite';

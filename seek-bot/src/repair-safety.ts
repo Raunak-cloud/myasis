@@ -1,4 +1,4 @@
-import { browserToolCall } from '../../shared/browser-tool-calls.mjs';
+import { browserToolCall } from './browser-tool-calls.js';
 
 export function traceProvesNoSend(trace: Record<string, any>, runId: string, attemptId: string): boolean {
   if (String(trace.runStartId) !== runId || trace.attemptId !== attemptId || trace.outcome?.status !== 'skipped'

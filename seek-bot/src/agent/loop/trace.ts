@@ -6,7 +6,7 @@ import type { JobListing } from '../../types.js';
 import { isExternal } from '../browser-boundaries.js';
 import type { AgentTermination } from '../context.js';
 import { currentAttempt, recordDiagnostic } from '../attempt-diagnostics.js';
-import { browserToolCall } from '../../../../shared/browser-tool-calls.mjs';
+import { browserToolCall } from '../../browser-tool-calls.js';
 
 // Audit records shared by the active application agent.
 

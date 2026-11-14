@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import { browserToolCall } from '../../shared/browser-tool-calls.mjs';
+import { browserToolCall } from '../../seek-bot/src/browser-tool-calls.js';
 import {lstatSync,readFileSync,realpathSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {getPool} from './db/index.js';

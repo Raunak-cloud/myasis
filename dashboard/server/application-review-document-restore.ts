@@ -1,6 +1,6 @@
 /// <reference path="../../seek-bot/src/shims.d.ts" />
 import {randomUUID,createHash} from 'node:crypto';
-import { browserToolCall } from '../../shared/browser-tool-calls.mjs';
+import { browserToolCall } from '../../seek-bot/src/browser-tool-calls.js';
 import {existsSync,lstatSync,readFileSync,realpathSync} from 'node:fs';
 import {basename,isAbsolute,relative,resolve,sep} from 'node:path';
 import {getPool} from './db/index.js';
