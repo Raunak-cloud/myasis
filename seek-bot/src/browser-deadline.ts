@@ -3,6 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 interface Budget { signal: AbortSignal; expiresAt: number }
 const current = new AsyncLocalStorage<Budget>();
+export const BROWSER_OPERATION_TIMEOUT_MS = 30_000;
 
 export class BrowserOperationTimeout extends Error {
   constructor(label: string, milliseconds: number) {
@@ -50,6 +51,22 @@ export function browserOperationSignal(milliseconds: number): AbortSignal {
   const parent = current.getStore();
   parent?.signal.throwIfAborted();
   return parent ? AbortSignal.any([parent.signal, AbortSignal.timeout(milliseconds)]) : AbortSignal.timeout(milliseconds);
+}
+
+/** Inner probes share their owner's remaining time instead of starting a
+ * shorter, unrelated timeout. Explicit condition-wait limits still apply. */
+export function browserOperationTimeout(maximum = BROWSER_OPERATION_TIMEOUT_MS): number {
+  const parent = current.getStore();
+  parent?.signal.throwIfAborted();
+  const remaining = parent ? parent.expiresAt - Date.now() : maximum;
+  if (remaining <= 0) throw new BrowserOperationTimeout('Browser operation', 0);
+  return Math.max(1, Math.min(maximum, remaining));
+}
+
+/** Forward cancellation to native I/O as well as the outer watchdog. */
+export function browserOperationOptions(maximum = BROWSER_OPERATION_TIMEOUT_MS): { timeout: number; signal?: AbortSignal } {
+  const timeout = browserOperationTimeout(maximum), signal = current.getStore()?.signal;
+  return { timeout, ...(signal ? { signal } : {}) };
 }
 
 export const assertBrowserOperationActive = (): void => current.getStore()?.signal.throwIfAborted();

@@ -1,5 +1,5 @@
 import type { Frame, Page } from 'patchright';
-import { assertBrowserOperationActive, browserCleanup, browserDeadline, browserOperationExpiresAt } from './browser-deadline.js';
+import { assertBrowserOperationActive, browserCleanup, browserDeadline, browserOperationExpiresAt, BROWSER_OPERATION_TIMEOUT_MS } from './browser-deadline.js';
 
 export type PrivateAuthKind = 'password' | 'verification-code';
 type Scope = Page | Frame;
@@ -50,7 +50,7 @@ export function rememberPrivateAuthenticationValue(scope: object, value: string)
 }
 
 export async function preparePrivateAuthenticationFields(scope: Scope): Promise<void> {
-  const fields = await browserDeadline('Private authentication inspection', 2500, () => scope.evaluate(scanPrivateAuthenticationFields, undefined));
+  const fields = await browserDeadline('Private authentication inspection', BROWSER_OPERATION_TIMEOUT_MS, () => scope.evaluate(scanPrivateAuthenticationFields, undefined));
   for (const field of fields) rememberPrivateAuthenticationValue(scope, field.value);
 }
 

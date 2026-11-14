@@ -13,6 +13,7 @@ import { VERIFICATION_PURPOSES, verificationSiteUrl, type VerificationPurpose } 
 import { VerificationChoices } from './verification-choices.js';
 import { GMAIL_IO_TIMEOUT_MS } from '../gmail-mcp-client.js';
 import { ordinaryFieldGuidance } from './ordinary-field-guidance.js';
+import { browserDeadline, assertBrowserOperationActive, BROWSER_OPERATION_TIMEOUT_MS, browserOperationOptions } from '../browser-deadline.js';
 
 // Private credential transport. Magnus chooses controls; native fill emits normal input events.
 const pendingSignIns = new WeakMap<ToolContext, SiteCredential & { purpose: CredentialPurpose }>();
@@ -180,7 +181,7 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
   }
   const usernameField = ctx.observation.fields.find(field => field.inputType !== 'email' && /\b(user ?name|user id|login id)\b/i.test(field.label) && !/\be-?mail\b/i.test(field.label));
   const username = typeof args.username === 'string' ? args.username.trim()
-    : setsPassword && usernameField ? (await browserTarget(ctx.page,{ref:usernameField.ref}).inputValue({timeout:2500}).catch(()=>'' )).trim() : '';
+    : setsPassword && usernameField ? (await browserTarget(ctx.page,{ref:usernameField.ref}).inputValue(browserOperationOptions()).catch(()=>'' )).trim() : '';
 
   if (setsPassword && credential && username) credential = { ...credential, username };
   if (pendingLogin) pendingSignIns.set(ctx, pendingLogin);
@@ -217,17 +218,20 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
   for (const { field, value } of values) {
     if (value === null) continue;
     try {
-      assertLive();
-      if(isAuthenticationPasswordField(field))rememberPrivateAuthenticationValue(ctx.page,value);
-      const input = selected.get(field.ref) ?? browserTarget(ctx.page, { ref: field.ref });
-      const existing = await input.inputValue({ timeout: 2500 }).catch(() => undefined);
-      if (existing === value && args.refill !== true) {
-        alreadyCorrect.push(field.label);
-        continue;
-      }
-      await input.fill(value, { timeout: 8000 });
-      filled.push(field.label);
-      filledRefs.add(field.ref);
+      await browserDeadline('Private authentication field', BROWSER_OPERATION_TIMEOUT_MS, async () => {
+        assertLive();
+        if(isAuthenticationPasswordField(field))rememberPrivateAuthenticationValue(ctx.page,value);
+        const input = selected.get(field.ref) ?? browserTarget(ctx.page, { ref: field.ref });
+        const existing = await input.inputValue(browserOperationOptions()).catch(() => undefined);
+        assertBrowserOperationActive();
+        if (existing === value && args.refill !== true) {
+          alreadyCorrect.push(field.label);
+          return;
+        }
+        await input.fill(value, browserOperationOptions());
+        filled.push(field.label);
+        filledRefs.add(field.ref);
+      });
     } catch {
       failed.push(field.label); // Browser errors can echo private fill values.
     }
@@ -355,9 +359,12 @@ export async function fillEmailedCode(page: Page, fields: Observation['fields'],
     for (const handle of handles) await handle.evaluate(el => el.setAttribute('data-owtomate-private-auth', 'verification-code'));
     for (let i = 0; i < inputs.length; i++) {
       assertLive();
-      await inputs[i].fill(values[i], { timeout: 5_000 });
-      // The final digit can auto-advance the page; fresh observation verifies that.
-      if (i < inputs.length - 1 && await inputs[i].inputValue() !== values[i]) return false;
+      const matched = await browserDeadline('Private code field', BROWSER_OPERATION_TIMEOUT_MS, async () => {
+        await inputs[i].fill(values[i], browserOperationOptions());
+        // The final digit can auto-advance the page; fresh observation verifies that.
+        return i === inputs.length - 1 || await inputs[i].inputValue(browserOperationOptions()) === values[i];
+      });
+      if (!matched) return false;
     }
     return true;
   } finally { await Promise.all(handles.map(handle => handle.dispose().catch(() => {}))); }

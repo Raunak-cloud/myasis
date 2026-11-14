@@ -1,4 +1,4 @@
-import { browserDeadline, assertBrowserOperationActive } from '../browser-deadline.js';
+import { browserDeadline, assertBrowserOperationActive, BROWSER_OPERATION_TIMEOUT_MS, browserOperationOptions } from '../browser-deadline.js';
 import { basename } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Browser, BrowserContext, ElementHandle, Locator, Page, Route, Request } from 'patchright';
@@ -539,7 +539,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         || !await control.evaluate(node => {
           const href = node.closest('a')?.getAttribute('href') || '';
           return !/^mailto:/i.test(href) && (node.matches('button,input[type="submit"],input[type="button"],[role="button"]') || node.matches('a[href]'));
-        }, undefined, { timeout: 2500 })) return ok('The final online send control is unavailable. For an email-only application use prepare_email_application.', 'failed');
+        }, undefined, browserOperationOptions())) return ok('The final online send control is unavailable. For an email-only application use prepare_email_application.', 'failed');
       ctx.captured.push(...(args.answers as typeof ctx.captured).map(answer => approved?.coverLetter !== undefined && isCoverLetterField(answer.question)
         ? { ...answer, answer: approved.coverLetter } : answer));
       if (approved?.resumeId && args.resume_id !== approved.resumeId) return ok('Use the exact resume ID in the approved application. Do not replace the candidate-approved document.', 'failed');
@@ -557,9 +557,9 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       return (await applicationApprovalGate(ctx, control)) ?? ok('Candidate approval and document checks passed. You own the final answer/content assessment. '+(ctx.formAdvisories?.length?'Observed form advice: '+ctx.formAdvisories.join(' '):'Choose the current final submit control when satisfied.'));
     }
     if (name === 'wait_for_submission_result') {
-      const before = await ctx.page.locator('body').innerText({ timeout: 2500 });
+      const before = await ctx.page.locator('body').innerText(browserOperationOptions());
       await ctx.page.waitForFunction(previous => document.body.innerText !== previous, before,
-        { timeout: 30_000, polling: 250 }).catch(() => {});
+        { ...browserOperationOptions(), polling: 250 }).catch(() => {});
       return ok('Read the fresh employer response. This wait did not repeat the send.', 'reobserve');
     }
     if (name === 'finish') {
@@ -684,7 +684,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     const coordinateClick = args.action === 'click' && coordinateTarget(args) && typeof args.x === 'number' && typeof args.y === 'number';
     if (!coordinateClick && ['click', 'fill', 'type', 'select', 'check', 'press', 'hover', 'scroll', 'set_input_files'].includes(String(args.action))) await assertCurrentRef(ctx, args);
     if (args.action === 'click' && !coordinateClick && hasBrowserTarget(args)) {
-      const href = await target(ctx, args).evaluate(node => node.closest('a')?.getAttribute('href') || '', undefined, { timeout: 2500 });
+      const href = await target(ctx, args).evaluate(node => node.closest('a')?.getAttribute('href') || '', undefined, browserOperationOptions());
       if (/^mailto:/i.test(href)) return ok('Use prepare_email_application for email applications. A mailto link does not submit an application.', 'failed');
     }
     const labelRef = args.target_mode==='ref'?args.ref:args.target_mode!==undefined||args.locator||args.selector?undefined:args.ref;
@@ -697,7 +697,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         const legend = node.closest('fieldset')?.querySelector('legend')?.textContent ?? '';
         const label = [...(input.labels ?? [])].map(item => item.textContent).join(' ') || node.getAttribute('aria-label') || (node as HTMLElement).innerText || node.getAttribute('name') || '';
         return `${legend} ${label}`.replace(/\s+/g, ' ').trim().slice(0, 350);
-      }, undefined, { timeout: 2500 }).catch(() => '');
+      }, undefined, browserOperationOptions()).catch(() => '');
     }
     const sendsApplication = args.sends_application === true;
     if(['fill','type'].includes(String(args.action))&&isCoverLetterField(actionLabel)
@@ -732,18 +732,18 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         let readback: { files?: string[]; invalid?: boolean; validation?: string } | null;
         assertBrowserOperationActive();browserEffectEpoch++;
         if (args.file_chooser === true) {
-          const [chooser] = await Promise.all([ctx.page.waitForEvent('filechooser', { timeout: 30_000 }), input.click({ timeout: 30_000 })]);
+          const [chooser] = await Promise.all([ctx.page.waitForEvent('filechooser', browserOperationOptions()), input.click(browserOperationOptions())]);
           const chooserInput = await chooser.element();
           try {
             uploadTarget = await uploadTargetIdentity(chooserInput);
-            await chooser.setFiles(selected.map(file => file.path), { timeout: 30_000 });
+            await chooser.setFiles(selected.map(file => file.path), browserOperationOptions());
             readback = await chooserInput.evaluate(node => ({ files: [...((node as HTMLInputElement).files ?? [])].map(file => file.name) })).catch(() => null);
           } finally { await chooserInput.dispose(); }
         } else {
           const handle = await input.elementHandle(); if (!handle) throw Error('The selected file input is unavailable. Inspect the current form.');
           try {
             uploadTarget = await uploadTargetIdentity(handle);
-            await handle.setInputFiles(selected.map(file => file.path), { timeout: 30_000 });
+            await handle.setInputFiles(selected.map(file => file.path), browserOperationOptions());
             readback = await nativeReadback(target(ctx, args)).catch(() => null) as typeof readback;
           } finally { await handle.dispose(); }
         }
@@ -775,7 +775,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         if (url.hostname === 'mail.google.com') return ok('Access Gmail through MCP only. Do not open Gmail in a browser.', 'failed');
         if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Navigate to a web URL.');
         if (isExternal(url.href) && (!config.allowExternalApply || outsideScope('external'))) throw new Error('Employer-site navigation is outside this account/run scope.');
-        assertBrowserOperationActive();browserEffectEpoch++;await ctx.page.goto(url.href, { waitUntil: 'domcontentloaded', timeout: 30_000 }); break;
+        assertBrowserOperationActive();browserEffectEpoch++;await ctx.page.goto(url.href, { waitUntil: 'domcontentloaded', ...browserOperationOptions() }); break;
       }
       case 'select_page': {
         const page = ctx.page.context().pages()[Number(args.page_index)];
@@ -807,22 +807,22 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         return ok(waitNote || 'Native wait completed; inspect the current page.', waitNote ? 'reobserve' : undefined);
       }
       case 'scroll': await nativeScroll(ctx.page, args); break;
-      case 'press': assertBrowserOperationActive();browserEffectEpoch++;if (hasBrowserTarget(args)) await target(ctx, args).press(value, { timeout: 30_000 }); else await ctx.page.keyboard.press(value); break;
+      case 'press': assertBrowserOperationActive();browserEffectEpoch++;if (hasBrowserTarget(args)) await target(ctx, args).press(value, browserOperationOptions()); else await ctx.page.keyboard.press(value); break;
       case 'click': {
         if (coordinateClick) {assertBrowserOperationActive();browserEffectEpoch++;await ctx.page.mouse.click(args.x as number, args.y as number);}
         else {
           const element = target(ctx, args);
-          const opensTab = await element.evaluate(node => node.closest('a')?.target === '_blank', undefined, { timeout: 2500 }).catch(() => false);
+          const opensTab = await element.evaluate(node => node.closest('a')?.target === '_blank', undefined, browserOperationOptions()).catch(() => false);
           // An explicit new-tab link can return from click before its first
           // response creates the popup. Await that event only for such links;
           // ordinary controls incur no speculative popup timeout.
-          const opened = opensTab ? ctx.page.waitForEvent('popup', { timeout: 30_000 }).catch(() => null) : undefined;
-          assertBrowserOperationActive();browserEffectEpoch++;await element.click({ timeout: 30_000 });
+          const opened = opensTab ? ctx.page.waitForEvent('popup', browserOperationOptions()).catch(() => null) : undefined;
+          assertBrowserOperationActive();browserEffectEpoch++;await element.click(browserOperationOptions());
           if (opened) await opened;
         }
         break;
       }
-      case 'hover': await target(ctx, args).hover({ timeout: 30_000 }); break;
+      case 'hover': await target(ctx, args).hover(browserOperationOptions()); break;
       case 'check':
       case 'select':
       case 'type':
@@ -832,9 +832,9 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         assertBrowserOperationActive();browserEffectEpoch++;
         // The locator resolves the current element for each call, including after
         // framework rerenders. No retained node or structural-fingerprint veto.
-        if (args.action === 'fill') await element.fill(value, { timeout: 30_000 });
-        else if (args.action === 'type') await element.pressSequentially(value, { timeout: 30_000 });
-        else if (args.action === 'check') await element.setChecked(value !== 'false', { timeout: 30_000 });
+        if (args.action === 'fill') await element.fill(value, browserOperationOptions());
+        else if (args.action === 'type') await element.pressSequentially(value, browserOperationOptions());
+        else if (args.action === 'check') await element.setChecked(value !== 'false', browserOperationOptions());
         else await nativeSelect(element, value);
         const waitNote = await waitAfterAction(ctx.page, args);
         const readback = await nativeReadback(target(ctx, args)) as { private: boolean; controlIdentity?: string; value?: string; widgetText?: string; committedValue?:string; selectionState?:string; checked?: boolean; selected?: Array<{ label: string }> };
@@ -866,8 +866,11 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
   // Condition-based browser operations always return control to the agent.
   const act = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
     assertBrowserOperationActive();
-    return name === 'browser_action' || name === 'browser_batch'
-      ? browserDeadline('Browser operation', 30_000, () => execute(name, args))
+    // Each batch command already runs through act(). Its finite action count
+    // bounds the total; later commands receive their own 30-second allowance.
+    // Failed commands still stop the batch and retain completed results.
+    return name === 'browser_action' || name === 'wait_for_submission_result'
+      ? browserDeadline('Browser operation', BROWSER_OPERATION_TIMEOUT_MS, () => execute(name, args))
       : execute(name, args);
   };
 

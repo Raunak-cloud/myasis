@@ -124,8 +124,10 @@ try {
   calls = [{ name: 'browser_action', args: { action: 'click', selector: 'input[type="radio"][value="Missing saved CV"]', sends_application: false } },
     { name: 'finish', args: { status: 'skipped', reason: 'Missing target', evidence: 'Fresh form inspected' } }] as typeof calls;
   const missingStart = performance.now();
-  await runAgentOnlyApplication({ page, job, profile, log: () => {} });
-  assert.ok(performance.now() - missingStart < 4500, 'submit-control inspection must not wait out the 30-second default for a missing selector');
+  const missing = await runAgentOnlyApplication({ page, job, profile, log: () => {} });
+  const missingElapsed = performance.now() - missingStart;
+  assert.equal(missing.outcome.status, 'skipped', 'the agent receives control after a missing target times out');
+  assert.ok(missingElapsed >= 29000 && missingElapsed < 45000, 'a missing selector receives one 30-second action budget, including its inspection');
   assert.equal(requests, 0);
   calls = [{ name: 'browser_action', args: { action: 'click', selector: 'button', sends_application: true } }] as typeof calls;
   await runAgentOnlyApplication({ page, job, profile, log: () => {} });

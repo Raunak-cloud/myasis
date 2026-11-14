@@ -1,5 +1,5 @@
 import type { Frame, Page } from 'patchright';
-import { browserDeadline, assertBrowserOperationActive } from '../browser-deadline.js';
+import { browserDeadline, assertBrowserOperationActive, BROWSER_OPERATION_TIMEOUT_MS } from '../browser-deadline.js';
 
 /**
  * What kind of bot check is on the page, and the parameters a solver needs.
@@ -66,7 +66,7 @@ async function readTurnstile(host: Frame, frameUrl?: string): Promise<Challenge 
 }
 
 export async function detectChallenge(page: Page): Promise<Challenge | null> {
-  return browserDeadline('Security challenge inspection', 5000, () => detectChallengeNow(page));
+  return browserDeadline('Security challenge inspection', BROWSER_OPERATION_TIMEOUT_MS, () => detectChallengeNow(page));
 }
 
 async function detectChallengeNow(page: Page): Promise<Challenge | null> {
@@ -156,7 +156,7 @@ async function detectChallengeNow(page: Page): Promise<Challenge | null> {
  * any of it is showing.
  */
 export async function hasHcaptchaChallenge(page: Page): Promise<boolean> {
-  return browserDeadline('hCaptcha inspection', 5000, () => hasHcaptchaChallengeNow(page));
+  return browserDeadline('hCaptcha inspection', BROWSER_OPERATION_TIMEOUT_MS, () => hasHcaptchaChallengeNow(page));
 }
 
 async function hasHcaptchaChallengeNow(page: Page): Promise<boolean> {
@@ -194,7 +194,7 @@ async function hasHcaptchaChallengeNow(page: Page): Promise<boolean> {
  * cannot solve ends safely instead of becoming an AI click target.
  */
 export async function hasCaptchaSurface(page: Page): Promise<boolean> {
-  return browserDeadline('Security surface inspection', 5000, () => hasCaptchaSurfaceNow(page));
+  return browserDeadline('Security surface inspection', BROWSER_OPERATION_TIMEOUT_MS, () => hasCaptchaSurfaceNow(page));
 }
 
 async function hasCaptchaSurfaceNow(page: Page): Promise<boolean> {

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { getEventListeners } from 'node:events';
 import type { Page } from 'patchright';
-import { browserDeadline, browserDelay, browserCleanup, BrowserOperationTimeout } from './browser-deadline.js';
+import { browserDeadline, browserDelay, browserCleanup, BrowserOperationTimeout, browserOperationOptions, browserOperationTimeout, BROWSER_OPERATION_TIMEOUT_MS } from './browser-deadline.js';
 import { hasCaptchaSurface, hasHcaptchaChallenge } from './captcha/detect.js';
 import { readSavedForm } from './agent/saved-form.js';
 
@@ -62,4 +62,26 @@ test('external read cancellation preserves its typed cause, releases listeners a
   const successful=new AbortController();
   assert.equal(await browserDeadline('Independent next read',100,async()=>'next',successful.signal),'next');
   assert.equal(getEventListeners(successful.signal,'abort').length,0);
+});
+
+test('inner I/O inherits remaining time and cancellation without resetting its deadline', async () => {
+  assert.deepEqual(browserOperationOptions(), {timeout:BROWSER_OPERATION_TIMEOUT_MS});
+  let options!: ReturnType<typeof browserOperationOptions>;
+  await browserDeadline('Owner',500,async()=>{
+    options=browserOperationOptions();
+    assert.ok(options.signal);
+    await browserDelay(30);
+    const next=browserOperationOptions();
+    assert.equal(next.signal,options.signal);
+    assert.ok(next.timeout<options.timeout);
+    assert.ok(next.timeout>0);
+    assert.ok(browserOperationTimeout(10)<=10,'explicit shorter condition waits remain bounded');
+  });
+  assert.equal(options.signal?.aborted,true,'detached native work is cancelled when its owner completes');
+});
+
+test('a slow security inspection can use its parent budget instead of failing at five seconds', {timeout:10000}, async()=>{
+  const frame={url:()=> 'https://fixture.invalid',parentFrame:()=>null,evaluate:async()=>{await delay(5500);return false;}};
+  const page={frames:()=>[frame],evaluate:frame.evaluate} as unknown as Page;
+  assert.equal(await browserDeadline('Slow but responsive inspection',8000,()=>hasHcaptchaChallenge(page)),false);
 });
