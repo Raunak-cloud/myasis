@@ -33,11 +33,14 @@ test('approved letter renders and uploads byte-exact without model transcription
     for(const command of [action,batch.properties.actions.items]){
      assert.ok(command.properties.action.enum.includes('script'),'approved retries have the full browser tools');
      assert.equal(validToolInput({action:'script',script:'return document.title'},command),true);
-     assert.equal(validToolInput({action:'click',selector:'#send',sends_application:false},command),true);
     }
     assert.equal(validToolInput({action:'dialog',value:'dismiss'},action),true,'dismissing a dialog remains available');
     assert.equal(validToolInput({action:'dialog',value:'accept'},action),true,'approved retries can accept dialogs');
-    assert.match(action.properties.file_ids.description,/render_approved_cover_letter/);
+    assert.equal(validToolInput({action:'click',selector:'#send',sends_application:false},batch.properties.actions.items),true);
+    const click=body.tools.find((t:any)=>t.function.name==='browser_click').function.parameters;
+    assert.equal(validToolInput({selector:'#send',sends_application:false},click),true);
+    const upload=body.tools.find((t:any)=>t.function.name==='browser_upload').function.parameters;
+    assert.match(upload.properties.file_ids.description,/render_approved_cover_letter/);
     const schema=body.tools.find((t:any)=>t.function.name==='render_approved_cover_letter').function.parameters;
     assert.equal(schema.properties.text,undefined,'the model never has to transcribe the approved text');
     call={name:'render_approved_cover_letter',arguments:JSON.stringify({name:'Approved letter',format:'txt'})};
@@ -49,7 +52,7 @@ test('approved letter renders and uploads byte-exact without model transcription
     assert.match(rendered.next_step,/Creating this file did not attach it/);
     assert.ok(rendered.next_step.includes(JSON.stringify([rendered.file_id])),'the handoff names the exact letter upload ID');
     renderedFileId=rendered.file_id;
-    call={name:'browser_action',arguments:JSON.stringify({action:'set_input_files',selector:'#letter',file_ids:[rendered.file_id]})};
+    call={name:'browser_upload',arguments:JSON.stringify({selector:'#letter',file_ids:[rendered.file_id]})};
    }else{
     assert.equal(turn,3);
     await page.waitForFunction(()=>document.querySelector('#received')?.textContent?.startsWith('Dear team,'));

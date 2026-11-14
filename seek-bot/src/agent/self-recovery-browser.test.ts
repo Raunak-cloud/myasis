@@ -123,7 +123,7 @@ try {
   const run = await scenario('wrong-tool-recovery', `<main><label>Resume<input id=cv type=file></label><div id=status></div>${form}</main>`,
    [wrong,wrong,city,prepare]);
   assert.equal(run.result.outcome.status,'prepared'); assert.equal(run.sends,0);
-  assert.match(run.trace.steps[0].result,/action="set_input_files" and file_id/);
+  assert.match(run.trace.steps[0].result,/browser_upload and file_ids/);
   assert.doesNotMatch(run.trace.steps[0].result,/private-native-0/);
   assert.ok(run.seen.some(text=>text.includes('previous')||text.includes('failedInteractions')),'observed failed attempts remain in application memory without a prescribed recovery flow');
  });
