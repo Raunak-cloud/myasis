@@ -219,7 +219,7 @@ export class EmployerFeedDiscovery {
     const url = new URL(search);url.searchParams.set('query', keyword);url.searchParams.set('page', String(page));
     if (!result || result.url !== url.href) result = await this.reader.branded(url.href, url.origin);
     const parsed = brandedPageupSearch(result.html, result.url);
-    if (parsed.exhausted || !parsed.jobs.length) this.exhausted.set(target + '\n' + keyword, page + 1);
+    if (parsed.exhausted || !parsed.returnedCards) this.exhausted.set(target + '\n' + keyword, page + 1);
     const configured = careerTarget('pageup', target);
     return parsed.jobs.map(raw => {
       const identity = employerJobIdentity('pageup', raw.url);
@@ -347,8 +347,9 @@ export class EmployerFeedDiscovery {
               published: row?.querySelector('.open-date time')?.getAttribute('datetime'),
               closes: row?.querySelector('.close-date time')?.getAttribute('datetime'), teaser: row?.querySelector('.job-listing-left > p')?.textContent ?? (row?.nextElementSibling?.classList.contains('summary') ? row.nextElementSibling.textContent : '') };
           });
+          const returnedCards = rows.length;
           rows = this.normalise(target, rows);
-          if (!rows.length) this.exhausted.set(queryKey, page + 1);
+          if (!returnedCards) this.exhausted.set(queryKey, page + 1);
           const signature = rows.map(job => job.id).sort().join(',');
           if (signature && this.pageSignatures.get(queryKey) === signature) {
             // Some themes ignore page/filter parameters. Recover the publisher's

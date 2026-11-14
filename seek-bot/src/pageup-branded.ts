@@ -27,7 +27,8 @@ export function brandedPageupSearch(html: string, url: string) {
   if (form.querySelector('input[name="country_codes[]"][value="AU"],select[name="country_codes[]"] option[value="AU"]')) {
     action.searchParams.set('country_codes[]', 'AU');
   }
-  const jobs = [...document.querySelectorAll('.job-search-results-card-title a[href], .job-search-results-title a[href]')].flatMap(anchor => {
+  const anchors = [...document.querySelectorAll('.job-search-results-card-title a[href], .job-search-results-title a[href]')];
+  const jobs = anchors.flatMap(anchor => {
     try {
     const destination = new URL(anchor.getAttribute('href')!, url), identity = brandedPageupIdentity(destination.href);
     if (!identity || destination.origin !== base.origin) return [];
@@ -41,7 +42,7 @@ export function brandedPageupSearch(html: string, url: string) {
   const hasNext = [...document.querySelectorAll('.pagination-container a[href]')].some(a => {
     try { return Number(new URL(a.getAttribute('href')!, url).searchParams.get('page')) > page; } catch { return false; }
   });
-  return { action: action.href, jobs, exhausted: Boolean(document.querySelector('.pagination-container')) && !hasNext };
+  return { action: action.href, jobs, returnedCards: anchors.length, exhausted: Boolean(document.querySelector('.pagination-container')) && !hasNext };
 }
 
 /** Read the publisher's JobPosting, never a recommended card or a site footer. */

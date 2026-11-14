@@ -180,3 +180,23 @@ test('PageUp ignores repeated pagination only after recovering the complete publ
   await api.search('data', 3);assert.equal(calls, 3);
   assert.equal((await api.search('reporting', 1)).length, 1);assert.equal(calls, 4);
 });
+
+test('PageUp expired cards on one page cannot hide active jobs on a later page', async () => {
+  let calls=0;
+  const api=new EmployerFeedDiscovery('pageup',board,{gapMs:0,now:()=>Date.parse('2026-11-14'),fetch:async input=>{
+    calls++;const page=new URL(String(input)).searchParams.get('page');
+    return new Response(`<div id="search-results-content"><div class="job-listing"><a class="job-link" href="/539/caw/en/job/${page==='1'?'123':'456'}/analyst">Analyst</a><span class="location">Sydney</span><span class="close-date"><time datetime="${page==='1'?'2026-01-01':'2027-01-01'}"></time></span></div></div>`);
+  }});
+  assert.deepEqual(await api.search('data',1),[]);
+  assert.equal((await api.search('data',2)).length,1,'filtering a closed card is not evidence of result exhaustion');assert.equal(calls,2);
+});
+
+test('PageUp malformed branded cards cannot hide a publisher-advertised next page', async () => {
+  let pages=0;
+  const api=new EmployerFeedDiscovery('pageup',board,{gapMs:0,validatePublicUrl,fetch:async input=>{
+    const u=new URL(String(input));
+    if(u.hostname==='careers.pageuppeople.com')return new Response('',{status:302,headers:{Location:origin+'/jobs/search'}});
+    pages++;return new Response(u.searchParams.get('page')==='1'?listing(true).replace(jobUrl,'https://other-employer.org/jobs/not-this-board'):listing());
+  }});
+  assert.deepEqual(await api.search('data',1),[]);assert.equal((await api.search('data',2)).length,1);assert.equal(pages,2);
+});
