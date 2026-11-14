@@ -12,7 +12,8 @@ import { EmployerFeedHealth } from './employer-feed-health.js';
 
 type NewSource = Exclude<EmployerSourceId, 'smartrecruiters'>;
 type FeedOptions = { fetch?: typeof fetch; warn?: (message: string) => void; timeoutMs?: number; gapMs?: number; retryDelayMs?: number; now?: () => number; additionalTargets?:string[]; shouldStop?:()=>boolean;
-  healthDirectory?: string; validatePublicUrl?: (url: string) => Promise<string> };
+  healthDirectory?: string; validatePublicUrl?: (url: string) => Promise<string>;
+  renderPageup?: false | ((url: string) => Promise<{ url: string; html: string }>) };
 const key = (source: string, namespace: string, id: string) => `${source}-${createHash('sha256').update(`${namespace}:${id}`).digest('hex').slice(0, 32)}`;
 const clean = (value: unknown, limit = 50_000): string => typeof value === 'string' ? value.trim().slice(0, limit) : '';
 export function feedText(value: unknown): string {
@@ -154,6 +155,19 @@ class PublicReader {
       await response.body?.cancel();const location=response.headers.get('location');
       if (!location || redirects >= 3) throw Error('Branded PageUp redirect limit reached.');
       return this.branded(new URL(location, destination).href, origin, redirects + 1);
+    }
+    if (response.status === 202 && response.headers.get('x-amzn-waf-action')?.toLowerCase() === 'challenge') {
+      await response.body?.cancel();
+      if (this.options.shouldStop?.()) throw Error('Public career-site read cancelled.');
+      // Applies equally to normal reads and cached/indexed HTTP readers.
+      // Simulations can explicitly disable or replace browser rendering.
+      const render = this.options.renderPageup ?? (await import('./pageup-public-browser.js')).renderPublicPageup;
+      if (!render) throw Error('Public career site requires security verification.');
+      const result = await render(destination.href), final = new URL(result.url);
+      if (final.origin !== origin || final.pathname.replace(/\/$/, '') !== destination.pathname.replace(/\/$/, '') || final.search !== destination.search) {
+        throw Error('Public PageUp browser left the requested employer page.');
+      }
+      return result;
     }
     return { url: destination.href, html: await this.responseText(response) };
   }

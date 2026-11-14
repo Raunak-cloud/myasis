@@ -25,7 +25,7 @@ export function crawlUrl(raw: string): URL {
   if (/\/(?:login|sign[-_]?in|register|applications?|apply)(?:[/?]|$)/i.test(u.pathname)) throw new CrawlBlocked('Account and application forms are excluded from indexing.');
   return u;
 }
-export interface PageResponse { url: string; status: number; type: string; text: string; retryAfter: string | null; location?:string }
+export interface PageResponse { url: string; status: number; type: string; text: string; retryAfter: string | null; location?:string; verification?:string }
 /** Match both Node lookup contracts, including family auto-selection's all mode. */
 export const pinnedLookup=(address:string):LookupFunction=>(_host,options,callback)=>{
   if(options.all)callback(null,[{address,family:4}]);else callback(null,address,4);
@@ -62,7 +62,8 @@ export async function publicRequest(raw: string, init: { body?: string; signal?:
       if (status>=200&&status<300 && !/json|html|xml|text\/plain/.test(type)) { res.destroy(); reject(new CrawlBlocked('Unsupported public page type.')); return; }
       let size=0; const chunks: Buffer[]=[];
       res.on('data',(chunk:Buffer)=>{ size+=chunk.length; if(size>3_000_000) res.destroy(new CrawlBlocked('Page exceeds the 3 MB indexing limit.')); else chunks.push(chunk); });
-      res.on('error',reject); res.on('end',()=>resolve({url:u.href,status,type,text:Buffer.concat(chunks).toString('utf8'),retryAfter:typeof res.headers['retry-after']==='string'?res.headers['retry-after']:null}));
+      res.on('error',reject); res.on('end',()=>resolve({url:u.href,status,type,text:Buffer.concat(chunks).toString('utf8'),retryAfter:typeof res.headers['retry-after']==='string'?res.headers['retry-after']:null,
+        ...(typeof res.headers['x-amzn-waf-action']==='string'?{verification:res.headers['x-amzn-waf-action'].toLowerCase()}:{})}));
     });
     req.on('error',reject); if(init.body)req.write(init.body); req.end();
   });
@@ -79,7 +80,7 @@ export class PublicCrawler {
     if (++this.requests>this.maxRequests) throw new CrawlDeferred(60_000);
     return this.read(url,init);
   }
-  async get(raw: string, init?: {body?:string;signal?:AbortSignal},redirects=0): Promise<PageResponse> {
+  async get(raw: string, init?: {body?:string;signal?:AbortSignal;redirect?:RequestRedirect;returnChallenge?:boolean},redirects=0): Promise<PageResponse> {
     const u=crawlUrl(raw); let rules=this.robots.get(u.origin);
     if(!rules || rules.until<Date.now()) {
       let r=await this.request(`${u.origin}/robots.txt`, {signal:init?.signal});
@@ -98,9 +99,13 @@ export class PublicCrawler {
     if(wait>0)await new Promise<void>((resolve,reject)=>{const timer=setTimeout(done,wait);function done(){init?.signal?.removeEventListener('abort',abort);resolve();}function abort(){clearTimeout(timer);reject(init?.signal?.reason);}if(init?.signal?.aborted)abort();else init?.signal?.addEventListener('abort',abort,{once:true});});
     this.next.set(u.origin,Date.now()+delay);
     const page=await this.request(u.href,init);
-    if(page.location){if(redirects>=4)throw new CrawlBlocked('Page redirect limit reached.');return this.get(page.location,{signal:init?.signal},redirects+1);}
+    if(page.location){
+      if(init?.redirect==='manual')return page;
+      if(redirects>=4)throw new CrawlBlocked('Page redirect limit reached.');return this.get(page.location,{signal:init?.signal,returnChallenge:init?.returnChallenge},redirects+1);
+    }
     if(page.status===429) { const retry=Number(page.retryAfter); const waitMs=Number.isFinite(retry)&&retry>0?Math.min(retry*1000,24*3600_000):15*60_000; this.next.set(u.origin,Date.now()+waitMs); throw new CrawlDeferred(waitMs); }
-    if([401,403].includes(page.status)||accessChallenge(page))throw new CrawlBlocked('The public source requires access or human verification.');
+    if(page.status===202&&page.verification==='challenge'&&init?.returnChallenge)return page;
+    if([401,403].includes(page.status)||page.verification||accessChallenge(page))throw new CrawlBlocked('The public source requires access or human verification.');
     // Don't index or follow an HTML login wall that happens to return 200.
     if(/text\/html/.test(page.type)&&/<input\b[^>]*type\s*=\s*["']password["']/i.test(page.text)&&!/"@type"\s*:\s*"JobPosting"/.test(page.text))throw new CrawlBlocked('Sign-in page excluded.');
     return page;
@@ -109,7 +114,7 @@ export class PublicCrawler {
   fetch: typeof fetch = async (input, init) => {
     const url=typeof input==='string'?input:input instanceof URL?input.href:input.url;
     if(init?.method && !['GET','POST'].includes(init.method))throw new CrawlBlocked('Only public listing reads are supported.');
-    const page=await this.get(url,{...(typeof init?.body==='string'?{body:init.body}:{}),...(init?.signal?{signal:init.signal}:{})});
-    return new Response(page.text,{status:page.status,headers:{'content-type':page.type}});
+    const page=await this.get(url,{...(typeof init?.body==='string'?{body:init.body}:{}),...(init?.signal?{signal:init.signal}:{}),redirect:init?.redirect,returnChallenge:true});
+    return new Response(page.text,{status:page.status,headers:{'content-type':page.type,...(page.location?{location:page.location}:{}),...(page.verification?{'x-amzn-waf-action':page.verification}:{})}});
   };
 }

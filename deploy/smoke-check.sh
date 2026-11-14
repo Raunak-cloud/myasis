@@ -62,7 +62,7 @@ if [ "$REPLAY_REQUIRED" = 1 ]; then
   cd "$APP/seek-bot"
   node dist/company-match.test.js
   node --test dist/company-identity.test.js
-  node --test dist/employer-connectors.test.js dist/employer-feeds.test.js dist/workday-directory.test.js dist/public-employer-directory.test.js
+  node --test dist/pageup-public-browser.test.js dist/employer-connectors.test.js dist/employer-feeds.test.js dist/workday-directory.test.js dist/public-employer-directory.test.js
   node --test dist/external-navigation.test.js
   node --test dist/verification-email-ai.test.js dist/gmail-ai-fallback.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/verification-choices.test.js

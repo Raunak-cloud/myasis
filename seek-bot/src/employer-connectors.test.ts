@@ -20,6 +20,53 @@ const detail = (expires = '2027-01-01', description = '<p>Analyse Australian rev
 })}</script>`;
 const validatePublicUrl = async (url: string) => { assert.equal(new URL(url).origin, origin); return url; };
 
+test('PageUp JS challenges use public rendering for search and fresh detail, preserving publisher evidence', async () => {
+  const rendered: string[] = [];
+  const api = new EmployerFeedDiscovery('pageup', board, {
+    fetch: async input => new URL(String(input)).hostname === 'careers.pageuppeople.com'
+      ? new Response('', { status: 302, headers: { Location: origin + '/' } })
+      : new Response('verification', { status: 202, headers: { 'x-amzn-waf-action': 'challenge' } }),
+    validatePublicUrl, gapMs: 0,
+    renderPageup: async url => { rendered.push(url); return { url, html: new URL(url).pathname === '/jobs/search' ? listing() : detail() }; },
+  });
+  const [job] = await api.search('Data Analyst', 1);
+  assert.equal(job.url, jobUrl);
+  assert.equal((await api.detail(job)).company, 'Verified Employer');
+  assert.ok(rendered.some(url => new URL(url).searchParams.get('query') === 'Data Analyst'));
+  assert.ok(rendered.includes(jobUrl));
+});
+
+test('failed verification and unexpected browser destinations are access errors, not empty job searches', async () => {
+  for (const changed of [false, true]) {
+    const warnings: string[] = [];
+    const api = new EmployerFeedDiscovery('pageup', board, {
+      fetch: async input => new URL(String(input)).hostname === 'careers.pageuppeople.com'
+        ? new Response('', { status: 302, headers: { Location: origin + '/' } })
+        : new Response('', { status: 202, headers: { 'x-amzn-waf-action': 'challenge' } }),
+      validatePublicUrl, gapMs: 0, warn: message => warnings.push(message),
+      renderPageup: async url => { if (!changed) throw Error('Verification remains blocked'); return { url: url.replace(origin, 'https://other.fixture.org'), html: listing() }; },
+    });
+    await assert.rejects(api.search('analyst', 1), /None of the selected pageup employers could be searched/);
+    assert.ok(warnings.some(message => /Verification remains blocked|left the requested/.test(message)));
+  }
+});
+
+test('working PageUp responses and interactive CAPTCHA responses do not launch a fallback browser', async () => {
+  for (const action of ['', 'captcha']) {
+    let renders = 0;
+    const api = new EmployerFeedDiscovery('pageup', board, {
+      fetch: async input => new URL(String(input)).hostname === 'careers.pageuppeople.com'
+        ? new Response('', { status: 302, headers: { Location: origin + '/' } })
+        : action ? new Response('', { status: 405, headers: { 'x-amzn-waf-action': action } }) : new Response(listing()),
+      validatePublicUrl, gapMs: 0,
+      renderPageup: async url => { renders++; return { url, html: listing() }; },
+    });
+    if (action) await assert.rejects(api.search('analyst', 1), /None of the selected pageup employers could be searched/);
+    else assert.equal((await api.search('analyst', 1)).length, 1);
+    assert.equal(renders, 0);
+  }
+});
+
 test('PageUp branded redirects retain the exact keyword/page and publish a stable, fresh employer job', async () => {
   const requests: URL[] = []; let expired = false, changed = false;
   const network: typeof fetch = async input => {
@@ -63,7 +110,7 @@ test('a fresh background-index task can verify and refresh a branded PageUp job 
 
 test('PageUp verification pages are reported as blocked access, never an empty successful search', async () => {
   const warnings:string[]=[];let calls=0;
-  const api=new EmployerFeedDiscovery('pageup',board,{gapMs:0,validatePublicUrl,warn:s=>warnings.push(s),fetch:async input=>{
+  const api=new EmployerFeedDiscovery('pageup',board,{gapMs:0,renderPageup:false,validatePublicUrl,warn:s=>warnings.push(s),fetch:async input=>{
     calls++;return String(input).includes('pageuppeople.com')?new Response('',{status:302,headers:{Location:origin+'/jobs/search'}})
       :new Response('<html>verification</html>',{status:202,headers:{'x-amzn-waf-action':'challenge'}});
   }});

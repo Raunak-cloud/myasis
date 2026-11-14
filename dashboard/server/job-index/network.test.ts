@@ -23,6 +23,27 @@ test('crawler excludes private, metadata, IP literal and credential form address
   for(const url of ['https://127.0.0.1/jobs','https://2130706433/jobs','https://[::1]/jobs','https://metadata.google.internal/jobs','https://host.local/jobs','https://user:password@public.org/jobs','http://public.org/jobs','https://public.org/apply','https://public.org/login'])assert.throws(()=>crawlUrl(url),url);
 });
 const response=(url:string,text:string,status=200,location?:string):PageResponse=>({url,text,status,type:'text/html',retryAfter:null,...(location?{location}:{})});
+test('employer feed adapter preserves manual PageUp redirects and AWS challenge headers after robots checks',async()=>{
+ const calls:string[]=[];
+ const c=new PublicCrawler(async url=>{
+  calls.push(url);
+  if(url.endsWith('/robots.txt'))return response(url,'User-agent: *\nAllow: /');
+  if(url.includes('pageuppeople.com'))return response(url,'',302,'https://careers.publisher.org/jobs/search');
+  return {...response(url,'Publisher JS verification',202),verification:'challenge'};
+ });
+ const moved=await c.fetch('https://careers.pageuppeople.com/539/caw/en/search/',{redirect:'manual'});
+ assert.equal(moved.status,302);assert.equal(moved.headers.get('location'),'https://careers.publisher.org/jobs/search');
+ assert.equal(calls.some(url=>url.includes('publisher.org')),false,'the connector must see and verify the redirect');
+ const challenge=await c.fetch('https://careers.publisher.org/jobs/search',{redirect:'manual'});
+ assert.equal(challenge.status,202);assert.equal(challenge.headers.get('x-amzn-waf-action'),'challenge');
+ assert.ok(calls.indexOf('https://careers.publisher.org/robots.txt')<calls.indexOf('https://careers.publisher.org/jobs/search'));
+});
+test('ordinary crawling never indexes a silent AWS challenge or interactive CAPTCHA',async()=>{
+ for(const verification of ['challenge','captcha']){
+  const c=new PublicCrawler(async url=>url.endsWith('/robots.txt')?response(url,'User-agent: *\nAllow: /'):{...response(url,'Verification',202),verification});
+  await assert.rejects(c.get('https://careers.publisher.org/jobs/search'),CrawlBlocked);
+ }
+});
 test('publisher slash redirects preserve their transport URL while vacancy identities still deduplicate',async()=>{
  const calls:string[]=[];const slash='https://public.org/jobs/123/?utm_source=public-board';
  const c=new PublicCrawler(async url=>{calls.push(url);if(url.endsWith('/robots.txt'))return response(url,'User-agent: *\nAllow: /');if(url==='https://public.org/jobs/123')return response(url,'',301,slash);if(url===slash)return response(url,'<h1>Published vacancy</h1>');throw Error('Unexpected URL rewrite');});
