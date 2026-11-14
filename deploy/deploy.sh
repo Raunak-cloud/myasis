@@ -10,8 +10,8 @@ set -euo pipefail
 # Operators may allow slow hosts more verification time, but may neither skip
 # checks nor leave them unbounded. Validate before taking the deployment gate.
 CHECK_TIMEOUT_SECONDS=${DEPLOY_CHECK_TIMEOUT_SECONDS:-240}
-if ! [[ "$CHECK_TIMEOUT_SECONDS" =~ ^[0-9]{3}$ ]] || (( CHECK_TIMEOUT_SECONDS < 240 || CHECK_TIMEOUT_SECONDS > 600 )); then
-  echo 'DEPLOY_CHECK_TIMEOUT_SECONDS must be between 240 and 600' >&2
+if ! [[ "$CHECK_TIMEOUT_SECONDS" =~ ^[0-9]{3,4}$ ]] || (( CHECK_TIMEOUT_SECONDS < 240 || CHECK_TIMEOUT_SECONDS > 1200 )); then
+  echo 'DEPLOY_CHECK_TIMEOUT_SECONDS must be between 240 and 1200' >&2
   exit 2
 fi
 CHECK_SOFT_TIMEOUT_SECONDS=$((CHECK_TIMEOUT_SECONDS - 2))
