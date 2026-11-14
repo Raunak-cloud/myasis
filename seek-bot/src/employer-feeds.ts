@@ -389,10 +389,13 @@ export class EmployerFeedDiscovery {
       if (!verified || new URL(verified).origin !== new URL(stub.url).origin) throw Error('PageUp job changed employer site.');
       const page = await this.reader.branded(stub.url, new URL(verified).origin), posting = brandedPageupPosting(page.html, page.url);
       if (employerJobIdentity('pageup', page.url).posting !== identity.posting || expired(posting.validThrough, this.now())) throw Error('Branded PageUp job is closed or changed.');
-      const locations = [posting.jobLocation].flat().filter(Boolean).map(place => place.address ?? {}).map(address => [address.addressLocality,address.addressRegion,
-        typeof address.addressCountry==='string'?address.addressCountry:address.addressCountry?.name].filter(Boolean).join(', ')).filter(Boolean);
+      const addresses = [posting.jobLocation].flat().filter(Boolean).map(place => place.address ?? {});
+      const country = (address:Record<string,any>) => typeof address.addressCountry==='string'?address.addressCountry:address.addressCountry?.name;
+      const countries = [...new Set(addresses.map(country).filter((value):value is string=>typeof value==='string'&&Boolean(value)))];
+      const locations = addresses.map(address => [address.addressLocality,address.addressRegion,country(address)].filter(Boolean).join(', ')).filter(Boolean);
       const name = careerTarget('pageup', target).name || clean(posting.hiringOrganization?.name, 300) || stub.company;
       return { ...stub, title: clean(posting.title,300), company: name, location: locations.join('; ') || stub.location,
+        ...(countries.length===1?{locationCountry:countries[0]}:{}),
         description: feedText(posting.description), ...dates(posting.datePosted, this.now()) };
     }
     const target = this.targets.find(value => (this.source === 'pageup' || this.source === 'workday' ? careerTarget(this.source, value).url.href : value) === identity.namespace);

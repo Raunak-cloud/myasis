@@ -37,6 +37,7 @@ test('PageUp branded redirects retain the exact keyword/page and publish a stabl
   assert.equal(requested.searchParams.get('query'), 'Data & Insights'); assert.equal(requested.searchParams.get('page'), '2');
   assert.equal(requests.some(u=>u.origin===origin&&u.pathname==='/'),false,'a careers home page is not a search endpoint');
   const full = await api.detail(job); assert.equal(full.company, 'Verified Employer'); assert.equal(full.ageDays, 2);
+  assert.equal(full.locationCountry,'AU','publisher country evidence must survive the connector');
   assert.equal(full.description, 'Analyse Australian revenue in Power BI.');
   changed = true; assert.equal((await api.detail(job)).description, 'Updated employer description.', 'details are fetched fresh');
   const fresh = new EmployerFeedDiscovery('pageup', board, options);
