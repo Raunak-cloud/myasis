@@ -79,7 +79,7 @@ export async function migrate(): Promise<{ ok: boolean; error?: string }> {
   const file = resolve(import.meta.dirname, 'schema.sql');
   if (!existsSync(file)) return { ok: false, error: 'schema.sql not found' };
   try {
-    await getPool().query(readFileSync(file, 'utf8'));
+    await getPool().query(readFileSync(file, 'utf8') + '\n' + readFileSync(resolve(import.meta.dirname, '../hr-outreach/schema.sql'), 'utf8'));
     return { ok: true };
   } catch (e) {
     return { ok: false, error: (e as Error).message };

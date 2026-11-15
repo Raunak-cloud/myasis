@@ -2964,3 +2964,30 @@ textarea.run-instructions-input {
 .employer-question .input { width: 100%; box-sizing: border-box; min-width: 0; }
 
 .bonus-run-tag { display:inline-flex; padding:4px 8px; border-radius:6px; background:var(--ok-soft); color:var(--ok); font-size:12px; font-weight:600; }
+/* Candidate-visible record of hiring-team outreach. */
+.hr-outreach-panel { display: grid; gap: 16px; }
+.hr-outreach-preference { padding: 20px; }
+.hr-outreach-preference label { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.hr-outreach-preference input { margin-top: 3px; flex: none; }
+.hr-outreach-preference p { margin: 9px 0 0; }
+.hr-email-list { overflow: hidden; }
+.hr-email { min-width: 0; padding: 20px; }
+.hr-email + .hr-email { border-top: 1px solid var(--border); }
+.hr-email-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.hr-email-heading strong, .hr-email-meta dd { overflow-wrap: anywhere; }
+.hr-email-heading .badge { flex: none; }
+.hr-email-meta { display: grid; gap: 8px; margin: 16px 0; font-size: 13px; }
+.hr-email-meta > div { display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 10px; }
+.hr-email-meta dt { color: var(--text-dim); }
+.hr-email-meta dd { margin: 0; }
+.hr-email-content summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+.hr-email-content .letter { margin-top: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.hr-contact-source { display: inline-block; margin-top: 12px; font-size: 12px; }
+.drawer .hr-email { padding: 0; }
+@media (max-width: 600px) {
+  .hr-email, .hr-outreach-preference { padding: 16px; }
+  .hr-email-heading { flex-wrap: wrap; }
+  .applications-views { max-width: 100%; flex-wrap: wrap; }
+}
+.hr-email-more { display: grid; justify-items: center; gap: 8px; }
+.hr-email-more p { margin: 0; }

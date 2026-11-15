@@ -1,0 +1,17 @@
+# HR outreach
+
+Users enable **Email hiring teams after I apply** in Submitted Applications → HR emails. It starts disabled for existing accounts. Enabling it does not contact employers from historical applications. Turning it off cancels unsent work.
+
+The independent application service runs the HR worker every 30 seconds. Confirmed submissions made after opt-in are queued durably. Prepared, failed, unconfirmed and already-applied records do not create outreach. The HR agent has its own system prompt and writes a brief, factual email using the candidate's profile and submitted cover letter. It does not modify the applying-agent prompt or search preferences.
+
+Discovery checks the public employer site before corroborated public sources. Brave search is optional and uses the existing configured global search allowance. No address is guessed. Recruitment mailboxes and publicly identified hiring-manager contacts are eligible; unrelated support, sales, privacy, security, job-board and no-reply addresses are excluded. Existing robots-aware, DNS-pinned HTTPS crawling bounds pages, redirects, time and request size. Published no-email notices are respected.
+
+Only public contact evidence is shared between accounts. It is valid for one calendar month and revalidated in the background, including between runs. Reuse also checks the current vacancy's employer association, so a shared name alone does not select a cached company. Failed revalidation never renews an expired contact. Clean negative lookups are cached for one day; transient discovery failures retry rather than becoming permanent no-contact decisions.
+
+Emails use the account holder's connected profile Gmail, through their selected OAuth or browser connection. No application credits or run allowances are consumed by outreach. The worker sends at most 50 HR emails per user per rolling day, with a measured drafting allowance of US$1 per user per rolling day and at most four automatic attempts before attention is needed. Email bodies contain no attachments or tracking pixels.
+
+A durable unique record prevents another outreach email for the same user, employer and role, including duplicate listings across job boards. `sending` is written before delivery. A crash, lost provider reply or lost receipt write becomes `unconfirmed`, never a fresh send. Reconciliation checks the exact stable reference in Sent. No matching subject alone is accepted as proof. Users can see recipient, full exact message, time, status and public contact source; history is owner-scoped and paginated.
+
+The worker reserves the account browser slot and never kills an existing browser to acquire its profile. Dashboard restarts do not stop it. Deployment and service shutdown wait for current HR work. Account deletion removes all private outreach messages/settings; the public employer contact cache contains no candidate evidence.
+
+Run `node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-hr-outreach.mts` from dashboard. It includes real PostgreSQL TEMP-table checks, middleware/access checks, desktop/mobile UI tests, model/transport simulations, lost-receipt recovery and Chromium Gmail fixtures. Tests do not send real email. Normal deployments run this suite under a bounded deadline.

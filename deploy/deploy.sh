@@ -57,6 +57,14 @@ active_runs() {
   fi
   [[ "$marketing" =~ ^[0-9]+$ ]] || marketing=1
   n=$((n + marketing))
+  # HR outreach shares the application service, rather than dist/main.js.
+  # Wait for its current message/lookup too; the deployment gate stops new ones.
+  local hr=0
+  if [ -f "$APP/dashboard/scripts/hr-outreach-active.mts" ]; then
+    hr=$(as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/hr-outreach-active.mts")
+  fi
+  [[ "$hr" =~ ^[01]$ ]] || hr=1
+  n=$((n + hr))
   echo "$n"
 }
 
@@ -136,6 +144,7 @@ as_app "cd $APP/market-scout && npm exec tsc -- -p ."
 # A failed or timed-out check stops the release; it never counts as a pass.
 echo "Running limited deployment checks ($CHECK_TIMEOUT_SECONDS-second maximum)"
 as_app "cd $APP && timeout --signal=TERM --kill-after=2s 60s bash deploy/check-application-service.sh"
+as_app "cd $APP && timeout --signal=TERM --kill-after=2s 180s bash deploy/check-hr-outreach.sh"
 FORCE_FLAG=0
 if [ "${FORCE_DEPLOY:-}" = 1 ]; then FORCE_FLAG=1; fi
 REPLAY_BASELINE_FLAG=""

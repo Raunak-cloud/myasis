@@ -1,0 +1,82 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { getPool } from '../db/index.js';
+import { HrStore,companyKey,outreachKey,getHrOutreachSettings,setHrOutreachEnabled,listHrOutreach,listHrOutreachPage } from './store.js';
+import type { HiringContact } from './discovery.js';
+
+const client=await getPool().connect();
+try {
+  await client.query('BEGIN');
+  await client.query(`CREATE TEMP TABLE users(id BIGINT PRIMARY KEY,blocked_at TIMESTAMPTZ);
+    CREATE TEMP TABLE applications(id BIGINT PRIMARY KEY,user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,job_id TEXT,platform TEXT,title TEXT,company TEXT,url TEXT,cover_letter TEXT,
+      submitted_by_myasis BOOLEAN,confirmation_status TEXT,outcome TEXT,applied_at TIMESTAMPTZ);
+    INSERT INTO users VALUES(1,NULL),(2,NULL),(3,now());`);
+  await client.query(readFileSync(new URL('./schema.sql',import.meta.url),'utf8').replaceAll('CREATE TABLE IF NOT EXISTS','CREATE TEMP TABLE IF NOT EXISTS'));
+  await client.query(readFileSync(new URL('./schema.sql',import.meta.url),'utf8').replaceAll('CREATE TABLE IF NOT EXISTS','CREATE TEMP TABLE IF NOT EXISTS'));
+  const db={query:async(text:string,params?:any[])=>client.query(text,params)};
+  const store=new HrStore(db);
+  assert.equal(companyKey('  Example   LTD '),'example ltd');
+  assert.equal(outreachKey('Example LTD','Data Analyst'),outreachKey('EXAMPLE LTD','Data   Analyst'));
+  assert.deepEqual(await getHrOutreachSettings('1',db),{enabled:false});
+  await setHrOutreachEnabled('1',true,db);await setHrOutreachEnabled('2',true,db);await setHrOutreachEnabled('3',true,db);
+  const enabledSince=(await client.query('SELECT enabled_since FROM hr_outreach_preferences WHERE user_id=1')).rows[0].enabled_since;
+  await setHrOutreachEnabled('1',true,db);
+  assert.equal(+(await client.query('SELECT enabled_since FROM hr_outreach_preferences WHERE user_id=1')).rows[0].enabled_since,+enabledSince,'idempotent enable cannot reset cutoff');
+  await client.query(`INSERT INTO applications VALUES
+    (1,1,'new','seek','Data Analyst','Example LTD','https://example.org/jobs/1','Approved evidence',true,NULL,NULL,now()+interval '1 second'),
+    (2,1,'history','seek','Old Role','Example LTD','https://example.org/jobs/2',NULL,true,NULL,NULL,now()-interval '1 day'),
+    (3,1,'uncertain','seek','Other Role','Example LTD','https://example.org/jobs/3',NULL,false,'unconfirmed',NULL,now()+interval '1 second'),
+    (4,1,'draft','seek','Draft','Example LTD','https://example.org/jobs/4',NULL,false,NULL,NULL,now()+interval '1 second'),
+    (5,2,'peer','seek','Data Analyst','Example LTD','https://example.org/jobs/1',NULL,true,NULL,NULL,now()+interval '1 second'),
+    (6,3,'blocked','seek','Blocked Role','Example LTD','https://example.org/jobs/6',NULL,true,NULL,NULL,now()+interval '1 second'),
+    (7,1,'duplicate','indeed','Data Analyst','EXAMPLE LTD','https://example.org/jobs/1',NULL,true,NULL,NULL,now()+interval '1 second');`);
+  await store.enqueue();await store.enqueue();
+  assert.equal((await listHrOutreach('1',db)).length,2,'original and explicitly skipped duplicate only');
+  assert.equal((await listHrOutreach('2',db)).length,1,'other owner has independent outreach');
+  assert.equal((await listHrOutreach('3',db)).length,0,'blocked account excluded');
+  assert.equal((await listHrOutreach('1',db)).filter(r=>r.status==='skipped').length,1);
+  const job=await store.claim();assert.ok(job);assert.equal(job.user_id,'1');
+  assert.ok(await store.allowed(job));
+  assert.equal((await store.claim())?.user_id,'2','concurrent claim cannot reuse researching job');
+  const contact:HiringContact={email:'careers@example.org',kind:'recruitment',companyDomain:'example.org',sourceUrl:'https://example.org/careers',sourceText:'Recruitment',validatedAt:new Date().toISOString()};
+  await store.saveContact(job.company_key,job.company,contact,'Published');
+  assert.equal((await store.cache(job.company_key))?.fresh,true);
+  const ttl=(await client.query("SELECT extract(epoch FROM (next_validation_at-validated_at))/86400 AS days FROM hr_company_contacts")).rows[0].days;
+  assert.ok(Number(ttl)>=28&&Number(ttl)<=31,'calendar-month validation TTL');
+  await client.query("UPDATE hr_company_contacts SET next_validation_at=now()-interval '1 second'");
+  assert.equal((await store.cache(job.company_key))?.fresh,false);
+  assert.equal((await store.staleContact())?.contact.email,contact.email,'monthly worker sees stale contact');
+  await client.query("UPDATE hr_company_contacts SET validated_at=now()-interval '2 months'");await store.deferValidation(job.company_key);
+  assert.equal((await store.cache(job.company_key))?.fresh,false,'retry schedule cannot renew expired publication validity');
+  await store.saveContact('negative','Absent Company',null,'No published contact');
+  const negativeTtl=(await client.query("SELECT extract(epoch FROM (next_validation_at-validated_at))/86400 AS days FROM hr_company_contacts WHERE company_key='negative'")).rows[0].days;
+  assert.equal(Number(negativeTtl),1,'negative contact cache only lasts one day');
+  await store.draft(job,contact,'Application follow-up','Exact message',0.01);
+  assert.ok(await store.sending(job));assert.equal(await store.sending(job),false,'send transition occurs once');
+  await client.query("UPDATE hr_outreach SET lease_until=now()-interval '1 second' WHERE id=$1",[job.id]);
+  await store.recover();
+  const recovered=(await listHrOutreach('1',db)).find(r=>r.id===job.id)!;
+  assert.equal(recovered.status,'unconfirmed','crash after send never requeues a new send');
+  const uncertain=await store.claim();assert.equal(uncertain?.status,'unconfirmed');assert.ok(uncertain);
+  await store.defer(uncertain);assert.equal((await listHrOutreach('1',db)).find(r=>r.id===job.id)?.status,'unconfirmed','resource contention never makes uncertain sends sendable');
+  await client.query("UPDATE hr_outreach SET available_at=now() WHERE id=$1",[job.id]);
+  const reconcile=await store.claim();assert.ok(reconcile);await store.finish(reconcile,'sent',null,{messageId:'fixture-receipt'});
+  assert.equal((await listHrOutreach('1',db)).find(r=>r.id===job.id)?.body,'Exact message');
+  const page=await listHrOutreachPage('1',{},db);assert.equal(page.items.length,2);assert.equal(page.nextCursor,null);
+  assert.equal((await listHrOutreachPage('1',{jobId:'new',platform:'seek'},db)).items.length,1);
+  await assert.rejects(listHrOutreachPage('1',{cursor:'1;select secret'},db),/Invalid/);
+  await client.query(`INSERT INTO applications(id,user_id,job_id,platform,title,company,url,submitted_by_myasis,applied_at)
+    SELECT n,1,n::text,'seek','Historical role '||n,'Fixture Company','https://example.org/jobs/'||n,true,now() FROM generate_series(100,154) n;
+    INSERT INTO hr_outreach(user_id,application_id,company_key,dedupe_key,job_id,platform,title,company,url,status,body)
+    SELECT 1,n,'fixture','fixture-'||n,n::text,'seek','Historical role '||n,'Fixture Company','https://example.org/jobs/'||n,'sent','Historical exact email '||n FROM generate_series(100,154) n;`);
+  const first=await listHrOutreachPage('1',{},db);assert.equal(first.items.length,50);assert.ok(first.nextCursor);
+  const second=await listHrOutreachPage('1',{cursor:first.nextCursor},db);assert.equal(second.items.length,7);assert.equal(second.nextCursor,null);
+  assert.equal(new Set([...first.items,...second.items].map(r=>r.id)).size,57,'real SQL pages neither overlap nor lose old messages');
+  assert.equal((await listHrOutreachPage('1',{jobId:'100',platform:'seek'},db)).items[0].body,'Historical exact email 100');
+  await setHrOutreachEnabled('2',false,db);
+  assert.equal((await listHrOutreach('2',db))[0].status,'skipped','opt-out cancels unsent work');
+  await client.query('DELETE FROM users WHERE id=1');
+  assert.equal((await listHrOutreach('1',db)).length,0,'private messages cascade on deletion');
+  assert.ok(await store.cache(job.company_key),'shared public contact survives account deletion');
+  console.log('PASS: real PostgreSQL HR queue, opt-in, no historical/draft sends, duplicate prevention, owner isolation, monthly cache TTL, leases, uncertain recovery and deletion. TEMP tables only.');
+}finally{await client.query('ROLLBACK');client.release();await getPool().end();}

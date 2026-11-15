@@ -1,10 +1,11 @@
 import { EMPLOYER_SOURCES } from '../../../seek-bot/src/employer-source-config';
 import { AdzunaAttribution } from './AdzunaAttribution';
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { Application, ApplicationAction, Outcome, SiteAccount } from '../types';
 import type { SkippedJob } from './SkippedPanel';
 import { fmtDate, fmtTime, daysSince, scoreClass } from '../format';
 import { formatApplicationCost, type ApplicationCost } from '../application-cost';
+import { HrEmailMessage, HrOutreachPanel, type HrOutreachEmail } from './HrOutreachPanel';
 
 interface Props {
   apps: Application[];
@@ -25,6 +26,11 @@ const boardLabel = (platform: string | undefined): string =>
   BOARD_LABELS[(platform ?? 'seek').toLowerCase()] ?? (platform ? platform[0].toUpperCase() + platform.slice(1) : 'SEEK');
 
 const ACCOUNT_KINDS: ApplicationAction['kind'][] = ['account-created', 'signed-in', 'password-reset'];
+const mergeHrEmails = (current: HrOutreachEmail[], incoming: HrOutreachEmail[]): HrOutreachEmail[] => {
+  const merged = new Map(current.map(item => [item.id, item]));
+  for (const item of incoming) merged.set(item.id, item);
+  return [...merged.values()].sort((a, b) => b.id.length - a.id.length || b.id.localeCompare(a.id));
+};
 
 /**
  * A site account's password, shown only when its owner asks.
@@ -113,7 +119,50 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
       .finally(() => { if (!cancelled) setCostLoading(false); });
     return () => { cancelled = true; };
   }, [showCosts, apps, loading, loadError]);
-  const [view, setView] = useState<'sent' | 'skipped'>('sent');
+  const [view, setView] = useState<'sent' | 'skipped' | 'hr'>('sent');
+  const [hrEmails, setHrEmails] = useState<HrOutreachEmail[]>([]);
+  const [hrLoading, setHrLoading] = useState(true);
+  const [hrError, setHrError] = useState<string | null>(null);
+  const [hrRefresh, setHrRefresh] = useState(0);
+  const [hrNextCursor, setHrNextCursor] = useState<string | null>(null);
+  const [hrMoreLoading, setHrMoreLoading] = useState(false);
+  const [hrMoreError, setHrMoreError] = useState<string | null>(null);
+  const hrLoadedMore = useRef(false);
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+    async function load() {
+      try {
+        const response = await fetch('/api/hr-outreach', { signal: controller.signal });
+        const result = await response.json();
+        if (!response.ok || !Array.isArray(result.items)) throw new Error();
+        if (active) {
+          setHrEmails(current => mergeHrEmails(current, result.items));
+          if (!hrLoadedMore.current) setHrNextCursor(result.nextCursor ?? null);
+          setHrError(null);
+        }
+      } catch {
+        if (active) setHrError('Could not load your HR emails. Please try again.');
+      } finally { if (active) setHrLoading(false); }
+    }
+    setHrLoading(true);
+    void load();
+    const timer = window.setInterval(() => void load(), 30_000);
+    return () => { active = false; controller.abort(); window.clearInterval(timer); };
+  }, [apps, hrRefresh]);
+  async function loadMoreHr() {
+    if (!hrNextCursor || hrMoreLoading) return;
+    setHrMoreLoading(true); setHrMoreError(null);
+    try {
+      const response = await fetch(`/api/hr-outreach?cursor=${encodeURIComponent(hrNextCursor)}`);
+      const result = await response.json();
+      if (!response.ok || !Array.isArray(result.items)) throw new Error();
+      hrLoadedMore.current = true;
+      setHrEmails(current => mergeHrEmails(current, result.items));
+      setHrNextCursor(result.nextCursor ?? null);
+    } catch { setHrMoreError('Could not load older emails. Please try again.'); }
+    finally { setHrMoreLoading(false); }
+  }
   const [skipped, setSkipped] = useState<SkippedJob[] | null>(null);
   const [skippedError, setSkippedError] = useState<string | null>(null);
 
@@ -132,6 +181,27 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
   }, [showSkipped]);
   const [filter, setFilter] = useState<'all' | 'awaiting' | 'interview' | 'rejected'>('all');
   const [open, setOpen] = useState<Application | null>(null);
+  const [hrDrawerLoading, setHrDrawerLoading] = useState(false);
+  const [hrDrawerError, setHrDrawerError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) { setHrDrawerLoading(false); setHrDrawerError(null); return; }
+    let active = true;
+    const controller = new AbortController();
+    const params = new URLSearchParams({ jobId: open.jobId, platform: open.platform ?? 'seek' });
+    setHrDrawerLoading(true); setHrDrawerError(null);
+    async function load() {
+      try {
+        const response = await fetch(`/api/hr-outreach?${params}`, { signal: controller.signal });
+        const result = await response.json();
+        if (!response.ok || !Array.isArray(result.items)) throw new Error();
+        if (active) { setHrEmails(current => mergeHrEmails(current, result.items)); setHrDrawerError(null); }
+      } catch { if (active) setHrDrawerError('Could not load this application’s HR email.'); }
+      finally { if (active) setHrDrawerLoading(false); }
+    }
+    void load();
+    const timer = window.setInterval(() => void load(), 30_000);
+    return () => { active = false; controller.abort(); window.clearInterval(timer); };
+  }, [open]);
   const [outcomeSaving, setOutcomeSaving] = useState(false);
   const [outcomeError, setOutcomeError] = useState<{ jobId: string; platform: string; message: string } | null>(null);
   const [query, setQuery] = useState('');
@@ -398,6 +468,13 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                 )}
               </div>
 
+              {(hrDrawerLoading || hrDrawerError || hrEmails.some(item => item.jobId === open.jobId && item.platform === (open.platform ?? 'seek'))) && <div className="section">
+                <h3>HR email</h3>
+                {hrDrawerLoading && <p className="job-meta" role="status">Loading HR email…</p>}
+                {hrDrawerError && <p className="job-meta" role="alert">{hrDrawerError}</p>}
+                {hrEmails.filter(item => item.jobId === open.jobId && item.platform === (open.platform ?? 'seek')).map(item => <HrEmailMessage key={item.id} item={item} />)}
+              </div>}
+
               {open.resumeName && !open.confirmationStatus && (
                 <div className="section">
                   <h3>Resume sent</h3>
@@ -447,23 +524,21 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
     </div>
   );
 
-  if (!showSkipped) return sent;
-  /**
-   * What was sent and what was passed over, side by side: the second is the
-   * fit check's half of the same decision. Administrators only while it is
-   * tried out; /api/skipped enforces the same.
-   */
+  // Outreach is available to every owner. The skipped-job view remains admin-only.
   return (
     <>
-      <div className="view-switch" role="tablist" aria-label="Which jobs">
+      <div className="view-switch applications-views" role="tablist" aria-label="Applications and emails">
         <button type="button" role="tab" aria-selected={view === 'sent'} className={view === 'sent' ? 'on' : ''} onClick={() => setView('sent')}>
           Applied<span className="view-count">{apps.filter(app => !app.confirmationStatus).length}</span>
         </button>
-        <button type="button" role="tab" aria-selected={view === 'skipped'} className={view === 'skipped' ? 'on' : ''} onClick={() => setView('skipped')}>
-          Skipped{skipped ? <span className="view-count">{skipped.length}</span> : null}
+        <button type="button" role="tab" aria-selected={view === 'hr'} className={view === 'hr' ? 'on' : ''} onClick={() => setView('hr')}>
+          HR emails{hrEmails.length ? <span className="view-count">{hrEmails.length}{hrNextCursor ? '+' : ''}</span> : null}
         </button>
+        {showSkipped && <button type="button" role="tab" aria-selected={view === 'skipped'} className={view === 'skipped' ? 'on' : ''} onClick={() => setView('skipped')}>
+          Skipped{skipped ? <span className="view-count">{skipped.length}</span> : null}
+        </button>}
       </div>
-      {view === 'sent' ? sent : (
+      {view === 'sent' ? sent : view === 'hr' ? <HrOutreachPanel items={hrEmails} loading={hrLoading} error={hrError} onRetry={() => setHrRefresh(value => value + 1)} hasMore={Boolean(hrNextCursor)} loadingMore={hrMoreLoading} moreError={hrMoreError} onLoadMore={() => void loadMoreHr()} /> : (
         <Suspense fallback={<div className="card empty"><p>Loading skipped jobs…</p></div>}>
           <SkippedPanel items={skipped} error={skippedError} onItems={setSkipped} />
         </Suspense>
