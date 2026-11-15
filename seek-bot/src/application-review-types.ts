@@ -42,6 +42,8 @@ export interface PreparedApplication {
   preparedAt: string;
   /** Server-recorded complimentary source, never authority supplied by the agent. */
   bonusRunId?:string;
+  /** Server-bound Auto authorization; internal email records never await confirmation. */
+  autoRunId?: string;
   formUrl: string;
   answers: Array<{ question: string; answer: string }>;
   coverLetter?: string;

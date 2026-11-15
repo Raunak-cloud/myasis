@@ -190,8 +190,9 @@ test('a stale question reference receives recoverable feedback and the current g
  }finally{await f.context.close();}
 });
 
-test('email preparation saves the chosen recipient immediately without a forced review',{timeout:10000},async()=>{
+test('Semi auto email preparation saves the chosen recipient immediately without a forced review',{timeout:10000},async()=>{
  const f=await fixture('<main>Apply by email to first@fixture.invalid or second@fixture.invalid, with a cover letter and resume.</main>');let turns=0,reviews=0;
+ process.env.APPLICATION_REVIEW_MODE='prepare';
  const draft=(to:string):Call=>({name:'prepare_email_application',args:{to,subject:'Fictional application',cover_letter:'Dear team,\n\nI am applying using my fictional candidate CV.\n\nFictional Candidate',resume_id:'cv'}});
  globalThis.fetch=async(_url,init)=>{const body=JSON.parse(String(init?.body)) as Body;turns++;
   assert.ok(turns<=5,'the exact local email draft must not be discarded or repeatedly regenerated');

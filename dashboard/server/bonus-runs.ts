@@ -64,7 +64,7 @@ export async function complimentaryReviewRun(client:Pick<PoolClient,'query'>,use
 }
 export async function listBonusRuns(userId:string):Promise<BonusRun[]> {
  const rows=await query<BonusRow & {started_at:Date|null;run_finished_at:Date|null;stopped:boolean|null;exit_code:number|null;applied:number|null;prepared:string}>(`SELECT b.*,r.started_at,r.finished_at AS run_finished_at,r.stopped,r.exit_code,r.applied,
-  (SELECT count(*) FROM application_reviews a WHERE a.user_id=b.user_id AND a.payload->>'bonusRunId'=b.id::text)::text AS prepared
+  (SELECT count(*) FROM application_reviews a WHERE a.user_id=b.user_id AND a.payload->>'bonusRunId'=b.id::text AND NOT (a.payload ? 'autoRunId'))::text AS prepared
   FROM bonus_runs b LEFT JOIN run_starts r ON r.id=b.run_start_id AND r.user_id=b.user_id
   WHERE b.user_id=$1 ORDER BY b.created_at DESC LIMIT 10`,[userId]);
  return rows.map(row=>({id:row.id,maxApplications:row.max_applications,applicationMode:row.application_mode,message:row.message,

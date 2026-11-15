@@ -5,6 +5,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { z } from 'zod';
 import type { EmailReceipt, GmailMcpConnection, GmailThread, GmailMessage } from './gmail-mcp-client.js';
 import { GmailReadCancelledError } from './gmail-mcp-client.js';
+import type { PreparedApplication } from './application-review-types.js';
 
 export class GmailServiceError extends Error {
   code: 'reconnect' | 'unavailable' | 'unapproved' | 'uncertain';
@@ -14,8 +15,9 @@ export interface GmailBackend {
   search(userId: string, query: string, signal?: AbortSignal): Promise<GmailThread[]>;
   thread(userId: string, threadId: string, signal?: AbortSignal): Promise<GmailMessage[]>;
   send(userId: string, reviewId: string, revision: string): Promise<EmailReceipt>;
+  sendAutomatic?(userId: string, runId: string, draft: PreparedApplication): Promise<EmailReceipt>;
 }
-interface Lease { userId: string; approvals: Set<string>; threads: Set<string>; expiresAt: number; reads: Map<string, AbortController> }
+interface Lease { userId: string; autoRunId?: string; approvals: Set<string>; threads: Set<string>; expiresAt: number; reads: Map<string, AbortController> }
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 
 /** Private MCP gateway: per-run capabilities, never cookies or browser profiles. */
@@ -45,7 +47,7 @@ export class GmailMcpService {
           const chunks: Buffer[] = []; let length = 0;
           for await (const chunk of req) {
             length += chunk.length;
-            if (length > 32_768) { res.writeHead(413).end(); return; }
+            if (length > (lease.autoRunId ? 131_072 : 32_768)) { res.writeHead(413).end(); return; }
             chunks.push(Buffer.from(chunk));
           }
           const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -101,6 +103,10 @@ export class GmailMcpService {
             if (!lease.approvals.has(reviewId)) throw new GmailServiceError('unapproved', 'This run cannot send that application.');
             return this.backend.send(lease.userId, reviewId, revision);
           }));
+          if (lease.autoRunId && this.backend.sendAutomatic) mcp.registerTool('send_auto_application_email', {
+            description: 'Submit this live Auto run’s email application using the candidate resume and employer recipient. No separate candidate confirmation.',
+            inputSchema: { draft: z.record(z.string(), z.unknown()) },
+          }, ({ draft }) => answer(() => this.backend.sendAutomatic!(lease.userId, lease.autoRunId!, draft as unknown as PreparedApplication)));
           transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
           await mcp.connect(transport);
           await transport.handleRequest(req, res, body);
@@ -116,10 +122,10 @@ export class GmailMcpService {
     });
     return this.listening;
   }
-  async grant(userId: string, account: string, approvals: string[] = []): Promise<{ connection: GmailMcpConnection; revoke: () => void }> {
+  async grant(userId: string, account: string, approvals: string[] = [], autoRunId?: string): Promise<{ connection: GmailMcpConnection; revoke: () => void }> {
     const port = await this.listen(), token = randomBytes(32).toString('base64url'), key = digest(token);
     for (const [id, lease] of this.leases) if (lease.expiresAt < Date.now()) this.leases.delete(id);
-    const lease = { userId, approvals: new Set(approvals), threads: new Set<string>(), expiresAt: Date.now() + 4 * 60 * 60_000, reads: new Map<string, AbortController>() };
+    const lease = { userId, autoRunId, approvals: new Set(approvals), threads: new Set<string>(), expiresAt: Date.now() + 4 * 60 * 60_000, reads: new Map<string, AbortController>() };
     this.leases.set(key, lease);
     return { connection: { url: `http://127.0.0.1:${port}/gmail/mcp`, token, account }, revoke: () => { this.leases.delete(key); for (const read of lease.reads.values()) read.abort(new GmailReadCancelledError()); lease.reads.clear(); } };
   }

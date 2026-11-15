@@ -98,9 +98,9 @@ const applicationToolDefinitions: ToolSchema[] = [
     submit_selector: { type: 'string', description: 'CSS selector for that final send control when a ref is unavailable.' },
     answers: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { question: string, answer: string }, required: ['question', 'answer'] } },
   }, ['answers', 'resume_id']),
-  schema('prepare_email_application', "Prepare an email application to the recipient shown on the employer page, including the resume and letter. Sending requires candidate confirmation.", {
+  schema('prepare_email_application', "Apply by email to the recipient shown on the employer page, including the resume and letter. Auto sends immediately; Semi auto prepares for confirmation.", {
     to: string, subject: string, cover_letter: string, resume_id: string,
-    attach_cover_letter: { type: 'boolean', description: 'Also attach the approved letter as a text document if requested. The letter is always included in the email body.' },
+    attach_cover_letter: { type: 'boolean', description: 'Also attach the letter as a text document if requested. The letter is always included in the email body.' },
   }, ['to', 'subject', 'cover_letter', 'resume_id']),
   schema('browser_batch', "Run observed browser actions in order. Each item needs action (click, fill, set_input_files, etc.) and its matching arguments. Stops on an error or page handoff; inspect results before continuing.", {
     actions: { type: 'array', minItems: 1, maxItems: MAX_BROWSER_BATCH, items: { type: 'object', additionalProperties: false, properties: {
@@ -524,7 +524,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       return ok('Progress saved for subsequent turns and context recovery. Browser unchanged.');
     }
     if (name === 'prepare_email_application') {
-      pendingPreparation = name;
+      if (preparingApplications()) pendingPreparation = name;
       if (config.dryRun) return { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: 'Inspected email application instructions; no email draft or send in dry-run.' } };
       if (!config.allowExternalApply || outsideScope('external')) return ok('Email applications are outside this run scope.', 'failed');
       ctx.coverLetter = cleanCoverLetter(String(args.cover_letter ?? ''));
@@ -1067,7 +1067,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         // Saving a prepared draft or asking for its canonical review cannot
         // transmit an application. Do not discard that paid final record just
         // because its generation crossed the ordinary browser-action allowance.
-        const preparationRecord = reviewingApplications() && call.name === 'prepare_application' || call.name === 'prepare_email_application';
+        const preparationRecord = preparingApplications() && ['prepare_application', 'prepare_email_application'].includes(call.name);
         const unaffordable = meter.actionExhausted && call.name !== 'finish' && !assessmentOnly && !preparationRecord;
         const recoveryPaused = options.continuation&&!isolated&&!ctx.submissionAttempted&&!liveRepairContinuationAllowed(options.continuation);
         const notExecuted = interrupted || planActions >= 16 || unaffordable || recoveryPaused;
@@ -1085,6 +1085,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
             if (issue) throw new Error(`Invalid tool input: ${issue}`);
             failureKind='execution';
             operationMayMutate=helpers.has(call.name)||['fill_authentication_fields','enter_emailed_code','open_emailed_link','add_cover_letter','wait_for_verification'].includes(call.name)
+                || call.name==='prepare_email_application'&&!preparingApplications()
                 || operation.name==='browser_action'&&operation.args.action==='script'
                 || operation.name==='browser_action'&&changesBrowserState(operation.args)
                 || call.name==='browser_batch'&&Array.isArray(call.args.actions)&&call.args.actions.some(changesBrowserState);

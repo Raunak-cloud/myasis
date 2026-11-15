@@ -1433,7 +1433,7 @@ async function main() {
                 if(retryApproval){
                   console.log('  ✅ saved application submitted');
                   if(process.connected)process.send?.({type:PREPAID_RETRY_SUBMITTED,reviewId:retryApproval.id},()=>{});
-                }else console.log(`  ✅ submitted${job.applicationMode === 'external' ? ' [external]' : ''} (${Number.isFinite(config.limits.maxApplicationsPerRun) ? `${applied}/${config.limits.maxApplicationsPerRun}` : applied})`);
+                }else console.log(`  ✅ submitted${outcome.prepaid ? ' [prepaid]' : job.applicationMode === 'external' ? ' [external]' : ''} (${Number.isFinite(config.limits.maxApplicationsPerRun) ? `${applied}/${config.limits.maxApplicationsPerRun}` : applied})`);
                 break;
               case 'rehearsed':
                 rehearsed++;

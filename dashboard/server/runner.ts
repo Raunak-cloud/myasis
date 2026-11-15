@@ -370,11 +370,11 @@ class Run {
       this.logBytes += Buffer.byteLength(line.text);
       while (this.lines.length > MAX_LINES || this.logBytes > MAX_LOG_BYTES) this.logBytes -= Buffer.byteLength(this.lines.shift()!.text);
       // Cheap progress signal for the UI without re-reading applied.json.
-      const submitted = raw.match(/✅ submitted(?: \[(external)\])?/);
+      const submitted = raw.match(/✅ submitted(?: \[(external|prepaid)\])?/);
       if (/^\s*Ready for confirmation:/.test(raw)) this.state.prepared++;
       if (submitted) {
         this.state.applied++;
-        if (this.onApplicationSubmitted) {
+        if (this.onApplicationSubmitted && submitted[1] !== 'prepaid') {
           void Promise.resolve(this.onApplicationSubmitted(submitted[1] === 'external')).catch((error) =>
             this.push('err', `Could not record application usage: ${(error as Error).message}`),
           );
@@ -480,7 +480,8 @@ class Run {
       const exported = await exportUserForRun(userId);
       dataDir = exported.dir;
       profileOverrides = exported.overrides;
-      const lease = await gmailRunConnection(userId, mode === 'live' ? approvals.map(item => item.id) : [], cdpPort);
+      const autoEmailRun = mode === 'live' && !overrides.APPLICATION_REVIEW_MODE && !approvals.length ? runStartId ?? undefined : undefined;
+      const lease = await gmailRunConnection(userId, mode === 'live' ? approvals.map(item => item.id) : [], cdpPort, autoEmailRun);
       this.revokeGmail = lease.revoke;
       profileOverrides = { ...profileOverrides, ...lease.env };
     } catch (error) {

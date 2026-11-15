@@ -44,7 +44,7 @@ export async function listApplicationReviews(userId: string) {
   const rows = await query<{ id: string; status: string; detail: string | null; application: PreparedApplication; operator_hold: ApplicationReviewOperatorHold | null; security_retry_after: Date | null }>(
     `SELECT r.id::text,r.status,r.detail,r.payload AS application,r.security_retry_after,${holdMetadata} AS operator_hold FROM application_reviews r
      LEFT JOIN application_review_operator_holds h ON h.user_id=r.user_id AND h.job_key=r.job_key AND h.released_at IS NULL
-     WHERE r.user_id=$1 ORDER BY r.updated_at DESC LIMIT 100`, [userId]);
+     WHERE r.user_id=$1 AND NOT (r.payload ? 'autoRunId') ORDER BY r.updated_at DESC LIMIT 100`, [userId]);
   const owner = rows.some(row => row.security_retry_after) ? await query<{ email: string }>('SELECT email FROM users WHERE id=$1', [userId]) : [];
   return rows.map(({ security_retry_after, ...row }) => ({ ...row, security_retry: row.status === 'failed' && security_retry_after && !isAdmin(owner[0]?.email)
     ? { reason: 'site-security', retryAt: new Date(security_retry_after).toISOString() } as SecurityRetry : null }));
@@ -52,7 +52,7 @@ export async function listApplicationReviews(userId: string) {
 
 export async function pendingReviewKeys(userId: string): Promise<string[]> {
   const rows = await query<{ payload: PreparedApplication }>(
-    `SELECT payload FROM application_reviews WHERE user_id=$1 AND status IN ('ready','approved','failed')
+    `SELECT payload FROM application_reviews WHERE user_id=$1 AND status IN ('ready','approved','failed') AND NOT (payload ? 'autoRunId')
      UNION ALL SELECT jsonb_build_object('job',job) AS payload FROM application_review_operator_holds WHERE user_id=$1 AND released_at IS NULL`, [userId]);
   return [...new Set(rows.flatMap(row => applicationKeys(row.payload.job)))];
 }
@@ -151,7 +151,8 @@ export async function releaseApplicationReviewHold(actorUserId: string, userId: 
   finally { connection.release(); }
 }
 
-export async function saveApplicationReview(userId: string, draft: PreparedApplication,sourceRunId?:string): Promise<void> {
+export async function saveApplicationReview(userId: string, draft: PreparedApplication,sourceRunId?:string, automatic = false): Promise<void> {
+  if (automatic && !sourceRunId) throw new ApplicationReviewError('An Auto email must belong to its live source run.');
   reviewSelection([{ id: draft.id, revision: draft.revision }]);
   if (!draft.job?.id || !draft.job.url || !Array.isArray(draft.answers)) throw new ApplicationReviewError('Incomplete prepared application.');
   const connection = await getPool().connect().catch((error: Error) => {
@@ -160,9 +161,13 @@ export async function saveApplicationReview(userId: string, draft: PreparedAppli
   try {
     await connection.query('BEGIN');
     await connection.query('SELECT pg_advisory_xact_lock($1::bigint)', [userId]);
+    if (automatic) {
+      const held = await connection.query('SELECT id FROM application_review_operator_holds WHERE user_id=$1 AND job_key=$2 AND released_at IS NULL', [userId, `${draft.job.platform ?? 'seek'}:${draft.job.id}`]);
+      if (held.rows.length) throw new ApplicationReviewError('This application is on an administrator hold.');
+    }
     const bonus=sourceRunId ? await (await import('./bonus-runs.js')).complimentaryReviewRun(connection,userId,sourceRunId,draft.preparedAt) : null;
     // Ignore model-provided attribution. Only a bound parent run can sponsor it.
-    draft={...draft,bonusRunId:bonus?.id};
+    draft={...draft,bonusRunId:bonus?.id,autoRunId:automatic ? sourceRunId : undefined};
     // A late/replayed worker draft cannot erase a consumed candidate decision,
     // including an approved submission that failed or was stopped. Only an
     // explicit owner edit/retry can alter that retained submission record.
@@ -188,6 +193,7 @@ export async function saveApplicationReview(userId: string, draft: PreparedAppli
       await connection.query('UPDATE application_reviews SET credit_consumed=true WHERE user_id=$1 AND job_key=$2',
         [userId, `${draft.job.platform ?? 'seek'}:${draft.job.id}`]);
     }
+    if (automatic && saved.rows[0]) await connection.query("UPDATE application_reviews SET status='approved',detail=NULL WHERE user_id=$1 AND id=$2 AND payload->>'autoRunId'=$3", [userId, draft.id, sourceRunId]);
     await connection.query('COMMIT');
   } catch (error) {
     await connection.query('ROLLBACK');

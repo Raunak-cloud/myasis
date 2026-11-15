@@ -6,7 +6,7 @@ import { jobBoardForHost } from '../job-board-url.js';
 import type { RecoveryRecord } from './recovery-record.js';
 
 export type AgentTermination =
-  | { status: 'applied' }
+  | { status: 'applied'; prepaid?: boolean }
   | { status: 'error'; reason: string; recoveryId?: string; retryable?: boolean }
   | { status: 'prepared'; draft: import('../application-review-types.js').PreparedApplication }
   | { status: 'rehearsed'; stoppedAt: string }

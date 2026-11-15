@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import { randomUUID } from 'node:crypto';
+import type { PreparedApplication } from './application-review-types.js';
 export { OAuth2Client, CodeChallengeMethod } from 'google-auth-library';
 
 export const GMAIL_READ_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
@@ -70,7 +71,7 @@ export class GmailMcpClient {
     })().finally(() => { this.connecting = undefined; });
     return this.connecting;
   }
-  private async call(name: 'search_threads' | 'get_thread' | 'send_application_email', args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  private async call(name: 'search_threads' | 'get_thread' | 'send_application_email' | 'send_auto_application_email', args: Record<string, unknown>): Promise<Record<string, unknown>> {
     try {
       const result = await (await this.connected()).callTool({ name, arguments: args }, undefined, { timeout: this.requestTimeoutMs, signal: this.signal });
       if (result.isError) {
@@ -104,6 +105,12 @@ export class GmailMcpClient {
   }
   async sendApproved(reviewId: string, revision: string): Promise<EmailReceipt> {
     const result = await this.call('send_application_email', { reviewId, revision });
+    if (typeof result.messageId !== 'string' || !result.messageId) throw new GmailConnectionError('Gmail did not confirm the email send.');
+    return result as unknown as EmailReceipt;
+  }
+  async sendAutomatic(draft: PreparedApplication): Promise<EmailReceipt> {
+    const job = { ...draft.job }; delete job.fitReview;
+    const result = await this.call('send_auto_application_email', { draft: { ...draft, job } });
     if (typeof result.messageId !== 'string' || !result.messageId) throw new GmailConnectionError('Gmail did not confirm the email send.');
     return result as unknown as EmailReceipt;
   }

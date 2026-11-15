@@ -9,8 +9,11 @@ import { readSavedForm } from './saved-form.js';
 import { ok, type ToolContext, type ToolResult } from './context.js';
 import type { PreparedApplication } from '../application-review-types.js';
 import { reviewingApplications, preparingApplications } from '../application-review.js';
+import { GmailMcpClient, safeGmailError } from '../gmail-mcp-client.js';
+import { config } from '../config.js';
+import { applicationAllowance } from '../application-allowance.js';
 
-/** Email applications always wait for candidate confirmation, including Auto runs. */
+/** The selected mode applies to email as well as online forms. */
 export async function prepareEmailApplication(ctx: ToolContext, args: Record<string, unknown>): Promise<ToolResult> {
   if (reviewingApplications() && !preparingApplications())
     return ok('This job is already approved. Continue its authorized submission without creating another Prepared draft. Approved email applications use the retained recipient, message and attachments through their existing submission path.', 'failed');
@@ -29,6 +32,20 @@ export async function prepareEmailApplication(ctx: ToolContext, args: Record<str
     resume: document.fileName, resumeId: document.id, resumeHash: createHash('sha256').update(readFileSync(path)).digest('hex'),
     email: { to, subject, attachCoverLetter: args.attach_cover_letter === true } };
   draft.revision = applicationRevision(draft);
+  if (!preparingApplications()) {
+    if (config.dryRun) return { kind: 'terminal', outcome: { status: 'rehearsed', stoppedAt: 'Email inspected; dry-run never sends.' } };
+    if (!await applicationAllowance(true)) return { kind: 'terminal', outcome: { status: 'skipped', reason: 'The account application allowance has been reached.' } };
+    const client = new GmailMcpClient({url: process.env.GMAIL_MCP_URL!, token: process.env.GMAIL_MCP_TOKEN!, account: process.env.GMAIL_MCP_ACCOUNT!});
+    ctx.coverLetter = letter; ctx.resumeUsed = document.id; ctx.resumeName = document.fileName;
+    ctx.submissionAttempted = true;
+    try {
+      const receipt = await client.sendAutomatic(draft);
+      ctx.log(`  Gmail confirmed the Auto application email${receipt.alreadySent ? ' (already sent; no duplicate)' : ''}.`);
+      return { kind: 'terminal', outcome: { status: 'applied', prepaid: true } };
+    } catch (error) {
+      return { kind: 'terminal', outcome: { status: 'error', reason: safeGmailError(error).message, retryable: false } };
+    } finally { await client.close(); }
+  }
   ctx.log(`  Email application ready for your confirmation: ${ctx.job.title} @ ${ctx.job.company}`);
   return { kind: 'terminal', outcome: { status: 'prepared', draft } };
 }

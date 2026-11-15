@@ -12,6 +12,32 @@ import { gmailAccess } from './gmail-access.js';
 import { withGmailBrowser, sendBrowserApplication } from '../../seek-bot/src/gmail-browser.js';
 import { submittedToday } from './today.js';
 import { accountDailyApplicationLimit } from './application-daily-limit.js';
+import { saveApplicationReview } from './application-reviews.js';
+import { validApplicationEmail } from '../../seek-bot/src/application-email-message.js';
+
+/** Auto permission comes from a live owner-bound run capability, never from model text. */
+export async function sendAutomaticApplicationEmail(userId: string, runId: string, input: PreparedApplication): Promise<EmailReceipt> {
+  const active = await one(`SELECT r.id FROM run_starts r JOIN users u ON u.id=r.user_id
+    WHERE r.user_id=$1 AND r.id=$2 AND r.mode='live' AND r.finished_at IS NULL AND u.blocked_at IS NULL`, [userId, runId]);
+  if (!active) throw new GmailServiceError('unapproved', 'This Auto application run has ended or does not belong to this account.');
+  if (!input || !input.job?.id || !input.job.url || !input.job.title || !input.job.company || !input.email
+    || !validApplicationEmail(input.email.to) || !input.email.subject || /[\r\n]/.test(input.email.subject)
+    || !input.coverLetter || !input.resumeId || !input.resumeHash || !Array.isArray(input.answers)
+    || applicationRevision(input) !== input.revision) throw new GmailServiceError('unapproved', 'The email application content or attachment record is incomplete.');
+  const key = `${input.job.platform || 'seek'}:${input.job.id}`;
+  let retained = await one<{id: string; status: string; payload: PreparedApplication}>(
+    'SELECT id::text,status,payload FROM application_reviews WHERE user_id=$1 AND job_key=$2', [userId, key]);
+  if (!retained) {
+    await saveApplicationReview(userId, input, runId, true);
+    retained = await one('SELECT id::text,status,payload FROM application_reviews WHERE user_id=$1 AND job_key=$2', [userId, key]);
+  }
+  if (!retained?.payload.autoRunId || retained.payload.revision !== input.revision)
+    throw new GmailServiceError('unapproved', 'Another retained application exists for this job. No new email was sent.');
+  if (retained.status === 'failed') await query("UPDATE application_reviews SET status='approved',detail=NULL WHERE user_id=$1 AND id=$2 AND payload->>'autoRunId' IS NOT NULL AND status='failed'", [userId, retained.id]);
+  // Exact resume bytes, sender identity, credits, daily limits, send claims and
+  // uncertain-delivery reconciliation are shared with confirmed Semi auto mail.
+  return sendApprovedApplicationEmail(userId, retained.id, retained.payload.revision);
+}
 
 interface SendRow { status: string; message_id: string | null; thread_id: string | null }
 async function recordReceipt(userId: string, draft: PreparedApplication, receipt: EmailReceipt): Promise<EmailReceipt> {

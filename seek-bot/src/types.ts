@@ -200,6 +200,8 @@ export type ApplyOutcome = (
    * automatically — a second copy to a real employer is worse than a miss.
    */
   submitPressed?: boolean;
+  /** Credit was reserved by the server's exact email record, not by stdout. */
+  prepaid?: boolean;
   /** Known entry address retained separately from the original board advert. */
   applicationUrl?: string;
 };

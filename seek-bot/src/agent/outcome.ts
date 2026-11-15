@@ -35,6 +35,7 @@ export function outcomeFromRun(
         status: 'applied',
         jobId,
         at: new Date().toISOString(),
+        ...(run.outcome.prepaid ? { prepaid: true } : {}),
         ...(run.site ? { site: run.site } : {}),
         coverLetter: run.coverLetter,
         answers: run.captured,
