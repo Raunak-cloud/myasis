@@ -89,7 +89,7 @@ try {
       await page.setViewportSize({width:1280,height:1000});
     }
     await dialog.getByRole('button',{name:'Close',exact:true}).click();
-    await page.reload(); await jora.waitFor(); assert.equal(await jora.isChecked(),true);
+    await page.reload(); await page.getByRole('checkbox',{name:'Include Jora Beta',checked:true}).waitFor();
     await sidebar.click(); dialog=page.getByRole('dialog',{name:'Job boards',exact:true});
     await dialog.locator('.boards-row').filter({has:page.getByText('Jora',{exact:true})}).getByRole('button',{name:'Manage sign-in',exact:true}).waitFor();
     await dialog.getByRole('button',{name:'Close',exact:true}).click();
