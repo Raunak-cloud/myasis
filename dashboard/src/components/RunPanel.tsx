@@ -167,7 +167,7 @@ export function RunPanel({
   const entitlements = useEntitlements();
   if (!entitlements?.autoRunsPerDay && autoSchedule) setAutoSchedule(null);
   const billing = useBillingStatus();
-  const boards = useBoardsStatus();
+  const boards = useBoardsStatus(entitlements?.tier === 'admin');
   /** Employer sources are usable independently of these job-board sessions. */
   const signedOutEverywhere = boards !== null && !boards.seek?.signedIn && !boards.indeed?.signedIn;
   const firstRun = Boolean(entitlements?.firstRunRequired && !entitlements.manualRuns);
@@ -885,8 +885,8 @@ export function RunPanel({
               Include Jora <span className="beta-flag">Beta</span>
             </label>
             <p className="job-meta">Find more jobs across other websites. Applications continue on the original site, with duplicate checks across sources. No Jora sign-in is needed to search.</p>
-            <button type="button" className="btn btn-small" disabled={running || verifyingSignIn}
-              onClick={() => window.dispatchEvent(new CustomEvent(OPEN_BOARD_SIGNIN, { detail: 'jora' }))}>Sign in to Jora (optional)</button>
+            <button type="button" className="btn btn-small" disabled={running || verifyingSignIn || boards?.joraChecking}
+              onClick={() => window.dispatchEvent(new CustomEvent(OPEN_BOARD_SIGNIN, { detail: 'jora' }))}>{boards?.joraChecking ? 'Checking Jora sign-in…' : boards?.jora?.signedIn ? 'Jora connected · Manage sign-in' : 'Sign in to Jora (optional)'}</button>
           </div>}
 
           <div className="field">
@@ -1184,7 +1184,7 @@ export function RunPanel({
                   {fieldError('PLATFORMS')}
                   {isAdmin && platforms.includes('jora') && <p className="job-meta">
                     Jora is in beta. Applications continue on the original website, with duplicate checks across sources. Search works without signing in.
-                    {' '}<button type="button" className="link-button" onClick={() => window.dispatchEvent(new CustomEvent(OPEN_BOARD_SIGNIN, { detail: 'jora' }))}>Sign in to Jora (optional)</button>
+                    {' '}<button type="button" className="link-button" onClick={() => window.dispatchEvent(new CustomEvent(OPEN_BOARD_SIGNIN, { detail: 'jora' }))}>{boards?.joraChecking ? 'Checking Jora sign-in…' : boards?.jora?.signedIn ? 'Jora connected · Manage sign-in' : 'Sign in to Jora (optional)'}</button>
                   </p>}
                 </div>
                 {employerSourceSelected && !isAdmin && <p className="job-meta">Employer sources are included with Get Owtomated. No SEEK or Indeed sign-in is needed for these sources.</p>}

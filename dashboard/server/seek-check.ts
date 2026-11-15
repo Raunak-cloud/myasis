@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { closeSync, existsSync, openSync, statSync, truncateSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { BOT_DIR, readEnv, runner, MAX_CONCURRENT } from './runner.js';
+import { BOT_DIR, readEnv, runner, MAX_CONCURRENT, deploying } from './runner.js';
 import { sessionFor, signinSessionCount } from './signin.js';
 import { readSiteState, type SeekState, type SigninSite } from './seek-state.js';
 import { userChromeDir, userDir } from './userdata.js';
@@ -146,7 +146,7 @@ export function checkSignin(userId: string, site: SigninSite, repair = true): Pr
   const known = () => readSiteState(userId, site);
 
   const task = (async () => {
-    if (runner.stateFor(userId).running || browserBenchmarkInProgress(userId) || sessionFor(userId)) return known();
+    if (deploying() || runner.stateFor(userId).running || browserBenchmarkInProgress(userId) || sessionFor(userId)) return known();
     // This account's own checks run one after another on one profile, so they are one browser, not several.
     const othersChecking = new Set([...inFlight.keys()].map((entry) => entry.split(':')[0]));
     othersChecking.delete(userId);
@@ -160,7 +160,7 @@ export function checkSignin(userId: string, site: SigninSite, repair = true): Pr
     const route = await browserRoute(userId);
     if (accountUnavailable(userId)) return known();
     const browserPort = checkPort();
-    const gmail = await gmailRunConnection(userId, [], browserPort);
+    const gmail = site === 'jora' ? {env: {}, revoke: () => {}} : await gmailRunConnection(userId, [], browserPort);
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       ...(route.proxyServer ? { BROWSER_PROXY_SERVER: route.proxyServer } : {}),
@@ -171,6 +171,8 @@ export function checkSignin(userId: string, site: SigninSite, repair = true): Pr
       CDP_PORT: String(browserPort),
       DATA_DIR: userDir(userId),
     };
+
+    if (deploying()) { gmail.revoke(); return known(); }
 
     // What the check did — above all, how a sign-in attempt went — kept beside the account's other files.
     const logPath = resolve(userDir(userId), 'signin-check.log');

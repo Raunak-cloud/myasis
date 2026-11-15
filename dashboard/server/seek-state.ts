@@ -27,7 +27,7 @@ export interface SeekState {
   autoSigninFailed: boolean;
 }
 
-export type SigninSite = 'seek' | 'indeed';
+export type SigninSite = 'seek' | 'indeed' | 'jora';
 
 /** The same shape for every job board a run signs in to; seek-bot writes `<site>-session.json`. */
 export function readSiteState(userId: string, site: SigninSite): SeekState | null {

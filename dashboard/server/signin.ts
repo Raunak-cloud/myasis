@@ -3,7 +3,7 @@ import { upgradeOriginAllowed } from './http-guards.js';
 import { createConnection } from 'node:net';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { currentUser } from './auth.js';
-import { readEnv } from './runner.js';
+import { deploying, readEnv } from './runner.js';
 import { userChromeDir, ensureUserDataDir } from './userdata.js';
 import { chromeGoogleAccounts } from './chrome-accounts.js';
 import { assistIndeedGoogleSignin } from './signin-assist.js';
@@ -43,6 +43,7 @@ const desktops = new SigninSessions(async (session, assist) => {
     ? { state: 'waiting', message: `Selecting ${account} with Google...` }
     : { state: 'unavailable', message: 'No Google account is available in this browser profile. Sign in manually.' };
   const desktop = new SigninDesktop({
+    beforeLaunch: () => { if (deploying()) throw new Error('A server update is in progress. Please try again shortly.'); },
     profileDir, chromePath: readEnv().CHROME_PATH?.trim() || '/usr/bin/google-chrome',
     routeArgs: route.args, startUrl: gmailProfile ? browserGmailUrl(gmailProfile.email) : START_URLS[target], password: session.password, adminBrowser: isAdmin(owner.email),
     log: message => console.warn(`[signin ${id}] ${message}`),
@@ -65,6 +66,7 @@ export const stopSignin = (userId: string) => desktops.stop(userId);
 export const stopAllSignins = () => desktops.stopAll();
 
 export async function startSignin(userId: string, target: SigninTarget = 'seek', options: { assist?: boolean; expiresAt?: number } = {}) {
+  if (deploying()) return { ok: false, error: 'A server update is in progress. Please try again shortly.' };
   if (accountUnavailable(userId)) return { ok: false, error: 'Account deletion is in progress.' };
   if (!signinSupported()) return { ok: false, error: 'Remote sign-in is only available on the Linux server. On this machine, use the local Chrome sign-in instead.' };
   const owner = await one<{ email: string }>('SELECT email FROM users WHERE id=$1 AND blocked_at IS NULL', [userId]);

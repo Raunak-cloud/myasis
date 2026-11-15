@@ -20,6 +20,8 @@ export interface BoardsStatus {
   adzunaAvailable?: boolean;
   seek: BoardState | null;
   indeed: BoardState | null;
+  jora?: BoardState | null;
+  joraChecking?: boolean;
 }
 
 /** Fired by the Apply page after a sign-in window closes, so the menu updates without waiting for the next poll. */
@@ -28,30 +30,32 @@ export const BOARDS_CHANGED = 'boards-changed';
 /** Asks the Apply page to open a private sign-in window (SEEK, Indeed or Jora), with nothing choosing an account for the person. */
 export const OPEN_BOARD_SIGNIN = 'open-board-signin';
 
-export function useBoardsStatus(): BoardsStatus | null {
+export function useBoardsStatus(verifyJora = false): BoardsStatus | null {
   const [status, setStatus] = useState<BoardsStatus | null>(null);
   useEffect(() => {
     let cancelled = false;
-    const load = () => {
-      fetch('/api/signin/session')
+    const load = (verify = false) => {
+      fetch(verify ? '/api/signin/session?verify=jora' : '/api/signin/session')
         .then((response) => (response.ok ? response.json() : null))
         .then((value) => {
           if (cancelled || !value || typeof value !== 'object') return;
-          setStatus({ seek: value.seek ?? null, indeed: value.indeed ?? null, adzunaAvailable: value.adzunaAvailable === true });
+          setStatus({ seek: value.seek ?? null, indeed: value.indeed ?? null, jora: value.jora ?? null,
+            joraChecking: value.joraChecking === true, adzunaAvailable: value.adzunaAvailable === true });
         })
         .catch(() => {});
     };
-    load();
+    load(verifyJora);
     const onVisible = () => document.visibilityState === 'visible' && load();
-    const timer = window.setInterval(load, 60_000);
-    window.addEventListener(BOARDS_CHANGED, load);
+    const timer = window.setInterval(() => load(), verifyJora ? 4_000 : 60_000);
+    const changed = () => load();
+    window.addEventListener(BOARDS_CHANGED, changed);
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
-      window.removeEventListener(BOARDS_CHANGED, load);
+      window.removeEventListener(BOARDS_CHANGED, changed);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, []);
+  }, [verifyJora]);
   return status;
 }

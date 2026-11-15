@@ -6,8 +6,8 @@ import {
   ensureIndeedSignedIn,
   assertSignedIn,
   assertIndeedSignedIn,
-  type SigninSite,
 } from './browser.js';
+import { checkJoraSession } from './jora-session.js';
 
 /**
  * Asks SEEK itself whether this profile is signed in, and records the answer.
@@ -26,12 +26,12 @@ import {
  * recorded then, so a slow page never overwrites a known-good state).
  */
 async function main(): Promise<number> {
-  const site: SigninSite = process.env.SIGNIN_SITE === 'indeed' ? 'indeed' : 'seek';
+  const site = process.env.SIGNIN_SITE === 'jora' ? 'jora' : process.env.SIGNIN_SITE === 'indeed' ? 'indeed' : 'seek';
   const repair = process.env.SIGNIN_REPAIR !== 'false';
   const context = await launchBrowser();
   try {
     const page = await getPage(context);
-    await (site === 'indeed'
+    await (site === 'jora' ? checkJoraSession(page) : site === 'indeed'
       ? repair ? ensureIndeedSignedIn(page) : assertIndeedSignedIn(page, 8_000, 8_000)
       : repair ? ensureSignedIn(page) : assertSignedIn(page, 8_000, 8_000));
     console.log(`${site}: signed-in`);

@@ -6,10 +6,11 @@ set -euo pipefail
 set +m
 APP=$(cd "$(dirname "$0")/.." && pwd)
 cd "$APP"
-for script in deploy/deploy.sh deploy/public-site.sh deploy/smoke-check.sh deploy/install-repair-pilot.sh deploy/repair-pilot-sandbox.sh; do bash -n "$script"; done
+for script in deploy/deploy.sh deploy/public-site.sh deploy/smoke-check.sh deploy/install-repair-pilot.sh deploy/repair-pilot-sandbox.sh deploy/install-chrome-update.sh; do bash -n "$script"; done
 REPLAY_REQUIRED=${1:-0}
 node --test deploy/replay-baseline.test.mjs
 node --test deploy/job-index-codex-connector.test.mjs
+python3 -B -m unittest discover -s deploy -p test_chrome_update.py -v
 
 # Each group uses its own process state and fixture directories. Check every
 # child exit status; launching a background job alone never establishes success.
@@ -61,7 +62,7 @@ check_bot() (
   trap - EXIT
   set -euo pipefail
 cd "$APP/seek-bot"
-node --test dist/jora.test.js dist/jora-browser.test.js dist/application-identity.test.js dist/duplicate-review.test.js
+node --test dist/jora-session.test.js dist/jora.test.js dist/jora-browser.test.js dist/application-identity.test.js dist/duplicate-review.test.js
 if [ "$REPLAY_REQUIRED" = 1 ]; then
   cd "$APP/seek-bot"
   node dist/company-match.test.js

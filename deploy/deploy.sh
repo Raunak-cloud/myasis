@@ -157,6 +157,7 @@ bash "$APP/deploy/install-job-index.sh"
 # Cron invokes Bash explicitly, so a Git checkout cannot disable backups by
 # resetting maintenance.sh's execute bit. Keep installed scheduling in sync.
 install -m 644 "$APP/deploy/myasis.cron" /etc/cron.d/myasis
+bash "$APP/deploy/install-chrome-update.sh" "$APP"
 bash "$APP/deploy/public-site.sh"
 # pm2 remembers the environment a process was started with, and --update-env only
 # adds what the calling shell has. So the run limit is changed by giving it to this

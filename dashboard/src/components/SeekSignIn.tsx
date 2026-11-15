@@ -30,6 +30,7 @@ type Status = {
   session: Session | null;
   seek?: SeekState | null;
   indeed?: SeekState | null;
+  jora?: SeekState | null;
   checking?: boolean;
 };
 
@@ -174,17 +175,18 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, admin
       const body = await fetch(path, { method: 'DELETE' }).then((r) => r.json());
       const seek: SeekState | null = body?.seek ?? null;
       const indeed: SeekState | null = body?.indeed ?? null;
-      setStatus({ supported: true, session: null, seek, indeed });
+      const jora: SeekState | null = body?.jora ?? null;
+      setStatus({ supported: true, session: null, seek, indeed, jora });
       window.dispatchEvent(new Event(BOARDS_CHANGED));
       // Only the site that was just checked can say anything new.
       if (target === 'gmail') window.dispatchEvent(new Event('gmail-connection-changed'));
-      if (verifySignIn && (target === 'seek' || target === 'indeed')) {
-        const site = target === 'seek' ? seek : indeed;
+      if (verifySignIn && (target === 'seek' || target === 'indeed' || target === 'jora')) {
+        const site = target === 'jora' ? body.joraVerified ? jora : null : target === 'seek' ? seek : indeed;
         const name = SITE_NAME[target];
         if (!site?.signedIn) {
           setNotice(
             site?.signedIn === false
-              ? `${name} shows this account signed out. Sign in again to keep applying.`
+              ? target === 'jora' ? 'Jora shows this account signed out. Searching Jora is still available.' : `${name} shows this account signed out. Sign in again to keep applying.`
               : `Could not confirm the sign-in with ${name}. Open it and try again.`,
           );
         }
@@ -301,7 +303,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, admin
           </button>
           <button className="btn primary btn-small" disabled={busy} onClick={() => void close(true)}>
             {busy
-              ? status.session.target === 'seek' || status.session.target === 'indeed'
+              ? status.session.target === 'seek' || status.session.target === 'indeed' || status.session.target === 'jora'
                 ? `Checking with ${SITE_NAME[status.session.target]}…`
                 : 'Closing…'
               : 'Done'}

@@ -129,6 +129,7 @@ async function terminate(child: ChildProcess | undefined): Promise<void> {
 interface ManagedProcess { child: ChildProcess; error?: Error; diagnostic: string; }
 export interface SigninDesktopOptions {
   profileDir: string;
+  beforeLaunch?: () => void;
   chromePath: string;
   routeArgs: string[];
   startUrl: string;
@@ -302,6 +303,7 @@ export class SigninDesktop {
           });
         }
         if (part !== 'viewer') {
+          this.options.beforeLaunch?.();
           this.launch('browser', this.options.chromePath, [
             `--user-data-dir=${this.options.profileDir}`, ...this.options.routeArgs,
             '--no-first-run', '--no-default-browser-check', '--window-position=0,0', '--window-size=1280,900', '--test-type',
