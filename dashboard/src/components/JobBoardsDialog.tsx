@@ -12,7 +12,7 @@ import { BOARDS_CHANGED, OPEN_BOARD_SIGNIN, type BoardState, type BoardsStatus }
  * its owner signed out of.
  */
 
-const NAMES = { seek: 'SEEK', indeed: 'Indeed' } as const;
+const NAMES = { seek: 'SEEK', indeed: 'Indeed', jora: 'Jora' } as const;
 type Board = keyof typeof NAMES;
 
 function describe(state: BoardState | null): string {
@@ -58,8 +58,8 @@ export function JobBoardsDialog({ boards, onClose, onSignIn }: {
     onClose();
   }
 
-  // SEEK is every account's board; Indeed appears once the account has used it.
-  const shown = (Object.keys(NAMES) as Board[]).filter((board) => board === 'seek' || boards[board] !== null);
+  // SEEK and optional Jora sign-in are available to every account.
+  const shown = (Object.keys(NAMES) as Board[]).filter((board) => board === 'seek' || board === 'jora' || boards[board] != null);
 
   return (
     <div className="overlay center" onClick={onClose}>
@@ -88,7 +88,9 @@ export function JobBoardsDialog({ boards, onClose, onSignIn }: {
                 </div>
               ) : (
                 <div className="boards-row-actions">
-                  {state?.signedIn
+                  {board === 'jora'
+                    ? <button className="btn" disabled={busy !== null || boards.joraChecking} onClick={() => signIn(board)}>{boards.joraChecking ? 'Checking sign-in…' : state?.signedIn ? 'Manage sign-in' : 'Sign in'}</button>
+                    : state?.signedIn
                     ? <button className="btn" disabled={busy !== null} onClick={() => setConfirming(board)}>Sign out</button>
                     : <button className="btn primary" disabled={busy !== null} onClick={() => signIn(board)}>Sign in</button>}
                 </div>

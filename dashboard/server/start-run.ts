@@ -198,14 +198,9 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   if (request.repairCaseId && (userId !== '1' || trigger !== 'admin' || request.startedBy !== '1' || mode !== 'live')) return {ok:false,status:403,error:'Invalid admin repair retry.'};
   if (request.repairJob && !request.repairCaseId) return {ok:false,status:403,error:'A repair job requires its validated case.'};
   const admin = isAdmin(email);
-  const wantsJora = String(request.clientOverrides?.JORA_BETA_ENABLED) === 'true'
-    || String(request.clientOverrides?.PLATFORMS ?? '').split(',').some(id => id.trim().toLowerCase() === 'jora');
-  const joraActor = !admin && wantsJora && trigger === 'admin' && request.startedBy
-    ? await query<{ email: string }>('SELECT email FROM users WHERE id=$1 AND blocked_at IS NULL', [request.startedBy]) : [];
-  const joraAvailable = admin || isAdmin(joraActor[0]?.email);
   // Reject malformed sources and admin-only controls before loading account facts.
   // Source eligibility itself is checked against the current pass below.
-  const invalidSettings = jobSourceSettingsError(request.clientOverrides ?? {}, admin, true, adzunaConfigured({ ...readEnv(), ...process.env }), joraAvailable);
+  const invalidSettings = jobSourceSettingsError(request.clientOverrides ?? {}, admin, true, adzunaConfigured({ ...readEnv(), ...process.env }));
   if (invalidSettings) return { ok: false, ...invalidSettings };
   let borrowFreeProxy = false;
   let entitlements = await entitlementsFor(userId, email);
@@ -256,7 +251,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   try { seeds = discoverySeeds(request.oneTime?.seedSeekJobs); }
   catch (error) { return {ok:false,status:400,error:(error as Error).message}; }
   if (seeds.length && (request.approvals !== undefined || request.jobIds !== undefined || request.externalUrl !== undefined)) return {ok:false,status:400,error:'Discovery leads cannot be combined with an approval or targeted retry.'};
-  const sourceError = jobSourceSettingsError(request.clientOverrides ?? {}, admin, entitlements.employerSources, adzunaConfigured({ ...readEnv(), ...process.env }), joraAvailable);
+  const sourceError = jobSourceSettingsError(request.clientOverrides ?? {}, admin, entitlements.employerSources, adzunaConfigured({ ...readEnv(), ...process.env }));
   if (sourceError) return { ok: false, ...sourceError };
 
   /**
@@ -304,7 +299,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   for (const [key, value] of Object.entries(request.clientOverrides ?? {})) {
     if (trigger !== 'manual' && trigger !== 'admin') break;
     if (!USER_SETTABLE_SETTINGS_KEYS.includes(key as (typeof USER_SETTABLE_SETTINGS_KEYS)[number])) continue;
-    if (!mayEditRunSetting(key, entitlements) && !(key === 'JORA_BETA_ENABLED' && joraAvailable)) continue;
+    if (!mayEditRunSetting(key, entitlements)) continue;
     if (value !== undefined && value !== null && String(value).length) settings[key] = String(value);
   }
 
@@ -317,7 +312,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * and the Indeed board its pass includes was dropped whenever the account
    * had not picked boards itself.
    */
-  const overrides = applyRunPolicy(settings, entitlements, admin && effectiveTrigger === 'manual' ? 'manual' : 'auto', settingsSnapshot.saved[PLATFORMS_CHOSEN_KEY] === '1', settingsSnapshot.saved[EMPLOYER_SOURCES_CHOSEN_KEY] === '1', joraAvailable);
+  const overrides = applyRunPolicy(settings, entitlements, admin && effectiveTrigger === 'manual' ? 'manual' : 'auto', settingsSnapshot.saved[PLATFORMS_CHOSEN_KEY] === '1', settingsSnapshot.saved[EMPLOYER_SOURCES_CHOSEN_KEY] === '1');
   if(bonus){
     overrides.BONUS_RUN_ID=bonus.id;
     overrides.MAX_APPS_PER_RUN=String(bonus.max_applications);
@@ -364,7 +359,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     overrides.PLATFORMS = narrowedBoards;
   }
   try {
-    applyJobSourceAccess(overrides, admin, entitlements.employerSources, adzunaConfigured({ ...readEnv(), ...process.env }), joraAvailable);
+    applyJobSourceAccess(overrides, admin, entitlements.employerSources, adzunaConfigured({ ...readEnv(), ...process.env }));
   }
   catch (error) { return { ok: false, status: 400, error: (error as Error).message }; }
   let directExternalUrl: string | null = null;
@@ -550,7 +545,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     // of stays out until they sign in again.
     if (!state || (state.signedIn === false && !state.signedOutByPerson)) await checkSignin(userId, board);
   }
-  const { supported: supportedBoards, unavailable, usable } = availableJobSources(boards, entitlements.employerSources, board => readSiteState(userId, board)?.signedIn === true, adzunaConfigured({ ...readEnv(), ...process.env }), joraAvailable);
+  const { supported: supportedBoards, unavailable, usable } = availableJobSources(boards, entitlements.employerSources, board => readSiteState(userId, board)?.signedIn === true, adzunaConfigured({ ...readEnv(), ...process.env }));
   if (!directExternalUrl && usable.length && usable.every(isEmployerSource) && overrides.APPLY_ONLY === 'hosted') {
     return { ok: false, status: 400, error: 'Employer feeds use employer-site applications. Choose a normal or employer-sites run.' };
   }

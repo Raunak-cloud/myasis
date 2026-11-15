@@ -715,7 +715,6 @@ function dataApi(): Plugin {
          * only for their own session.
          */
         return withUser(async (userId) => {
-          const joraAvailable = isAdminEmail((await currentUser(req.headers?.cookie))?.email);
           if (req.method === 'POST') {
             if (runner.inUse(userId)) {
               return send({ error: 'Stop your current run first — Chrome cannot open the same profile twice.' }, 409);
@@ -723,7 +722,6 @@ function dataApi(): Plugin {
             // Same window, same profile; only the page it opens on differs.
             const body = await readBody();
             const target = body?.target === 'gmail' ? 'gmail' : body?.target === 'jora' ? 'jora' : body?.target === 'indeed' ? 'indeed' : 'seek';
-            if (target === 'jora' && !isAdminEmail((await currentUser(req.headers?.cookie))?.email)) return send({ error: 'Jora Beta is currently available to administrators only.' }, 403);
             if (target === 'gmail') {
               const access = await gmailAccess(userId);
               if (!access.providers.includes('browser')) return send({ error: 'Browser Gmail is unavailable for this account.' }, 403);
@@ -749,14 +747,14 @@ function dataApi(): Plugin {
              */
             const seek = !cancelled && target === 'seek' ? await checkSignin(userId, 'seek', false) : readSeekState(userId);
             const indeed = !cancelled && target === 'indeed' ? await checkSignin(userId, 'indeed', false) : readSiteState(userId, 'indeed');
-            const previousJora = joraAvailable ? readSiteState(userId, 'jora') : null;
-            const jora = !cancelled && target === 'jora' && joraAvailable ? await checkSignin(userId, 'jora', false) : previousJora;
-            return send({ ok: true, cancelled, session: null, seek, indeed, ...(joraAvailable ? { jora,
-              joraVerified: target === 'jora' && !cancelled && !!jora && jora.checkedAt !== previousJora?.checkedAt } : {}), checking: false });
+            const previousJora = readSiteState(userId, 'jora');
+            const jora = !cancelled && target === 'jora' ? await checkSignin(userId, 'jora', false) : previousJora;
+            return send({ ok: true, cancelled, session: null, seek, indeed, jora,
+              joraVerified: target === 'jora' && !cancelled && !!jora && jora.checkedAt !== previousJora?.checkedAt, checking: false });
           }
           const seek = readSeekState(userId);
           const indeed = readSiteState(userId, 'indeed');
-          const jora = joraAvailable ? readSiteState(userId, 'jora') : null;
+          const jora = readSiteState(userId, 'jora');
           const priorState: Record<'seek' | 'indeed' | 'jora', SeekState | null> = { seek, indeed, jora };
           /**
            * Only re-verify a board this account has some history with.
@@ -772,7 +770,7 @@ function dataApi(): Plugin {
            */
           const verifySites = (crossSite(req) ? '' : url.searchParams.get('verify') ?? '')
             .split(',')
-            .filter((site): site is 'seek' | 'indeed' | 'jora' => site === 'seek' || site === 'indeed' || site === 'jora' && joraAvailable)
+            .filter((site): site is 'seek' | 'indeed' | 'jora' => site === 'seek' || site === 'indeed' || site === 'jora')
             .filter((site) => site === 'jora' || priorState[site]?.signedIn === true);
           /**
            * A green tick must describe the live account, not a cached answer.
@@ -798,7 +796,7 @@ function dataApi(): Plugin {
             session: sessionFor(userId),
             seek,
             indeed,
-            ...(joraAvailable ? { jora, joraChecking: seekCheckInProgress(userId, 'jora') } : {}),
+            jora, joraChecking: seekCheckInProgress(userId, 'jora'),
             adzunaAvailable: adzunaConfigured({ ...readEnv(), ...process.env }),
             checking: seekCheckInProgress(userId, 'seek') || seekCheckInProgress(userId, 'indeed'),
           });
@@ -814,7 +812,6 @@ function dataApi(): Plugin {
             return send({ error: 'Stop your current run before opening a job-board sign-in window.' }, 409);
           }
           const target = url.searchParams.get('target') === 'gmail' ? 'gmail' : url.searchParams.get('target') === 'jora' ? 'jora' : url.searchParams.get('target') === 'indeed' ? 'indeed' : 'seek';
-          if (target === 'jora' && !isAdminEmail((await currentUser(req.headers?.cookie))?.email)) return send({ error: 'Jora Beta is currently available to administrators only.' }, 403);
           if (target === 'gmail') {
             if (url.searchParams.get('consent') !== 'true' || !(await gmailAccess(userId)).providers.includes('browser')) return send({ error: 'Confirm available Gmail mailbox access first.' }, 403);
           }
