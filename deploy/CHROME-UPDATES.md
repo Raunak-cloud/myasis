@@ -21,6 +21,9 @@ rebuildable caches and process locks. The updater reads every archive entry and
 checks essential session files before installing anything. It checks available
 disk space and retains two completed pre-update backups after success. These
 are local backups; they are not uploaded by the ordinary nightly backup job.
+Lock files left by a crashed browser on this same machine are excluded from
+archives and left untouched. A live owner, foreign hostname or unknown lock
+format defers maintenance.
 
 The normal OS account, keyring and profile paths stay unchanged. A browser is
 never killed to make the update happen. Websites may independently expire logins;

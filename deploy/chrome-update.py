@@ -9,6 +9,7 @@ import pwd
 import re
 import shutil
 import signal
+import socket
 import subprocess
 import tarfile
 import time
@@ -53,12 +54,26 @@ def busy(app, proc=Path('/proc')):
 CACHES = {'Cache', 'Code Cache', 'GPUCache', 'ShaderCache', 'GrShaderCache', 'GraphiteDawnCache', 'Crashpad'}
 
 
+def live_profile_lock(profile):
+    lock = profile / 'SingletonLock'
+    if not os.path.lexists(lock):
+        return False
+    if not lock.is_symlink():
+        return True
+    host, _, pid = os.readlink(lock).rpartition('-')
+    if host != socket.gethostname() or not pid.isdigit():
+        return True
+    # Crash remnants are not live browsers. Leave their lock symlinks untouched;
+    # Chrome itself handles them on the next launch. Unknown/foreign locks defer.
+    return Path('/proc', pid).exists()
+
+
 def backup_profiles(app, destination, version):
     users = app / 'seek-bot/data/users'
     profiles = sorted(p for p in users.glob('*/chrome') if p.is_dir() and not p.is_symlink())
     for profile in profiles:
         # Chrome's lock is a symlink, commonly dangling. Never unlink it to force a backup.
-        if os.path.lexists(profile / 'SingletonLock'):
+        if live_profile_lock(profile):
             raise RuntimeError('A browser profile is locked; update deferred.')
     size = sum(path.stat().st_size for profile in profiles for path in profile.rglob('*') if path.is_file() and not path.is_symlink())
     destination.mkdir(parents=True, exist_ok=True, mode=0o700)

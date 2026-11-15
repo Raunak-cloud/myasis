@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import os
+import socket
 from pathlib import Path
 import tarfile
 import tempfile
@@ -114,6 +115,21 @@ class ChromeUpdateTests(unittest.TestCase):
             self.assertNotIn('1/chrome/Default/Cache/test', tar.getnames())
         self.assertEqual(archive.stat().st_mode & 0o777, 0o600)
         self.assertEqual(archive.parent.stat().st_mode & 0o777, 0o700)
+
+    def test_crashed_browser_lock_does_not_block_backup_or_get_deleted(self):
+        profile = self.app / 'seek-bot/data/users/1/chrome'
+        profile.mkdir(parents=True)
+        (profile / 'Local State').write_text('fictional session key')
+        lock = profile / 'SingletonLock'
+        lock.symlink_to(f'{socket.gethostname()}-999999999')
+        archive = module.backup_profiles(self.app, self.app / 'backups', '153')
+        self.assertTrue(os.path.lexists(lock), 'maintenance must not delete another component’s profile lock')
+        with tarfile.open(archive) as tar:
+            self.assertIn('1/chrome/Local State', tar.getnames())
+            self.assertNotIn('1/chrome/SingletonLock', tar.getnames())
+        lock.unlink()
+        lock.symlink_to(f'{socket.gethostname()}-{os.getpid()}')
+        self.assertTrue(module.live_profile_lock(profile), 'a live lock owner must hold maintenance back')
 
     def test_busy_detects_browser_and_starting_run(self):
         proc = self.app / 'proc'
