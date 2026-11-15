@@ -2,7 +2,7 @@ Chrome maintenance
 ==================
 
 `bash deploy/install-chrome-update.sh /home/myasis/myasis` installs a root-owned
-systemd service and hourly timer. Normal application deployments refresh it.
+systemd service and fortnightly (14-day) timer. Normal application deployments refresh it.
 
 The updater shares the application deployment lock. It skips active application
 workers, sign-in checks and Chrome processes, including private VPS browsers.

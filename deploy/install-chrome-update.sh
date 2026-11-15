@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Root-owned maintenance code; hourly idle checks, no customer browser restarts.
+# Root-owned maintenance code; fortnightly idle checks, no customer browser restarts.
 set -euo pipefail
 APP=${1:-/home/myasis/myasis}
 APP=$(realpath "$APP")
@@ -26,12 +26,12 @@ Nice=10
 EOF
 cat > /etc/systemd/system/owtomate-chrome-update.timer <<'EOF'
 [Unit]
-Description=Check hourly for safe Owtomate Chrome updates
+Description=Check fortnightly for safe Owtomate Chrome updates
 
 [Timer]
-OnCalendar=hourly
+OnActiveSec=14d
+OnUnitActiveSec=14d
 RandomizedDelaySec=5min
-Persistent=true
 Unit=owtomate-chrome-update.service
 
 [Install]
