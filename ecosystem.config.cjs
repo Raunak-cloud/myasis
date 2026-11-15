@@ -77,7 +77,8 @@ module.exports = {
       autorestart: true,
       watch: false,
       max_memory_restart: '750M',
-      node_args: '--max-old-space-size=256',
+      // Leave room for dashboard work while keeping a bounded heap below the RSS restart limit.
+      node_args: '--max-old-space-size=512',
       kill_timeout: 30_000,
       restart_delay: 2_000,
       time: true,

@@ -4,12 +4,15 @@ import { StringDecoder } from 'node:string_decoder';
 import { beginAccountDeletion, AccountDeletionError } from './account-lifecycle.js';
 import { MAX_CONTROL_BYTES, MAX_STREAM_BUFFER, runServiceDirectory, runServiceSocket, runServiceState } from './run-service-protocol.js';
 import type { RunPool, RunMode } from './runner.js';
+import { browserRoute, routeStatus, forgetAccountRoute, retireAccountRoute } from './route.js';
 
 type Pool = Pick<RunPool, 'snapshot' | 'claimStart' | 'releaseStart' | 'start' | 'startQueue' | 'stop' |
   'stopForAccountDeletion' | 'backlog' | 'subscribe' | 'runIdFor' | 'activeCount' | 'activeUserIds' | 'pruneIdle'>;
 
-/** The service, not an HTTP connection, owns the complete application lifetime. */
-export async function serveRuns(pool: Pool) {
+type RouteControl = Pick<typeof import('./route.js'), 'browserRoute' | 'routeStatus' | 'forgetAccountRoute' | 'retireAccountRoute'>;
+
+/** The service owns both workers and their network relays, independently of HTTP clients. */
+export async function serveRuns(pool: Pool, routes: RouteControl = { browserRoute, routeStatus, forgetAccountRoute, retireAccountRoute }) {
   mkdirSync(runServiceDirectory(), { recursive: true, mode: 0o700 });
   chmodSync(runServiceDirectory(), 0o700);
   // A dead service can leave its socket. Never unlink a live one's endpoint.
@@ -71,9 +74,17 @@ export async function serveRuns(pool: Pool) {
           return;
         }
         if (!Number.isInteger(callerPid) || callerPid < 1) throw new Error('Invalid application service caller.');
-        if (['claimStart', 'start', 'startQueue'].includes(method) && draining) throw new Error('Application service is updating. Try again shortly.');
+        if (['claimStart', 'start', 'startQueue', 'browserRoute'].includes(method) && draining) throw new Error('Application service is updating. Try again shortly.');
+        if (['browserRoute', 'routeStatus', 'forgetAccountRoute', 'retireAccountRoute'].includes(method)) {
+          if (typeof args[0] !== 'string' || !/^[A-Za-z0-9_-]+$/.test(args[0])) throw new Error('Invalid route account.');
+          if (method === 'browserRoute' && typeof args[1] !== 'boolean') throw new Error('Invalid route allocation.');
+        }
         let value: unknown;
         switch (method) {
+          case 'browserRoute': value = await routes.browserRoute(args[0], args[1]); break;
+          case 'routeStatus': value = await routes.routeStatus(args[0]); break;
+          case 'forgetAccountRoute': value = await routes.forgetAccountRoute(args[0]); break;
+          case 'retireAccountRoute': value = await routes.retireAccountRoute(args[0]); break;
           case 'claimStart':
             value = pool.claimStart(args[0]);
             if (value) claims.set(args[0], callerPid);

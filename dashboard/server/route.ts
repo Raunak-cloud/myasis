@@ -3,6 +3,8 @@ import { one } from './db/index.js';
 import { upsertSettingRow } from './db/records.js';
 import { endpointOf, parseProxy, proxyUrl, resolvesPublic, type ProxyDetails } from './proxy-address.js';
 import { onPoolChange, poolHolderOf, pooledProxyFor, reconcilePool } from './proxy-pool.js';
+import { runServiceRequest } from './run-service-client.js';
+import { usesRunService } from './run-service-protocol.js';
 
 /**
  * Which connection an account's browser goes out on.
@@ -24,7 +26,7 @@ import { onPoolChange, poolHolderOf, pooledProxyFor, reconcilePool } from './pro
  * Chrome cannot change proxy once started, cannot log in to a SOCKS proxy at
  * all, and a run must not fail because an exit went away, so Chrome is never
  * pointed at the exit itself. It is pointed at a switch — a small SOCKS server
- * of this process, one per account — that forwards each new connection
+ * owned by the independent application service, one per account, that forwards each new connection
  * through the exit or directly. Two rules keep that from looking like an
  * account hopping between addresses:
  *
@@ -86,7 +88,7 @@ export async function homeRoutePort(userId: string): Promise<number | null> {
 
 export async function setHomeRoutePort(userId: string, port: number | null): Promise<void> {
   await upsertSettingRow(userId, HOME_ROUTE_PORT_KEY, port ? String(port) : '');
-  forget(userId);
+  await retireAccountRoute(userId);
 }
 
 /**
@@ -105,7 +107,7 @@ export async function setProxy(userId: string, raw: string | null): Promise<stri
     if (holder && holder !== userId) return 'That proxy is already given to another account from the Webshare pool.';
     await upsertSettingRow(userId, PROXY_KEY, proxyUrl(proxy));
   }
-  forget(userId);
+  await retireAccountRoute(userId);
   await reconcilePool().catch((error) => console.warn(`[proxy-pool] reconcile failed: ${(error as Error).message}`));
   return null;
 }
@@ -439,19 +441,23 @@ export class RouteSwitch {
 
 const switches = new Map<string, RouteSwitch>();
 
-export function forgetAccountRoute(userId: string): void {
+export async function forgetAccountRoute(userId: string): Promise<void> {
+  if (usesRunService()) return runServiceRequest<void>('forgetAccountRoute', [userId]);
   switches.get(userId)?.close();
   switches.delete(userId);
 }
 
 /** A changed setting takes effect with the account's next browser; one already open keeps the switch it started on. */
-function forget(userId: string): void {
+export async function retireAccountRoute(userId: string): Promise<void> {
+  if (usesRunService()) return runServiceRequest<void>('retireAccountRoute', [userId]);
   switches.get(userId)?.retire();
   switches.delete(userId);
 }
 
 // A proxy given, taken back or swapped by the pool is a changed setting like any other.
-onPoolChange(forget);
+onPoolChange(userId => {
+  void retireAccountRoute(userId).catch(() => console.warn('[route] could not notify the application service of a changed route'));
+});
 
 async function switchFor(userId: string, assign = false, borrowFree = false): Promise<RouteSwitch | null> {
   const existing = switches.get(userId);
@@ -467,6 +473,7 @@ const SERVER_ONLY: RouteStatus = { exit: null, using: 'server', exitOnline: fals
 
 /** What the account's dashboard shows. */
 export async function routeStatus(userId: string): Promise<RouteStatus> {
+  if (usesRunService()) return runServiceRequest<RouteStatus>('routeStatus', [userId]);
   const route = await switchFor(userId);
   if (!route) return SERVER_ONLY;
   await route.check();
@@ -478,7 +485,12 @@ export async function routeStatus(userId: string): Promise<RouteStatus> {
  * route it will start on. Empty for an account without an exit, whose Chrome
  * starts exactly as it always has.
  */
-export async function browserRoute(userId: string, borrowFree = false): Promise<{ proxyServer: string | null; args: string[]; status: RouteStatus }> {
+export interface BrowserRoute { proxyServer: string | null; args: string[]; status: RouteStatus }
+
+export async function browserRoute(userId: string, borrowFree = false): Promise<BrowserRoute> {
+  // A dashboard (or short-lived operator CLI) is only a client. Returning the
+  // service-owned port keeps Chrome connected when that caller exits/crashes.
+  if (usesRunService()) return runServiceRequest<BrowserRoute>('browserRoute', [userId, borrowFree]);
   const route = await switchFor(userId, true, borrowFree);
   if (!route) return { proxyServer: null, args: [], status: SERVER_ONLY };
   await route.check(true);

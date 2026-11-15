@@ -63,7 +63,7 @@ export async function deleteAccount(user: { id: string }): Promise<void> {
       await client.query('ROLLBACK');
       throw error;
     } finally { client.release(); }
-    forgetAccountRoute(user.id);
+    await forgetAccountRoute(user.id);
     success = true;
   } finally {
     finish(success);
