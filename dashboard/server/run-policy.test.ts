@@ -104,9 +104,9 @@ check('Active Search can raise its scheduled match threshold', activeFiltered.MI
 check('Active Search still cannot save Intensive standing instructions', jobSearchAuto.AI_INSTRUCTIONS_B64 === '');
 check('free accounts receive one scheduled run', automaticRunsPerDay('standard') === 1);
 check('Essential accounts receive two scheduled runs', automaticRunsPerDay('standard', 'essential') === 2);
-check('Active Search accounts receive four scheduled runs', automaticRunsPerDay('standard', 'active') === 4);
+check('Active Search accounts receive three scheduled runs', automaticRunsPerDay('standard', 'active') === 3);
 check('admins receive four scheduled runs', automaticRunsPerDay('admin') === 4);
-check('Intensive includes four automatic runs', automaticRunsPerDay('intensive') === 4);
+check('Intensive includes three automatic runs', automaticRunsPerDay('intensive') === 3);
 
 const intensiveFacts = {
   admin: false,
@@ -215,7 +215,7 @@ check('Active Search and Get Owtomated advertise the editable 60-100% range', ['
 check('Free says the scheduled run and reviews it gets', said('free').includes('1 scheduled run each day') && said('free').includes(`up to ${PLAN_LIMITS.free.evaluationsPerRun} jobs`));
 check('Essential says it gets two scheduled runs', said('essential-pass').includes('2 scheduled runs each day'));
 check('Active Search says the scheduled runs and reviews it gets', said('job-search-pass').includes(`Up to ${automaticRunsPerDay('standard', 'active')} scheduled runs`) && said('job-search-pass').includes(`up to ${PLAN_LIMITS['job-search-pass'].evaluationsPerRun} jobs`));
-check('Get Owtomated says scheduled runs, both modes, 200 reviews and employer-site applications', said('intensive-pass').includes('Up to 4 scheduled runs') && said('intensive-pass').includes('Semi auto') && said('intensive-pass').includes('up to 200 jobs') && said('intensive-pass').includes('employer-site applications'));
+check('Get Owtomated says scheduled runs, both modes, 200 reviews and employer-site applications', said('intensive-pass').includes('Up to 3 scheduled runs') && said('intensive-pass').includes('Semi auto') && said('intensive-pass').includes('up to 200 jobs') && said('intensive-pass').includes('employer-site applications'));
 check('no plan says each month', !Object.values(PLAN_PRESENTATION).some((plan) => plan.features.some((feature) => /each month|a month|monthly/i.test(feature))));
 
 

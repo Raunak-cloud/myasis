@@ -10,8 +10,8 @@ const schema = `schedule_test_${randomUUID().replaceAll('-', '')}`;
 (pool as unknown as { options: { options: string } }).options.options = `-c search_path=${schema}`;
 after(async () => { await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await pool.end(); });
 
-test('elapsed-time scheduling: one, two or four runs per 24h across midnight and DST; missed slots never catch up', () => {
-  for (const runs of [1, 2, 4]) for (const date of ['2026-10-03T15:00:00Z', '2026-04-04T15:00:00Z', '2026-10-24T23:59:00Z']) {
+test('elapsed-time scheduling: one, two, three or four runs per 24h across midnight and DST; missed slots never catch up', () => {
+  for (const runs of [1, 2, 3, 4]) for (const date of ['2026-10-03T15:00:00Z', '2026-04-04T15:00:00Z', '2026-10-24T23:59:00Z']) {
     const starts = [new Date(date)];
     for (let n = 0; n < 8; n++) starts.push(nextScheduledStart(starts.at(-1)!, starts.at(-1)!, runs));
     for (let n = 1; n < starts.length; n++) assert.equal(+starts[n] - +starts[n - 1], 24 / runs * 3600_000);
@@ -21,6 +21,7 @@ test('elapsed-time scheduling: one, two or four runs per 24h across midnight and
   assert.equal(+nextScheduledStart(delayed, last), +delayed);
   assert.equal(+nextScheduledStart(delayed, delayed), +delayed + 6 * 3600_000);
   assert.equal(+nextScheduledStart(last, last, 1), +last + 24 * 3600_000);
+  assert.equal(+nextScheduledStart(last, last, 3), +last + 8 * 3600_000);
 });
 
 test('real DB: opt-in, mode, idempotence, concurrency, pause races, resume gap and crash recovery', async () => {
@@ -29,7 +30,7 @@ test('real DB: opt-in, mode, idempotence, concurrency, pause races, resume gap a
     INSERT INTO users VALUES(1),(2);
     CREATE TABLE run_starts(user_id bigint, mode text, trigger text, approval_only boolean DEFAULT false, started_at timestamptz DEFAULT now());`);
   const sql = readFileSync(new URL('./db/schema.sql', import.meta.url), 'utf8');
-  const migration = sql.slice(sql.indexOf('-- Explicit opt-in only:'));
+  const migration = sql.slice(sql.indexOf('-- Explicit opt-in only:'), sql.indexOf('-- Retired job sources:'));
   await pool.query(migration); await pool.query(migration);
   assert.equal(await scheduleFor('1'), null, 'migration never activates an existing user');
   await changeSchedule('1', true, 'semi-auto');
@@ -87,7 +88,7 @@ test('real DB: opt-in, mode, idempotence, concurrency, pause races, resume gap a
   assert.equal(await scheduleFor('2'), null, 'account deletion removes its future jobs');
 
   // Existing six-hour slots must obey a smaller plan allowance before any spawn.
-  for (const runs of [1, 2]) {
+  for (const runs of [1, 2, 3]) {
     const userId = String(10 + runs);
     await pool.query('INSERT INTO users VALUES($1)', [userId]);
     await changeSchedule(userId, true, 'semi-auto', 4);
