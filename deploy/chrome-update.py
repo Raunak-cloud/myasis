@@ -33,10 +33,15 @@ def busy(app, proc=Path('/proc')):
             continue
         try:
             args = (entry / 'cmdline').read_bytes().split(b'\0')
-            executable = os.fsdecode(args[0])
+            # Chrome rewrites argv into one space-separated process title on Linux.
+            # /proc/exe remains authoritative even after a package was replaced.
+            try:
+                executable = os.readlink(entry / 'exe').removesuffix(' (deleted)')
+            except FileNotFoundError:
+                executable = os.fsdecode(args[0]).split(' ', 1)[0]
             if re.search(r'/(?:google-chrome(?:-stable)?|chrome|chromium(?:-browser)?)$', executable):
                 return True
-            if any(re.search(rb'(?:dist/(?:main|queue|check-signin|browser-benchmark)\.js|form-lab/worker\.mjs|benchmark-browser\.(?:mjs|mts))$', arg) for arg in args):
+            if re.search(rb'(?:dist/(?:main|queue|check-signin|browser-benchmark)\.js|form-lab/worker\.mjs|benchmark-browser\.(?:mjs|mts))(?:\s|$)', b' '.join(args)):
                 return True
         except (FileNotFoundError, ProcessLookupError):
             continue
