@@ -26,7 +26,7 @@ test('real browser follows Jora handoffs to SEEK, Indeed and employer pages with
       return route.fulfill({ status: sourceStatus, contentType: 'text/html', body: url.pathname === '/j' ? results : detail });
     }
     destinations.push(url.href);
-    if (url.hostname.endsWith('seek.com')) return route.fulfill({ contentType: 'text/html', body: html(`<main><h1>Data Analyst</h1><div data-automation="jobAdDetails">Full SEEK description.</div><span data-automation="job-detail-date">Posted 5d ago</span><span data-automation="job-detail-location">Sydney</span><span data-automation="job-detail-salary">$100,000 a year</span><span data-automation="job-detail-work-type">Hybrid</span><a data-automation="job-detail-apply" href="/job/95787949/apply">Quick apply</a></main>`) });
+    if (['au.seek.com', 'www.seek.com.au'].includes(url.hostname)) return route.fulfill({ contentType: 'text/html', body: html(`<main><h1>Data Analyst</h1><div data-automation="jobAdDetails">Full SEEK description.</div><span data-automation="job-detail-date">Posted 5d ago</span><span data-automation="job-detail-location">Sydney</span><span data-automation="job-detail-salary">$100,000 a year</span><span data-automation="job-detail-work-type">Hybrid</span><a data-automation="job-detail-apply" href="/job/95787949/apply">Quick apply</a></main>`) });
     if (url.hostname.endsWith('indeed.com')) return route.fulfill({ contentType: 'text/html', body: html('<main data-testid="jobsearch-ViewjobPane"><div id="jobDescriptionText">Full Indeed description.</div><span data-testid="job-location">Sydney</span><button data-testid="primary-apply-action">Apply now</button></main>') });
     if (url.hostname === 'example.com') return route.fulfill({ contentType: 'text/html', body: html('<script type="application/ld+json">{"@type":"JobPosting","title":"Data Analyst","hiringOrganization":{"name":"Fixture Employer"},"description":"Full employer description.","jobLocation":{"address":{"addressLocality":"Sydney"}},"datePosted":"2026-11-01"}</script><main><h1>Data Analyst</h1>Full employer description.</main>') });
     unexpected.push(url.href); return route.abort();
@@ -37,7 +37,8 @@ test('real browser follows Jora handoffs to SEEK, Indeed and employer pages with
     assert.equal(jobs.length, 1);
     const seek = await fetchJoraDetail(page, jobs[0]);
     assert.equal(seek.id, `jora-${hash}`); assert.equal(seek.platform, 'jora'); assert.equal(seek.description, 'Full SEEK description.'); assert.equal(seek.ageDays, 5);
-    assert.equal(seek.listingSourceUrl, `https://au.jora.com${posting}`); assert.match(seek.url, /au.seek.com\/job\/95787949/);
+    assert.equal(seek.listingSourceUrl, `https://au.jora.com${posting}`); assert.equal(new URL(seek.url).hostname, 'www.seek.com.au');
+    assert.equal(new URL(seek.url).pathname, '/job/95787949'); assert.equal(new URL(seek.url).searchParams.get('utm_source'), 'joraau');
     destination = 'https://au.indeed.com/viewjob?jk=0123456789abcdef';
     const indeed = await fetchJoraDetail(page, jobs[0]);
     assert.equal(indeed.id, jobs[0].id); assert.equal(indeed.description, 'Full Indeed description.');

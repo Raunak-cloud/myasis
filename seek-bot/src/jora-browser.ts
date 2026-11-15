@@ -51,12 +51,18 @@ export async function fetchJoraDetail(page: Page, stub: JobListing): Promise<Job
       assertBrowserOperationActive();
       await page.locator('body').waitFor({ state: 'visible', timeout: browserOperationTimeout() });
     });
-    const destination = page.url(), board = jobBoardForUrl(destination);
+    let destination = page.url();
+    const board = jobBoardForUrl(destination);
     if (new URL(destination).hostname.endsWith('jora.com')) throw new Error('Jora did not open the original vacancy.');
     let detail: JobListing;
     if (board === 'seek') {
       const id = new URL(destination).pathname.match(/^\/job\/(\d+)(?:\/|$)/)?.[1];
       if (!id) throw new Error('Jora did not resolve to a SEEK vacancy.');
+      // Jora's au.seek.com referral is the same posting, but cookies belong
+      // to SEEK's normal Australian host. Use the existing signed-in board.
+      const native = new URL(`/job/${id}`, config.seekBase);
+      native.search = new URL(destination).search;
+      destination = native.href;
       detail = await fetchJobDetail(page, { ...job, id, url: destination, applicationUrl: undefined, ageDays: undefined, listedAt: undefined });
     } else if (board === 'indeed') {
       const url = new URL(destination), id = url.searchParams.get('jk') ?? url.searchParams.get('vjk');
