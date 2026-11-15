@@ -36,7 +36,7 @@ const server = await createServer({ configFile: false, root, plugins: [react(), 
       '/api/billing/status': { configured: true, totalRemaining: 5, free: { allowance: 5, used: 0, remaining: 5 }, paid: { remaining: 0, hasActivePass: false } },
       '/api/setup/status': { ready: true, done: 3, total: 3, checks: ['resume', 'profile', 'looking'].map(id => ({ id, label: id, done: true, required: true })) },
       '/api/run/status': { running: false, hasKey: true, isOwner: true, applied: 0 },
-      '/api/signin/session': { supported: true, session: signinSession, seek: { signedIn: false }, indeed: { signedIn: false }, jora: joraConnected ? {signedIn:true,checkedAt:new Date().toISOString()} : null, joraVerified:joraConnected },
+      '/api/signin/session': { supported: true, session: signinSession, seek: { signedIn: true }, indeed: { signedIn: false }, jora: joraConnected ? {signedIn:true,checkedAt:new Date().toISOString()} : null, joraVerified:joraConnected },
       '/api/auto-schedule': { enabled: false, applicationMode: 'auto', runsUsedToday: 0, runsPerDay: 1, nextRunAt: null, timeZone: 'Australia/Sydney', waitingForSetup: false },
       '/api/board-resumes': { boards: [] }, '/api/gmail/status': { connected: false },
       '/api/application-reviews': { applications: [] }, '/api/skipped': { items: [] }, '/api/attention': [], '/api/admin/simulations': { simulations: [] },
@@ -57,11 +57,14 @@ try {
   for (tier of ['standard', 'intensive', 'admin'] as const) {
     settings.JORA_BETA_ENABLED = 'false'; settings.PLATFORMS = 'seek'; writes.length = 0; joraConnected = false;
     await page.goto(origin);
-    const jora = page.getByRole('checkbox', { name: 'Include Jora Beta' }); await jora.waitFor();
-    assert.equal(await jora.isChecked(), false, 'Jora is available without silently opting anyone in');
+    await page.getByText('data analyst',{exact:true}).waitFor();
+    assert.equal(await page.getByRole('checkbox', {name:'Include Jora Beta'}).count(),0,'the extra checkbox is removed');
     assert.equal(await page.getByText('Find more jobs across other websites.', {exact:false}).count(), 0);
     assert.equal(await page.getByRole('button', {name:'Sign in to Jora (optional)',exact:true}).count(), 0, 'sign-in moved off the run panel');
-    await jora.check();
+    await page.getByRole('button',{name:'Start Auto apply',exact:true}).click();
+    const review=page.getByRole('dialog',{name:'Review Auto apply settings',exact:true});
+    await review.getByRole('button',{name:'Jora (Beta)',exact:true}).click();
+    await review.getByRole('button',{name:'Cancel',exact:true}).click();
     await page.getByRole('button', {name:'Save changes',exact:true}).click();
     await page.getByText('Saved. Your next run will use this.').waitFor();
     const updates = writes.find(write => write.path === '/api/settings')!.body.updates;
@@ -89,12 +92,14 @@ try {
       await page.setViewportSize({width:1280,height:1000});
     }
     await dialog.getByRole('button',{name:'Close',exact:true}).click();
-    await page.reload(); await page.getByRole('checkbox',{name:'Include Jora Beta',checked:true}).waitFor();
+    await page.reload(); await page.getByText('data analyst',{exact:true}).waitFor();
+    assert.equal(settings.JORA_BETA_ENABLED,'true');
+    assert.equal(await page.getByRole('checkbox',{name:'Include Jora Beta'}).count(),0);
     await sidebar.click(); dialog=page.getByRole('dialog',{name:'Job boards',exact:true});
     await dialog.locator('.boards-row').filter({has:page.getByText('Jora',{exact:true})}).getByRole('button',{name:'Manage sign-in',exact:true}).waitFor();
     await dialog.getByRole('button',{name:'Close',exact:true}).click();
     assert.equal(writes.some(write=>['/api/run','/api/auto-apply'].includes(write.path)),false,'fixture never starts a real run');
   }
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, checks: ['all customer plans and admins can opt in', 'preferences preserved', 'no Jora login needed for search', 'removed explanatory text', 'sidebar Jora sign-in and connection state', 'Done and reload preserve connection', 'desktop/mobile layout'], output }));
+  console.log(JSON.stringify({ passed: true, checks: ['all customer plans and admins can opt in', 'preferences preserved', 'Jora source selection stays in run review', 'removed explanatory text', 'sidebar Jora sign-in and connection state', 'Done and reload preserve connection', 'desktop/mobile layout'], output }));
 } finally { await browser.close(); await server.close(); }

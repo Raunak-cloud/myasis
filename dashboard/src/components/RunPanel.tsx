@@ -879,14 +879,6 @@ export function RunPanel({
           </div>
 
           <div className="field">
-            <label className="check">
-              <input type="checkbox" checked={platforms.includes('jora')} disabled={standingSaving || running}
-                onChange={event => editStanding('JORA_BETA_ENABLED', String(event.target.checked))} />
-              Include Jora <span className="beta-flag">Beta</span>
-            </label>
-          </div>
-
-          <div className="field">
             <FieldLabel
               label="Companies to avoid"
               optional

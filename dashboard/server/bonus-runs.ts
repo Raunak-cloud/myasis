@@ -7,7 +7,7 @@ import type {PoolClient} from 'pg';
 
 interface BonusRow {
  id:string;user_id:string;started_by:string;max_applications:number;application_mode:BonusRunOptions['applicationMode'];
- message:string;salary_discount_percent:string;status:BonusRun['status'];created_at:Date;claimed_at:Date|null;
+ message:string;salary_discount_percent:string;jora_enabled:boolean;status:BonusRun['status'];created_at:Date;claimed_at:Date|null;
  run_start_id:string|null;finished_at:Date|null;
 }
 export async function createBonusRun(userId:string,actorId:string,raw:unknown,id=randomUUID()):Promise<string> {
@@ -17,13 +17,13 @@ export async function createBonusRun(userId:string,actorId:string,raw:unknown,id
  const owner=await one('SELECT id FROM users WHERE id=$1 AND blocked_at IS NULL',[userId]);
  if(!owner)throw Error('This account is unavailable.');
  if(!/^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i.test(id))throw Error('Invalid bonus run request.');
- const rows=await query<{id:string}>(`INSERT INTO bonus_runs(id,user_id,started_by,max_applications,application_mode,message,salary_discount_percent)
-  VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(id) DO NOTHING RETURNING id`,
-  [id,userId,actorId,options.maxApplications,options.applicationMode,options.message,options.salaryDiscountPercent]);
+ const rows=await query<{id:string}>(`INSERT INTO bonus_runs(id,user_id,started_by,max_applications,application_mode,message,salary_discount_percent,jora_enabled)
+  VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(id) DO NOTHING RETURNING id`,
+  [id,userId,actorId,options.maxApplications,options.applicationMode,options.message,options.salaryDiscountPercent,options.includeJora===true]);
  if(!rows.length){
   const existing=await one<BonusRow>('SELECT * FROM bonus_runs WHERE id=$1 AND user_id=$2 AND started_by=$3',[id,userId,actorId]);
   if(!existing||existing.max_applications!==options.maxApplications||existing.application_mode!==options.applicationMode
-   ||existing.message!==options.message||Number(existing.salary_discount_percent)!==options.salaryDiscountPercent)throw Error('The bonus run request has changed.');
+   ||existing.message!==options.message||Number(existing.salary_discount_percent)!==options.salaryDiscountPercent||existing.jora_enabled!==(options.includeJora===true))throw Error('The bonus run request has changed.');
  }
  return id;
 }
@@ -42,13 +42,15 @@ export async function bindBonusRun(id:string,userId:string,runId:string):Promise
 export async function bonusRunEnvironment(userId:string,runId:string|undefined|null,settings:Record<string,string>):Promise<Record<string,string>> {
  if(!settings.BONUS_RUN_ID)return {BONUS_RUN_ID:''};
  if(!runId)throw Error('A bonus run requires its recorded administrator authorization.');
- const row=await one<{email:string;max_applications:number;operator_options:{bonusRunId?:string;complimentary?:boolean;minimumSalary?:string}}>(`SELECT actor.email,b.max_applications,r.operator_options
+ const row=await one<{email:string;max_applications:number;jora_enabled:boolean;operator_options:{bonusRunId?:string;complimentary?:boolean;minimumSalary?:string;joraEnabled?:boolean}}>(`SELECT actor.email,b.max_applications,b.jora_enabled,r.operator_options
   FROM bonus_runs b JOIN run_starts r ON r.id=b.run_start_id AND r.user_id=b.user_id
   JOIN users actor ON actor.id=b.started_by AND actor.blocked_at IS NULL
   WHERE b.id=$1 AND b.user_id=$2 AND r.id=$3 AND b.status='running' AND r.finished_at IS NULL
    AND r.trigger='admin' AND r.mode='live' AND r.started_by=b.started_by`,[settings.BONUS_RUN_ID,userId,runId]);
  if(!row||!isAdmin(row.email)||row.operator_options?.bonusRunId!==settings.BONUS_RUN_ID||row.operator_options?.complimentary!==true
-  ||String(row.max_applications)!==settings.MAX_APPS_PER_RUN||row.operator_options.minimumSalary!==settings.MIN_SALARY)
+  ||String(row.max_applications)!==settings.MAX_APPS_PER_RUN||row.operator_options.minimumSalary!==settings.MIN_SALARY
+  ||Boolean(row.operator_options.joraEnabled)!==Boolean(row.jora_enabled)
+  ||row.jora_enabled&&(settings.JORA_BETA_ENABLED!=='true'||!settings.PLATFORMS?.split(',').includes('jora')))
   throw Error('This bonus run has no matching administrator authorization.');
  return {BONUS_RUN_ID:settings.BONUS_RUN_ID};
 }
@@ -68,7 +70,7 @@ export async function listBonusRuns(userId:string):Promise<BonusRun[]> {
   FROM bonus_runs b LEFT JOIN run_starts r ON r.id=b.run_start_id AND r.user_id=b.user_id
   WHERE b.user_id=$1 ORDER BY b.created_at DESC LIMIT 10`,[userId]);
  return rows.map(row=>({id:row.id,maxApplications:row.max_applications,applicationMode:row.application_mode,message:row.message,
-  salaryDiscountPercent:Number(row.salary_discount_percent),status:row.run_finished_at?row.stopped?'stopped':Number(row.exit_code??0)!==0?'error':'completed':row.status,
+  salaryDiscountPercent:Number(row.salary_discount_percent),includeJora:row.jora_enabled,status:row.run_finished_at?row.stopped?'stopped':Number(row.exit_code??0)!==0?'error':'completed':row.status,
   createdAt:row.created_at.toISOString(),startedAt:row.started_at?.toISOString()??null,finishedAt:(row.run_finished_at??row.finished_at)?.toISOString()??null,
   runId:row.run_start_id,applied:row.applied??0,prepared:Number(row.prepared)}));
 }

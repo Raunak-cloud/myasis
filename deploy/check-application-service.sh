@@ -9,3 +9,5 @@ node --import ./seek-bot/node_modules/tsx/dist/loader.mjs dashboard/scripts/test
 node --import ./seek-bot/node_modules/tsx/dist/loader.mjs dashboard/scripts/test-route-service.mts
 node --import ./seek-bot/node_modules/tsx/dist/loader.mjs dashboard/scripts/test-run-service-pm2.mts
 node --import ./seek-bot/node_modules/tsx/dist/loader.mjs dashboard/scripts/test-run-cost-totals.mts
+node --import ./seek-bot/node_modules/tsx/dist/loader.mjs --test dashboard/server/bonus-run-policy.test.ts
+node --import ./seek-bot/node_modules/tsx/dist/loader.mjs dashboard/server/bonus-runs.test.ts

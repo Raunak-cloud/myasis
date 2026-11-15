@@ -4,6 +4,7 @@ export interface BonusRunOptions {
  applicationMode:'auto'|'semi-auto';
  message:string;
  salaryDiscountPercent:number;
+ includeJora?:boolean;
 }
 export interface BonusRun extends BonusRunOptions {
  id:string;
