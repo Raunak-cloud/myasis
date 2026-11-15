@@ -34,6 +34,7 @@ export const KEEP_SETTINGS_KEYS = [
   // The account's own standing instructions ("no manager roles"). Stored here
   // since launch but missing from this list, so it never reached a run.
   'AI_INSTRUCTIONS_B64',
+  'JORA_BETA_ENABLED',
 ] as const;
 
 /** TARGET_ROLE remains only so every run explicitly blanks legacy values. */
@@ -93,6 +94,7 @@ export const RUN_SETTING_DEFAULTS: Record<string, string> = {
   TARGET_ROLE: '',
   EXCLUDED_COMPANIES: '',
   PLATFORMS: 'seek',
+  JORA_BETA_ENABLED: 'false',
   ...EMPLOYER_SOURCE_DEFAULTS,
   WORK_ARRANGEMENTS: 'remote,hybrid,onsite',
   JOB_TYPES: '',

@@ -24,7 +24,7 @@ export function openSeekManualLogin(
    * or worse, finds somebody else's.
    */
   chromeProfileDir?: string,
-  target: 'seek' | 'indeed' | 'gmail' = 'seek',
+  target: 'seek' | 'indeed' | 'jora' | 'gmail' = 'seek',
   gmailAccount?: string,
 ): Promise<ManualLoginResult> {
   if (target === 'gmail' && !gmailAccount) return Promise.resolve({ ok: false, error: 'Save your profile email before connecting Gmail.' });
@@ -78,7 +78,7 @@ export function openSeekManualLogin(
         '--no-default-browser-check',
         target === 'gmail' ? browserGmailUrl(gmailAccount!) : target === 'indeed'
           ? 'https://secure.indeed.com/account/login?hl=en_AU&co=AU'
-          : 'https://www.seek.com.au/',
+          : target === 'jora' ? 'https://au.jora.com/users/sign_in' : 'https://www.seek.com.au/',
       ],
       {
         detached: true,

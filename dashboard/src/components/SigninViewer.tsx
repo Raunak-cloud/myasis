@@ -7,7 +7,7 @@ export interface BrowserSigninSession {
   expiresAt: number;
   unlimited?: boolean;
   password: string;
-  target?: 'seek' | 'indeed' | 'gmail';
+  target?: 'seek' | 'indeed' | 'jora' | 'gmail';
   state?: 'starting' | 'ready' | 'recovering' | 'failed' | 'closed';
   revision?: number;
   message?: string;

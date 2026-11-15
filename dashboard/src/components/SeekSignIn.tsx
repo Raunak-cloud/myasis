@@ -33,7 +33,7 @@ type Status = {
   checking?: boolean;
 };
 
-const SITE_NAME = { seek: 'SEEK', indeed: 'Indeed', gmail: 'Gmail' } as const;
+const SITE_NAME = { seek: 'SEEK', indeed: 'Indeed', jora: 'Jora', gmail: 'Gmail' } as const;
 
 export function SeekSignIn({ indeedEnabled = false, showConnected = false, adminBrowserAccess = false, onVerifyingChange }: {
   indeedEnabled?: boolean;
@@ -135,7 +135,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, admin
     return () => clearInterval(tick);
   }, [activeSession, refresh]);
 
-  async function open(target: 'seek' | 'indeed' | 'gmail' = 'seek', manual = false) {
+  async function open(target: 'seek' | 'indeed' | 'jora' | 'gmail' = 'seek', manual = false) {
     if (acting.current) return;
     acting.current = true;
     requestEpoch.current++;
@@ -153,7 +153,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, admin
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? 'Could not open the browser.');
       if (status?.supported) setStatus({ supported: true, session: body.session });
-      else setNotice(`Chrome opened on this computer. Sign in to ${target === 'indeed' ? 'Indeed' : 'SEEK'} there, then close it.`);
+      else setNotice(`Chrome opened on this computer. Sign in to ${SITE_NAME[target]} there, then close it.`);
     } catch (reason) {
       setError((reason as Error).message);
     } finally {
@@ -203,7 +203,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, admin
     openRef.current = open;
   });
   useEffect(() => {
-    const onAsk = (event: Event) => void openRef.current((event as CustomEvent<'seek' | 'indeed'>).detail, true);
+    const onAsk = (event: Event) => void openRef.current((event as CustomEvent<'seek' | 'indeed' | 'jora'>).detail, true);
     window.addEventListener(OPEN_BOARD_SIGNIN, onAsk);
     return () => window.removeEventListener(OPEN_BOARD_SIGNIN, onAsk);
   }, []);

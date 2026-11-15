@@ -17,6 +17,8 @@ check_dashboard() (
   trap - EXIT
   set -euo pipefail
 cd "$APP/dashboard"
+../seek-bot/node_modules/.bin/tsx --test server/signin-sessions.test.ts
+../seek-bot/node_modules/.bin/tsx scripts/test-jora-beta-ui.mts
 ../seek-bot/node_modules/.bin/tsx --test server/job-index/codex-discovery.test.ts server/job-index/geography.test.ts server/job-index/config.test.ts server/job-index/extract.test.ts server/job-index/network.test.ts server/job-index/review.test.ts server/job-index/store.test.ts
 npm run test:statuses
 ../seek-bot/node_modules/.bin/tsx --test server/billing-unlimited.test.ts server/billing-upgrades.test.ts server/application-email.test.ts
@@ -58,6 +60,8 @@ node --test server/form-lab/engine.test.mjs
 check_bot() (
   trap - EXIT
   set -euo pipefail
+cd "$APP/seek-bot"
+node --test dist/jora.test.js dist/jora-browser.test.js dist/application-identity.test.js dist/duplicate-review.test.js
 if [ "$REPLAY_REQUIRED" = 1 ]; then
   cd "$APP/seek-bot"
   node dist/company-match.test.js

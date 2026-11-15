@@ -25,7 +25,7 @@ export interface BoardsStatus {
 /** Fired by the Apply page after a sign-in window closes, so the menu updates without waiting for the next poll. */
 export const BOARDS_CHANGED = 'boards-changed';
 
-/** Asks the Apply page to open its sign-in window for a board (detail: 'seek' | 'indeed'), with nothing choosing an account for the person. */
+/** Asks the Apply page to open a private sign-in window (SEEK, Indeed or Jora), with nothing choosing an account for the person. */
 export const OPEN_BOARD_SIGNIN = 'open-board-signin';
 
 export function useBoardsStatus(): BoardsStatus | null {

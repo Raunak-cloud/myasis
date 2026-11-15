@@ -46,7 +46,7 @@ export function applicationKeys(job: Pick<JobListing, 'id' | 'platform' | 'url' 
   const keys = [`listing:${job.platform ?? 'seek'}:${job.id}`];
   const form = applicationFormKey(job, job.applicationUrl ?? job.url);
   if (form) keys.push(form);
-  if (job.platform === 'adzuna') {
+  if (job.platform === 'adzuna' || job.platform === 'jora') {
     const listing = applicationFormKey(job, job.url);
     if (listing && !keys.includes(listing)) keys.push(listing);
     // Referral parameters differ from the account's native board history.
@@ -69,6 +69,13 @@ export function sameApplication(record: AppliedRecord, job: JobListing): boolean
   if (record.platform === (job.platform ?? 'seek') && record.jobId === job.id) return true;
   const known = applicationKeys(job);
   if (known.includes(`listing:${record.platform}:${record.jobId}`)) return true;
+  // A native search can encounter an application previously found through an
+  // aggregator. Compare original posting IDs in both directions, including
+  // SEEK's au.seek.com referral host and its usual seek.com.au host.
+  if (record.platform === 'jora' || record.platform === 'adzuna') {
+    const priorKeys = applicationKeys({ ...record, id: record.jobId });
+    if (priorKeys.some(key => key.startsWith('listing:') && known.includes(key))) return true;
+  }
   return [record.url, record.applicationUrl].some(raw => {
     const form = raw ? applicationFormKey(record, raw) : null;
     return form !== null && known.includes(form);

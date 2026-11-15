@@ -3,7 +3,7 @@ import { APPLICATION_MODELS, applicationModelLabel, CUSTOMER_APPLICATION_MODEL }
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEntitlements } from '../entitlements';
 import { useBillingStatus } from '../billing';
-import { useBoardsStatus } from '../boards';
+import { useBoardsStatus, OPEN_BOARD_SIGNIN } from '../boards';
 import { SetupChecklist } from './SetupChecklist';
 import { useSetupStatus } from '../setupStatus';
 import { BoardResumesNote } from './BoardResumesNote';
@@ -48,6 +48,7 @@ const RUN_DEFAULTS: Record<string, string> = {
   APPLICATION_AI_MODEL: CUSTOMER_APPLICATION_MODEL,
   KEYWORDS: '',
   PLATFORMS: 'seek',
+  JORA_BETA_ENABLED: 'false',
   ...EMPLOYER_SOURCE_DEFAULTS,
   WORK_ARRANGEMENTS: 'remote,hybrid,onsite',
   ONSITE_CITY: 'Sydney',
@@ -74,6 +75,7 @@ const ARRANGEMENTS = [
 const JOB_BOARDS = [
   { id: 'seek', label: 'SEEK' },
   { id: 'indeed', label: 'Indeed' },
+  { id: 'jora', label: 'Jora (Beta)' },
 ];
 const ALL_JOB_SOURCES = [...JOB_BOARDS, ...EMPLOYER_SOURCES.map(source => ({ id: source.id, label: source.label }))];
 
@@ -397,7 +399,7 @@ export function RunPanel({
    */
   const standingKeys = [...(entitlements?.fineTune
     ? ['KEYWORDS', 'EXCLUDED_COMPANIES', 'AI_INSTRUCTIONS_B64']
-    : ['KEYWORDS', 'EXCLUDED_COMPANIES'])];
+    : ['KEYWORDS', 'EXCLUDED_COMPANIES']), ...(edits.JORA_BETA_ENABLED !== undefined ? ['JORA_BETA_ENABLED'] : [])];
   const standingDirty = standingKeys.some(
     (key) => edits[key] !== undefined && edits[key] !== (settings[key] ?? RUN_DEFAULTS[key] ?? ''),
   );
@@ -465,13 +467,15 @@ export function RunPanel({
     else next.add(item);
     setEdit('WORK_ARRANGEMENTS', [...next].join(','));
   };
-  const platforms = val('PLATFORMS').split(',').map((item) => item.trim()).filter(Boolean);
+  const platforms = [...new Set([...val('PLATFORMS').split(',').map(item => item.trim()).filter(id => id && id !== 'jora'),
+    ...(val('JORA_BETA_ENABLED') === 'true' ? ['jora'] : [])])];
   /** Unknown until read; then only a board confirmed signed in can be used. */
-  const boardUsable = (id: string) => id === 'adzuna' ? boards?.adzunaAvailable === true : isEmployerSource(id) ? employerSourcesEnabled : boardSignedIn === null || boardSignedIn[id] === true;
+  const boardUsable = (id: string) => id === 'jora' || (id === 'adzuna' ? boards?.adzunaAvailable === true : isEmployerSource(id) ? employerSourcesEnabled : boardSignedIn === null || boardSignedIn[id] === true);
   const employerSourceSelected = employerSourcesEnabled && platforms.some(isEmployerSource);
-  const sessionFreeSourceSelected = employerSourceSelected || platforms.includes('adzuna') && boards?.adzunaAvailable === true;
+  const sessionFreeSourceSelected = employerSourceSelected || platforms.includes('jora') || platforms.includes('adzuna') && boards?.adzunaAvailable === true;
   const unusableBoards = jobBoards.filter((board) => !boardUsable(board.id));
   const togglePlatform = (id: string) => {
+    if (id === 'jora') { setEdit('JORA_BETA_ENABLED', platforms.includes('jora') ? 'false' : 'true'); return; }
     const next = new Set(platforms);
     if (next.has(id)) next.delete(id);
     else next.add(id);
@@ -549,6 +553,7 @@ export function RunPanel({
     setError(null);
     setErrorField(null);
     const updates = Object.fromEntries(REVIEW_KEYS.filter(key => isAdmin || (key !== 'APPLICATION_AI_MODEL' && !EMPLOYER_SOURCES.some(source => source.key === key))).map((key) => [key, val(key)]));
+    updates.PLATFORMS = platforms.join(',');
     // An operator's limit left empty is no limit; one they typed is checked like any other.
     const unlimited = (key: string) => optionalLimit(key) && !updates[key].trim();
     const numericKeys = [
@@ -874,6 +879,17 @@ export function RunPanel({
           </div>
 
           <div className="field">
+            <label className="check">
+              <input type="checkbox" checked={platforms.includes('jora')} disabled={standingSaving || running}
+                onChange={event => editStanding('JORA_BETA_ENABLED', String(event.target.checked))} />
+              Include Jora <span className="beta-flag">Beta</span>
+            </label>
+            <p className="job-meta">Find more jobs across other websites. Applications continue on the original site, with duplicate checks across sources. No Jora sign-in is needed to search.</p>
+            <button type="button" className="btn btn-small" disabled={running || verifyingSignIn}
+              onClick={() => window.dispatchEvent(new CustomEvent(OPEN_BOARD_SIGNIN, { detail: 'jora' }))}>Sign in to Jora (optional)</button>
+          </div>
+
+          <div className="field">
             <FieldLabel
               label="Companies to avoid"
               optional
@@ -1166,6 +1182,10 @@ export function RunPanel({
                     </p>
                   )}
                   {fieldError('PLATFORMS')}
+                  {platforms.includes('jora') && <p className="job-meta">
+                    Jora is in beta. Applications continue on the original website, with duplicate checks across sources. Search works without signing in.
+                    {' '}<button type="button" className="link-button" onClick={() => window.dispatchEvent(new CustomEvent(OPEN_BOARD_SIGNIN, { detail: 'jora' }))}>Sign in to Jora (optional)</button>
+                  </p>}
                 </div>
                 {employerSourceSelected && !isAdmin && <p className="job-meta">Employer sources are included with Get Owtomated. No SEEK or Indeed sign-in is needed for these sources.</p>}
                 {isAdmin && EMPLOYER_SOURCES.filter(source => platforms.includes(source.id)).map(source => (

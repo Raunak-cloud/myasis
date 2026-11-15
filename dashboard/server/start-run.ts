@@ -355,7 +355,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * that includes Indeed, so "SEEK only" searched and applied on Indeed too.
    */
   const narrowedBoards = trigger === 'admin' ? String(request.clientOverrides?.PLATFORMS ?? '').trim() : '';
-  if (narrowedBoards && narrowedBoards.split(',').every((board) => ['seek', 'indeed', 'adzuna', ...(entitlements.employerSources ? EMPLOYER_SOURCES.map(source => source.id) : [])].includes(board.trim()))) {
+  if (narrowedBoards && narrowedBoards.split(',').every((board) => ['seek', 'indeed', 'adzuna', 'jora', ...(entitlements.employerSources ? EMPLOYER_SOURCES.map(source => source.id) : [])].includes(board.trim()))) {
     overrides.PLATFORMS = narrowedBoards;
   }
   try {

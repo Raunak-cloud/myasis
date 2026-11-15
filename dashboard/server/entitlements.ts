@@ -111,6 +111,7 @@ const INTENSIVE_EVALUATIONS_PER_RUN = PLAN_LIMITS['intensive-pass'].evaluationsP
  * belongs to the tiers that drive runs themselves.
  */
 const BASIC_SETTINGS_KEYS = [
+  'JORA_BETA_ENABLED',
   'KEYWORDS',
   'EXCLUDED_COMPANIES',
   'WORK_ARRANGEMENTS',
@@ -167,7 +168,9 @@ export function effectivePlatforms(
 ): string {
   const value = (saved.PLATFORMS ?? RUN_SETTING_DEFAULTS.PLATFORMS).trim() || RUN_SETTING_DEFAULTS.PLATFORMS;
   const base = saved[PLATFORMS_CHOSEN_KEY] !== '1' && entitlement.indeedApplications && value === RUN_SETTING_DEFAULTS.PLATFORMS ? 'seek,indeed' : value;
-  const selected = base.split(',').map(id => id.trim().toLowerCase()).filter(id => id && (!isEmployerSource(id) || entitlement.employerSources));
+  const selected = base.split(',').map(id => id.trim().toLowerCase()).filter(id => id && (!isEmployerSource(id) || entitlement.employerSources)
+    && (id !== 'jora' || saved.JORA_BETA_ENABLED !== 'false'));
+  if (saved.JORA_BETA_ENABLED === 'true') selected.push('jora');
   if (entitlement.employerSources && entitlement.tier === 'intensive' && saved[EMPLOYER_SOURCES_CHOSEN_KEY] !== '1') {
     selected.push(...EMPLOYER_SOURCES.map(source => source.id));
   }
@@ -198,7 +201,8 @@ export function applyRunPolicy(
     }
   }
   // A pass that includes Indeed adds it, unless the account picked its boards itself.
-  resolved.PLATFORMS = effectivePlatforms({ PLATFORMS: resolved.PLATFORMS, [PLATFORMS_CHOSEN_KEY]: boardsChosen ? '1' : '', [EMPLOYER_SOURCES_CHOSEN_KEY]: employerSourcesChosen ? '1' : '' }, entitlement);
+  resolved.PLATFORMS = effectivePlatforms({ PLATFORMS: resolved.PLATFORMS, JORA_BETA_ENABLED: resolved.JORA_BETA_ENABLED,
+    [PLATFORMS_CHOSEN_KEY]: boardsChosen ? '1' : '', [EMPLOYER_SOURCES_CHOSEN_KEY]: employerSourcesChosen ? '1' : '' }, entitlement);
   // Review overrides remain independent of the application allowance.
   if (entitlement.evaluationsPerRun !== null) {
     resolved.MAX_EVALUATIONS = String(entitlement.evaluationsPerRun);

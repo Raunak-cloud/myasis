@@ -19,6 +19,7 @@ import { isAdmin } from './admin-access.js';
 const START_URLS: Record<SigninTarget, string> = {
   seek: 'https://www.seek.com.au/oauth/login/',
   indeed: 'https://secure.indeed.com/account/login?hl=en_AU&co=AU',
+  jora: 'https://au.jora.com/users/sign_in',
   gmail: 'https://mail.google.com/',
 };
 

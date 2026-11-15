@@ -721,7 +721,7 @@ function dataApi(): Plugin {
             }
             // Same window, same profile; only the page it opens on differs.
             const body = await readBody();
-            const target = body?.target === 'gmail' ? 'gmail' : body?.target === 'indeed' ? 'indeed' : 'seek';
+            const target = body?.target === 'gmail' ? 'gmail' : body?.target === 'jora' ? 'jora' : body?.target === 'indeed' ? 'indeed' : 'seek';
             if (target === 'gmail') {
               const access = await gmailAccess(userId);
               if (!access.providers.includes('browser')) return send({ error: 'Browser Gmail is unavailable for this account.' }, 403);
@@ -806,7 +806,7 @@ function dataApi(): Plugin {
           if (runner.stateFor(userId).running) {
             return send({ error: 'Stop your current run before opening a job-board sign-in window.' }, 409);
           }
-          const target = url.searchParams.get('target') === 'gmail' ? 'gmail' : url.searchParams.get('target') === 'indeed' ? 'indeed' : 'seek';
+          const target = url.searchParams.get('target') === 'gmail' ? 'gmail' : url.searchParams.get('target') === 'jora' ? 'jora' : url.searchParams.get('target') === 'indeed' ? 'indeed' : 'seek';
           if (target === 'gmail') {
             if (url.searchParams.get('consent') !== 'true' || !(await gmailAccess(userId)).providers.includes('browser')) return send({ error: 'Confirm available Gmail mailbox access first.' }, 403);
           }

@@ -21,7 +21,7 @@ function validJob(job:JobListing|undefined):job is JobListing {
 }
 const keyOf=(job:JobListing)=>`${job.platform ?? 'seek'}:${job.id}`;
 const externalJob=(job:JobListing)=>job.applicationMode==='external' || Boolean(job.applicationUrl && isExternalApplicationUrl(job.applicationUrl))
-  || !['seek','indeed','adzuna'].includes(job.platform??'seek');
+  || !['seek','indeed','adzuna','jora'].includes(job.platform??'seek');
 function datedJob(job:JobListing,at:string):JobListing {
   const age=listingAgeDays(job,Date.parse(at));
   return {...job,...(age!==undefined && !/^\d{4}-\d\d-\d\d/.test(job.listedAt??'')

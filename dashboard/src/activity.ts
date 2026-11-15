@@ -235,6 +235,10 @@ export function activityEvents(lines: LogLine[], limit = 14, isAdmin = false): A
       const title = `Signed in to ${boards.join(' and ')}`;
       if (boardsEvent) boardsEvent.title = title;
       else boardsEvent = add(line, title, 'done');
+    } else if (/Jora beta search enabled/i.test(text)) {
+      add(line, 'Searching Jora jobs', 'done', 'Looking for matching jobs across other websites.');
+    } else if (/⚠ Jora:|! Jora search for .+ failed:/i.test(text)) {
+      add(line, 'Jora could not be searched', 'warn', 'Jora is temporarily unavailable. Other selected sources will continue. Owtomate will try again next run.');
     } else if (/(SmartRecruiters|Greenhouse|PageUp|Workday) public job feed ready/i.test(text)) {
       add(line, `Searching ${text.match(/(SmartRecruiters|Greenhouse|PageUp|Workday) public job feed ready/i)?.[1]} jobs`, 'done', 'Looking for Australian vacancies at your selected employers.');
     } else if (/! (SmartRecruiters|greenhouse|pageup|workday) employer .+ could not be searched:/i.test(text)) {

@@ -39,8 +39,8 @@ const PLATFORMS: Platform[] = [
     id: 'jora',
     label: 'Jora',
     baseUrl: 'https://au.jora.com',
-    available: false,
-    note: 'Aggregator — its listings mirror SEEK and Indeed and almost always hand off to the original site, so there is little here to automate.',
+    available: true,
+    note: 'Beta. Finds jobs across other sites; applications continue on the original website.',
   },
   ...EMPLOYER_SOURCES.map(source => ({ id: source.id, label: source.label, baseUrl: source.baseUrl, available: true })),
 ];

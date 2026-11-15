@@ -3,6 +3,32 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { applyJobSourceAccess, availableJobSources, jobSourceSettingsError } from './job-sources.js';
 import { USER_SETTABLE_SETTINGS_KEYS } from './settings.js';
+import { applyRunPolicy, effectivePlatforms, mayEditRunSetting } from './entitlements.js';
+
+test('the beta opt-in survives Standard plan policy without changing existing platform defaults', () => {
+  const entitlement = { tier: 'standard' as const, fineTune: false, advancedFilters: false, indeedApplications: false,
+    evaluationsPerRun: 40, maxApplicationsPerRunOverride: null, employerSources: false };
+  const saved = { PLATFORMS: 'seek', MIN_SALARY: '100000', JORA_BETA_ENABLED: 'true' };
+  assert.equal(mayEditRunSetting('JORA_BETA_ENABLED', entitlement), true);
+  assert.equal(applyRunPolicy(saved, entitlement, 'auto').PLATFORMS, 'seek,jora');
+  assert.equal(applyRunPolicy({ ...saved, JORA_BETA_ENABLED: 'false' }, entitlement, 'auto').PLATFORMS, 'seek');
+  assert.equal(effectivePlatforms({ PLATFORMS: 'seek,indeed', JORA_BETA_ENABLED: 'false' }, { indeedApplications: true }), 'seek,indeed');
+  assert.equal(effectivePlatforms({ PLATFORMS: 'seek,indeed', JORA_BETA_ENABLED: 'true' }, { indeedApplications: true }), 'seek,indeed,jora');
+  assert.equal(effectivePlatforms({ PLATFORMS: 'seek,jora', JORA_BETA_ENABLED: 'false' }, { indeedApplications: false }), 'seek');
+  assert.equal(saved.PLATFORMS, 'seek'); assert.equal(saved.MIN_SALARY, '100000');
+});
+
+test('Jora beta is opt-in and publicly searchable without native sign-ins or altered preferences', () => {
+  assert.equal(jobSourceSettingsError({ PLATFORMS: 'jora' }, false, false), null);
+  const settings = { PLATFORMS: 'jora', MIN_SALARY: '100000', MAX_AGE_DAYS: '10' };
+  applyJobSourceAccess(settings, false, false);
+  assert.equal(settings.PLATFORMS, 'jora'); assert.equal(settings.MIN_SALARY, '100000'); assert.equal(settings.MAX_AGE_DAYS, '10');
+  const existing = { PLATFORMS: 'seek,indeed' }; applyJobSourceAccess(existing, false, false);
+  assert.equal(existing.PLATFORMS, 'seek,indeed');
+  assert.deepEqual(availableJobSources(['seek', 'indeed', 'jora'], false, () => false), {
+    supported: ['seek', 'indeed', 'jora'], usable: ['jora'], unavailable: ['seek', 'indeed'],
+  });
+});
 
 test('Adzuna uses installation availability, needs no board login and never takes user credentials', () => {
   assert.equal(jobSourceSettingsError({ PLATFORMS: 'adzuna' }, false, false)?.status, 400);

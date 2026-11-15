@@ -5,6 +5,17 @@ import { plainReason } from '../src/run-messages.ts';
 
 const log = (texts) => texts.map((text, seq) => ({ seq, stream: 'out', text }));
 
+test('Jora beta activity reports a blocked source without exposing diagnostics or hiding the other sources', () => {
+  const events = activityEvents(log(['Jora beta search enabled.',
+    '⚠ Jora: Jora access failed (HTTP 403). Jora is left out for the rest of this run; the other board(s) carry on.',
+    '15 unique listings discovered across 2 platform(s).']), Infinity);
+  assert.ok(events.some(event => event.title === 'Searching Jora jobs'));
+  const blocked = events.find(event => event.title === 'Jora could not be searched');
+  assert.equal(blocked?.tone, 'warn'); assert.match(blocked.detail, /Other selected sources will continue/);
+  assert.doesNotMatch(JSON.stringify(events), /HTTP 403|VerificationBlocked/);
+  assert.ok(events.some(event => event.title === 'Found 15 job listings'));
+});
+
 test('incremental discovery updates one listing total while reviews and applications continue', () => {
   const lines = log(['12 unique listings discovered across 2 platform(s).',
     '✓ 90 · Analyst @ Employer', '→ Applying: Analyst @ Employer', '✅ submitted (1)',

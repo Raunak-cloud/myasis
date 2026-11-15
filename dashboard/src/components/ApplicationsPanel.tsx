@@ -20,7 +20,7 @@ interface Props {
 const SkippedPanel = lazy(() => import('./SkippedPanel').then((m) => ({ default: m.SkippedPanel })));
 
 /** The job board an application went through, named the way the board names itself. */
-const BOARD_LABELS: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed', adzuna: 'Adzuna', ...Object.fromEntries(EMPLOYER_SOURCES.map(source => [source.id, source.label])) };
+const BOARD_LABELS: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed', adzuna: 'Adzuna', jora: 'Jora', ...Object.fromEntries(EMPLOYER_SOURCES.map(source => [source.id, source.label])) };
 const boardLabel = (platform: string | undefined): string =>
   BOARD_LABELS[(platform ?? 'seek').toLowerCase()] ?? (platform ? platform[0].toUpperCase() + platform.slice(1) : 'SEEK');
 

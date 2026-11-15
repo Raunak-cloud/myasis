@@ -72,6 +72,7 @@ import { prepareMatchedJob } from './prepare-job.js';
 import { AdzunaDiscovery } from './adzuna.js';
 import { adzunaConfigured } from './adzuna-config.js';
 import { fetchAdzunaDetail, applyToAdzunaJob } from './adzuna-browser.js';
+import { searchJora, fetchJoraDetail, applyToJoraJob } from './jora-browser.js';
 
 const searchOnly = process.argv.includes('--search-only');
 const doSync = process.argv.includes('--sync');
@@ -96,6 +97,7 @@ interface PlatformAdapter {
   label: string;
   /** Public API discovery needs no sign-in or browser reading pause. */
   apiDiscovery?: boolean;
+  sessionOptional?: boolean;
   scopedSearch?: boolean;
   newestFirst?: boolean;
   assertSignedIn: (page: Page) => Promise<void>;
@@ -105,6 +107,8 @@ interface PlatformAdapter {
 }
 
 const ADAPTERS = new Map<PlatformId, PlatformAdapter>([
+  ['jora', { id: 'jora', label: 'Jora', scopedSearch: true, newestFirst: true, sessionOptional: true,
+    assertSignedIn: async () => {}, search: searchJora, fetchJobDetail: fetchJoraDetail, apply: applyToJoraJob }],
   [
     'seek',
     {
@@ -428,7 +432,7 @@ async function main() {
       try {
         await adapter.assertSignedIn(page);
         if (runDeadline.reached) break;
-        console.log(adapter.apiDiscovery ? `${adapter.label} public job feed enabled.` : `${adapter.label} session OK.`);
+        console.log(adapter.apiDiscovery ? `${adapter.label} public job feed enabled.` : adapter.sessionOptional ? `${adapter.label} beta search enabled.` : `${adapter.label} session OK.`);
       } catch (error) {
         console.log(`\n⚠ ${adapter.label}: ${(error as Error).message}`);
         console.log(`  Skipping ${adapter.label} for this run.${platforms.length > 1 ? ' Continuing with the other platform(s).' : ''}`);

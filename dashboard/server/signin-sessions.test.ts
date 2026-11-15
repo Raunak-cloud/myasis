@@ -3,6 +3,17 @@ import test from 'node:test';
 import { SigninSessions } from './signin-sessions.js';
 import type { SigninDesktop } from './signin-desktop.js';
 const deferred = () => { let resolve!: () => void; const promise = new Promise<void>(done => { resolve = done; }); return {promise, resolve}; };
+
+test('optional Jora sign-in keeps each owner in a separate private browser session', async () => {
+  const prepared: string[] = [];
+  const sessions = new SigninSessions(async session => { prepared.push(`${session.userId}:${session.target}`); return desktop(); });
+  try {
+    const a = await sessions.start('A', 'jora', false), b = await sessions.start('B', 'jora', false);
+    assert.equal(a.ok, true); assert.equal(b.ok, true); assert.notEqual(a.session?.id, b.session?.id);
+    assert.deepEqual(prepared, ['A:jora', 'B:jora']);
+    await sessions.stop('A'); assert.equal(sessions.sessionFor('A'), null); assert.equal(sessions.sessionFor('B')?.target, 'jora');
+  } finally { await sessions.stopAll(); }
+});
 function desktop(start = async () => {}, stop = async () => {}) {
   const fake = { state: 'starting', revision: 0, display: 100, vncPort: 5900, message: '',
     start: async () => { await start(); fake.state = 'ready'; fake.revision++; },
