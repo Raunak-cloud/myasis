@@ -294,7 +294,7 @@ export default function App() {
   if (authLoading) {
     // A visitor who has never signed in here sees the landing straight away; the answer will almost certainly be "signed out".
     if (!wasSignedIn()) return <Landing googleConfigured={googleConfigured} />;
-    return <div className="signin-wrap"><div className="job-meta">Loadingâ€¦</div></div>;
+    return <div className="signin-wrap"><div className="job-meta">Loading…</div></div>;
   }
   // Signed out, a visitor gets the landing page rather than a bare sign-in box:
   // nothing behind this point is public, so this page has to do the explaining.
@@ -420,7 +420,7 @@ export default function App() {
                         ? 'No application limits'
                         : billing.paid.hasActivePass
                           ? billing.paid.expiresAt
-                            ? `${billing.paid.unlimitedApplications ? 'Unlimited applications' : billing.paid.remaining} on your pass Â· until ${shortDate(billing.paid.expiresAt)}`
+                            ? `${billing.paid.unlimitedApplications ? 'Unlimited applications' : billing.paid.remaining} on your pass · until ${shortDate(billing.paid.expiresAt)}`
                             : `${billing.paid.unlimitedApplications ? 'Unlimited applications' : billing.paid.remaining} on your grandfathered pass`
                           : `${billing.free.remaining} of ${billing.free.allowance} free applications`}
                     </span>
@@ -450,7 +450,7 @@ export default function App() {
                       {(['seek', 'indeed', 'jora'] as const)
                         .filter((board) => board === 'jora' || boards[board])
                         .map((board) => board === 'seek' ? 'SEEK' : board === 'jora' ? 'Jora' : 'Indeed')
-                        .join(' Â· ')}
+                        .join(' · ')}
                     </span>
                   </span>
                   <span className="nav-dots" aria-hidden="true">
@@ -481,12 +481,12 @@ export default function App() {
                     <span className="nav-row-title">Connection</span>
                     <span className="nav-row-sub">
                       {route.using !== 'server'
-                        ? `${route.using === 'home' ? 'Your home internet' : 'Dedicated address'}${route.exitAddress ? ` Â· ${route.exitAddress}` : ''}`
+                        ? `${route.using === 'home' ? 'Your home internet' : 'Dedicated address'}${route.exitAddress ? ` · ${route.exitAddress}` : ''}`
                         : !route.exit
                           ? 'Owtomate server'
                           : route.exitOnline
-                            ? `Owtomate server Â· back to ${route.exit === 'home' ? 'home' : 'your address'} after this run`
-                            : `Owtomate server Â· ${route.exit === 'home' ? 'home computer off' : 'dedicated address down'}`}
+                            ? `Owtomate server · back to ${route.exit === 'home' ? 'home' : 'your address'} after this run`
+                            : `Owtomate server · ${route.exit === 'home' ? 'home computer off' : 'dedicated address down'}`}
                     </span>
                   </span>
                   <span className="nav-dots" aria-hidden="true">
@@ -557,12 +557,12 @@ export default function App() {
 
         {simulation && (
           <div className="simulation-bar" role="status">
-            <span><strong>Preview:</strong> {simulation.group} Â· {simulation.label}. Nothing you press is sent.</span>
+            <span><strong>Preview:</strong> {simulation.group} · {simulation.label}. Nothing you press is sent.</span>
             <button type="button" className="btn" onClick={() => { stopSimulation(); setTab('admin'); }}>Exit preview</button>
           </div>
         )}
         <div className="page-content">
-          <Suspense fallback={<div className="job-meta">Loadingâ€¦</div>}>
+          <Suspense fallback={<div className="job-meta">Loading…</div>}>
           {tab === 'run' && (
             <RunPanel
               lastRunAt={lastRunAt}
