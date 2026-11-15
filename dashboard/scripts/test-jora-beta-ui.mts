@@ -9,6 +9,7 @@ const { chromium } = createRequire(import.meta.url)('../../seek-bot/node_modules
 const root = resolve(import.meta.dirname, '..'), output = resolve(root, '../output/jora-beta');
 let settings: Record<string, string> = { PLATFORMS: 'seek', JORA_BETA_ENABLED: 'false', KEYWORDS: 'data analyst', MIN_SALARY: '100000', MAX_AGE_DAYS: '10', ONSITE_CITY: 'Sydney' };
 const writes: Array<{ path: string; body: any }> = [];
+let tier: 'standard' | 'intensive' | 'admin' = 'standard';
 const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"/></head><body><div id="root"></div><script type="module">
 import React from 'react';import{createRoot}from'react-dom/client';import{RunPanel}from'/src/components/RunPanel.tsx';import'/src/index.css';
 createRoot(document.getElementById('root')).render(React.createElement(RunPanel,{lastRunAt:null,onFinished:()=>{},onGoPricing:()=>{}}));</script></body></html>`;
@@ -23,13 +24,13 @@ const server = await createServer({ configFile: false, root, plugins: [react(), 
     if (path === '/api/settings' && req.method === 'POST') settings = { ...settings, ...JSON.parse(body).updates };
     const payloads: Record<string, unknown> = {
       '/api/settings': req.method === 'POST' ? { ok: true, settings } : settings,
-      '/api/entitlements': { tier: 'standard', manualRuns: true, firstRunRequired: false, autoRunsPerDay: 1, autoApplyPaused: true, canPauseAutoApply: true,
+      '/api/entitlements': { tier, manualRuns: true, firstRunRequired: false, autoRunsPerDay: 1, autoApplyPaused: true, canPauseAutoApply: true,
         autoRunsUsedToday: 0, scheduledMinScore: 60, scheduledJobsPerDay: 40, evaluationsPerRun: 40, maxApplicationsPerRunOverride: null,
-        fineTune: false, advancedFilters: false, indeedApplications: false, employerSources: false, runScopes: false },
+        fineTune: tier !== 'standard', advancedFilters: tier !== 'standard', indeedApplications: tier !== 'standard', employerSources: tier !== 'standard', runScopes: false },
       '/api/billing/status': { configured: true, totalRemaining: 5, free: { allowance: 5, used: 0, remaining: 5 }, paid: { remaining: 0, hasActivePass: false } },
       '/api/setup/status': { ready: true, done: 3, total: 3, checks: ['resume', 'profile', 'looking'].map(id => ({ id, label: id, done: true, required: true })) },
       '/api/run/status': { running: false, hasKey: true, isOwner: true, applied: 0 },
-      '/api/signin/session': { supported: true, session: null, seek: { signedIn: false }, indeed: { signedIn: false } },
+      '/api/signin/session': { supported: true, session: null, seek: { signedIn: tier !== 'admin' }, indeed: { signedIn: false } },
       '/api/auto-schedule': { enabled: false, applicationMode: 'auto', runsUsedToday: 0, runsPerDay: 1, nextRunAt: null, timeZone: 'Australia/Sydney', waitingForSetup: false },
       '/api/board-resumes': { boards: [] }, '/api/gmail/status': { connected: false },
       '/api/application-reviews': { applications: [] }, '/api/skipped': { items: [] }, '/api/attention': [], '/api/admin/simulations': { simulations: [] },
@@ -47,12 +48,25 @@ try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } }); page.setDefaultTimeout(8000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+  for (tier of ['standard', 'intensive'] as const) {
+    settings.JORA_BETA_ENABLED = 'true'; // Even a stale setting must not expose the beta.
+    settings.PLATFORMS = 'seek,jora';
+    await page.goto(origin);
+    await page.getByText('data analyst', { exact: true }).waitFor();
+    assert.equal(await page.getByRole('checkbox', { name: 'Include Jora Beta' }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Sign in to Jora (optional)' }).count(), 0);
+    await page.getByRole('button', { name: 'Start Auto apply', exact: true }).click();
+    const customerDialog = page.getByRole('dialog'); await customerDialog.waitFor();
+    assert.equal(await customerDialog.getByRole('button', { name: /Jora/ }).count(), 0);
+    assert.doesNotMatch(await customerDialog.innerText(), /Jora/);
+    await page.screenshot({ path: resolve(output, `customer-${tier}.png`), fullPage: true });
+  }
+  tier = 'admin'; settings.JORA_BETA_ENABLED = 'false'; settings.PLATFORMS = 'seek'; writes.length = 0;
   await page.goto(origin);
   const jora = page.getByRole('checkbox', { name: 'Include Jora Beta' }); await jora.waitFor();
   assert.equal(await jora.isChecked(), false); assert.equal(writes.length, 0);
   const start = page.getByRole('button', { name: 'Start Auto apply', exact: true });
-  await page.waitForFunction(() => (document.querySelector('.run-actions .btn.primary.lg') as HTMLButtonElement)?.disabled);
-  await jora.check(); assert.equal(await start.isEnabled(), true, 'public Jora search works when both native boards are signed out');
+  await jora.check(); assert.equal(await start.isEnabled(), true, 'admins can select public Jora search when native boards are signed out');
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await page.getByText('Saved. Your next run will use this.').waitFor();
   const updates = writes.find(write => write.path === '/api/settings')!.body.updates;
@@ -73,5 +87,5 @@ try {
   assert.equal(signIn?.body.target, 'jora'); assert.equal(signIn?.body.manual, true);
   assert.equal(writes.some(write => ['/api/run', '/api/auto-apply'].includes(write.path)), false, 'this preview never starts a real run');
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, checks: ['beta label', 'explicit opt-in', 'signed-out public search', 'preferences preserved', 'private Jora sign-in target', 'desktop/mobile layout'], output }));
+  console.log(JSON.stringify({ passed: true, checks: ['hidden from Standard and Intensive customers', 'stale customer setting cannot expose beta', 'admin beta selection', 'preferences preserved', 'private Jora sign-in target', 'desktop/mobile layout'], output }));
 } finally { await browser.close(); await server.close(); }

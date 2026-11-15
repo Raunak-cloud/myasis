@@ -178,7 +178,7 @@ export function RunPanel({
   const [adminModeEnabled, setAdminModeEnabled] = useState(false);
   const adminMode = isAdmin && adminModeEnabled;
   const useScheduledRuns = Boolean(entitlements?.canPauseAutoApply) && !adminMode;
-  const jobBoards = [...(employerSourcesEnabled ? ALL_JOB_SOURCES : JOB_BOARDS), ...(boards?.adzunaAvailable ? [{ id: 'adzuna', label: 'Adzuna' }] : [])];
+  const jobBoards = [...(employerSourcesEnabled ? ALL_JOB_SOURCES : JOB_BOARDS), ...(boards?.adzunaAvailable ? [{ id: 'adzuna', label: 'Adzuna' }] : [])].filter(board => isAdmin || board.id !== 'jora');
   const outOfAllowance = Boolean(entitlements && !isAdmin && billing && billing.totalRemaining < 1);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [edits, setEdits] = useState<Record<string, string>>({});
@@ -399,7 +399,7 @@ export function RunPanel({
    */
   const standingKeys = [...(entitlements?.fineTune
     ? ['KEYWORDS', 'EXCLUDED_COMPANIES', 'AI_INSTRUCTIONS_B64']
-    : ['KEYWORDS', 'EXCLUDED_COMPANIES']), ...(edits.JORA_BETA_ENABLED !== undefined ? ['JORA_BETA_ENABLED'] : [])];
+    : ['KEYWORDS', 'EXCLUDED_COMPANIES']), ...(isAdmin && edits.JORA_BETA_ENABLED !== undefined ? ['JORA_BETA_ENABLED'] : [])];
   const standingDirty = standingKeys.some(
     (key) => edits[key] !== undefined && edits[key] !== (settings[key] ?? RUN_DEFAULTS[key] ?? ''),
   );
@@ -468,7 +468,7 @@ export function RunPanel({
     setEdit('WORK_ARRANGEMENTS', [...next].join(','));
   };
   const platforms = [...new Set([...val('PLATFORMS').split(',').map(item => item.trim()).filter(id => id && id !== 'jora'),
-    ...(val('JORA_BETA_ENABLED') === 'true' ? ['jora'] : [])])];
+    ...(isAdmin && val('JORA_BETA_ENABLED') === 'true' ? ['jora'] : [])])];
   /** Unknown until read; then only a board confirmed signed in can be used. */
   const boardUsable = (id: string) => id === 'jora' || (id === 'adzuna' ? boards?.adzunaAvailable === true : isEmployerSource(id) ? employerSourcesEnabled : boardSignedIn === null || boardSignedIn[id] === true);
   const employerSourceSelected = employerSourcesEnabled && platforms.some(isEmployerSource);
@@ -552,7 +552,7 @@ export function RunPanel({
     if (mode === 'search' && !isAdmin) return;
     setError(null);
     setErrorField(null);
-    const updates = Object.fromEntries(REVIEW_KEYS.filter(key => isAdmin || (key !== 'APPLICATION_AI_MODEL' && !EMPLOYER_SOURCES.some(source => source.key === key))).map((key) => [key, val(key)]));
+    const updates = Object.fromEntries(REVIEW_KEYS.filter(key => isAdmin || (key !== 'APPLICATION_AI_MODEL' && key !== 'JORA_BETA_ENABLED' && !EMPLOYER_SOURCES.some(source => source.key === key))).map((key) => [key, val(key)]));
     updates.PLATFORMS = platforms.join(',');
     // An operator's limit left empty is no limit; one they typed is checked like any other.
     const unlimited = (key: string) => optionalLimit(key) && !updates[key].trim();
@@ -878,7 +878,7 @@ export function RunPanel({
             />
           </div>
 
-          <div className="field">
+          {isAdmin && <div className="field">
             <label className="check">
               <input type="checkbox" checked={platforms.includes('jora')} disabled={standingSaving || running}
                 onChange={event => editStanding('JORA_BETA_ENABLED', String(event.target.checked))} />
@@ -887,7 +887,7 @@ export function RunPanel({
             <p className="job-meta">Find more jobs across other websites. Applications continue on the original site, with duplicate checks across sources. No Jora sign-in is needed to search.</p>
             <button type="button" className="btn btn-small" disabled={running || verifyingSignIn}
               onClick={() => window.dispatchEvent(new CustomEvent(OPEN_BOARD_SIGNIN, { detail: 'jora' }))}>Sign in to Jora (optional)</button>
-          </div>
+          </div>}
 
           <div className="field">
             <FieldLabel
@@ -1182,7 +1182,7 @@ export function RunPanel({
                     </p>
                   )}
                   {fieldError('PLATFORMS')}
-                  {platforms.includes('jora') && <p className="job-meta">
+                  {isAdmin && platforms.includes('jora') && <p className="job-meta">
                     Jora is in beta. Applications continue on the original website, with duplicate checks across sources. Search works without signing in.
                     {' '}<button type="button" className="link-button" onClick={() => window.dispatchEvent(new CustomEvent(OPEN_BOARD_SIGNIN, { detail: 'jora' }))}>Sign in to Jora (optional)</button>
                   </p>}

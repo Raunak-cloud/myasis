@@ -130,6 +130,7 @@ const FINE_TUNING_KEYS: string[] = KEEP_SETTINGS_KEYS.filter(
 const ADVANCED_FILTER_KEYS = ['MIN_SCORE', 'MAX_AGE_DAYS'] as const;
 
 export function mayEditRunSetting(key: string, entitlement: Pick<Entitlements, 'fineTune' | 'advancedFilters'> & Partial<Pick<Entitlements, 'tier'>>): boolean {
+  if (key === 'JORA_BETA_ENABLED') return entitlement.tier === 'admin';
   if (key === 'MAX_APPS_PER_RUN') return false;
   if (key === 'APPLICATION_AI_MODEL' || key === 'APPLICATION_AGENT_MODE' || key === 'APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN') return entitlement.tier === 'admin';
   if (!FINE_TUNING_KEYS.includes(key)) return true;
@@ -165,12 +166,13 @@ export const EMPLOYER_SOURCES_CHOSEN_KEY = 'EMPLOYER_SOURCES_CHOSEN';
 export function effectivePlatforms(
   saved: Record<string, string | undefined>,
   entitlement: Pick<Entitlements, 'indeedApplications'> & Partial<Pick<Entitlements, 'employerSources' | 'tier'>>,
+  joraAvailable = entitlement.tier === 'admin',
 ): string {
   const value = (saved.PLATFORMS ?? RUN_SETTING_DEFAULTS.PLATFORMS).trim() || RUN_SETTING_DEFAULTS.PLATFORMS;
   const base = saved[PLATFORMS_CHOSEN_KEY] !== '1' && entitlement.indeedApplications && value === RUN_SETTING_DEFAULTS.PLATFORMS ? 'seek,indeed' : value;
   const selected = base.split(',').map(id => id.trim().toLowerCase()).filter(id => id && (!isEmployerSource(id) || entitlement.employerSources)
-    && (id !== 'jora' || saved.JORA_BETA_ENABLED !== 'false'));
-  if (saved.JORA_BETA_ENABLED === 'true') selected.push('jora');
+    && (id !== 'jora' || joraAvailable && saved.JORA_BETA_ENABLED !== 'false'));
+  if (joraAvailable && saved.JORA_BETA_ENABLED === 'true') selected.push('jora');
   if (entitlement.employerSources && entitlement.tier === 'intensive' && saved[EMPLOYER_SOURCES_CHOSEN_KEY] !== '1') {
     selected.push(...EMPLOYER_SOURCES.map(source => source.id));
   }
@@ -187,6 +189,7 @@ export function applyRunPolicy(
   /** Whether the account picked its boards itself (see effectivePlatforms). */
   boardsChosen = false,
   employerSourcesChosen = false,
+  joraAvailable = entitlement.tier === 'admin',
 ): Record<string, string> {
   const resolved = { ...settings };
   delete resolved.PAGES_PER_KEYWORD; // Retired discovery depth cannot influence runs.
@@ -201,8 +204,9 @@ export function applyRunPolicy(
     }
   }
   // A pass that includes Indeed adds it, unless the account picked its boards itself.
+  if (!joraAvailable) resolved.JORA_BETA_ENABLED = 'false';
   resolved.PLATFORMS = effectivePlatforms({ PLATFORMS: resolved.PLATFORMS, JORA_BETA_ENABLED: resolved.JORA_BETA_ENABLED,
-    [PLATFORMS_CHOSEN_KEY]: boardsChosen ? '1' : '', [EMPLOYER_SOURCES_CHOSEN_KEY]: employerSourcesChosen ? '1' : '' }, entitlement);
+    [PLATFORMS_CHOSEN_KEY]: boardsChosen ? '1' : '', [EMPLOYER_SOURCES_CHOSEN_KEY]: employerSourcesChosen ? '1' : '' }, entitlement, joraAvailable);
   // Review overrides remain independent of the application allowance.
   if (entitlement.evaluationsPerRun !== null) {
     resolved.MAX_EVALUATIONS = String(entitlement.evaluationsPerRun);

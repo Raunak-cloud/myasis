@@ -5,28 +5,42 @@ import { applyJobSourceAccess, availableJobSources, jobSourceSettingsError } fro
 import { USER_SETTABLE_SETTINGS_KEYS } from './settings.js';
 import { applyRunPolicy, effectivePlatforms, mayEditRunSetting } from './entitlements.js';
 
-test('the beta opt-in survives Standard plan policy without changing existing platform defaults', () => {
+test('customer plans cannot enable Jora beta through old settings, while a verified admin test can', () => {
   const entitlement = { tier: 'standard' as const, fineTune: false, advancedFilters: false, indeedApplications: false,
     evaluationsPerRun: 40, maxApplicationsPerRunOverride: null, employerSources: false };
   const saved = { PLATFORMS: 'seek', MIN_SALARY: '100000', JORA_BETA_ENABLED: 'true' };
-  assert.equal(mayEditRunSetting('JORA_BETA_ENABLED', entitlement), true);
-  assert.equal(applyRunPolicy(saved, entitlement, 'auto').PLATFORMS, 'seek,jora');
+  assert.equal(mayEditRunSetting('JORA_BETA_ENABLED', entitlement), false);
+  assert.equal(mayEditRunSetting('JORA_BETA_ENABLED', { ...entitlement, tier: 'admin' }), true);
+  assert.equal(applyRunPolicy(saved, entitlement, 'auto').PLATFORMS, 'seek');
+  assert.equal(applyRunPolicy(saved, entitlement, 'auto', false, false, true).PLATFORMS, 'seek,jora');
   assert.equal(applyRunPolicy({ ...saved, JORA_BETA_ENABLED: 'false' }, entitlement, 'auto').PLATFORMS, 'seek');
   assert.equal(effectivePlatforms({ PLATFORMS: 'seek,indeed', JORA_BETA_ENABLED: 'false' }, { indeedApplications: true }), 'seek,indeed');
-  assert.equal(effectivePlatforms({ PLATFORMS: 'seek,indeed', JORA_BETA_ENABLED: 'true' }, { indeedApplications: true }), 'seek,indeed,jora');
+  assert.equal(effectivePlatforms({ PLATFORMS: 'seek,indeed', JORA_BETA_ENABLED: 'true' }, { indeedApplications: true }), 'seek,indeed');
+  assert.equal(effectivePlatforms({ PLATFORMS: 'seek,indeed', JORA_BETA_ENABLED: 'true' }, { indeedApplications: true, tier: 'admin' }), 'seek,indeed,jora');
   assert.equal(effectivePlatforms({ PLATFORMS: 'seek,jora', JORA_BETA_ENABLED: 'false' }, { indeedApplications: false }), 'seek');
   assert.equal(saved.PLATFORMS, 'seek'); assert.equal(saved.MIN_SALARY, '100000');
 });
 
-test('Jora beta is opt-in and publicly searchable without native sign-ins or altered preferences', () => {
-  assert.equal(jobSourceSettingsError({ PLATFORMS: 'jora' }, false, false), null);
+test('Jora beta requires admin access and admin-started customer tests preserve other preferences', () => {
+  assert.equal(jobSourceSettingsError({ PLATFORMS: 'jora' }, false, false)?.status, 403);
+  assert.equal(jobSourceSettingsError({ JORA_BETA_ENABLED: 'true' }, false, true)?.status, 403);
+  assert.equal(jobSourceSettingsError({ JORA_BETA_ENABLED: true }, false, true)?.status, 403);
+  assert.equal(jobSourceSettingsError({ PLATFORMS: 'seek, JORA' }, false, true)?.status, 403);
+  assert.equal(jobSourceSettingsError({ PLATFORMS: 'jora' }, true, false), null);
+  assert.equal(jobSourceSettingsError({ PLATFORMS: 'jora', JORA_BETA_ENABLED: 'true' }, false, true, false, true), null);
   const settings = { PLATFORMS: 'jora', MIN_SALARY: '100000', MAX_AGE_DAYS: '10' };
-  applyJobSourceAccess(settings, false, false);
+  applyJobSourceAccess(settings, false, false, false, true);
   assert.equal(settings.PLATFORMS, 'jora'); assert.equal(settings.MIN_SALARY, '100000'); assert.equal(settings.MAX_AGE_DAYS, '10');
   const existing = { PLATFORMS: 'seek,indeed' }; applyJobSourceAccess(existing, false, false);
   assert.equal(existing.PLATFORMS, 'seek,indeed');
-  assert.deepEqual(availableJobSources(['seek', 'indeed', 'jora'], false, () => false), {
+  assert.deepEqual(availableJobSources(['seek', 'indeed', 'jora'], false, () => false, false, true), {
     supported: ['seek', 'indeed', 'jora'], usable: ['jora'], unavailable: ['seek', 'indeed'],
+  });
+  applyJobSourceAccess(settings, false, false);
+  assert.equal(settings.PLATFORMS, 'seek');
+  assert.equal(settings.MIN_SALARY, '100000'); assert.equal(settings.MAX_AGE_DAYS, '10');
+  assert.deepEqual(availableJobSources(['seek', 'indeed', 'jora'], false, () => false), {
+    supported: ['seek', 'indeed'], usable: [], unavailable: ['seek', 'indeed'],
   });
 });
 
