@@ -13,6 +13,8 @@ import { sendHrEmail, reconcileHrEmail, hrDeliveredBody, type HrMail } from './t
 import { withHrBrowser } from './browser.js';
 import { markHrActive } from './activity.js';
 import { loadPublicVacancyEvidence } from './public-evidence.js';
+import { checkHrBounce } from './bounce.js';
+import type { HrDeliveryJob } from './delivery-store.js';
 
 interface Slots { claimStart(userId:string):boolean; releaseStart(userId:string):void; activeCount?():number }
 let wakeWorker:(()=>void)|null=null;
@@ -29,13 +31,20 @@ export interface HrWorkerDependencies {
   apiKey: () => string;
   verifyContact?: typeof canReuseHiringContact;
   publicEvidence?: typeof loadPublicVacancyEvidence;
+  checkBounce?: typeof checkHrBounce;
   log?: (event:{jobId:string;stage:HrPhase;code:string})=>void;
 }
 const defaultDependencies: HrWorkerDependencies = {
   store:new HrStore(), discover:discoverHiringContact,compose:composeHrEmail,send:sendHrEmail,reconcile:reconcileHrEmail,
   access:gmailAccess,profile:loadProfile,apiKey:()=>({...readEnv(),...process.env}).OPENROUTER_API_KEY||'',
-  verifyContact:canReuseHiringContact,publicEvidence:loadPublicVacancyEvidence,
+  verifyContact:canReuseHiringContact,publicEvidence:loadPublicVacancyEvidence,checkBounce:checkHrBounce,
 };
+function parentEmployerWebsite(contact:HiringContact|null|undefined):string|undefined {
+  if(contact?.sourceKind!=='public_page')return;
+  try{const url=new URL(contact.sourceUrl),host=url.hostname.replace(/^www\./,'').toLowerCase(),root=contact.companyDomain.replace(/^www\./,'').toLowerCase();
+    if(url.protocol==='https:'&&!url.username&&!url.password&&(host===root||host.endsWith('.'+root)))return url.href;
+  }catch{ /* A prior source is a hint only; public discovery validates it again. */ }
+}
 /** One durable job owns one send attempt. Recovery never retries an uncertain send. */
 export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defaultDependencies): Promise<void> {
   const {store}=deps;
@@ -54,17 +63,20 @@ export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defa
       return;
     }
     const evidence=await deps.publicEvidence?.(job)??null;
+    const excludedEmails=(await store.invalidEmails?.()??[]).map(email=>email.trim().toLowerCase());
+    const excluded=new Set(excludedEmails);
     const vacancy={roleTitle:job.title,location:job.location||evidence?.location||undefined,
-      jobDescription:evidence?.description,jobDescriptionObservedAt:evidence?.observedAt};
-    const contextKey=createHash('sha256').update(JSON.stringify([job.url,job.title,vacancy.location??'',vacancy.jobDescription??'',vacancy.jobDescriptionObservedAt??''])).digest('hex');
+      jobDescription:evidence?.description,jobDescriptionObservedAt:evidence?.observedAt,excludedEmails};
+    const contextKey=createHash('sha256').update(JSON.stringify([job.url,job.title,vacancy.location??'',vacancy.jobDescription??'',vacancy.jobDescriptionObservedAt??'',[...excludedEmails].sort()])).digest('hex');
     const cache=await store.cache(job.company_key);
     // A company-wide negative result cannot suppress new vacancy-specific
     // recruitment evidence, even while yesterday's website lookup is cached.
     const fresh=cache?.fresh&&(cache.contact!==null||cache.contextKey===contextKey);
-    const associated=cache?.contact?!assessHiringContact(cache.contact,job.company,job.title).reviewRequired&&await (deps.verifyContact?.(job.company,job.url,cache.contact,{signal,...vacancy})??Promise.resolve(true)):true;
+    const associated=cache?.contact?!excluded.has(cache.contact.email.toLowerCase())&&!assessHiringContact(cache.contact,job.company,job.title).reviewRequired&&await (deps.verifyContact?.(job.company,job.url,cache.contact,{signal,...vacancy})??Promise.resolve(true)):true;
     let contact:HiringContact|null=fresh&&associated?cache!.contact:null;
     if(!fresh||!associated) {
-      const found=await deps.discover({company:job.company,jobUrl:job.url,...vacancy,previous:associated?cache?.contact??undefined:undefined,signal},{search:deps===defaultDependencies?hrContactSearch():undefined,maxPages:12});
+      const previous=associated&&cache?.contact?cache.contact:job.retry_parent_contact??undefined;
+      const found=await deps.discover({company:job.company,jobUrl:job.url,website:parentEmployerWebsite(job.retry_parent_contact),...vacancy,previous,signal},{search:deps===defaultDependencies?hrContactSearch():undefined,maxPages:12});
       await store.recordLookup?.(job,found);
       if(found.retryable&&!found.contact){await store.finish(job,'error',found.reason,undefined,0,{retryable:true});return;}
       contact=found.contact;
@@ -76,6 +88,7 @@ export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defa
       await store.recordLookup?.(job,reused);
     }
     if(!contact) {await store.finish(job,'skipped',cache?.reason||'No publicly listed hiring or recruitment email was found.',undefined,0,{retryable:false});return;}
+    if(excluded.has(contact.email.toLowerCase())){await store.finish(job,'skipped','This email address was rejected by the employer. No suitable alternate contact was found.',undefined,0,{retryable:false});return;}
     const profile=await deps.profile(job.user_id);
     stage='writing';
     await store.setPhase?.(job,'writing');
@@ -111,6 +124,20 @@ export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defa
   }
 }
 
+/** Inspect only an existing sent message. No notice is not delivery proof. */
+export async function processHrDeliveryCheck(job:HrDeliveryJob,deps:HrWorkerDependencies=defaultDependencies):Promise<void> {
+  if(!deps.checkBounce||!await deps.store.deliveryAllowed(job))return;
+  try{
+    if(!job.to_email||!job.subject||!job.body)throw Error('Incomplete recorded send.');
+    const notice=await deps.checkBounce(job.user_id,{id:job.id,to:job.to_email,subject:job.subject,body:job.body,createdAt:new Date(job.created_at).toISOString()},
+      {sentAt:new Date(job.sent_at).toISOString(),threadId:job.thread_id??undefined,signal:AbortSignal.timeout(120_000),withBrowser:action=>withHrBrowser(job.user_id,action)});
+    await deps.store.recordDeliveryCheck(job,notice);
+  }catch{
+    (deps.log??(event=>console.warn('[hr-outreach]',JSON.stringify(event))))({jobId:job.id,stage:'checking',code:'delivery_check_unavailable'});
+    await deps.store.recordDeliveryCheck(job,null,true);
+  }
+}
+
 /** Runs beside application workers, independently of dashboard restarts. */
 export function startHrOutreachWorker(slots: Slots) {
   let stopped=false,active:Promise<void>|null=null,wakeRequested=false;
@@ -129,6 +156,14 @@ export function startHrOutreachWorker(slots: Slots) {
         const store=defaultDependencies.store;
         await store.recover();await store.enqueue();
         if(stopped||deploying())return;
+        const delivery=await store.claimDelivery();
+        if(delivery){
+          if(slots.claimStart(delivery.user_id)){
+            try{await accountRequest(delivery.user_id,()=>processHrDeliveryCheck(delivery));}
+            finally{slots.releaseStart(delivery.user_id);}
+          }else await store.deferDelivery(delivery);
+        }
+        if(stopped||deploying())return;
         const job=await store.claim();
         if(job) {
           if(!slots.claimStart(job.user_id)){await store.defer(job);return;}
@@ -139,7 +174,7 @@ export function startHrOutreachWorker(slots: Slots) {
         // network lookups while an applying run is active.
         if(!stopped&&!deploying()&&(slots.activeCount?.()??0)===0){
           const cached=await store.staleContact();
-          if(cached){const found=await discoverHiringContact({company:cached.company,previous:cached.contact,signal:AbortSignal.timeout(90_000)},{search:hrContactSearch(),maxPages:8});
+          if(cached){const found=await discoverHiringContact({company:cached.company,previous:cached.contact,excludedEmails:await store.invalidEmails(),signal:AbortSignal.timeout(90_000)},{search:hrContactSearch(),maxPages:8});
             if(found.retryable&&!found.contact)await store.deferValidation(cached.company_key);
             else await store.saveContact(cached.company_key,cached.company,found.contact,found.reason,found);}
         }

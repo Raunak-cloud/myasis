@@ -22,7 +22,7 @@ pool.query = (async (sql: string, values: unknown[] = []) => {
   }
   if(sql.startsWith('WITH source AS')){
     assert.match(sql,/h\.user_id=\$1/);assert.match(sql,/r\.user_id=\$1/);hrReads++;
-    return {rows:[{run_id:String(100+Number(values[0])),finished_at:new Date(),hr_ready_at:new Date(),status:'sent',phase:null,title:'Owner role',company:'Fixture',leased:false,contact_review_required:String(values[0])==='1'}]};
+    return {rows:[{run_id:String(100+Number(values[0])),finished_at:new Date(),hr_ready_at:new Date(),status:'sent',phase:null,title:'Owner role',company:'Fixture',leased:false,contact_review_required:String(values[0])==='1',delivery_status:String(values[0])==='1'?'bounced':'unknown'}]};
   }
   if (sql.includes('FROM hr_outreach h')) {
     assert.match(sql, /WHERE h\.user_id=\$1/, 'History query must scope rows to the authenticated owner');
@@ -32,12 +32,17 @@ pool.query = (async (sql: string, values: unknown[] = []) => {
     assert.match(sql, /h\.contact->>'sourceKind' AS "sourceKind"/);
     assert.match(sql, /h\.contact->>'validatedAt' AS "sourceCheckedAt"/);
     assert.match(sql, /h\.contact_review_required AS "contactReviewRequired"/);
+    for (const [column, field] of [['delivery_status', 'deliveryStatus'], ['delivery_reason', 'deliveryReason'], ['delivery_checked_at', 'deliveryCheckedAt'], ['delivery_failed_at', 'deliveryFailedAt']]) assert.match(sql, new RegExp(`h\\.${column} AS "${field}"`));
+    assert.match(sql,/h\.outreach_attempt AS "outreachAttempt"/);
+    assert.match(sql,/h\.retry_of::text AS "retryOfId"/);
     assert.doesNotMatch(sql.split(/FROM hr_outreach h/)[0], /\bh\.(?:lookup_(?:diagnostics|details|trace)|diagnostics)\b/, 'Raw lookup diagnostics must not be projected into customer history');
     assert.doesNotMatch(sql.split(/FROM hr_outreach h/)[0], /(?:job_description|jobDescription|sourceText|cover_letter)/, 'Raw vacancy and candidate evidence must not be projected into email history');
     hrReads++;
     const userId = String(values[0]);
     let rows = Array.from({ length: userId === '1' ? 55 : 1 }, (_, i) => ({ id: String(100 - i), jobId: i ? `archived-${userId}-${i}` : `job-${userId}`, platform: i === 54 ? 'external' : 'seek', title: `Role ${userId}`, company: 'Fixture Company', status: 'sent', toEmail: `hiring-${userId}@example.test`, subject: `Private subject ${userId}`, body: `Private body ${userId}`,
-      sourceKind:'stored_vacancy',sourceCheckedAt:'2026-11-09T01:00:00.000Z',lookupOutcome:'found',lookupCheckedAt:'2026-11-16T01:00:00.000Z',lookupRetryAt:null,contactReviewRequired:userId==='1'&&i===0,contactReviewReason:userId==='1'&&i===0?'The contact’s relevance to this employer needs review.':null }));
+      sourceKind:'stored_vacancy',sourceCheckedAt:'2026-11-09T01:00:00.000Z',lookupOutcome:'found',lookupCheckedAt:'2026-11-16T01:00:00.000Z',lookupRetryAt:null,contactReviewRequired:userId==='1'&&i===0,contactReviewReason:userId==='1'&&i===0?'The contact’s relevance to this employer needs review.':null,
+      deliveryStatus:userId==='1'&&i===0?'bounced':'unknown',deliveryReason:userId==='1'&&i===0?'The recipient address does not exist.':null,deliveryCheckedAt:'2026-11-16T02:00:00.000Z',deliveryFailedAt:userId==='1'&&i===0?'2026-11-16T01:59:00.000Z':null,
+      outreachAttempt:i===1?2:1,retryOfId:i===1?'100':null }));
     if (values[1]) rows = rows.filter(row => BigInt(row.id) < BigInt(String(values[1])));
     if (values[2]) rows = rows.filter(row => row.jobId === values[2] && row.platform === values[3]);
     return { rows: rows.slice(0, 51) };
@@ -113,14 +118,25 @@ try {
   assert.equal(first.body.items[0].lookupRetryAt,null);
   assert.equal(first.body.items[0].contactReviewRequired,true);
   assert.match(first.body.items[0].contactReviewReason,/needs review/);
+  assert.equal(first.body.items[0].deliveryStatus,'bounced');
+  assert.equal(first.body.items[0].deliveryReason,'The recipient address does not exist.');
+  assert.equal(first.body.items[0].deliveryCheckedAt,'2026-11-16T02:00:00.000Z');
+  assert.equal(first.body.items[0].deliveryFailedAt,'2026-11-16T01:59:00.000Z');
+  assert.equal(first.body.items[0].status,'sent','Delivery failure never erases the send ledger');
+  assert.equal(first.body.items[0].outreachAttempt,1);
+  assert.equal(first.body.items[0].retryOfId,null);
+  assert.equal(first.body.items[1].outreachAttempt,2);
+  assert.equal(first.body.items[1].retryOfId,'100');
   assert.doesNotMatch(JSON.stringify(first.body),/lookup_diagnostics|selector:|stack:|model:/);
   assert.equal(first.body.items.length, 50); assert.equal(first.body.nextCursor, '51');
   assert.equal(first.body.progress.runId,'101');
   assert.equal(first.body.progress.contactReviewRequiredCount,1);
+  assert.equal(first.body.progress.deliveryFailedCount,1);
   const beforeActivity=hrReads;
   const activity=await request('/api/hr-outreach?activity=1&userId=3','first-session');
   assert.equal(activity.status,200);assert.deepEqual(activity.body.items,[]);assert.equal(activity.body.progress.runId,'101');assert.equal(hrReads,beforeActivity+1,'status polls never download email history');
   assert.equal(activity.body.progress.contactReviewRequiredCount,1,'Activity reports contact review separately from sent delivery');
+  assert.equal(activity.body.progress.deliveryFailedCount,1,'Activity reports failed delivery separately from recorded sends');
   const older = await request('/api/hr-outreach?cursor=51&userId=2', 'first-session');
   assert.equal(older.status, 200); assert.equal(older.body.items.length, 5); assert.equal(older.body.nextCursor, null);
   assert.equal(new Set([...first.body.items, ...older.body.items].map(item => item.id)).size, 55, 'History pages include every owner record without duplicates');
@@ -134,6 +150,9 @@ try {
   const second = await request('/api/hr-outreach?userId=1', 'third-session');
   assert.equal(second.status, 200); assert.equal(second.body.items[0].body, 'Private body 3');
   assert.equal(second.body.items[0].contactReviewRequired,false,'Another admin does not receive the first owner’s review marker');
+  assert.equal(second.body.items[0].deliveryStatus,'unknown','Another admin does not receive the first owner’s bounce result');
+  assert.equal(second.body.items[0].deliveryReason,null);
+  assert.equal(second.body.progress.deliveryFailedCount??0,0);
   assert.deepEqual((await request('/api/hr-outreach/settings', 'first-session')).body, { enabled: false });
   assert.deepEqual((await request('/api/hr-outreach/settings', 'third-session')).body, { enabled: true });
   const writesBeforeBad = hrWrites;

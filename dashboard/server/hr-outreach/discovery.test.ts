@@ -625,3 +625,112 @@ test('regional delivery areas and supplier partner pages cannot masquerade as re
   const result=await discoverHiringContact({company:'Acme',website:'https://acme.org/careers',location:'Sydney NSW'},{crawler:f,maxPages:4});
   assert.deepEqual(f.calls,['https://acme.org/careers']);assert.equal(result.outcome,'no_contact');assert.equal(result.diagnostics.unresolvedPriorityPages,0);
 });
+
+test('a confirmed nonexistent mailbox cannot be reused from a fresh cache or renewed from its still-published source',async()=>{
+  assert.equal(await canReuseHiringContact('Acme','https://acme.org/careers',previous,{excludedEmails:[' CAREERS@ACME.ORG ']}),false);
+  const f=fixture({'https://acme.org/careers':'<h1>Acme careers</h1><p>Recruitment careers@acme.org</p><p>Our recruitment manager accepts CVs at jane@acme.org.</p>'});
+  const result=await discoverHiringContact({company:'Acme',previous,excludedEmails:['CAREERS@ACME.ORG']},{crawler:f,now:()=>now});
+  assert.equal(result.contact?.email,'jane@acme.org');assert.deepEqual(f.calls,[previous.sourceUrl]);
+  assert.ok(result.diagnostics.events.some(event=>event.kind==='contact_suppressed'));
+});
+
+test('suppression filters direct public contacts and keeps looking for a different published inbox',async()=>{
+  const f=fixture({'https://acme.org/':'<h1>Acme</h1><p>Recruitment careers@acme.org</p><a href="/careers">Careers</a>','https://acme.org/careers':'<h1>Acme careers</h1><p>Recruitment talent@acme.org</p>'});
+  const result=await discoverHiringContact({company:'Acme',website:'https://acme.org/',excludedEmails:['careers@acme.org']},{crawler:f});
+  assert.equal(result.contact?.email,'talent@acme.org');assert.equal(result.contact?.sourceUrl,'https://acme.org/careers');
+});
+
+test('stored exact-vacancy and indexed exact-job contacts cannot restore a known nonexistent mailbox',async()=>{
+  const job='https://www.seek.com.au/job/993';
+  const common={company:'Acme',website:'https://acme.org/',jobUrl:job,excludedEmails:['careers@acme.org']};
+  const home='<h1>Acme</h1><p>We build software.</p>';
+  const stored=await discoverHiringContact({...common,jobDescription:'Recruitment careers@acme.org. For this vacancy send CVs to hiring@acme.org.',jobDescriptionObservedAt:now.toISOString()},{crawler:fixture({'https://acme.org/':home}),now:()=>now});
+  assert.equal(stored.contact?.email,'hiring@acme.org');assert.equal(stored.contact?.sourceKind,'stored_vacancy');
+  const indexed=await discoverHiringContact(common,{crawler:fixture({'https://acme.org/':home}),search:async()=>[{url:job,title:'Acme Software Engineer',description:'Recruitment careers@acme.org. Send CVs to talent@acme.org.'}]});
+  assert.equal(indexed.contact?.email,'talent@acme.org');assert.equal(indexed.contact?.sourceKind,'indexed_excerpt');
+});
+
+test('external public pages and attributed profile excerpts respect suppression without blocking a different published contact',async()=>{
+  const profile='https://www.linkedin.com/company/acme';
+  for(const blocked of [false,true]){
+    const f=fixture({'https://acme.org/':'<h1>Acme</h1><p>We build software.</p>',[profile]:blocked?response(profile,'',403):'<h1>Acme</h1><p>Recruitment careers@acme.org. Send CVs to talent@acme.org.</p>'});
+    const result=await discoverHiringContact({company:'Acme',website:'https://acme.org/',excludedEmails:['careers@acme.org']},{crawler:f,search:async()=>[{url:profile,title:'Acme',description:'Recruitment careers@acme.org. Send CVs to talent@acme.org.'}]});
+    assert.equal(result.contact?.email,'talent@acme.org');assert.equal(result.contact?.sourceKind,blocked?'indexed_excerpt':'public_page');
+  }
+});
+
+test('a still-published suppressed address alone produces no contact and is never an invented domain replacement',async()=>{
+  const f=fixture({'https://acme.org/':'<h1>Acme</h1><p>Recruitment careers@acme.org</p>'});
+  const result=await discoverHiringContact({company:'Acme',website:'https://acme.org/',excludedEmails:['careers@acme.org']},{crawler:f});
+  assert.equal(result.contact,null);assert.equal(result.outcome,'no_contact');assert.ok(result.diagnostics.candidatesRejected>0);
+});
+
+test('an invalid primary inbox leads to bounded regional recruiter research with attributed public CV evidence',async()=>{
+  const post='https://www.linkedin.com/posts/jane-recruiter_hiring-technology-activity-123456789-test';
+  const f=fixture({'https://acme.org/':'<h1>Acme</h1><p>Recruitment careers@acme.org</p>',[post]:response(post,'',403)});
+  const queries:string[]=[];
+  const result=await discoverHiringContact({company:'Acme',roleTitle:'Software Engineer',location:'Sydney NSW',website:'https://acme.org/',excludedEmails:['careers@acme.org']},{crawler:f,search:async query=>{queries.push(query);return [{url:post,title:'Jane Recruiter | Acme hiring',description:'Acme is hiring technology integration engineers. Candidates anywhere in Australia may apply. Send your CV to jane@acme.org.'}];}});
+  assert.equal(result.contact?.email,'jane@acme.org');assert.equal(result.contact?.sourceKind,'indexed_excerpt');assert.equal(result.contact?.sourceUrl,post);
+  assert.match(queries[0],/Australia technology recruitment.*CV/);assert.ok(queries.length<=3);assert.doesNotMatch(queries.join(' '),/careers@acme.org/);
+});
+
+test('a blocked public post needs attributable employer, explicit CV invitation, matching domain and region',async()=>{
+  const post='https://www.linkedin.com/posts/jane-recruiter_hiring-activity-123456789-test';
+  for(const description of ['Other Company in Australia. Send CVs to jane@acme.org.','Acme company news: jane@acme.org is speaking at a conference in Australia.','Acme in Australia is hiring. Send CVs to jane@unrelated.org.','Acme in India is hiring. Send CVs to jane@acme.org.']){
+    const result=await discoverHiringContact({company:'Acme',roleTitle:'Software Engineer',location:'Sydney NSW',website:'https://acme.org/',excludedEmails:['careers@acme.org']},{crawler:fixture({'https://acme.org/':'<h1>Acme</h1><p>We build software.</p>',[post]:response(post,'',403)}),search:async()=>[{url:post,title:'Recruiter post',description}]});
+    assert.equal(result.contact,null,description);
+  }
+});
+
+test('a dead primary inbox yields its remaining page budget to alternative recruitment evidence',async()=>{
+  const post='https://www.linkedin.com/posts/jane-recruiter_hiring-activity-123456789-test';
+  const f=fixture({'https://acme.org/':'<h1>Acme</h1><p>Recruitment careers@acme.org</p>'+Array.from({length:20},(_,i)=>`<a href="/careers/country-${i}">Country careers ${i}</a>`).join(''),[post]:response(post,'',403)});
+  const result=await discoverHiringContact({company:'Acme',location:'Sydney NSW',website:'https://acme.org/',excludedEmails:['careers@acme.org']},{crawler:f,maxPages:4,search:async()=>[{url:post,title:'Acme recruiter',description:'Acme is hiring engineers in Australia. Send your CV to jane@acme.org.'}]});
+  assert.equal(result.contact?.email,'jane@acme.org');assert.deepEqual(f.calls,['https://acme.org/',post]);
+});
+
+test('alternative lookup verifies one company page and targets primary regional recruiter posts with or without a source hint',async()=>{
+  const source='https://careers.acme.org/go/Australia/1/',post='https://www.linkedin.com/posts/jane-recruiter_hiring-activity-123456789-test';
+  for(const hinted of [false,true]){
+    const f=fixture({[source]:'<title>Acme Careers</title><h1>Acme</h1><p>Recruitment careers@acme.org</p>'+Array.from({length:20},(_,i)=>`<a href="/careers/country-${i}">Global careers ${i}</a>`).join(''),[post]:response(post,'',403)});
+    const queries:string[]=[];
+    const result=await discoverHiringContact({company:'Acme',roleTitle:'Technical Specialist',location:'Sydney NSW',website:hinted?source:undefined,excludedEmails:['careers@acme.org']},{crawler:f,maxPages:4,search:async query=>{queries.push(query);return query.includes('official company')?[{url:source,title:'Acme Careers Australia'}]:[{url:'https://irrelevant.org/blog/how-to-apply',title:'CV advice'},{url:post,title:'Acme recruiter',description:'Acme Australia is hiring technology integration engineers. Send your CV to jane@acme.org.'}];}});
+    assert.equal(result.contact?.email,'jane@acme.org');assert.deepEqual(f.calls,[source,post]);assert.ok(queries.length<=3);assert.ok(queries.some(query=>/site:linkedin.com\/posts/.test(query)));
+  }
+});
+
+test('a global suppression for another employer does not change normal company discovery or queries',async()=>{
+  const f=fixture({'https://acme.org/':'<h1>Acme</h1><a href="/careers">Careers</a>','https://acme.org/careers':'<h1>Acme</h1><p>Recruitment talent@acme.org</p>'});
+  const queries:string[]=[];
+  const result=await discoverHiringContact({company:'Acme',excludedEmails:['dead@othercompany.org']},{crawler:f,search:async query=>{queries.push(query);return [{url:'https://acme.org/'}];}});
+  assert.equal(result.contact?.email,'talent@acme.org');assert.equal(queries.length,1);assert.match(queries[0],/official company careers contact/);assert.doesNotMatch(queries[0],/site:linkedin/);
+});
+
+test('a suppressed previous contact can lead to current company proof and an alternate without repeating the global homepage',async()=>{
+  const post='https://www.linkedin.com/posts/jane-recruiter_hiring-activity-123456789-test';
+  const f=fixture({[previous.sourceUrl]:'<title>Acme careers</title><h1>Acme</h1><p>Recruitment careers@acme.org</p>',[post]:response(post,'',403)});
+  const result=await discoverHiringContact({company:'Acme',previous,website:previous.sourceUrl,excludedEmails:['careers@acme.org'],location:'Sydney NSW'},{crawler:f,search:async()=>[{url:post,title:'Acme recruitment',description:'Acme Australia is hiring. Send your CV to jane@acme.org.'}]});
+  assert.equal(result.contact?.email,'jane@acme.org');assert.deepEqual(f.calls,[previous.sourceUrl,post]);
+});
+
+test('a primary recruiter profile can corroborate an Australian technical CV invitation while preserving indexed provenance',async()=>{
+  const profile='https://au.linkedin.com/in/jane-recruiter';
+  const f=fixture({'https://acme.org/':'<h1>Acme</h1><p>Recruitment careers@acme.org</p>',[profile]:response(profile,'',403)});
+  const result=await discoverHiringContact({company:'Acme',roleTitle:'Senior Technical Specialist',location:'Sydney NSW',website:'https://acme.org/',excludedEmails:['careers@acme.org']},{crawler:f,search:async()=>[{url:profile,title:'Jane Recruiter - Acme Australia | LinkedIn',description:'Talent Acquisition Specialist at Acme Australia, Human Resources management.',extra_snippets:['Acme is hiring technology integration engineers anywhere in Australia. Send your CV to jane@acme.org.','We are also hiring AI engineers in Sydney.']}]});
+  assert.equal(result.contact?.email,'jane@acme.org');assert.equal(result.contact?.sourceUrl,profile);assert.equal(result.contact?.sourceKind,'indexed_excerpt');
+});
+
+test('another employer or a sidebar recommendation does not establish recruiter profile ownership',async()=>{
+  const profile='https://www.linkedin.com/in/jane-recruiter';
+  for(const title of ['Jane Recruiter - Other Company | LinkedIn','Jane Acme - Other Company | LinkedIn']){
+    const result=await discoverHiringContact({company:'Acme',roleTitle:'Software Engineer',location:'Sydney NSW',website:'https://acme.org/',excludedEmails:['careers@acme.org']},{crawler:fixture({'https://acme.org/':'<h1>Acme</h1><p>Recruitment careers@acme.org</p>',[profile]:response(profile,'',403)}),search:async()=>[{url:profile,title,description:'Talent Acquisition Specialist @ Acme shown under others you may know.',extra_snippets:['Acme Australia is hiring. Send your CV to jane@acme.org.']}]});
+    assert.equal(result.contact,null,title);
+  }
+});
+
+test('an alternate technical recruiter query preserves a company brand spelling when no legal suffix was removed',async()=>{
+  const f=fixture({'https://acmetech.org/':'<h1>AcmeTech</h1><p>Recruitment careers@acmetech.org</p>'}),queries:string[]=[];
+  await discoverHiringContact({company:'AcmeTech',website:'https://acmetech.org/',location:'Sydney NSW',excludedEmails:['careers@acmetech.org']},{crawler:f,search:async query=>{queries.push(query);return [];}});
+  assert.match(queries[0],/"AcmeTech"/);assert.doesNotMatch(queries[0],/"acme tech"/);
+  assert.equal(assessHiringContact({...previous,email:'jane@acme.org',sourceText:'Recruitment consultant Jane specialises in the Treasury & Finance market.'},'Acme','Senior Technical Specialist').reviewRequired,true);
+});

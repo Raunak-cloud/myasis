@@ -2,6 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { query } from '../db/index.js';
 import { adminAddresses, isAdmin } from '../admin-access.js';
 import { assessHiringContact, type HiringContact, type DiscoveryResult } from './discovery.js';
+import { claimDeliveryCheck, deliveryCheckAllowed, deferDeliveryCheck, completeDeliveryCheck, invalidHrAddresses, retryBouncedHrOutreach, type HrDeliveryJob } from './delivery-store.js';
+import type { HrBounce } from './bounce.js';
 
 export interface HrDb { query: (text: string, params?: any[]) => Promise<{ rows: any[] }> }
 const database: HrDb = { query: async (text, params) => ({ rows: await query(text, params) }) };
@@ -13,6 +15,7 @@ export interface HrJob {
   status: HrStatus; to_email: string | null; subject: string | null; body: string | null;
   contact: HiringContact | null; created_at: Date | string; lease: string; attempts: number; cost_usd: number;
   source_run_id?:string|null;phase?:HrPhase|null;location?:string|null;applied_at?:Date|string;
+  retry_of?:string|null;outreach_attempt?:number;retry_parent_contact?:HiringContact|null;
 }
 export function companyKey(company: string): string {
   return company.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
@@ -47,7 +50,9 @@ const historyLookupFields=`h.lookup_outcome AS "lookupOutcome",h.lookup_checked_
     AND EXISTS(SELECT 1 FROM run_starts r WHERE r.id=a.source_run_id AND r.user_id=h.user_id AND r.finished_at IS NOT NULL AND r.hr_ready_at IS NOT NULL)
     AND EXISTS(SELECT 1 FROM users u WHERE u.id=h.user_id AND u.blocked_at IS NULL)
     THEN h.available_at ELSE NULL END AS "lookupRetryAt",
-  h.contact_review_required AS "contactReviewRequired",h.contact_review_reason AS "contactReviewReason"`;
+  h.contact_review_required AS "contactReviewRequired",h.contact_review_reason AS "contactReviewReason",
+  h.delivery_status AS "deliveryStatus",h.delivery_reason AS "deliveryReason",h.delivery_checked_at AS "deliveryCheckedAt",h.delivery_failed_at AS "deliveryFailedAt",
+  h.outreach_attempt AS "outreachAttempt",h.retry_of::text AS "retryOfId"`;
 export async function listHrOutreach(userId: string, db = database) {
   const { rows } = await db.query(`SELECT h.id::text,h.job_id AS "jobId",h.platform,h.title,h.company,h.status,
     h.to_email AS "toEmail",h.subject,h.body,h.created_at AS "createdAt",h.sent_at AS "sentAt",h.reason,h.phase,a.source_run_id::text AS "sourceRunId",
@@ -70,17 +75,19 @@ export async function listHrOutreachPage(userId:string, options:{cursor?:string;
 }
 export interface HrOutreachProgress {
   active:boolean;phase:HrPhase|'waiting'|'finished'|null;title:string|null;company:string|null;
-  queued:number;sent:number;skipped:number;failed:number;runId:string|null;contactReviewRequiredCount?:number;
+  queued:number;sent:number;skipped:number;failed:number;runId:string|null;contactReviewRequiredCount?:number;deliveryFailedCount?:number;
 }
 export async function hrOutreachProgress(userId:string,db=database):Promise<HrOutreachProgress> {
   const {rows}=await db.query(`WITH source AS (
     SELECT coalesce((SELECT a.source_run_id FROM hr_outreach h JOIN applications a ON a.id=h.application_id AND a.user_id=h.user_id
-      WHERE h.user_id=$1 AND h.lease IS NOT NULL AND h.lease_until>now() AND h.phase IN ('researching','writing','sending','checking')
-      AND h.status IN ('researching','sending','unconfirmed') ORDER BY h.id LIMIT 1),
+      WHERE h.user_id=$1 AND ((h.lease IS NOT NULL AND h.lease_until>now() AND h.phase IN ('researching','writing','sending','checking')
+      AND h.status IN ('researching','sending','unconfirmed')) OR (h.delivery_lease IS NOT NULL AND h.delivery_lease_until>now() AND h.status='sent')) ORDER BY h.id LIMIT 1),
       (SELECT max(a.source_run_id) FROM applications a JOIN hr_outreach_preferences p ON p.user_id=a.user_id
       WHERE a.user_id=$1 AND p.enabled AND a.applied_at>=p.enabled_since AND a.submitted_by_myasis=true AND a.confirmation_status IS NULL)) AS id)
-    SELECT r.id::text AS run_id,r.finished_at,r.hr_ready_at,h.status,h.phase,h.title,h.company,h.contact_review_required,
-      (h.lease IS NOT NULL AND h.lease_until>now() AND h.status IN ('researching','sending','unconfirmed')) AS leased
+    SELECT r.id::text AS run_id,r.finished_at,r.hr_ready_at,h.status,
+      CASE WHEN h.delivery_lease IS NOT NULL AND h.delivery_lease_until>now() THEN 'checking' ELSE h.phase END AS phase,h.title,h.company,h.contact_review_required,h.delivery_status,
+      ((h.lease IS NOT NULL AND h.lease_until>now() AND h.status IN ('researching','sending','unconfirmed'))
+        OR (h.delivery_lease IS NOT NULL AND h.delivery_lease_until>now() AND h.status='sent')) AS leased
     FROM source s JOIN run_starts r ON r.id=s.id AND r.user_id=$1
     JOIN applications a ON a.source_run_id=r.id AND a.user_id=r.user_id
     LEFT JOIN hr_outreach h ON h.application_id=a.id AND h.user_id=a.user_id
@@ -89,7 +96,7 @@ export async function hrOutreachProgress(userId:string,db=database):Promise<HrOu
     AND (h.id IS NOT NULL OR a.outcome IS NULL) ORDER BY h.id NULLS LAST`,[userId]);
   const result:HrOutreachProgress={active:false,phase:null,title:null,company:null,queued:0,sent:0,skipped:0,failed:0,runId:rows[0]?.run_id??null};
   if(!rows.length)return result;
-  for(const row of rows){if(!row.status||row.status==='queued'||row.status==='researching'&&row.phase==='queued')result.queued++;else if(row.status==='sent')result.sent++;else if(row.status==='skipped')result.skipped++;else if(row.status==='error'||row.status==='unconfirmed'&&!(row.leased&&row.phase==='checking'))result.failed++;if(row.contact_review_required)result.contactReviewRequiredCount=(result.contactReviewRequiredCount??0)+1;}
+  for(const row of rows){if(!row.status||row.status==='queued'||row.status==='researching'&&row.phase==='queued')result.queued++;else if(row.status==='sent')result.sent++;else if(row.status==='skipped')result.skipped++;else if(row.status==='error'||row.status==='unconfirmed'&&!(row.leased&&row.phase==='checking'))result.failed++;if(row.contact_review_required)result.contactReviewRequiredCount=(result.contactReviewRequiredCount??0)+1;if(row.delivery_status==='bounced')result.deliveryFailedCount=(result.deliveryFailedCount??0)+1;}
   const live=rows.find(row=>row.leased&&['researching','writing','sending','checking'].includes(row.phase));
   if(live){result.active=true;result.phase=live.phase;result.title=live.title;result.company=live.company;}
   else if(!rows[0].finished_at||!rows[0].hr_ready_at)result.phase='waiting';
@@ -100,6 +107,12 @@ export async function hrOutreachProgress(userId:string,db=database):Promise<HrOu
 export class HrStore {
   readonly db: HrDb;
   constructor(db: HrDb = database) { this.db=db; }
+  claimDelivery(){return claimDeliveryCheck(this.db);}
+  deliveryAllowed(job:HrDeliveryJob){return deliveryCheckAllowed(this.db,job);}
+  deferDelivery(job:HrDeliveryJob){return deferDeliveryCheck(this.db,job);}
+  recordDeliveryCheck(job:HrDeliveryJob,bounce:HrBounce|null,failedCheck=false){return completeDeliveryCheck(this.db,job,bounce,failedCheck);}
+  invalidEmails(){return invalidHrAddresses(this.db);}
+  retryBounced(userId:string,id:string){return retryBouncedHrOutreach(userId,id,this.db);}
   async enqueue(): Promise<void> {
     // No backfill: historical imports and Semi auto drafts never trigger mail.
     const { rows } = await this.db.query(`SELECT a.id::text,a.user_id::text,a.job_id,a.platform,a.title,a.company,a.url,a.cover_letter
@@ -146,9 +159,10 @@ export class HrStore {
   async claim(): Promise<HrJob | null> {
     const lease = randomUUID();
     const { rows } = await this.db.query(`WITH candidate AS (
-      SELECT h.id,a.source_run_id::text AS source_run_id,a.location,a.applied_at FROM hr_outreach h JOIN hr_outreach_preferences p ON p.user_id=h.user_id
+      SELECT h.id,a.source_run_id::text AS source_run_id,a.location,a.applied_at,parent.contact AS retry_parent_contact FROM hr_outreach h JOIN hr_outreach_preferences p ON p.user_id=h.user_id
       JOIN users u ON u.id=h.user_id JOIN applications a ON a.id=h.application_id AND a.user_id=h.user_id
       JOIN run_starts r ON r.id=a.source_run_id AND r.user_id=a.user_id
+      LEFT JOIN hr_outreach parent ON parent.id=h.retry_of AND parent.user_id=h.user_id AND parent.application_id=h.application_id
       WHERE p.enabled AND u.blocked_at IS NULL AND h.status IN ('queued','error','unconfirmed') AND h.available_at<=now()
       AND r.finished_at IS NOT NULL AND r.hr_ready_at IS NOT NULL
       AND lower(trim(u.email))=ANY($2::text[])
@@ -161,7 +175,7 @@ export class HrStore {
       AND (SELECT coalesce(sum(cost_usd),0) FROM hr_outreach spent WHERE spent.user_id=h.user_id AND spent.updated_at>now()-interval '24 hours')<1))
       ORDER BY h.created_at,h.id FOR UPDATE OF h SKIP LOCKED LIMIT 1)
       UPDATE hr_outreach h SET status=CASE WHEN status='unconfirmed' THEN 'unconfirmed' ELSE 'researching' END,phase='queued',lease=$1,lease_until=now()+interval '10 minutes',attempts=attempts+1,updated_at=now()
-      FROM candidate c WHERE h.id=c.id RETURNING h.*,h.id::text,h.user_id::text,h.application_id::text,c.source_run_id,c.location,c.applied_at`, [lease,adminAddresses()]);
+      FROM candidate c WHERE h.id=c.id RETURNING h.*,h.id::text,h.user_id::text,h.application_id::text,h.retry_of::text,c.source_run_id,c.location,c.applied_at,c.retry_parent_contact`, [lease,adminAddresses()]);
     return rows[0] ?? null;
   }
   async allowed(job: HrJob): Promise<boolean> {
@@ -179,17 +193,19 @@ export class HrStore {
     await this.db.query('UPDATE hr_outreach SET phase=$4,updated_at=now() WHERE id=$1 AND user_id=$2 AND lease=$3',[job.id,job.user_id,job.lease,phase]);
   }
   async cache(key: string): Promise<{ contact: HiringContact | null; fresh: boolean; reason: string; outcome: DiscoveryResult['outcome'] | null; diagnostics: DiscoveryResult['diagnostics'] | null; contextKey?:string|null } | null> {
-    const { rows } = await this.db.query("SELECT contact,(next_validation_at>now() AND validated_at+interval '1 month'>now()) AS fresh,reason,lookup_outcome AS outcome,lookup_diagnostics AS diagnostics,lookup_context_key AS \"contextKey\" FROM hr_company_contacts WHERE company_key=$1", [key]);
+    const { rows } = await this.db.query("SELECT contact,(next_validation_at>now() AND validated_at+interval '1 month'>now() AND NOT EXISTS(SELECT 1 FROM hr_invalid_addresses bad WHERE bad.email=lower(trim(hr_company_contacts.contact->>'email')) AND bad.cleared_at IS NULL)) AS fresh,reason,lookup_outcome AS outcome,lookup_diagnostics AS diagnostics,lookup_context_key AS \"contextKey\" FROM hr_company_contacts WHERE company_key=$1", [key]);
     return rows[0] ?? null;
   }
   async saveContact(key: string, company: string, contact: HiringContact | null, reason: string, lookup?:DiscoveryResult, contextKey?:string): Promise<void> {
     const checkedAt=contact?new Date(contact.validatedAt):new Date();
     if(!Number.isFinite(checkedAt.getTime())||checkedAt.getTime()>Date.now()+60_000)throw Error('The public contact source has no valid check date.');
-    await this.db.query(`INSERT INTO hr_company_contacts(company_key,company,contact,reason,validated_at,next_validation_at,lookup_outcome,lookup_diagnostics,contact_assessed_version,lookup_context_key)
-      VALUES($1,$2,$3,$4,$7::timestamptz,$7::timestamptz+CASE WHEN $3::jsonb IS NULL THEN interval '1 day' ELSE interval '1 month' END,$5,$6,1,$8)
+    const saved=await this.db.query(`INSERT INTO hr_company_contacts(company_key,company,contact,reason,validated_at,next_validation_at,lookup_outcome,lookup_diagnostics,contact_assessed_version,lookup_context_key)
+      SELECT $1,$2,$3,$4,$7::timestamptz,$7::timestamptz+CASE WHEN $3::jsonb IS NULL THEN interval '1 day' ELSE interval '1 month' END,$5,$6,1,$8
+      WHERE $3::jsonb IS NULL OR NOT EXISTS(SELECT 1 FROM hr_invalid_addresses WHERE email=lower(trim($3::jsonb->>'email')) AND cleared_at IS NULL)
       ON CONFLICT(company_key) DO UPDATE SET contact=EXCLUDED.contact,reason=EXCLUDED.reason,validated_at=EXCLUDED.validated_at,next_validation_at=EXCLUDED.next_validation_at,
-      lookup_outcome=EXCLUDED.lookup_outcome,lookup_diagnostics=EXCLUDED.lookup_diagnostics,contact_assessed_version=1,lookup_context_key=EXCLUDED.lookup_context_key`,
+      lookup_outcome=EXCLUDED.lookup_outcome,lookup_diagnostics=EXCLUDED.lookup_diagnostics,contact_assessed_version=1,lookup_context_key=EXCLUDED.lookup_context_key RETURNING company_key`,
     [key,company,contact ? JSON.stringify(contact) : null,reason,lookup?.outcome??(contact?'found':'no_contact'),lookup?.diagnostics?JSON.stringify(lookup.diagnostics):null,checkedAt.toISOString(),contextKey??null]);
+    if(!saved.rows.length)throw Error('This public email address was confirmed invalid.');
   }
   async recordLookup(job:HrJob,lookup:DiscoveryResult):Promise<void> {
     await this.db.query(`UPDATE hr_outreach SET lookup_outcome=$4,lookup_checked_at=now(),lookup_diagnostics=$5,updated_at=now()
@@ -235,6 +251,7 @@ export class HrStore {
       AND a.id=h.application_id AND a.user_id=h.user_id AND a.submitted_by_myasis=true AND a.confirmation_status IS NULL AND a.outcome IS NULL
       AND r.id=a.source_run_id AND r.user_id=a.user_id AND r.finished_at IS NOT NULL AND r.hr_ready_at IS NOT NULL
       AND a.applied_at>=p.enabled_since
+      AND NOT EXISTS(SELECT 1 FROM hr_invalid_addresses bad WHERE bad.email=lower(trim(h.to_email)) AND bad.cleared_at IS NULL)
       RETURNING h.id`, [job.id,job.user_id,job.lease,adminAddresses()]);
     return rows.length > 0;
   }
@@ -242,6 +259,7 @@ export class HrStore {
     if(status==='error'&&job.attempts>=4&&options.retryable!==false)reason=`${reason??'HR outreach could not finish.'} Automatic retries have finished.`;
     await this.db.query(`UPDATE hr_outreach SET status=$4,phase=NULL,reason=$5,message_id=coalesce($6,message_id),thread_id=coalesce($7,thread_id),
       sent_at=CASE WHEN $4='sent' THEN coalesce(sent_at,now()) ELSE sent_at END,cost_usd=cost_usd+$8,
+      delivery_check_after=CASE WHEN $4='sent' THEN now() ELSE delivery_check_after END,
       lease=NULL,lease_until=NULL,available_at=now()+interval '30 minutes',retry_allowed=$9,updated_at=now()
       WHERE id=$1 AND user_id=$2 AND lease=$3`, [job.id,job.user_id,job.lease,status,reason,receipt?.messageId??null,receipt?.threadId??null,extraCost,options.retryable!==false]);
   }

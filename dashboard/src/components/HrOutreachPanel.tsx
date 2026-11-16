@@ -26,6 +26,12 @@ export interface HrOutreachEmail {
   lookupRetryAt?: string | null;
   contactReviewRequired?: boolean;
   contactReviewReason?: string | null;
+  deliveryStatus?: 'unknown' | 'bounced' | null;
+  deliveryReason?: string | null;
+  deliveryCheckedAt?: string | null;
+  deliveryFailedAt?: string | null;
+  outreachAttempt?: number;
+  retryOfId?: string | null;
 }
 
 const STATUS: Record<HrOutreachEmail['status'], { label: string; tone: string }> = {
@@ -49,7 +55,8 @@ const LOOKUP_OUTCOMES = {
 export function HrEmailMessage({ item }: { item: HrOutreachEmail }) {
   const baseStatus = STATUS[item.status] ?? { label: 'Pending', tone: 'muted' };
   const lookup = item.lookupOutcome && item.lookupOutcome in LOOKUP_OUTCOMES ? LOOKUP_OUTCOMES[item.lookupOutcome as keyof typeof LOOKUP_OUTCOMES] : null;
-  const status = item.phase && !['sent', 'skipped', 'error'].includes(item.status) && !(item.status==='unconfirmed'&&item.phase==='queued')
+  const bounced = item.deliveryStatus === 'bounced';
+  const status = bounced ? { label: 'Delivery failed', tone: 'bad' } : item.phase && !['sent', 'skipped', 'error'].includes(item.status) && !(item.status==='unconfirmed'&&item.phase==='queued')
     ? { label: hrPhaseLabel(item.phase), tone: 'info' }
     : item.status === 'error' && item.lookupRetryAt === null ? { label: 'Failed', tone: 'bad' }
       : lookup && ['skipped', 'error'].includes(item.status) ? lookup : baseStatus;
@@ -59,7 +66,9 @@ export function HrEmailMessage({ item }: { item: HrOutreachEmail }) {
     : item.sourceKind === 'indexed_excerpt' ? 'Public search result' : 'Public contact source';
   return <article className="hr-email">
     <div className="hr-email-heading">
-      <div className="minw"><strong>{item.title}</strong><div className="job-meta">{item.company}</div></div>
+      <div className="minw"><strong>{item.title}</strong><div className="job-meta">{item.company}</div>
+        {(item.outreachAttempt ?? 1) > 1 && <div className="job-meta">Retry attempt {item.outreachAttempt}</div>}
+      </div>
       <div className="hr-email-badges"><span className={`badge ${status.tone}`}>{status.label}</span>
         {item.contactReviewRequired && <span className="badge warn">Contact needs review</span>}
       </div>
@@ -70,6 +79,8 @@ export function HrEmailMessage({ item }: { item: HrOutreachEmail }) {
       {item.subject && <div><dt>Subject</dt><dd>{item.subject}</dd></div>}
       {item.lookupCheckedAt && <div><dt>Last check</dt><dd>{fmtDateTime(item.lookupCheckedAt)}</dd></div>}
       {item.sourceCheckedAt && <div><dt>{item.sourceKind === 'stored_vacancy' ? 'Advertisement saved' : item.sourceKind === 'indexed_excerpt' ? 'Search result checked' : 'Source checked'}</dt><dd>{fmtDateTime(item.sourceCheckedAt)}</dd></div>}
+      {bounced && item.deliveryFailedAt && <div><dt>Delivery failed</dt><dd>{fmtDateTime(item.deliveryFailedAt)}</dd></div>}
+      {item.deliveryCheckedAt && <div><dt>Last delivery check</dt><dd>{fmtDateTime(item.deliveryCheckedAt)}</dd></div>}
       {retryAt && <div><dt>{item.status === 'unconfirmed' ? 'Earliest delivery check' : 'Earliest retry'}</dt><dd>{Date.parse(retryAt) > Date.now()
         ? `From ${fmtDateTime(retryAt)}`
         : item.status === 'unconfirmed' ? 'Waiting to check delivery' : 'Waiting to retry'}</dd></div>}
@@ -77,6 +88,7 @@ export function HrEmailMessage({ item }: { item: HrOutreachEmail }) {
     {item.body && <details className="hr-email-content"><summary>{item.status === 'sent' ? 'View sent email' : 'View email'}</summary><div className="letter">{item.body}</div></details>}
     {lookupReason && item.status !== 'sent' && <p className="job-meta">{lookupReason}</p>}
     {item.status === 'error' && item.lookupRetryAt === null && <p className="job-meta">No automatic retry is scheduled.</p>}
+    {(bounced || item.deliveryReason) && <p className="job-meta" role="note">{item.deliveryReason || 'The recipient’s mail service returned this email. It was not delivered.'}</p>}
     {item.contactReviewRequired && <p className="hr-contact-review" role="note">{item.contactReviewReason || 'This address has not been verified as the right hiring contact for this application.'}</p>}
     {item.sourceUrl && /^https?:\/\//i.test(item.sourceUrl) && <a className="hr-contact-source" href={item.sourceUrl} target="_blank" rel="noreferrer">{sourceCaption} ↗</a>}
   </article>;

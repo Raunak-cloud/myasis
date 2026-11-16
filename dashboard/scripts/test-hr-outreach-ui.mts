@@ -17,13 +17,13 @@ const items = ['sent', 'queued', 'researching', 'sending', 'skipped', 'error', '
 const olderItems = [{ ...items[0], id: '93', jobId: 'old-history', title: 'Older outreach role', subject: 'An older introduction' },
   { ...items[0], id: '1', jobId: 'archived', platform: 'external', title: 'Archived application', company: 'Historical Employer', subject: 'My archived application', body: 'Exact historical email body.' }];
 let enabled = false, failSave = false, failHistory = false, failSettings = false, emptyHistory = false, failOlder = false;
-let progress: { active: boolean; phase: string | null; title: string | null; company: string | null; queued: number; sent: number; skipped: number; failed: number; runId: string | null; contactReviewRequiredCount?: number }
+let progress: { active: boolean; phase: string | null; title: string | null; company: string | null; queued: number; sent: number; skipped: number; failed: number; runId: string | null; contactReviewRequiredCount?: number; deliveryFailedCount?: number }
   = { active: false, phase: 'waiting', title: null, company: null, queued: 1, sent: 0, skipped: 0, failed: 0, runId: '42' };
 let reportingMode = false;
 const checkedAt = new Date(Date.now() - 5 * 60_000).toISOString(), retryAt = new Date(Date.now() + 60 * 60_000).toISOString();
 const sourceObservedAt = new Date(Date.now() - 7 * 24 * 60 * 60_000).toISOString();
 const reportBase = { ...items[0], toEmail: null, subject: null, body: null, sentAt: null, reason: null, sourceUrl: 'https://fixture.invalid/careers', contactName: null, phase: null, lookupCheckedAt: checkedAt, lookupRetryAt: null };
-const reportingItems: Array<typeof items[number] & { lookupOutcome?: string; lookupCheckedAt?: string; lookupRetryAt?: string | null; contactReviewRequired?: boolean; contactReviewReason?: string; sourceKind?: string; sourceCheckedAt?: string; diagnostics?: unknown }> = [
+const reportingItems: Array<typeof items[number] & { lookupOutcome?: string; lookupCheckedAt?: string; lookupRetryAt?: string | null; contactReviewRequired?: boolean; contactReviewReason?: string; sourceKind?: string; sourceCheckedAt?: string; deliveryStatus?: string; deliveryReason?: string; deliveryCheckedAt?: string; deliveryFailedAt?: string; outreachAttempt?: number; retryOfId?: string; diagnostics?: unknown }> = [
   { ...reportBase, id: '210', title: 'No public contact role', status: 'skipped', lookupOutcome: 'no_contact' },
   { ...reportBase, id: '209', title: 'Unverified company role', status: 'skipped', lookupOutcome: 'company_unverified' },
   { ...reportBase, id: '208', title: 'Blocked source role', status: 'error', lookupOutcome: 'access_blocked', lookupRetryAt: retryAt },
@@ -39,6 +39,10 @@ const reportingItems: Array<typeof items[number] & { lookupOutcome?: string; loo
   { ...items[0], id: '200', title: 'Saved advertisement contact role', contactName: null, sourceKind: 'stored_vacancy', sourceCheckedAt: sourceObservedAt, lookupCheckedAt: checkedAt, lookupOutcome: 'found', lookupRetryAt: null },
   { ...items[0], id: '199', title: 'Indexed contact role', sourceKind: 'indexed_excerpt', sourceCheckedAt: sourceObservedAt, lookupCheckedAt: checkedAt, lookupOutcome: 'found', lookupRetryAt: null },
   { ...items[0], id: '198', title: 'Current page contact role', sourceKind: 'public_page', sourceCheckedAt: sourceObservedAt, lookupCheckedAt: checkedAt, lookupOutcome: 'found', lookupRetryAt: null },
+  { ...items[0], id: '197', title: 'HCL Software Engineer', company: 'HCLTech', contactName: null, toEmail: 'invalid-recruiter@hcl.example.test', subject: 'Exact original HCL subject', body: literal,
+    deliveryStatus: 'bounced', deliveryReason: 'The recipient address does not exist. <img src=x onerror="window.fixtureInjected=true">', deliveryCheckedAt: checkedAt, deliveryFailedAt: checkedAt },
+  { ...items[0], id: '196', title: 'HCL Software Engineer', company: 'HCLTech', contactName: null, toEmail: 'verified-recruitment@hcl.example.test', subject: 'Alternative contact subject', body: 'Exact alternative-contact email.', deliveryStatus: 'unknown', deliveryCheckedAt: checkedAt, outreachAttempt: 2, retryOfId: '197' },
+  { ...items[0], id: '195', title: 'Temporarily delayed contact role', deliveryStatus: 'unknown', deliveryReason: 'The receiving mail service temporarily delayed this email.', deliveryCheckedAt: checkedAt },
 ];
 let runAdmin = true;
 const writes: unknown[] = [];
@@ -241,7 +245,7 @@ try {
     await regularPage.close();
   }
   reportingMode = true; emptyHistory = false;
-  progress = { active: false, phase: 'finished', title: null, company: null, queued: 0, sent: 4, skipped: 2, failed: 5, runId: '43', contactReviewRequiredCount: 3 };
+  progress = { active: false, phase: 'finished', title: null, company: null, queued: 0, sent: 4, skipped: 2, failed: 5, runId: '43', contactReviewRequiredCount: 3, deliveryFailedCount: 1 };
   await page.goto(origin + '/hr-preview.html'); await page.getByRole('tab', { name: 'HR emails' }).click();
   const report = (title: string) => page.locator('.hr-email-list .hr-email').filter({ has: page.getByText(title, { exact: true }) });
   for (const [title, label] of [['No public contact role', 'No public contact'], ['Unverified company role', 'Company unverified'], ['Blocked source role', 'Access blocked'], ['Provider interruption role', 'Search temporarily unavailable'], ['Incomplete lookup role', 'Lookup incomplete'], ['Exhausted lookup role', 'Failed']]) {
@@ -273,6 +277,7 @@ try {
   assert.equal(await page.locator('.hr-email-list .badge').filter({ hasText: /^Contact needs review$/ }).count(), 3);
   assert.match(await page.locator('.hr-outreach-activity').innerText(), /4 sent/);
   assert.match(await page.locator('.hr-outreach-activity').innerText(), /3 contacts need review/);
+  assert.match(await page.locator('.hr-outreach-activity').innerText(), /1 email could not be delivered/);
   assert.doesNotMatch(await page.locator('.hr-outreach-panel').innerText(), /selector:secret|model:private|stack:internal/);
   const savedSource = report('Saved advertisement contact role');
   assert.equal(await savedSource.getByRole('link', { name: 'Saved job advertisement' }).getAttribute('href'), 'https://fixture.invalid/careers');
@@ -288,6 +293,31 @@ try {
   assert.match(await report('Indexed contact role').innerText(), /Search result checked/);
   assert.equal(await report('Current page contact role').getByRole('link', { name: 'Public contact source' }).count(), 1);
   assert.match(await report('Current page contact role').innerText(), /Source checked/);
+  const bounced = page.locator('.hr-email-list .hr-email').filter({ hasText: 'invalid-recruiter@hcl.example.test' });
+  await bounced.locator('.badge').filter({ hasText: /^Delivery failed$/ }).waitFor();
+  assert.equal(await bounced.locator('.badge').filter({ hasText: /^Sent$/ }).count(), 0, 'A recorded send is not shown as successful delivery after a bounce');
+  assert.equal(await bounced.locator('dl > div').filter({ has: page.getByText('Sent', { exact: true }) }).count(), 1, 'The original sent timestamp remains visible');
+  assert.match(await bounced.innerText(), /Last delivery check|The recipient address does not exist/);
+  await bounced.getByText('View sent email', { exact: true }).click();
+  assert.equal(await bounced.locator('.letter').innerText(), literal, 'A bounced attempt keeps its exact original body');
+  assert.equal(await bounced.locator('img').count(), 0, 'Both delivery reason and email body remain escaped');
+  const alternative = page.locator('.hr-email-list .hr-email').filter({ hasText: 'verified-recruitment@hcl.example.test' });
+  assert.equal(await alternative.locator('.badge').filter({ hasText: /^Sent$/ }).count(), 1);
+  assert.equal(await alternative.getByText('Retry attempt 2', { exact: true }).count(), 1);
+  assert.doesNotMatch(await bounced.innerText(), /Retry attempt/, 'The original attempt is not relabelled as a retry');
+  assert.doesNotMatch(await alternative.innerText(), /Delivered|Delivery failed/, 'An absent bounce is not proof of delivery');
+  assert.match(await report('Temporarily delayed contact role').innerText(), /temporarily delayed this email/);
+  assert.equal(await report('Temporarily delayed contact role').locator('.badge').filter({ hasText: /^Sent$/ }).count(), 1);
+  assert.doesNotMatch(await report('Temporarily delayed contact role').innerText(), /Delivery failed|Delivered/, 'A temporary delay is not reported as a permanent failure or confirmed delivery');
+  await page.getByRole('tab', { name: /^Applied/ }).click();
+  await page.locator('.application-item').filter({ hasText: 'Fixture Employer' }).click();
+  const attempts = page.locator('.drawer .hr-email').filter({ hasText: 'HCL Software Engineer' });
+  assert.equal(await attempts.count(), 2, 'The per-application drawer preserves both the failed original and alternative attempt');
+  assert.match(await attempts.filter({ hasText: 'invalid-recruiter@hcl.example.test' }).innerText(), /Delivery failed|Exact original HCL subject/);
+  assert.match(await attempts.filter({ hasText: 'verified-recruitment@hcl.example.test' }).innerText(), /Alternative contact subject/);
+  assert.match(await attempts.filter({ hasText: 'verified-recruitment@hcl.example.test' }).innerText(), /Retry attempt 2/);
+  await page.locator('.drawer').getByRole('button', { name: 'Close', exact: true }).click();
+  await page.getByRole('tab', { name: 'HR emails' }).click();
   await page.setViewportSize({ width: 390, height: 950 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   await page.screenshot({ path: resolve(screenshotDir, 'contact-reporting-mobile.png'), fullPage: true });
