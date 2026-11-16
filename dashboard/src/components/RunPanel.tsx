@@ -25,7 +25,6 @@ import { fmtDateTime } from '../format';
 import { MAX_SEARCH_TERMS } from '../search-limits';
 import { activityEvents, activitySummary, formatActivityReason, runResultLabel, type LogLine } from '../activity';
 import './RunPanel.css';
-import {BonusRunNotice} from './BonusRunNotice';
 import { LiveHrOutreachActivity } from './HrOutreachActivity';
 
 interface AutoScheduleStatus {
@@ -689,7 +688,6 @@ export function RunPanel({
   return (
     <div className="run-layout">
       <div className="run-span run-notes">
-        {isAdmin && <BonusRunNotice/>}
         {isAdmin && <LiveHrOutreachActivity enabled />}
         {setup && <SetupChecklist status={setup} expanded={setupExpanded} onExpandedChange={setSetupExpanded} onVerifyingSignInChange={setVerifyingSignIn} />}
         <BoardResumesNote />
