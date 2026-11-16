@@ -2212,15 +2212,15 @@ button.apply-stat:hover strong, button.apply-stat:hover > span { color: var(--ac
 button.apply-stat > span > span { flex: none; color: var(--text-faint); }
 
 @media (max-width: 900px) {
-  .run-dashboard .apply-overview { padding: 16px; }
-  .run-dashboard .apply-overview-head { margin-bottom: 12px; }
-  .run-dashboard .apply-overview-head h2 { font-size: 14px; }
-  .run-dashboard .apply-attention { min-height: 44px; padding: 8px 10px; }
-  .run-dashboard .apply-stat { gap: 4px; padding-inline: 10px; }
+  .run-dashboard .apply-overview { padding: 12px 14px; }
+  .run-dashboard .apply-overview-head { margin-bottom: 6px; gap: 6px 10px; }
+  .run-dashboard .apply-overview-head h2 { font-size: 13px; }
+  .run-dashboard .apply-attention { min-height: 32px; padding: 4px 8px; gap: 6px; font-size: 11px; }
+  .run-dashboard .apply-stat { min-height: 44px; gap: 3px; padding-inline: 10px; }
   .run-dashboard .apply-stat:first-child { padding-left: 0; }
   .run-dashboard .apply-stat:last-child { padding-right: 0; }
-  .run-dashboard .apply-stat strong { font-size: 24px; }
-  .run-dashboard .apply-stat > span { font-size: 11px; }
+  .run-dashboard .apply-stat strong { font-size: 20px; }
+  .run-dashboard .apply-stat > span { font-size: 10.5px; line-height: 1.3; }
   .run-dashboard .run-mode-controls { display: grid; gap: 8px; }
   .run-dashboard .run-mode-controls > .chips { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
   .run-dashboard .run-mode-controls .chip { min-height: 44px; padding: 8px 12px; }
