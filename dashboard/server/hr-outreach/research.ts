@@ -84,7 +84,7 @@ export async function researchHiringContact(input:DiscoveryInput,first:Discovery
         }catch(error){
           unavailable=true;
           const message=error instanceof Error?error.message:'';
-          const ownError=/^(?:Supply a |Search budget used\.|Page budget used\.|Use source URLs observed|Use an observed employer website\.|Use one of the listed public research tools\.|This source is not a readable public text page\.|This source is not public\.)/.test(message);
+          const ownError=/^(?:Supply a |Search budget used\.|Page budget used\.|Use source URLs observed|Use an observed employer website\.|Use one of the listed public research tools\.|This source is not a readable public text page\.|This source is not public\.|Security verification )/.test(message);
           result={error:ownError?message:error instanceof CrawlBlocked?'This source blocks automated public access. Try another public source.':error instanceof CrawlDeferred?'This source requires a later request. Try another source for now.':'This public research request failed. Try another query or source.'};
           event('agent_action_unavailable','A public research action could not complete.');
         }

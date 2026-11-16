@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fmtDateTime } from '../format';
-import { HrOutreachActivity, hrPhaseLabel, type HrOutreachProgress } from './HrOutreachActivity';
+import { hrPhaseLabel } from './HrOutreachActivity';
 
 export interface HrOutreachEmail {
   id: string;
@@ -52,14 +52,19 @@ const LOOKUP_OUTCOMES = {
 } as const;
 
 /** Plain text preserves the exact message without rendering employer content as HTML. */
-export function HrEmailMessage({ item }: { item: HrOutreachEmail }) {
+export function hrEmailStatus(item:HrOutreachEmail) {
   const baseStatus = STATUS[item.status] ?? { label: 'Pending', tone: 'muted' };
   const lookup = item.lookupOutcome && item.lookupOutcome in LOOKUP_OUTCOMES ? LOOKUP_OUTCOMES[item.lookupOutcome as keyof typeof LOOKUP_OUTCOMES] : null;
   const bounced = item.deliveryStatus === 'bounced';
-  const status = bounced ? { label: 'Delivery failed', tone: 'bad' } : item.phase && !['sent', 'skipped', 'error'].includes(item.status) && !(item.status==='unconfirmed'&&item.phase==='queued')
+  return bounced ? { label: 'Delivery failed', tone: 'bad' } : item.phase && !['sent', 'skipped', 'error'].includes(item.status) && !(item.status==='unconfirmed'&&item.phase==='queued')
     ? { label: hrPhaseLabel(item.phase), tone: 'info' }
     : item.status === 'error' && item.lookupRetryAt === null ? { label: 'Failed', tone: 'bad' }
       : lookup && ['skipped', 'error'].includes(item.status) ? lookup : baseStatus;
+}
+export function HrEmailMessage({ item }: { item: HrOutreachEmail }) {
+  const status=hrEmailStatus(item);
+  const lookup = item.lookupOutcome && item.lookupOutcome in LOOKUP_OUTCOMES ? LOOKUP_OUTCOMES[item.lookupOutcome as keyof typeof LOOKUP_OUTCOMES] : null;
+  const bounced=item.deliveryStatus==='bounced';
   const retryAt = item.lookupRetryAt && ['queued', 'error', 'unconfirmed'].includes(item.status) ? item.lookupRetryAt : null;
   const lookupReason = item.reason || lookup?.reason;
   const sourceCaption = item.contactReviewRequired ? 'Recorded source' : item.sourceKind === 'stored_vacancy' ? 'Saved job advertisement'
@@ -94,11 +99,7 @@ export function HrEmailMessage({ item }: { item: HrOutreachEmail }) {
   </article>;
 }
 
-export function HrOutreachPanel({ items, loading, error, onRetry, hasMore, loadingMore, moreError, onLoadMore, progress }: {
-  items: HrOutreachEmail[]; loading: boolean; error: string | null; onRetry: () => void;
-  hasMore: boolean; loadingMore: boolean; moreError: string | null; onLoadMore: () => void;
-  progress: HrOutreachProgress | null;
-}) {
+export function HrOutreachSettings() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -124,20 +125,12 @@ export function HrOutreachPanel({ items, loading, error, onRetry, hasMore, loadi
     } catch { setSettingsError('Could not save your email preference. Please try again.'); }
     finally { setSaving(false); }
   }
-  return <div className="hr-outreach-panel">
-    <HrOutreachActivity progress={progress} error={Boolean(error)} />
-    <div className="card hr-outreach-preference">
+  return <div className="card hr-outreach-preference">
       <label><input type="checkbox" checked={enabled === true} disabled={enabled === null || saving} onChange={event => void changeEnabled(event.target.checked)} /><strong>Email hiring teams after I apply</strong></label>
       <p className="job-meta">After your application run finishes, send a short introduction from your connected email account for new confirmed applications with a public hiring contact.</p>
       {enabled === null && !settingsError && <p className="job-meta" role="status">Loading your email preference…</p>}
       {saving && <p className="job-meta" role="status">Saving…</p>}
       {settingsError && <p className="job-meta" role="alert">{settingsError}</p>}
       {settingsError && enabled === null && <button className="btn btn-small" onClick={() => setSettingsRefresh(value => value + 1)}>Reload preference</button>}
-    </div>
-    {error ? <div className="card empty" role="alert"><p>{error}</p><button className="btn" onClick={onRetry}>Try again</button></div>
-      : loading && !items.length ? <div className="card empty" role="status">Loading your HR emails…</div>
-      : !items.length ? <div className="card empty"><div className="big">No HR emails yet</div><p>Emails and their status will appear here after you turn on hiring-team emails and submit a new application.</p></div>
-      : <div className="card hr-email-list">{items.map(item => <HrEmailMessage key={item.id} item={item} />)}</div>}
-    {!error && hasMore && <div className="hr-email-more"><button className="btn" disabled={loadingMore} onClick={onLoadMore}>{loadingMore ? 'Loading…' : 'Load older emails'}</button>{moreError && <p className="job-meta" role="alert">{moreError}</p>}</div>}
   </div>;
 }

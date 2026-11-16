@@ -25,7 +25,7 @@ import { fmtDateTime } from '../format';
 import { MAX_SEARCH_TERMS } from '../search-limits';
 import { activityEvents, activitySummary, formatActivityReason, runResultLabel, type LogLine } from '../activity';
 import './RunPanel.css';
-import { LiveHrOutreachActivity } from './HrOutreachActivity';
+import { HrOutreachActivity, hasHrActivity, useHrOutreachActivity } from './HrOutreachActivity';
 
 interface AutoScheduleStatus {
   enabled: boolean;
@@ -174,6 +174,7 @@ export function RunPanel({
   const driving = Boolean(entitlements?.manualRuns || firstRun);
   /** On-demand runs use the authenticated admin path; normal application caps still apply. */
   const isAdmin = entitlements?.tier === 'admin';
+  const {progress:hrProgress,error:hrProgressError}=useHrOutreachActivity(isAdmin);
   const employerSourcesEnabled = entitlements?.employerSources === true;
   const [adminModeEnabled, setAdminModeEnabled] = useState(false);
   const adminMode = isAdmin && adminModeEnabled;
@@ -688,7 +689,6 @@ export function RunPanel({
   return (
     <div className="run-layout">
       <div className="run-span run-notes">
-        {isAdmin && <LiveHrOutreachActivity enabled />}
         {setup && <SetupChecklist status={setup} expanded={setupExpanded} onExpandedChange={setSetupExpanded} onVerifyingSignInChange={setVerifyingSignIn} />}
         <BoardResumesNote />
       </div>
@@ -1023,7 +1023,8 @@ export function RunPanel({
         )}
 
         <div ref={consoleRef} className="activity-body">
-          {lines.length === 0 ? (
+          {isAdmin&&<HrOutreachActivity progress={hrProgress} error={hrProgressError}/>}
+          {lines.length === 0 && !(isAdmin&&hasHrActivity(hrProgress)) ? (
             <div className="console-empty">
               <strong>No activity yet</strong>
               <span>{driving ? 'Start a run to follow its progress here.' : 'Scheduled run activity will appear here.'}</span>

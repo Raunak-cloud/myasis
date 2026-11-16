@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import {test} from 'node:test';
+import {HrPublicCrawler} from './public-crawler.js';
+import {CrawlBlocked,PublicCrawler,PublicVerificationRequired,type PageResponse} from '../job-index/network.js';
+const page=(url:string,text='<h1>Recruitment</h1>',status=200):PageResponse=>({url,text,status,type:'text/html',retryAfter:null});
+test('only a genuine verification response triggers one shared browser recovery',async()=>{
+ let renders=0;const crawler=new HrPublicCrawler({get:async url=>{throw new PublicVerificationRequired(page(url,'Please complete the CAPTCHA.',403));}},async(url,options)=>{renders++;await options.authorize(url);return page(url,'<h1>Careers</h1><p>Recruitment careers@employer.org</p>');});
+ const [a,b]=await Promise.all([crawler.get('https://employer.org/careers'),crawler.get('https://employer.org/careers#contact')]);assert.equal(a,b);assert.equal(renders,1);assert.deepEqual(crawler.events.map(e=>e.kind),['verification_started','verification_cleared']);
+});
+test('robots refusals, ordinary 403s and login pages never invoke CapMonster recovery',async()=>{
+ for(const scenario of ['robots','denied','login']){
+  let renders=0;const primary=new PublicCrawler(async url=>url.endsWith('/robots.txt')?page(url,scenario==='robots'?'User-agent: *\nDisallow: /':'User-agent: *\nAllow: /'):page(url,scenario==='login'?'<input type="password">':'Access denied',scenario==='denied'?403:200));
+  const crawler=new HrPublicCrawler(primary,async url=>{renders++;return page(url);});await assert.rejects(crawler.get('https://employer.org/careers'),CrawlBlocked);assert.equal(renders,0,scenario);
+ }
+});
+test('plain content and CAPTCHA library references do not trigger recovery or a purchase',async()=>{
+ let renders=0;const primary=new PublicCrawler(async url=>page(url,url.endsWith('/robots.txt')?'User-agent: *\nAllow: /':'<h1>Careers</h1><script src="https://www.google.com/recaptcha/api.js"></script>'));
+ const crawler=new HrPublicCrawler(primary,async url=>{renders++;return page(url);});await crawler.get('https://employer.org/careers');assert.equal(renders,0);
+});
+test('failed verification is recorded accurately, cached per lookup and never treated as a usable page',async()=>{
+ let renders=0;const crawler=new HrPublicCrawler({get:async url=>{throw new PublicVerificationRequired(page(url));}},async()=>{renders++;throw Error('SECRET_PROVIDER_PAYLOAD');});
+ await assert.rejects(crawler.get('https://employer.org/careers'),/could not finish/);await assert.rejects(crawler.get('https://employer.org/careers'));assert.equal(renders,1);assert.doesNotMatch(JSON.stringify(crawler.events),/SECRET_PROVIDER_PAYLOAD/);assert.equal(crawler.events.at(-1)?.kind,'verification_failed');
+});

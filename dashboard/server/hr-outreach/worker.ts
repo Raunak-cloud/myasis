@@ -16,6 +16,7 @@ import { loadPublicVacancyEvidence } from './public-evidence.js';
 import { checkHrBounce } from './bounce.js';
 import type { HrDeliveryJob } from './delivery-store.js';
 import { researchHiringContact } from './research.js';
+import { HrPublicCrawler } from './public-crawler.js';
 
 interface Slots { claimStart(userId:string):boolean; releaseStart(userId:string):void; activeCount?():number }
 let wakeWorker:(()=>void)|null=null;
@@ -68,25 +69,27 @@ export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defa
     const evidence=await deps.publicEvidence?.(job)??null;
     const excludedEmails=(await store.invalidEmails?.()??[]).map(email=>email.trim().toLowerCase());
     const excluded=new Set(excludedEmails);
+    const crawler=deps===defaultDependencies?new HrPublicCrawler():undefined;
     const vacancy={roleTitle:job.title,location:job.location||evidence?.location||undefined,
       jobDescription:evidence?.description,jobDescriptionObservedAt:evidence?.observedAt,excludedEmails};
-    const contextKey=createHash('sha256').update(JSON.stringify(['agent-research-v1',job.url,job.title,vacancy.location??'',vacancy.jobDescription??'',vacancy.jobDescriptionObservedAt??'',[...excludedEmails].sort()])).digest('hex');
+    const contextKey=createHash('sha256').update(JSON.stringify(['agent-research-verification-v1',job.url,job.title,vacancy.location??'',vacancy.jobDescription??'',vacancy.jobDescriptionObservedAt??'',[...excludedEmails].sort()])).digest('hex');
     const cache=await store.cache(job.company_key);
     // A company-wide negative result cannot suppress new vacancy-specific
     // recruitment evidence, even while yesterday's website lookup is cached.
     const fresh=cache?.fresh&&(cache.contact!==null||cache.contextKey===contextKey);
-    const associated=cache?.contact?!excluded.has(cache.contact.email.toLowerCase())&&!assessHiringContact(cache.contact,job.company,job.title).reviewRequired&&await (deps.verifyContact?.(job.company,job.url,cache.contact,{signal,...vacancy})??Promise.resolve(true)):true;
+    const associated=cache?.contact?!excluded.has(cache.contact.email.toLowerCase())&&!assessHiringContact(cache.contact,job.company,job.title).reviewRequired&&await (deps.verifyContact?.(job.company,job.url,cache.contact,{signal,...vacancy,crawler})??Promise.resolve(true)):true;
     let contact:HiringContact|null=fresh&&associated?cache!.contact:null;
     if(!fresh||!associated) {
       const previous=associated&&cache?.contact?cache.contact:job.retry_parent_contact??undefined;
       const researchInput={company:job.company,jobUrl:job.url,website:parentEmployerWebsite(job.retry_parent_contact),...vacancy,previous,signal};
-      let found=await deps.discover(researchInput,{search:deps===defaultDependencies?hrContactSearch():undefined,maxPages:12});
+      let found=await deps.discover(researchInput,{search:deps===defaultDependencies?hrContactSearch():undefined,maxPages:12,crawler});
       if(!found.contact&&deps.research){
-        const additional=await deps.research(researchInput,found,{apiKey:deps.apiKey(),search:deps===defaultDependencies?hrContactSearch():undefined});
+        const additional=await deps.research(researchInput,found,{apiKey:deps.apiKey(),search:deps===defaultDependencies?hrContactSearch():undefined,crawler});
         measuredCost+=additional.costUsd;
         if(store.researchCost){await store.researchCost(job,measuredCost);measuredCost=0;}
         found=additional;
       }
+      if(crawler)found.diagnostics.events.push(...crawler.events);
       await store.recordLookup?.(job,found);
       if(found.retryable&&!found.contact){await store.finish(job,'error',found.reason,undefined,measuredCost,{retryable:true});return;}
       contact=found.contact;
@@ -184,7 +187,8 @@ export function startHrOutreachWorker(slots: Slots) {
         // network lookups while an applying run is active.
         if(!stopped&&!deploying()&&(slots.activeCount?.()??0)===0){
           const cached=await store.staleContact();
-          if(cached){const found=await discoverHiringContact({company:cached.company,previous:cached.contact,excludedEmails:await store.invalidEmails(),signal:AbortSignal.timeout(90_000)},{search:hrContactSearch(),maxPages:8});
+          if(cached){const crawler=new HrPublicCrawler();const found=await discoverHiringContact({company:cached.company,previous:cached.contact,excludedEmails:await store.invalidEmails(),signal:AbortSignal.timeout(90_000)},{search:hrContactSearch(),maxPages:8,crawler});
+            found.diagnostics.events.push(...crawler.events);
             if(found.retryable&&!found.contact)await store.deferValidation(cached.company_key);
             else await store.saveContact(cached.company_key,cached.company,found.contact,found.reason,found);}
         }

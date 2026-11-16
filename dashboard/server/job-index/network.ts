@@ -7,6 +7,11 @@ import { parseHTML } from 'linkedom';
 
 export const AGENT = 'OwtomateJobIndex/1.0 (+https://owtomate.com)';
 export class CrawlBlocked extends Error {}
+/** The robots-approved public document presented a verification challenge. */
+export class PublicVerificationRequired extends CrawlBlocked {
+  readonly page:PageResponse;
+  constructor(page:PageResponse){super('The public source requires access or human verification.');this.page=page;}
+}
 export class CrawlDeferred extends Error { readonly waitMs:number; constructor(waitMs: number,message='Host rate limit or crawl delay; queued for later.') { super(message);this.waitMs=waitMs; } }
 interface Robots { isAllowed:(url:string,agent:string)=>boolean|undefined;getCrawlDelay:(agent:string)=>number|undefined }
 const robotsParser=createRequire(import.meta.url)('robots-parser') as (url:string,text:string)=>Robots;
@@ -32,13 +37,14 @@ export const pinnedLookup=(address:string):LookupFunction=>(_host,options,callba
 };
 
 /** A CAPTCHA library/configuration on a public careers page is not a challenge. */
-function accessChallenge(page:PageResponse):boolean {
+function accessChallenge(page:PageResponse):'verification'|'denied'|false {
   if(!/html/.test(page.type))return false;
   const {document}=parseHTML(`<html><body>${page.text}</body></html>`);
-  if(document.querySelector('script[src*="/cdn-cgi/challenge-platform/"]'))return true;
+  if(document.querySelector('script[src*="/cdn-cgi/challenge-platform/"]'))return 'verification';
   document.querySelectorAll('script,style,noscript,template,[hidden]').forEach(n=>n.remove());
   const visible=(document.body?.textContent??document.textContent??'').replace(/\s+/g,' ');
-  return /verify (?:that )?you are human|access denied|please (?:complete|solve) (?:the )?(?:captcha|security check)/i.test(visible);
+  if(/verify (?:that )?you are human|please (?:complete|solve) (?:the )?(?:captcha|security check)/i.test(visible))return 'verification';
+  return /access denied/i.test(visible)?'denied':false;
 }
 
 /** Resolve, validate and pin each redirect's DNS target; never forward cookies or credentials. */
@@ -105,7 +111,9 @@ export class PublicCrawler {
     }
     if(page.status===429) { const retry=Number(page.retryAfter); const waitMs=Number.isFinite(retry)&&retry>0?Math.min(retry*1000,24*3600_000):15*60_000; this.next.set(u.origin,Date.now()+waitMs); throw new CrawlDeferred(waitMs); }
     if(page.status===202&&page.verification==='challenge'&&init?.returnChallenge)return page;
-    if([401,403].includes(page.status)||page.verification||accessChallenge(page))throw new CrawlBlocked('The public source requires access or human verification.');
+    const challenge=accessChallenge(page);
+    if(page.verification||challenge==='verification')throw new PublicVerificationRequired(page);
+    if([401,403].includes(page.status)||challenge==='denied')throw new CrawlBlocked('The public source requires access or human verification.');
     // Don't index or follow an HTML login wall that happens to return 200.
     if(/text\/html/.test(page.type)&&/<input\b[^>]*type\s*=\s*["']password["']/i.test(page.text)&&!/"@type"\s*:\s*"JobPosting"/.test(page.text))throw new CrawlBlocked('Sign-in page excluded.');
     return page;
