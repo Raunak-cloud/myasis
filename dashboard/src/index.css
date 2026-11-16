@@ -2183,7 +2183,7 @@ textarea.run-instructions-input {
 .run-dashboard > .page-header, .run-dashboard > .page-content { margin-left: 0; margin-right: 0; }
 .overview-dashboard > .page-header, .overview-dashboard > .page-content { max-width: 960px; margin-left: 0; }
 @media (min-width: 901px) {
-  .main-shell.run-dashboard { padding-left: 20px; padding-right: calc(5% - 20px); }
+  .main-shell.run-dashboard { padding-inline: 1%; }
 }
 .run-dashboard .run-layout { grid-template-columns: minmax(340px, 420px) minmax(0, 1fr); gap: 20px; }
 .run-dashboard .run-layout:has(> .run-notes:empty) { grid-template-areas: "controls activity"; }

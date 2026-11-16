@@ -166,8 +166,8 @@ try {
   await shell.getByRole('button',{name:'3 Applied this week',exact:true}).click();await shell.getByRole('heading',{name:'Submitted Applications',exact:true}).waitFor();
   await shell.getByRole('button',{name:'Apply',exact:true}).click();await shell.locator('.run-controls-card').waitFor();
   assert.equal(await shell.getByRole('region',{name:'Application summary'}).count(),0,'Real Apply shell excludes Overview');
-  assert.equal(await shell.evaluate(()=>Math.round(document.querySelector('.run-controls-card')!.getBoundingClientRect().left-document.querySelector('main')!.getBoundingClientRect().left)),20,'Apply aligns near the left edge on wide desktops');
-  assert.ok(await shell.evaluate(()=>Math.abs(document.querySelector('.page-content')!.getBoundingClientRect().width/document.querySelector('main')!.getBoundingClientRect().width-.95)<.001),'Apply uses 95% of the width beside the sidebar');
+  assert.ok(await shell.evaluate(()=>{const main=document.querySelector('main')!.getBoundingClientRect();return Math.abs((document.querySelector('.run-controls-card')!.getBoundingClientRect().left-main.left)/main.width-.01)<.001;}),'Apply keeps a 1% left gutter');
+  assert.ok(await shell.evaluate(()=>Math.abs(document.querySelector('.page-content')!.getBoundingClientRect().width/document.querySelector('main')!.getBoundingClientRect().width-.98)<.001),'Apply uses 98% of the width beside the sidebar');
   await shell.screenshot({path:resolve(screenshotDir,'apply-sidebar-desktop.png'),fullPage:true});
   await shell.setViewportSize({width:390,height:844});await shell.getByRole('button',{name:'Menu',exact:true}).click();
   assert.equal(await shell.getByRole('button',{name:'Overview',exact:true}).count(),0,'Overview is absent from the mobile menu');
@@ -178,5 +178,5 @@ try {
   assert.equal(await shell.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Apply fits on mobile');
   await shell.screenshot({path:resolve(screenshotDir,'apply-sidebar-mobile.png'),fullPage:true});
   assert.deepEqual(writes,[{enabled:true},{enabled:false}]);
-  console.log('PASS: Overview is absent from desktop/mobile navigation, Apply keeps its 95% width, email preferences persist, HR history stays per role and ordinary users make no HR requests. Fictional APIs only; no real mail sent.');
+  console.log('PASS: Overview is absent from desktop/mobile navigation, Apply keeps its 98% width, email preferences persist, HR history stays per role and ordinary users make no HR requests. Fictional APIs only; no real mail sent.');
 }finally{await browser.close();await vite.close();}
