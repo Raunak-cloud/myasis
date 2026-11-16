@@ -4,9 +4,9 @@ import { readEnv, deploying } from '../runner.js';
 import { loadProfile } from '../profile.js';
 import { gmailAccess } from '../gmail-access.js';
 import { accountRequest } from '../account-lifecycle.js';
-import { indexConfig, indexStore } from '../job-index/config.js';
 import { HrStore, type HrJob } from './store.js';
-import { discoverHiringContact, createHiringContactSearch, canReuseHiringContact, type HiringContact } from './discovery.js';
+import { discoverHiringContact, canReuseHiringContact, type HiringContact } from './discovery.js';
+import { hrContactSearch } from './search.js';
 import { composeHrEmail } from './agent.js';
 import { sendHrEmail, reconcileHrEmail, hrDeliveredBody, type HrMail } from './transport.js';
 import { withHrBrowser } from './browser.js';
@@ -32,10 +32,6 @@ const defaultDependencies: HrWorkerDependencies = {
   access:gmailAccess,profile:loadProfile,apiKey:()=>({...readEnv(),...process.env}).OPENROUTER_API_KEY||'',
   verifyContact:canReuseHiringContact,
 };
-function publicSearch() {
-  const config=indexConfig(),store=config?.braveKey?indexStore():null;
-  return config?.braveKey&&store?createHiringContactSearch({key:config.braveKey,reserveSearch:()=>store.reserveSearch()}):undefined;
-}
 /** One durable job owns one send attempt. Recovery never retries an uncertain send. */
 export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defaultDependencies): Promise<void> {
   const {store}=deps;
@@ -57,7 +53,7 @@ export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defa
     const associated=cache?.contact?await (deps.verifyContact?.(job.company,job.url,cache.contact,{signal})??Promise.resolve(true)):true;
     let contact:HiringContact|null=cache?.fresh&&associated?cache.contact:null;
     if(!cache?.fresh||!associated) {
-      const found=await deps.discover({company:job.company,jobUrl:job.url,previous:associated?cache?.contact??undefined:undefined,signal},{search:deps===defaultDependencies?publicSearch():undefined,maxPages:8});
+      const found=await deps.discover({company:job.company,jobUrl:job.url,previous:associated?cache?.contact??undefined:undefined,signal},{search:deps===defaultDependencies?hrContactSearch():undefined,maxPages:12});
       if(found.retryable&&!found.contact){await store.finish(job,'error','Public contact lookup is temporarily unavailable. It will retry later.');return;}
       contact=found.contact;
       await store.saveContact(job.company_key,job.company,contact,found.reason);
@@ -115,7 +111,7 @@ export function startHrOutreachWorker(slots: Slots) {
         // network lookups while an applying run is active.
         if(!stopped&&!deploying()&&(slots.activeCount?.()??0)===0){
           const cached=await store.staleContact();
-          if(cached){const found=await discoverHiringContact({company:cached.company,previous:cached.contact,signal:AbortSignal.timeout(90_000)},{search:publicSearch(),maxPages:6});
+          if(cached){const found=await discoverHiringContact({company:cached.company,previous:cached.contact,signal:AbortSignal.timeout(90_000)},{search:hrContactSearch(),maxPages:8});
             if(found.retryable&&!found.contact)await store.deferValidation(cached.company_key);
             else await store.saveContact(cached.company_key,cached.company,found.contact,found.reason);}
         }

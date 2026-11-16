@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { discoverHiringContact, publishedHiringContacts, createHiringContactSearch, canReuseHiringContact, type HiringContact } from './discovery.js';
+import { discoverHiringContact, publishedHiringContacts, createHiringContactSearch, canReuseHiringContact, hiringCompanyBrand, type HiringContact } from './discovery.js';
 import { PublicCrawler, type PageResponse } from '../job-index/network.js';
 
 const now = new Date('2026-11-16T01:00:00.000Z');
@@ -20,7 +20,7 @@ test('company careers pages precede search, select a published hiring contact, a
   assert.equal(result.contact?.email, 'jane.smith@acme.org');
   assert.equal(result.contact?.kind, 'hiring_manager'); assert.equal(result.contact?.sourceUrl, 'https://acme.org/careers');
   assert.equal(result.contact?.validatedAt, now.toISOString()); assert.match(result.contact!.sourceText, /recruitment manager/);
-  assert.deepEqual(crawler.calls, ['https://acme.org/', 'https://acme.org/careers']);
+  assert.deepEqual(crawler.calls, ['https://acme.org/', 'https://acme.org/contact', 'https://acme.org/careers']);
 });
 
 test('only visible published contacts are extracted; scripts, hidden traps and inappropriate mailboxes are ignored', () => {
@@ -176,7 +176,7 @@ test('caller cancellation is preserved rather than reported as no contact', asyn
 test('search uses global reservation, provider key only in headers, bounded results and no redirects', async () => {
   let reservations = 0, requests = 0;
   const network: typeof fetch = async (input, init) => {
-    requests++; const url = new URL(String(input)); assert.equal(url.hostname, 'api.search.brave.com'); assert.equal(url.searchParams.get('count'), '6');
+    requests++; const url = new URL(String(input)); assert.equal(url.hostname, 'api.search.brave.com'); assert.equal(url.searchParams.get('count'), '6');assert.equal(url.searchParams.get('extra_snippets'),'true');
     assert.equal(init?.redirect, 'error'); assert.equal(new Headers(init?.headers).get('X-Subscription-Token'), 'fixture-secret');
     assert.equal(url.href.includes('fixture-secret'), false);
     return Response.json({ web: { results: [{ url: 'https://acme.org/' }] } });
@@ -257,4 +257,147 @@ test('cache identity checks reject private URLs and inaccessible or private redi
   assert.equal(await canReuseHiringContact('Acme', 'https://127.0.0.1/job/1', previous, { crawler: fixture({}) }), false);
   const url = 'https://www.seek.com.au/job/123';
   assert.equal(await canReuseHiringContact('Acme', url, previous, { crawler: fixture({ [url]: response('https://127.0.0.1/', '', 200) }) }), false);
+});
+
+test('public employer brands normalize legal, industry and office suffixes without inventing domains', () => {
+  for (const [label,brand] of [
+    ['Talent Insights Group Pty Ltd','talent insights'],['FinXL IT Professional Services','finxl'],['Preacta Recruitment','preacta'],
+    ['Peoplebank Australia NSW','peoplebank'],['Delivery Centric Technologies','delivery centric'],['Other Acme Pty Ltd','other acme'],
+    ['The Recruitment Company Limited','recruitment company'],
+  ]) assert.equal(hiringCompanyBrand(label),brand,label);
+});
+
+for(const [company,brand,host] of [
+  ['Talent Insights Group Pty Ltd','talent insights','talentinsights.org'],['FinXL IT Professional Services','finxl','finxl.org'],
+  ['Preacta Recruitment','preacta','preacta.org'],['Peoplebank Australia NSW','peoplebank','peoplebank.org'],
+  ['Delivery Centric Technologies','delivery centric','deliverycentric.org'],
+])test(`regional/legal label ${company} expands to its public brand and reaches contact pages within budget`,async()=>{
+  const home=`https://${host}/`,contact=`https://${host}/contact`,job='https://www.seek.com.au/job/123';
+  const f=fixture({[home]:`<title>${brand}</title><h1>${brand}</h1><a href="/contact">Recruitment contact</a>`,[contact]:`<h1>${brand}</h1><p>Recruitment careers@${host}</p>`});
+  const queries:string[]=[];
+  const crawler={get:async(url:string)=>{if(url===job)throw Error('Robots policy excludes this address.');return f.get(url);}};
+  const result=await discoverHiringContact({company,jobUrl:job},{crawler,maxPages:8,search:async query=>{
+    queries.push(query);
+    if(queries.length===1)return Array.from({length:6},(_,i)=>({url:`https://directory${i}.org/employer`,title:`${company} directory`}));
+    assert.ok(query.startsWith(brand),'fallback uses observed employer brand, not the exact regional/legal phrase');
+    return [{url:'https://au.seek.com/search'},{url:'https://nz.seek.com/jobs'},{url:'https://seek.com.au/search'},{url:home}];
+  }});
+  assert.equal(result.contact?.email,`careers@${host}`);assert.equal(result.retryable,false);assert.equal(queries.length,2);
+  assert.ok(result.pagesRead<=8);assert.ok(f.calls.filter(url=>url.includes('directory')).length<=3,'reserve pages for the verified company');
+  assert.equal(f.calls.some(url=>/seek\./.test(url)),false,'SEEK search results do not become employer-site candidates');
+});
+
+test('optional job-board robots restrictions do not poison a clean company no-contact result',async()=>{
+  const f=fixture({'https://acme.org/':'<h1>Acme</h1><p>No published recruitment contact.</p>'});
+  const result=await discoverHiringContact({company:'Acme',jobUrl:'https://au.seek.com/job/123'},{crawler:{get:async url=>{
+    if(url.includes('seek.com'))throw Error('Robots policy excludes this address.');return f.get(url);
+  }},search:async query=>query.includes('official company')?[{url:'https://acme.org/'}]:[]});
+  assert.equal(result.contact,null);assert.equal(result.retryable,false);
+});
+
+test('official source pages get priority over remaining directory results after identity is established',async()=>{
+  const f=fixture({'https://acme.org/':'<h1>Acme</h1><a href="/contact">Contact the hiring team</a>',
+    'https://acme.org/contact':'<h1>Acme</h1><p>Recruitment careers@acme.org</p>'});
+  const result=await discoverHiringContact({company:'Acme'},{crawler:f,maxPages:3,search:async()=>[
+    {url:'https://other.org/list'},{url:'https://acme.org/'},{url:'https://third.org/list'},
+  ]});
+  assert.equal(result.contact?.email,'careers@acme.org');assert.deepEqual(f.calls,['https://acme.org/','https://acme.org/contact']);
+});
+
+test('structured publisher identity verifies brands on a differently named company domain',async()=>{
+  const html='<h1>Acme</h1><script type="application/ld+json">'+JSON.stringify({'@type':'Organization',name:'Acme Pty Ltd',url:'https://brandportal.org/'})+'</script><p>Recruitment careers@brandportal.org</p>';
+  const result=await discoverHiringContact({company:'Acme Pty Ltd'},{crawler:fixture({'https://brandportal.org/':html}),search:async()=>[{url:'https://brandportal.org/'}]});
+  assert.equal(result.contact?.companyDomain,'brandportal.org');
+  const spoof=await discoverHiringContact({company:'Acme'},{crawler:fixture({'https://directory.org/':'<meta property="og:site_name" content="Directory of Acme Recruitment"><h1>Acme recruitment directory</h1><p>Recruitment careers@directory.org</p>'}),search:async()=>[{url:'https://directory.org/'}]});
+  assert.equal(spoof.contact,null,'a directory publisher containing brand words is not the brand');
+});
+
+test('recruitment agency offices and named recruitment cards are public candidate contacts, unrelated sales/support stay excluded',()=>{
+  const office=publishedHiringContacts('<title>Sydney IT and Digital Recruitment Agency</title><h1>Our Sydney office</h1><p><a href="mailto:sydney@agency.org">sydney@agency.org</a></p><p>sales@agency.org support@agency.org</p>','https://agency.org/sydney','agency.org',true,now);
+  assert.deepEqual(office.map(v=>v.email),['sydney@agency.org']);
+  const consultant=publishedHiringContacts('<h1>About our team</h1><div><h2>Olivia Example</h2><p>Principal Recruitment Consultant - NSW</p><p><a href="mailto:olivia@agency.org">Email Olivia</a></p></div>','https://agency.org/about','agency.org',true,now);
+  assert.equal(consultant[0]?.email,'olivia@agency.org');assert.match(consultant[0]!.sourceText,/Principal Recruitment Consultant/);
+  const alternateBrand=publishedHiringContacts('<title>Find jobs</title><h1>Acme</h1><footer><a href="mailto:info@acmerecruitment.org">Contact us</a></footer>','https://acme.org/jobs','acme.org',true,now,'Acme Recruitment');
+  assert.equal(alternateBrand[0]?.email,'info@acmerecruitment.org','an explicit primary-source recruitment-agency contact may retain a former brand email domain');
+  assert.deepEqual(publishedHiringContacts('<title>Acme Software</title><h1>Acme</h1><footer><a href="mailto:info@acme.org">Contact us</a><a href="/careers">Careers</a></footer>','https://acme.org','acme.org',true,now,'Acme'),[]);
+  const consultancy=publishedHiringContacts('<title>Sydney</title><h1>Sydney</h1><nav>Current Opportunities Consultant’s Hub T&Cs For Introduction Of A Consultant</nav><a href="mailto:sydney@consultancy.org">sydney@consultancy.org</a>','https://consultancy.org/branches/sydney-office','consultancy.org',true,now,'Acme IT Professional Services');
+  assert.equal(consultancy[0]?.email,'sydney@consultancy.org');assert.match(consultancy[0]!.sourceText,/Consultant’s Hub|Introduction Of A Consultant/i);
+  assert.deepEqual(publishedHiringContacts('<title>Sydney</title><h1>Acme</h1><footer>Recruitment website by Vendor <a href="mailto:info@acme.org">Contact us</a></footer>','https://acme.org','acme.org',true,now,'Acme'),[],'a vendor website credit is not the employer recruitment business');
+});
+
+test('public company-profile excerpts only corroborate an independently verified domain and preserve provenance',async()=>{
+  const source='https://nz.linkedin.com/company/acme-technologies-pty-ltd';
+  const f=fixture({'https://acme.org/':'<h1>Acme</h1><p>We build software.</p>'});
+  const crawler={get:async(url:string)=>{if(url.includes('linkedin.com'))throw Error('Robots policy excludes this address.');return f.get(url);}};
+  const search=async(query:string)=>query.includes('"@acme.org"')?[{url:source,title:'Acme Technologies',description:'Australian candidates can send resumes to talent@acme.org.'}]:[];
+  const result=await discoverHiringContact({company:'Acme Technologies',website:'https://acme.org/'},{crawler,search});
+  assert.equal(result.contact?.email,'talent@acme.org');assert.equal(result.contact?.sourceUrl,source);assert.match(result.contact!.sourceText,/^Public search excerpt:/);
+  for(const value of [
+    {url:'https://directory.org/acme',title:'Acme Technologies',description:'Recruitment talent@acme.org'},
+    {url:'https://nz.linkedin.com/company/other-firm',title:'Acme Technologies',description:'Recruitment talent@acme.org'},
+    {url:source,title:'Acme Technologies',description:'Recruitment talent@attacker.org'},
+  ]){
+    const negative=await discoverHiringContact({company:'Acme Technologies',website:'https://acme.org/'},{crawler:{get:async(url:string)=>url==='https://acme.org/'?f.get(url):Promise.reject(Error('Blocked'))},search:async()=>[value]});
+    assert.equal(negative.contact,null);
+  }
+  const unknown=await discoverHiringContact({company:'Acme Technologies'},{crawler:{get:async()=>{throw Error('Blocked');}},search});
+  assert.equal(unknown.contact,null,'an indexed snippet cannot establish company ownership by itself');
+});
+
+test('a removed excerpt contact is not renewed when the actual accessible profile no longer publishes it',async()=>{
+  const source='https://www.linkedin.com/company/acme-technologies';
+  const f=fixture({'https://acme.org/':'<h1>Acme</h1><p>We build software.</p>',[source]:'<h1>Acme Technologies</h1><p>Recruitment has moved to our official application portal.</p>'});
+  const result=await discoverHiringContact({company:'Acme Technologies',website:'https://acme.org/'},{crawler:f,search:async()=>[{url:source,title:'Acme Technologies',description:'Old recruitment talent@acme.org'}]});
+  assert.equal(result.contact,null);
+});
+
+test('regional recruitment contact is reached before deep repeated navigation exhausts the crawl',async()=>{
+  const navigation='<a href="/careers">Careers</a><a href="/clients">Clients</a><a href="/sydney">Sydney</a>';
+  const f=fixture({'https://acme.org/':`<h1>Acme</h1>${navigation}`,
+    'https://acme.org/careers':`<h1>Acme</h1>${navigation}<a href="/careers/jobs">Career opportunities</a>`,
+    'https://acme.org/sydney':'<title>Sydney IT Recruitment Agency - Acme</title><h1>Sydney office</h1><a href="mailto:sydney@acme.org">sydney@acme.org</a>'});
+  const result=await discoverHiringContact({company:'Acme IT Professional Services',website:'https://acme.org/'},{crawler:f,maxPages:4});
+  assert.equal(result.contact?.email,'sydney@acme.org');assert.deepEqual(f.calls,['https://acme.org/','https://acme.org/sydney']);
+});
+
+test('an extensive official site without a hiring email leaves room for the public company-profile source',async()=>{
+  const profile='https://www.linkedin.com/company/acme-technologies';
+  const calls:string[]=[];
+  const crawler={get:async(url:string)=>{
+    calls.push(url);if(url===profile)throw Error('Robots policy excludes this address.');
+    return response(url,'<h1>Acme</h1><p>Sales sales@acme.org</p>'+Array.from({length:12},(_,i)=>`<a href="/contact-${i}">Contact office ${i}</a>`).join(''));
+  }};
+  const result=await discoverHiringContact({company:'Acme Technologies',website:'https://acme.org/'},{crawler,maxPages:6,
+    search:async query=>query.includes('"@acme.org"')?[{url:profile,title:'Acme Technologies',description:'Australian candidates can send resumes to talent@acme.org.'}]:[]});
+  assert.equal(result.contact?.email,'talent@acme.org');assert.ok(calls.includes(profile),'the public profile source is actually attempted');
+  assert.ok(result.pagesRead<=6);assert.match(result.contact!.sourceText,/^Public search excerpt:/);
+});
+
+test('an explicitly NSW-labelled employer uses its Sydney office, not a previously encountered Perth mailbox',async()=>{
+  const f=fixture({'https://acme.org/perth':'<title>Acme Recruitment Perth</title><h1>Acme</h1><p>Recruitment perth@acme.org</p><a href="/sydney">Sydney</a>',
+    'https://acme.org/sydney':'<title>Acme Sydney Recruitment</title><h1>Acme</h1><p>Sydney recruitment sydney@acme.org</p>'});
+  const result=await discoverHiringContact({company:'Acme Australia NSW',website:'https://acme.org/perth'},{crawler:f,maxPages:4});
+  assert.equal(result.contact?.email,'sydney@acme.org');assert.deepEqual(f.calls,['https://acme.org/perth','https://acme.org/sydney']);
+});
+
+test('alternative public company-profile excerpts provide the published hiring address when the main description is generic',async()=>{
+  const profile='https://au.linkedin.com/company/acme-technologies-pty-ltd';
+  const result=await discoverHiringContact({company:'Acme Technologies',website:'https://acme.org/'},{maxPages:4,
+    crawler:{get:async url=>{if(url===profile)throw Error('Robots policy excludes this address.');return response(url,'<h1>Acme</h1><p>We build software.</p>');}},
+    search:async()=>[{url:profile,title:'Acme Technologies Pty Ltd | LinkedIn',description:'We build a great culture.',extra_snippets:['Apply for Australian opportunities. Please share your resumes at <strong>ta@acme.org</strong>.']}],
+  });
+  assert.equal(result.contact?.email,'ta@acme.org');assert.match(result.contact!.sourceText,/Public search excerpt:/);assert.match(result.contact!.sourceText,/share your resumes/);
+});
+
+test('public exact-job excerpts can publish a resume inbox after independent company-domain verification',async()=>{
+  const current='https://au.indeed.com/viewjob?jk=exact-current-job';
+  const crawler={get:async(url:string)=>{if(url.includes('indeed.com'))throw Error('Robots policy excludes this address.');return response(url,'<h1>Acme</h1><p>We build software.</p>');}};
+  const result=await discoverHiringContact({company:'Acme Technologies',jobUrl:current},{crawler,search:async query=>query.includes('official company')
+    ?[{url:current,title:'Agentic AI Engineer - Sydney',description:'Please contact us at <strong>resumes@acme.org</strong> for additional details.'}]
+    :[{url:'https://acme.org/',title:'Acme'}]});
+  assert.equal(result.contact?.email,'resumes@acme.org');assert.equal(result.contact?.sourceUrl,current);assert.match(result.contact!.sourceText,/Public search excerpt:/);
+  const negative=await discoverHiringContact({company:'Acme Technologies',jobUrl:current},{crawler,search:async query=>query.includes('official company')
+    ?[{url:'https://au.indeed.com/viewjob?jk=another-job',title:'Agentic AI Engineer - Sydney',description:'Please contact us at resumes@acme.org for additional details.'}]
+    :[{url:'https://acme.org/',title:'Acme'}]});
+  assert.equal(negative.contact,null,'an unrelated job excerpt must also identify the company');
 });
