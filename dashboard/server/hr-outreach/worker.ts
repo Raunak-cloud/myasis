@@ -12,7 +12,10 @@ import { sendHrEmail, reconcileHrEmail, hrDeliveredBody, type HrMail } from './t
 import { withHrBrowser } from './browser.js';
 import { markHrActive } from './activity.js';
 
-interface Slots { claimStart(userId:string):boolean; releaseStart(userId:string):void }
+interface Slots { claimStart(userId:string):boolean; releaseStart(userId:string):void; activeCount?():number }
+let wakeWorker:(()=>void)|null=null;
+/** Run completion wakes this process's worker only after releasing its slot. */
+export function wakeHrOutreach():void {wakeWorker?.();}
 export interface HrWorkerDependencies {
   store: HrStore;
   discover: typeof discoverHiringContact;
@@ -40,6 +43,7 @@ export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defa
   const signal=AbortSignal.timeout(180_000);
   try {
     if(!await store.allowed(job))return;
+    await store.setPhase?.(job,job.status==='unconfirmed'?'checking':'researching');
     const access=await deps.access(job.user_id);
     if(!access.connected) {await store.finish(job,job.status==='unconfirmed'?'unconfirmed':'error','Connect your profile Gmail address to send or check HR emails.');return;}
     if(job.status==='unconfirmed') {
@@ -60,6 +64,7 @@ export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defa
     }
     if(!contact) {await store.finish(job,'skipped','No publicly listed hiring or recruitment email was found.');return;}
     const profile=await deps.profile(job.user_id);
+    await store.setPhase?.(job,'writing');
     const draft=await deps.compose({candidate:{name:profile.fullName,evidence:JSON.stringify({headline:profile.headline,experience:profile.experienceSummary,skills:profile.skills,
       qualification:profile.highestQualification,submittedCoverLetter:job.cover_letter})},job:{title:job.title,company:job.company,url:job.url},contact},
     {apiKey:deps.apiKey(),signal});
@@ -84,7 +89,7 @@ export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defa
 
 /** Runs beside application workers, independently of dashboard restarts. */
 export function startHrOutreachWorker(slots: Slots) {
-  let stopped=false,active:Promise<void>|null=null;
+  let stopped=false,active:Promise<void>|null=null,wakeRequested=false;
   const tick=async()=>{
     if(stopped||active||deploying())return;
     active=(async()=>{
@@ -99,11 +104,6 @@ export function startHrOutreachWorker(slots: Slots) {
         if(deploying())return;
         const store=defaultDependencies.store;
         await store.recover();await store.enqueue();
-        // Revalidation cannot starve behind a continuously growing mail queue.
-        const cached=await store.staleContact();
-        if(cached){const found=await discoverHiringContact({company:cached.company,previous:cached.contact,signal:AbortSignal.timeout(90_000)},{search:publicSearch(),maxPages:6});
-          if(found.retryable&&!found.contact)await store.deferValidation(cached.company_key);
-          else await store.saveContact(cached.company_key,cached.company,found.contact,found.reason);}
         if(stopped||deploying())return;
         const job=await store.claim();
         if(job) {
@@ -111,10 +111,19 @@ export function startHrOutreachWorker(slots: Slots) {
           try {await accountRequest(job.user_id,()=>processHrJob(job));}
           finally{slots.releaseStart(job.user_id);}
         }
+        // Monthly maintenance follows ready outreach and does not perform
+        // network lookups while an applying run is active.
+        if(!stopped&&!deploying()&&(slots.activeCount?.()??0)===0){
+          const cached=await store.staleContact();
+          if(cached){const found=await discoverHiringContact({company:cached.company,previous:cached.contact,signal:AbortSignal.timeout(90_000)},{search:publicSearch(),maxPages:6});
+            if(found.retryable&&!found.contact)await store.deferValidation(cached.company_key);
+            else await store.saveContact(cached.company_key,cached.company,found.contact,found.reason);}
+        }
       }finally{try{if(locked)await client?.query('SELECT pg_advisory_unlock(726302,1)');}finally{client?.release();clearActivity();}}
-    })().catch(()=>console.warn('[hr-outreach] background task deferred')).finally(()=>{active=null;});
+    })().catch(()=>console.warn('[hr-outreach] background task deferred')).finally(()=>{active=null;if(wakeRequested&&!stopped){wakeRequested=false;setImmediate(()=>void tick());}});
     await active;
   };
   const timer=setInterval(()=>void tick(),30_000);timer.unref();void tick();
-  return {async stop(){stopped=true;clearInterval(timer);await active;}};
+  const wake=()=>{if(active)wakeRequested=true;else void tick();};wakeWorker=wake;
+  return {async stop(){stopped=true;clearInterval(timer);if(wakeWorker===wake)wakeWorker=null;await active;}};
 }

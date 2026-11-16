@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { getPool } from '../db/index.js';
-import { HrStore,companyKey,outreachKey,getHrOutreachSettings,setHrOutreachEnabled,listHrOutreach,listHrOutreachPage } from './store.js';
+import { HrStore,companyKey,outreachKey,getHrOutreachSettings,setHrOutreachEnabled,listHrOutreach,listHrOutreachPage,hrOutreachProgress } from './store.js';
 import type { HiringContact } from './discovery.js';
 
 const oldAdmins=process.env.ADMIN_EMAILS;process.env.ADMIN_EMAILS='admin-one@example.test,admin-two@example.test';
@@ -9,6 +9,8 @@ const client=await getPool().connect();
 try {
   await client.query('BEGIN');
   await client.query(`CREATE TEMP TABLE users(id BIGINT PRIMARY KEY,email TEXT,blocked_at TIMESTAMPTZ);
+    CREATE TEMP TABLE run_starts(id BIGINT PRIMARY KEY,user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,finished_at TIMESTAMPTZ);
+    CREATE TEMP TABLE application_email_sends(id BIGINT PRIMARY KEY);
     CREATE TEMP TABLE applications(id BIGINT PRIMARY KEY,user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,job_id TEXT,platform TEXT,title TEXT,company TEXT,url TEXT,cover_letter TEXT,
       submitted_by_myasis BOOLEAN,confirmation_status TEXT,outcome TEXT,applied_at TIMESTAMPTZ);
     INSERT INTO users VALUES(1,'admin-one@example.test',NULL),(2,'admin-two@example.test',NULL),(3,'admin-one@example.test',now()),(4,'ordinary@example.test',NULL);`);
@@ -16,6 +18,7 @@ try {
   await client.query(readFileSync(new URL('./schema.sql',import.meta.url),'utf8').replaceAll('CREATE TABLE IF NOT EXISTS','CREATE TEMP TABLE IF NOT EXISTS'));
   const db={query:async(text:string,params?:any[])=>client.query(text,params)};
   const store=new HrStore(db);
+  await client.query('INSERT INTO run_starts(id,user_id) VALUES(11,1),(12,2),(13,3),(14,4)');
   assert.equal(companyKey('  Example   LTD '),'example ltd');
   assert.equal(outreachKey('Example LTD','Data Analyst'),outreachKey('EXAMPLE LTD','Data   Analyst'));
   assert.deepEqual(await getHrOutreachSettings('1',db),{enabled:false});
@@ -26,7 +29,7 @@ try {
   const enabledSince=(await client.query('SELECT enabled_since FROM hr_outreach_preferences WHERE user_id=1')).rows[0].enabled_since;
   await setHrOutreachEnabled('1',true,db);
   assert.equal(+(await client.query('SELECT enabled_since FROM hr_outreach_preferences WHERE user_id=1')).rows[0].enabled_since,+enabledSince,'idempotent enable cannot reset cutoff');
-  await client.query(`INSERT INTO applications VALUES
+  await client.query(`INSERT INTO applications(id,user_id,job_id,platform,title,company,url,cover_letter,submitted_by_myasis,confirmation_status,outcome,applied_at) VALUES
     (1,1,'new','seek','Data Analyst','Example LTD','https://example.org/jobs/1','Approved evidence',true,NULL,NULL,now()+interval '1 second'),
     (2,1,'history','seek','Old Role','Example LTD','https://example.org/jobs/2',NULL,true,NULL,NULL,now()-interval '1 day'),
     (3,1,'uncertain','seek','Other Role','Example LTD','https://example.org/jobs/3',NULL,false,'unconfirmed',NULL,now()+interval '1 second'),
@@ -35,6 +38,12 @@ try {
     (6,3,'blocked','seek','Blocked Role','Example LTD','https://example.org/jobs/6',NULL,true,NULL,NULL,now()+interval '1 second'),
     (7,1,'duplicate','indeed','Data Analyst','EXAMPLE LTD','https://example.org/jobs/1',NULL,true,NULL,NULL,now()+interval '1 second'),
     (8,4,'ordinary','seek','Ordinary Role','Example LTD','https://example.org/jobs/8',NULL,true,NULL,NULL,now()+interval '1 second');`);
+  await client.query('UPDATE applications SET source_run_id=user_id+10 WHERE id<>2');
+  await store.enqueue();assert.equal((await listHrOutreach('1',db)).length,0,'an active run never queues HR outreach');
+  assert.equal((await hrOutreachProgress('1',db)).phase,'waiting');
+  await client.query('UPDATE run_starts SET finished_at=now()');
+  await store.enqueue();assert.equal((await listHrOutreach('1',db)).length,0,'a child exiting is insufficient until complete result-saving and cleanup');
+  await client.query('UPDATE run_starts SET hr_ready_at=now()');
   await store.enqueue();await store.enqueue();
   assert.equal((await listHrOutreach('1',db)).length,2,'original and explicitly skipped duplicate only');
   assert.equal((await listHrOutreach('2',db)).length,1,'other owner has independent outreach');
@@ -43,6 +52,9 @@ try {
   assert.equal((await listHrOutreach('1',db)).filter(r=>r.status==='skipped').length,1);
   const job=await store.claim();assert.ok(job);assert.equal(job.user_id,'1');
   assert.ok(await store.allowed(job));
+  await client.query('UPDATE run_starts SET hr_ready_at=NULL WHERE id=11');assert.equal(await store.allowed(job),false);assert.equal(await store.sending(job),false,'not-ready run cannot send even with a retained claim');await client.query('UPDATE run_starts SET hr_ready_at=now() WHERE id=11');
+  for(const phase of ['researching','writing','sending','checking'] as const){await store.setPhase(job,phase);const progress=await hrOutreachProgress('1',db);assert.equal(progress.active,true);assert.equal(progress.phase,phase);assert.equal(progress.runId,'11');assert.equal(progress.title,'Data Analyst');}
+  assert.equal((await hrOutreachProgress('2',db)).active,false,'progress never crosses accounts');
   process.env.ADMIN_EMAILS='admin-two@example.test';assert.equal(await store.allowed(job),false,'admin revocation blocks pending job');assert.equal(await store.sending(job),false,'final send claim rechecks role');process.env.ADMIN_EMAILS='admin-one@example.test,admin-two@example.test';
   assert.equal((await store.claim())?.user_id,'2','concurrent claim cannot reuse researching job');
   await client.query(`INSERT INTO hr_outreach(user_id,application_id,company_key,dedupe_key,job_id,platform,title,company,url,status,lease,lease_until)
@@ -74,6 +86,7 @@ try {
   await client.query("UPDATE hr_outreach SET available_at=now() WHERE id=$1",[job.id]);
   const reconcile=await store.claim();assert.ok(reconcile);await store.finish(reconcile,'sent',null,{messageId:'fixture-receipt'});
   assert.equal((await listHrOutreach('1',db)).find(r=>r.id===job.id)?.body,'Exact message');
+  const completed=await hrOutreachProgress('1',db);assert.equal(completed.active,false);assert.equal(completed.phase,'finished');assert.equal(completed.sent,1);assert.equal(completed.skipped,1);
   const page=await listHrOutreachPage('1',{},db);assert.equal(page.items.length,2);assert.equal(page.nextCursor,null);
   assert.equal((await listHrOutreachPage('1',{jobId:'new',platform:'seek'},db)).items.length,1);
   await assert.rejects(listHrOutreachPage('1',{cursor:'1;select secret'},db),/Invalid/);

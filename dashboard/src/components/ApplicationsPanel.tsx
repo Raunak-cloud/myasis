@@ -6,6 +6,7 @@ import type { SkippedJob } from './SkippedPanel';
 import { fmtDate, fmtTime, daysSince, scoreClass } from '../format';
 import { formatApplicationCost, type ApplicationCost } from '../application-cost';
 import { HrEmailMessage, HrOutreachPanel, type HrOutreachEmail } from './HrOutreachPanel';
+import type { HrOutreachProgress } from './HrOutreachActivity';
 
 interface Props {
   apps: Application[];
@@ -125,6 +126,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
   const [hrEmails, setHrEmails] = useState<HrOutreachEmail[]>([]);
   const [hrLoading, setHrLoading] = useState(true);
   const [hrError, setHrError] = useState<string | null>(null);
+  const [hrProgress, setHrProgress] = useState<HrOutreachProgress | null>(null);
   const [hrRefresh, setHrRefresh] = useState(0);
   const [hrNextCursor, setHrNextCursor] = useState<string | null>(null);
   const [hrMoreLoading, setHrMoreLoading] = useState(false);
@@ -132,30 +134,34 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
   const hrLoadedMore = useRef(false);
   useEffect(() => {
     if (!showHrOutreach) {
-      setHrEmails([]); setHrLoading(false); setHrError(null); setHrNextCursor(null);
+      setHrEmails([]); setHrLoading(false); setHrError(null); setHrNextCursor(null); setHrProgress(null);
       hrLoadedMore.current = false;
       setView(current => current === 'hr' ? 'sent' : current);
       return;
     }
     let active = true;
+    let pending = false;
     const controller = new AbortController();
     async function load() {
+      if (pending) return;
+      pending = true;
       try {
         const response = await fetch('/api/hr-outreach', { signal: controller.signal });
         const result = await response.json();
         if (!response.ok || !Array.isArray(result.items)) throw new Error();
         if (active) {
           setHrEmails(current => mergeHrEmails(current, result.items));
+          setHrProgress(result.progress ?? null);
           if (!hrLoadedMore.current) setHrNextCursor(result.nextCursor ?? null);
           setHrError(null);
         }
       } catch {
         if (active) setHrError('Could not load your HR emails. Please try again.');
-      } finally { if (active) setHrLoading(false); }
+      } finally { pending = false; if (active) setHrLoading(false); }
     }
     setHrLoading(true);
     void load();
-    const timer = window.setInterval(() => void load(), 30_000);
+    const timer = window.setInterval(() => void load(), 5_000);
     return () => { active = false; controller.abort(); window.clearInterval(timer); };
   }, [apps, hrRefresh, showHrOutreach]);
   async function loadMoreHr() {
@@ -547,7 +553,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
           Skipped{skipped ? <span className="view-count">{skipped.length}</span> : null}
         </button>}
       </div>
-      {view === 'sent' || (view === 'hr' && !showHrOutreach) ? sent : view === 'hr' ? <HrOutreachPanel items={hrEmails} loading={hrLoading} error={hrError} onRetry={() => setHrRefresh(value => value + 1)} hasMore={Boolean(hrNextCursor)} loadingMore={hrMoreLoading} moreError={hrMoreError} onLoadMore={() => void loadMoreHr()} /> : (
+      {view === 'sent' || (view === 'hr' && !showHrOutreach) ? sent : view === 'hr' ? <HrOutreachPanel items={hrEmails} loading={hrLoading} error={hrError} onRetry={() => setHrRefresh(value => value + 1)} hasMore={Boolean(hrNextCursor)} loadingMore={hrMoreLoading} moreError={hrMoreError} onLoadMore={() => void loadMoreHr()} progress={hrProgress} /> : (
         <Suspense fallback={<div className="card empty"><p>Loading skipped jobs…</p></div>}>
           <SkippedPanel items={skipped} error={skippedError} onItems={setSkipped} />
         </Suspense>

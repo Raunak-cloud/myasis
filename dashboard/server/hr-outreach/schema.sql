@@ -1,5 +1,10 @@
 -- HR outreach holds only public contact evidence in the shared cache. Private
 -- messages and preferences always belong to one account and cascade on deletion.
+-- New submissions retain their server-bound applying run. Historical rows are
+-- deliberately not assigned to runs by their timestamp.
+ALTER TABLE applications ADD COLUMN IF NOT EXISTS source_run_id BIGINT REFERENCES run_starts(id) ON DELETE SET NULL;
+ALTER TABLE application_email_sends ADD COLUMN IF NOT EXISTS source_run_id BIGINT REFERENCES run_starts(id) ON DELETE SET NULL;
+ALTER TABLE run_starts ADD COLUMN IF NOT EXISTS hr_ready_at TIMESTAMPTZ;
 CREATE TABLE IF NOT EXISTS hr_outreach_preferences (
   user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   enabled BOOLEAN NOT NULL DEFAULT false,
@@ -49,3 +54,5 @@ CREATE TABLE IF NOT EXISTS hr_outreach (
 );
 CREATE INDEX IF NOT EXISTS hr_outreach_owner_idx ON hr_outreach(user_id,created_at DESC);
 CREATE INDEX IF NOT EXISTS hr_outreach_queue_idx ON hr_outreach(status,available_at);
+ALTER TABLE hr_outreach ADD COLUMN IF NOT EXISTS phase TEXT CHECK(phase IN ('queued','researching','writing','sending','checking'));
+CREATE INDEX IF NOT EXISTS hr_application_run_idx ON applications(user_id,source_run_id);

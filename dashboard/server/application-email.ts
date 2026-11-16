@@ -36,7 +36,7 @@ export async function sendAutomaticApplicationEmail(userId: string, runId: strin
   if (retained.status === 'failed') await query("UPDATE application_reviews SET status='approved',detail=NULL WHERE user_id=$1 AND id=$2 AND payload->>'autoRunId' IS NOT NULL AND status='failed'", [userId, retained.id]);
   // Exact resume bytes, sender identity, credits, daily limits, send claims and
   // uncertain-delivery reconciliation are shared with confirmed Semi auto mail.
-  return sendApprovedApplicationEmail(userId, retained.id, retained.payload.revision);
+  return sendApprovedApplicationEmail(userId, retained.id, retained.payload.revision, runId);
 }
 
 interface SendRow { status: string; message_id: string | null; thread_id: string | null }
@@ -45,9 +45,13 @@ async function recordReceipt(userId: string, draft: PreparedApplication, receipt
   try {
     await client.query('BEGIN');
     await client.query("UPDATE application_email_sends SET status='sent',message_id=$4,thread_id=$5,updated_at=now() WHERE user_id=$1 AND review_id=$2 AND revision=$3", [userId, draft.id, draft.revision, receipt.messageId, receipt.threadId || null]);
-    await client.query(`INSERT INTO applications(user_id,job_id,title,company,location,url,platform,score,cover_letter,answers,external,submitted_by_myasis,resume_name)
-      VALUES($1,$2,$3,$4,$5,$6,$7,0,$8,$9,true,true,$10) ON CONFLICT(user_id,platform,job_id) DO NOTHING`,
-    [userId, draft.job.id, draft.job.title, draft.job.company, draft.job.location || '', draft.job.url, draft.job.platform || 'seek', draft.coverLetter, JSON.stringify(draft.answers), draft.resume]);
+    // Bind to the original durable send claim, including delayed receipt recovery.
+    // Neither a model-authored draft nor a later retry may relabel old mail.
+    await client.query(`INSERT INTO applications(user_id,job_id,title,company,location,url,platform,score,cover_letter,answers,external,submitted_by_myasis,resume_name,source_run_id)
+      VALUES($1,$2,$3,$4,$5,$6,$7,0,$8,$9,true,true,$10,
+        (SELECT source_run_id FROM application_email_sends WHERE user_id=$1 AND review_id=$11 AND revision=$12))
+      ON CONFLICT(user_id,platform,job_id) DO NOTHING`,
+    [userId, draft.job.id, draft.job.title, draft.job.company, draft.job.location || '', draft.job.url, draft.job.platform || 'seek', draft.coverLetter, JSON.stringify(draft.answers), draft.resume,draft.id,draft.revision]);
     await client.query("UPDATE application_reviews SET status='applied',detail='Application email sent.',updated_at=now() WHERE user_id=$1 AND id=$2 AND payload->>'revision'=$3", [userId, draft.id, draft.revision]);
     await client.query('COMMIT'); return receipt;
   } catch (error) { await client.query('ROLLBACK'); throw error; }
@@ -55,7 +59,7 @@ async function recordReceipt(userId: string, draft: PreparedApplication, receipt
 }
 
 /** The MCP send tool takes an approval identity, never agent-authored mail bytes. */
-export async function sendApprovedApplicationEmail(userId: string, reviewId: string, revision: string): Promise<EmailReceipt> {
+export async function sendApprovedApplicationEmail(userId: string, reviewId: string, revision: string, sourceRunId?: string): Promise<EmailReceipt> {
   const row = await one<{ status: string; payload: PreparedApplication; credit_consumed: boolean }>(
     'SELECT status,payload,credit_consumed FROM application_reviews WHERE user_id=$1 AND id=$2', [userId, reviewId]);
   if (!row || !['approved', 'applied'].includes(row.status) || !row.credit_consumed || !row.payload.email
@@ -67,6 +71,11 @@ export async function sendApprovedApplicationEmail(userId: string, reviewId: str
   const prior = await one<SendRow>('SELECT status,message_id,thread_id FROM application_email_sends WHERE user_id=$1 AND review_id=$2 AND revision=$3', [userId, reviewId, revision]);
   if (prior?.status === 'sent' && prior.message_id) return { messageId: prior.message_id, threadId: prior.thread_id || undefined, alreadySent: true };
   if (row.status !== 'approved') throw new GmailServiceError('unapproved', 'This application is no longer approved.');
+  if (sourceRunId !== undefined) {
+    const active = /^\d+$/.test(sourceRunId) && await one(`SELECT r.id FROM run_starts r JOIN users u ON u.id=r.user_id
+      WHERE r.user_id=$1 AND r.id=$2 AND r.mode='live' AND r.finished_at IS NULL AND u.blocked_at IS NULL`, [userId,sourceRunId]);
+    if (!active) throw new GmailServiceError('unapproved', 'This submitting application run has ended or does not belong to this account.');
+  }
   const applied = await one('SELECT id FROM applications WHERE user_id=$1 AND platform=$2 AND job_id=$3 AND submitted_by_myasis=true', [userId, draft.job.platform || 'seek', draft.job.id]);
   if (applied) throw new GmailServiceError('unapproved', 'An application to this role is already recorded. No email was sent.');
   const stored = draft.resumeId ? await resolveStored(userId, 'resume', draft.resumeId) : null;
@@ -78,9 +87,9 @@ export async function sendApprovedApplicationEmail(userId: string, reviewId: str
   const unresolved = await one(`SELECT status FROM application_email_sends WHERE user_id=$1 AND job_key=$2
     AND (review_id<>$3 OR revision<>$4) AND status IN ('sending','sent','uncertain')`, [userId, jobKey, reviewId, revision]);
   if (unresolved) throw new GmailServiceError('uncertain', 'An earlier email for this job is sent or uncertain. Check Sent before preparing another version.');
-  const claimed = await query<SendRow>(`INSERT INTO application_email_sends(user_id,review_id,revision,job_key,status) VALUES($1,$2,$3,$4,'sending')
-    ON CONFLICT(user_id,review_id,revision) DO UPDATE SET status='sending',updated_at=now() WHERE application_email_sends.status='failed'
-    RETURNING status,message_id,thread_id`, [userId, reviewId, revision, jobKey]).catch(error => {
+  const claimed = await query<SendRow>(`INSERT INTO application_email_sends(user_id,review_id,revision,job_key,status,source_run_id) VALUES($1,$2,$3,$4,'sending',$5)
+    ON CONFLICT(user_id,review_id,revision) DO UPDATE SET status='sending',source_run_id=EXCLUDED.source_run_id,updated_at=now() WHERE application_email_sends.status='failed'
+    RETURNING status,message_id,thread_id`, [userId, reviewId, revision, jobKey,sourceRunId??null]).catch(error => {
       if (error?.code === '23505') throw new GmailServiceError('uncertain', 'Another email send for this job is in progress or uncertain.');
       throw error;
     });

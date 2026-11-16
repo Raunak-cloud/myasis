@@ -30,6 +30,7 @@ import { claimTechnicalRetries, finishTechnicalRetryLeases, type TechnicalRetryC
 import { TECHNICAL_RETRY_REQUEST, TECHNICAL_RETRY_RESPONSE, PREPAID_RETRY_SUBMITTED } from '../../seek-bot/src/technical-retry-types.js';
 import { RemoteRunPool } from './run-service-client.js';
 import { usesRunService, type RunCompletionPolicy, type RunServiceSnapshot } from './run-service-protocol.js';
+import { completeHrRun } from './hr-outreach/run-completion.js';
 
 export async function accountBrowserEnvironment(userId: string, mode: RunMode): Promise<Record<string, string>> {
   const owners = await query<{ email: string }>('SELECT email FROM users WHERE id = $1 AND blocked_at IS NULL', [userId]);
@@ -481,7 +482,7 @@ class Run {
       dataDir = exported.dir;
       profileOverrides = exported.overrides;
       const autoEmailRun = mode === 'live' && !overrides.APPLICATION_REVIEW_MODE && !approvals.length ? runStartId ?? undefined : undefined;
-      const lease = await gmailRunConnection(userId, mode === 'live' ? approvals.map(item => item.id) : [], cdpPort, autoEmailRun);
+      const lease = await gmailRunConnection(userId, mode === 'live' ? approvals.map(item => item.id) : [], cdpPort, autoEmailRun, runStartId ?? undefined);
       this.revokeGmail = lease.revoke;
       profileOverrides = { ...profileOverrides, ...lease.env };
     } catch (error) {
@@ -727,6 +728,7 @@ class Run {
 
   private async finishChild(userId: string, dataDir: string, kind: 'run' | 'scan', code: number | null, child: ChildProcess, signal: NodeJS.Signals | null): Promise<void> {
     const finishedRunId=this.runStartId;
+    let browserReleased=this.emailOnlyRun,descendantsReleased=false,resultsSaved=false,recorded=false,postRunCleanupComplete=true;
     this.prepaidRetryIds.clear();
     this.revokeGmail?.(); this.revokeGmail = null;
     this.state.running = false;
@@ -743,11 +745,11 @@ class Run {
 
     // Keep this account's slot occupied until its browser and descendants are gone.
     try {
-      if (!this.emailOnlyRun) await releaseChromeProfile(userChromeDir(userId), (line) => this.push('sys', line));
+      if (!this.emailOnlyRun) browserReleased=await releaseChromeProfile(userChromeDir(userId), (line) => this.push('sys', line));
     } catch (error) {
       this.push('err', `Could not close this account's browser: ${(error as Error).message}`);
     }
-    try { signalRunTree(child, 'SIGKILL'); } catch (error) {
+    try { signalRunTree(child, 'SIGKILL'); descendantsReleased=true; } catch (error) {
       this.push('err', `Could not clean up worker descendants: ${(error as Error).message}`);
     }
 
@@ -757,14 +759,14 @@ class Run {
       // double-count an application or event.
       syncRunResultsToDb(userId, dataDir, finishedRunId??undefined)
         .then(async result => { if(finishedRunId)await finishTechnicalRetryLeases(userId,finishedRunId,dataDir);await finishApplicationReviews(userId); return result; })
-        .then((r) => this.push('sys', `  synced ${r.applications} application(s), ${r.runEvents} event(s) to your account`))
+        .then((r) => { resultsSaved=r.resultsSaved;this.push('sys', `  synced ${r.applications} application(s), ${r.runEvents} event(s) to your account`); })
         .catch((error) => this.push('err', `Could not save this ${kind}'s results: ${(error as Error).message}`)),
     ];
     if (onFinished) {
       postRunTasks.push(
         Promise.resolve()
           .then(onFinished)
-          .catch((error) => this.push('err', `Could not clean up after this ${kind}: ${(error as Error).message}`)),
+          .catch((error) => { postRunCleanupComplete=false;this.push('err', `Could not clean up after this ${kind}: ${(error as Error).message}`); }),
       );
     }
 
@@ -778,32 +780,38 @@ class Run {
       const applicationErrors = kind === 'run' ? applicationErrorCount(dataDir) : 0;
       const successful = runSucceeded({ exitCode: code, stoppedByPerson: this.stoppedByPerson, kind,
         applied: this.state.applied, prepared: this.state.prepared, qualifyingJobs, applicationErrors, timedOut: this.timedOut });
-      await this.recordFinish(userId, code, successful, kind === 'run' ? readRunHealth(dataDir) : null);
+      recorded=await this.recordFinish(userId, code, successful, kind === 'run' ? readRunHealth(dataDir) : null);
     } catch (error) {
       this.push('err', `Could not save this ${kind}'s record: ${(error as Error).message}`);
     } finally {
       this.postProcessing = false;
     }
+    // Wake only after this account's browser, result import and run record are
+    // complete and the worker slot is free. Failed/stopped runs can still have
+    // confirmed applications; an exit-code success rule would lose those.
+    if(kind==='run')try{await completeHrRun(userId,finishedRunId,{browserReleased,descendantsReleased,resultsSaved:resultsSaved&&postRunCleanupComplete,recorded});}
+    catch(error){this.push('err',`Could not schedule this run's HR follow-up: ${(error as Error).message}`);}
   }
 
   /**
    * How the run ended, onto its record, with its console saved beside the
    * account's data so it can be read after the dashboard restarts.
    */
-  private async recordFinish(userId: string, code: number | null, successful: boolean, health: Record<string, unknown> | null = null): Promise<void> {
+  private async recordFinish(userId: string, code: number | null, successful: boolean, health: Record<string, unknown> | null = null): Promise<boolean> {
     const runStartId = this.runStartId;
     this.runStartId = null;
-    if (!runStartId) return;
+    if (!runStartId) return false;
     const dir = resolve(userDir(userId), 'run-logs');
     mkdirSync(dir, { recursive: true });
     const file = `${runStartId}.jsonl`;
     if (!existsSync(resolve(dir, file))) writeFileSync(resolve(dir, file), this.lines.map((line) => JSON.stringify(line)).join('\n') + '\n', { mode: 0o600 });
     const saved = readdirSync(dir).filter((name) => name.endsWith('.jsonl')).sort((a, b) => Number(b.split('.')[0]) - Number(a.split('.')[0]));
     for (const old of saved.slice(RUN_LOGS_KEPT)) rmSync(resolve(dir, old), { force: true });
-    await query(
-      'UPDATE run_starts SET finished_at = now(), exit_code = $2, applied = $3, log_file = $4, stopped = $5, successful = $6, health = $7 WHERE id = $1',
-      [runStartId, code, this.state.applied, file, this.stoppedByPerson, successful, health ? JSON.stringify(health) : null],
+    const rows=await query(
+      'UPDATE run_starts SET finished_at = now(), exit_code = $2, applied = $3, log_file = $4, stopped = $5, successful = $6, health = $7 WHERE id = $1 AND user_id=$8 RETURNING id',
+      [runStartId, code, this.state.applied, file, this.stoppedByPerson, successful, health ? JSON.stringify(health) : null,userId],
     );
+    return rows.length>0;
   }
 
   stop(): { ok: boolean; error?: string } {

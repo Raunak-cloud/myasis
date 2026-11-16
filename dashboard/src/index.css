@@ -2991,3 +2991,7 @@ textarea.run-instructions-input {
 }
 .hr-email-more { display: grid; justify-items: center; gap: 8px; }
 .hr-email-more p { margin: 0; }
+.hr-outreach-activity { padding: 16px 20px; min-width: 0; }
+.hr-outreach-activity p { margin: 10px 0 0; }
+.hr-outreach-activity a { display: inline-block; margin-top: 10px; font-size: 13px; }
+.hr-outreach-counts { font-size: 13px; color: var(--text-dim); overflow-wrap: anywhere; }

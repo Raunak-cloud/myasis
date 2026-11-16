@@ -14,10 +14,10 @@ export class GmailServiceError extends Error {
 export interface GmailBackend {
   search(userId: string, query: string, signal?: AbortSignal): Promise<GmailThread[]>;
   thread(userId: string, threadId: string, signal?: AbortSignal): Promise<GmailMessage[]>;
-  send(userId: string, reviewId: string, revision: string): Promise<EmailReceipt>;
+  send(userId: string, reviewId: string, revision: string, sourceRunId?: string): Promise<EmailReceipt>;
   sendAutomatic?(userId: string, runId: string, draft: PreparedApplication): Promise<EmailReceipt>;
 }
-interface Lease { userId: string; autoRunId?: string; approvals: Set<string>; threads: Set<string>; expiresAt: number; reads: Map<string, AbortController> }
+interface Lease { userId: string; autoRunId?: string; sourceRunId?: string; approvals: Set<string>; threads: Set<string>; expiresAt: number; reads: Map<string, AbortController> }
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 
 /** Private MCP gateway: per-run capabilities, never cookies or browser profiles. */
@@ -101,7 +101,7 @@ export class GmailMcpService {
             inputSchema: { reviewId: z.string().uuid(), revision: z.string().regex(/^[a-f0-9]{64}$/) } },
           ({ reviewId, revision }) => answer(async () => {
             if (!lease.approvals.has(reviewId)) throw new GmailServiceError('unapproved', 'This run cannot send that application.');
-            return this.backend.send(lease.userId, reviewId, revision);
+            return this.backend.send(lease.userId, reviewId, revision, lease.sourceRunId);
           }));
           if (lease.autoRunId && this.backend.sendAutomatic) mcp.registerTool('send_auto_application_email', {
             description: 'Submit this live Auto run’s email application using the candidate resume and employer recipient. No separate candidate confirmation.',
@@ -122,10 +122,10 @@ export class GmailMcpService {
     });
     return this.listening;
   }
-  async grant(userId: string, account: string, approvals: string[] = [], autoRunId?: string): Promise<{ connection: GmailMcpConnection; revoke: () => void }> {
+  async grant(userId: string, account: string, approvals: string[] = [], autoRunId?: string, sourceRunId?: string): Promise<{ connection: GmailMcpConnection; revoke: () => void }> {
     const port = await this.listen(), token = randomBytes(32).toString('base64url'), key = digest(token);
     for (const [id, lease] of this.leases) if (lease.expiresAt < Date.now()) this.leases.delete(id);
-    const lease = { userId, autoRunId, approvals: new Set(approvals), threads: new Set<string>(), expiresAt: Date.now() + 4 * 60 * 60_000, reads: new Map<string, AbortController>() };
+    const lease = { userId, autoRunId, sourceRunId, approvals: new Set(approvals), threads: new Set<string>(), expiresAt: Date.now() + 4 * 60 * 60_000, reads: new Map<string, AbortController>() };
     this.leases.set(key, lease);
     return { connection: { url: `http://127.0.0.1:${port}/gmail/mcp`, token, account }, revoke: () => { this.leases.delete(key); for (const read of lease.reads.values()) read.abort(new GmailReadCancelledError()); lease.reads.clear(); } };
   }

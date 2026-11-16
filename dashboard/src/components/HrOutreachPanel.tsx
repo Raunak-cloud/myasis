@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fmtDateTime } from '../format';
+import { HrOutreachActivity, hrPhaseLabel, type HrOutreachProgress } from './HrOutreachActivity';
 
 export interface HrOutreachEmail {
   id: string;
@@ -16,12 +17,14 @@ export interface HrOutreachEmail {
   reason?: string | null;
   sourceUrl?: string | null;
   contactName?: string | null;
+  phase?: 'queued' | 'researching' | 'writing' | 'sending' | 'checking' | null;
+  sourceRunId?: string | null;
 }
 
 const STATUS: Record<HrOutreachEmail['status'], { label: string; tone: string }> = {
   queued: { label: 'Queued', tone: 'muted' },
   researching: { label: 'Finding contact', tone: 'info' },
-  sending: { label: 'Sending', tone: 'info' },
+  sending: { label: 'Sending email', tone: 'info' },
   sent: { label: 'Sent', tone: 'ok' },
   skipped: { label: 'Not sent', tone: 'muted' },
   error: { label: 'Could not send', tone: 'bad' },
@@ -30,7 +33,9 @@ const STATUS: Record<HrOutreachEmail['status'], { label: string; tone: string }>
 
 /** Plain text preserves the exact message without rendering employer content as HTML. */
 export function HrEmailMessage({ item }: { item: HrOutreachEmail }) {
-  const status = STATUS[item.status] ?? { label: 'Pending', tone: 'muted' };
+  const baseStatus = STATUS[item.status] ?? { label: 'Pending', tone: 'muted' };
+  const status = item.phase && !['sent', 'skipped', 'error'].includes(item.status) && !(item.status==='unconfirmed'&&item.phase==='queued')
+    ? { label: hrPhaseLabel(item.phase), tone: 'info' } : baseStatus;
   return <article className="hr-email">
     <div className="hr-email-heading">
       <div className="minw"><strong>{item.title}</strong><div className="job-meta">{item.company}</div></div>
@@ -47,9 +52,10 @@ export function HrEmailMessage({ item }: { item: HrOutreachEmail }) {
   </article>;
 }
 
-export function HrOutreachPanel({ items, loading, error, onRetry, hasMore, loadingMore, moreError, onLoadMore }: {
+export function HrOutreachPanel({ items, loading, error, onRetry, hasMore, loadingMore, moreError, onLoadMore, progress }: {
   items: HrOutreachEmail[]; loading: boolean; error: string | null; onRetry: () => void;
   hasMore: boolean; loadingMore: boolean; moreError: string | null; onLoadMore: () => void;
+  progress: HrOutreachProgress | null;
 }) {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [saving, setSaving] = useState(false);
@@ -77,9 +83,10 @@ export function HrOutreachPanel({ items, loading, error, onRetry, hasMore, loadi
     finally { setSaving(false); }
   }
   return <div className="hr-outreach-panel">
+    <HrOutreachActivity progress={progress} error={Boolean(error)} />
     <div className="card hr-outreach-preference">
       <label><input type="checkbox" checked={enabled === true} disabled={enabled === null || saving} onChange={event => void changeEnabled(event.target.checked)} /><strong>Email hiring teams after I apply</strong></label>
-      <p className="job-meta">Send a short introduction from your connected email account after future confirmed applications, when a public hiring contact is available.</p>
+      <p className="job-meta">After your application run finishes, send a short introduction from your connected email account for new confirmed applications with a public hiring contact.</p>
       {enabled === null && !settingsError && <p className="job-meta" role="status">Loading your email preference…</p>}
       {saving && <p className="job-meta" role="status">Saving…</p>}
       {settingsError && <p className="job-meta" role="alert">{settingsError}</p>}

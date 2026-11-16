@@ -27,12 +27,12 @@ const gmailMcp = new GmailMcpService({
   send: sendApprovedApplicationEmail,
   sendAutomatic: sendAutomaticApplicationEmail,
 });
-export async function gmailRunConnection(userId: string, approvals: string[] = [], browserPort?: number, autoRunId?: string) {
+export async function gmailRunConnection(userId: string, approvals: string[] = [], browserPort?: number, autoRunId?: string, sourceRunId?: string) {
   const status = await gmailAccess(userId);
   const empty = { GMAIL_MCP_URL: '', GMAIL_MCP_TOKEN: '', GMAIL_MCP_ACCOUNT: '', GMAIL_ACCESS_MODE: status.provider };
   if (!status.connected || !status.account) return { env: empty, revoke: () => {} };
   const stopBrowser = status.provider === 'browser' && browserPort ? registerGmailBrowser(userId, browserPort, status.account) : () => {};
-  const grant = await gmailMcp.grant(userId, status.account, approvals, autoRunId);
+  const grant = await gmailMcp.grant(userId, status.account, approvals, autoRunId, sourceRunId);
   return { env: { GMAIL_MCP_URL: grant.connection.url, GMAIL_MCP_TOKEN: grant.connection.token, GMAIL_MCP_ACCOUNT: grant.connection.account, GMAIL_ACCESS_MODE: status.provider }, revoke: () => { grant.revoke(); stopBrowser(); } };
 }
 export async function checkGmailMcp(userId: string): Promise<void> {

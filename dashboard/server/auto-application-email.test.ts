@@ -19,7 +19,8 @@ test('live Auto email uses existing receipt/credit ledger without confirmation o
   const resume = Buffer.from('Exact synthetic selected resume');
   mkdirSync(join(directory,'resumes'),{recursive:true}); writeFileSync(join(directory,'resumes','CV.txt'),resume);
   const reviews = new Map<string, {id:string;status:string;payload:PreparedApplication;credit_consumed:boolean}>();
-  const sends = new Map<string, {status:string;message_id?:string;thread_id?:string}>();
+  const sends = new Map<string, {status:string;message_id?:string;thread_id?:string;source_run_id?:string|null}>();
+  const sources = new Map<string,string|null>();
   const applied = new Set<string>(); let ended=false,attempts=0,credits=0,externalCredits=0,uncertain=false;
   const sql = async (statement:string, params:any[]=[]) => {
     if (['BEGIN','COMMIT','ROLLBACK'].includes(statement) || statement.startsWith('SELECT pg_advisory')) return {rows:[]};
@@ -51,10 +52,10 @@ test('live Auto email uses existing receipt/credit ledger without confirmation o
     if (statement.startsWith('SELECT status,message_id,thread_id FROM application_email_sends')) return {rows:sends.has(params[1]+':'+params[2])?[sends.get(params[1]+':'+params[2])]:[]};
     if (statement.startsWith('SELECT id FROM applications')) return {rows:applied.has(params[2])?[{id:1}]:[]};
     if (statement.startsWith('SELECT status FROM application_email_sends')) return {rows:[]};
-    if (statement.startsWith('INSERT INTO application_email_sends')) {const key=params[1]+':'+params[2];if(sends.has(key))return {rows:[]};sends.set(key,{status:'sending'});return {rows:[{status:'sending'}]};}
-    if (statement.startsWith("UPDATE application_email_sends SET status='sent'")) {sends.set(params[1]+':'+params[2],{status:'sent',message_id:params[3],thread_id:params[4]});return {rows:[]};}
-    if (statement.startsWith('UPDATE application_email_sends SET status=$4')) {sends.set(params[1]+':'+params[2],{status:params[3]});return {rows:[]};}
-    if (statement.startsWith('INSERT INTO applications')) {applied.add(params[1]);return {rows:[]};}
+    if (statement.startsWith('INSERT INTO application_email_sends')) {const key=params[1]+':'+params[2];if(sends.has(key))return {rows:[]};sends.set(key,{status:'sending',source_run_id:params[4]??null});return {rows:[{status:'sending'}]};}
+    if (statement.startsWith("UPDATE application_email_sends SET status='sent'")) {const key=params[1]+':'+params[2];sends.set(key,{...sends.get(key),status:'sent',message_id:params[3],thread_id:params[4]});return {rows:[]};}
+    if (statement.startsWith('UPDATE application_email_sends SET status=$4')) {const key=params[1]+':'+params[2];sends.set(key,{...sends.get(key),status:params[3]});return {rows:[]};}
+    if (statement.startsWith('INSERT INTO applications')) {if(!applied.has(params[1]))sources.set(params[1],sends.get(params[10]+':'+params[11])?.source_run_id??null);applied.add(params[1]);return {rows:[]};}
     if (statement.startsWith("UPDATE application_reviews SET status='applied'")) {const row=[...reviews.values()].find(r=>r.id===params[1]);row!.status='applied';return {rows:[]};}
     if (statement.startsWith('SELECT count(*)::text AS n')) return {rows:[{n:String(applied.size)}]};
     if (statement.startsWith('UPDATE google_connections SET last_error')) return {rows:[]};
@@ -83,6 +84,7 @@ test('live Auto email uses existing receipt/credit ledger without confirmation o
     assert.equal((await sendAutomaticApplicationEmail(owner,'1001',first)).messageId,'sent-1');
     assert.equal(reviews.get('jora:first')!.status,'applied');assert.equal(reviews.get('jora:first')!.payload.autoRunId,'1001');
     assert.equal(credits,1);assert.equal(externalCredits,1);assert.ok(applied.has('first'));
+    assert.equal(sources.get('first'),'1001','Auto mail binds to its validated current live run');
     assert.equal((await sendAutomaticApplicationEmail(owner,'1001',{...first,id:randomUUID()})).alreadySent,true);
     assert.equal(attempts,1);assert.equal(credits,1,'replayed sends do not consume another credit');
     const manual=draft('manual');reviews.set('jora:manual',{id:manual.id,status:'ready',payload:manual,credit_consumed:true});

@@ -20,6 +20,10 @@ pool.query = (async (sql: string, values: unknown[] = []) => {
   if (sql.startsWith('SELECT email FROM users WHERE id=')) {
     const id = String(values[0]); return { rows: preferences.has(id) ? [{ email: emailFor(id) }] : [] };
   }
+  if(sql.startsWith('WITH source AS')){
+    assert.match(sql,/h\.user_id=\$1/);assert.match(sql,/r\.user_id=\$1/);hrReads++;
+    return {rows:[{run_id:String(100+Number(values[0])),finished_at:new Date(),hr_ready_at:new Date(),status:'sent',phase:null,title:'Owner role',company:'Fixture',leased:false}]};
+  }
   if (sql.includes('FROM hr_outreach h')) {
     assert.match(sql, /WHERE h\.user_id=\$1/, 'History query must scope rows to the authenticated owner');
     assert.match(sql, /h\.id<\$2/); assert.match(sql, /h\.job_id=\$3 AND h\.platform=\$4/);
@@ -72,13 +76,13 @@ try {
     });
     return { status: result.status, body: await result.json() };
   };
-  for (const path of ['/api/hr-outreach', '/api/hr-outreach/settings']) {
+  for (const path of ['/api/hr-outreach', '/api/hr-outreach?activity=1', '/api/hr-outreach/settings']) {
     assert.equal((await request(path)).status, 401);
     assert.equal((await request(path, 'invalid-session')).status, 401);
   }
   assert.equal((await request('/api/hr-outreach/settings', undefined, { enabled: true })).status, 401);
   assert.equal(hrReads, 0); assert.equal(hrWrites, 0, 'Signed-out requests must not access private HR data');
-  for (const path of ['/api/hr-outreach', '/api/hr-outreach?userId=1', '/api/hr-outreach/settings']) {
+  for (const path of ['/api/hr-outreach', '/api/hr-outreach?activity=1', '/api/hr-outreach?userId=1', '/api/hr-outreach/settings']) {
     assert.equal((await request(path, 'second-session')).status, 403);
   }
   assert.equal((await request('/api/hr-outreach/settings', 'second-session', { enabled: true, userId: '1' })).status, 403);
@@ -89,6 +93,10 @@ try {
   assert.equal(first.status, 200); assert.equal(first.body.items[0].body, 'Private body 1');
   assert.doesNotMatch(JSON.stringify(first.body), /Private body 2|hiring-2/);
   assert.equal(first.body.items.length, 50); assert.equal(first.body.nextCursor, '51');
+  assert.equal(first.body.progress.runId,'101');
+  const beforeActivity=hrReads;
+  const activity=await request('/api/hr-outreach?activity=1&userId=3','first-session');
+  assert.equal(activity.status,200);assert.deepEqual(activity.body.items,[]);assert.equal(activity.body.progress.runId,'101');assert.equal(hrReads,beforeActivity+1,'status polls never download email history');
   const older = await request('/api/hr-outreach?cursor=51&userId=2', 'first-session');
   assert.equal(older.status, 200); assert.equal(older.body.items.length, 5); assert.equal(older.body.nextCursor, null);
   assert.equal(new Set([...first.body.items, ...older.body.items].map(item => item.id)).size, 55, 'History pages include every owner record without duplicates');

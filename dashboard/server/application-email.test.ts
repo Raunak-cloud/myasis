@@ -24,7 +24,8 @@ test('production email backend validates exact approvals and attachments; uncert
   process.env.GMAIL_TOKEN_ENCRYPTION_KEY = 'fixture-only-encryption-key';
   const encrypted = encryptGmailToken(owner, 'private-fixture-refresh');
   const reviews = new Map<string, { status: string; payload: PreparedApplication; credit_consumed: boolean }>();
-  const outbox = new Map<string, { status: string; message_id?: string; thread_id?: string }>();
+  const outbox = new Map<string, { status: string; message_id?: string; thread_id?: string; source_run_id?: string | null }>();
+  const appliedSources = new Map<string,string|null>();
   const outboxJobs = new Map<string, string>();
   const applied = new Set<string>(), delivered = new Map<string, { id: string; threadId: string }>();
   let activeSearch=false,intensive=false;
@@ -36,6 +37,7 @@ test('production email backend validates exact approvals and attachments; uncert
     if (statement.startsWith('SELECT u.email,p.email')) return { rows: [{ email: 'candidate@fixture.invalid', profile_email: 'candidate@fixture.invalid' }] };
     if (statement.startsWith('SELECT key,value FROM settings')) return { rows: [] };
     if (['BEGIN', 'COMMIT', 'ROLLBACK'].includes(statement)) return { rows: [] };
+    if (statement.includes('FROM run_starts r JOIN users')) return { rows: params[0] === owner && ['2001','2002'].includes(params[1]) ? [{ id: params[1] }] : [] };
     if (statement.includes('FROM application_reviews')) return { rows: params[0] === owner && reviews.has(params[1]) ? [reviews.get(params[1])] : [] };
     if (statement.startsWith('SELECT gmail_email')) return { rows: [{ current: true, same_address: true, gmail_email: 'candidate@fixture.invalid', scope: `${GMAIL_READ_SCOPE} ${GMAIL_SEND_SCOPE}`, last_error: null }] };
     if (statement.includes('FROM google_connections g JOIN users')) { assert.equal(params[0], owner); return { rows: [{ refresh_token: encrypted, scope: `${GMAIL_READ_SCOPE} ${GMAIL_SEND_SCOPE}` }] }; }
@@ -48,13 +50,18 @@ test('production email backend validates exact approvals and attachments; uncert
     if (statement.startsWith('SELECT status,message_id')) return { rows: outbox.has(key) ? [outbox.get(key)] : [] };
     if (statement.startsWith('INSERT INTO application_email_sends')) {
       if (outbox.has(key) && outbox.get(key)!.status !== 'failed') return { rows: [] };
-      outbox.set(key, { status: 'sending' }); outboxJobs.set(key, params[3]); return { rows: [outbox.get(key)] };
+      outbox.set(key, { status: 'sending',source_run_id:params[4]??null }); outboxJobs.set(key, params[3]); return { rows: [outbox.get(key)] };
     }
     if (statement.startsWith("UPDATE application_email_sends SET status='sent'")) {
-      outbox.set(key, { status: 'sent', message_id: params[3], thread_id: params[4] }); return { rows: [] };
+      outbox.set(key, { ...outbox.get(key),status: 'sent', message_id: params[3], thread_id: params[4] }); return { rows: [] };
     }
     if (statement.startsWith('UPDATE application_email_sends SET status=$4')) { outbox.get(key)!.status = params[3]; return { rows: [] }; }
-    if (statement.startsWith('INSERT INTO applications')) { applied.add(params[1]); return { rows: [] }; }
+    if (statement.startsWith('INSERT INTO applications')) {
+      assert.match(statement,/SELECT source_run_id FROM application_email_sends WHERE user_id=\$1 AND review_id=\$11 AND revision=\$12/);
+      assert.match(statement,/ON CONFLICT\(user_id,platform,job_id\) DO NOTHING/);
+      if(!applied.has(params[1]))appliedSources.set(params[1],outbox.get(`${params[10]}:${params[11]}`)?.source_run_id??null);
+      applied.add(params[1]); return { rows: [] };
+    }
     if (statement.startsWith("UPDATE application_reviews SET status='applied'")) { reviews.get(params[1])!.status = 'applied'; return { rows: [] }; }
     if (statement.startsWith('UPDATE google_connections SET last_error')) return { rows: [] };
     throw new Error(`Unexpected fixture SQL: ${statement}`);
@@ -104,9 +111,12 @@ test('production email backend validates exact approvals and attachments; uncert
     reviews.get(ordinary.id)!.status = 'ready'; await assert.rejects(sendApprovedApplicationEmail(owner, ordinary.id, ordinary.revision), /confirm this exact/);
     reviews.get(ordinary.id)!.status = 'approved';
     assert.equal(attempts, 0);
-    const sent = await sendApprovedApplicationEmail(owner, ordinary.id, ordinary.revision);
+    await assert.rejects(sendApprovedApplicationEmail(owner, ordinary.id, ordinary.revision,'9999'),/submitting application run/);
+    const sent = await sendApprovedApplicationEmail(owner, ordinary.id, ordinary.revision,'2002');
     assert.equal(sent.messageId, 'fixture-1'); assert.equal(attempts, 1); assert.ok(applied.has(ordinary.job.id));
-    assert.equal((await sendApprovedApplicationEmail(owner, ordinary.id, ordinary.revision)).alreadySent, true); assert.equal(attempts, 1);
+    assert.equal(appliedSources.get(ordinary.job.id),'2002','Semi-approved mail belongs to the submitting run, not the older preparation');
+    assert.equal((await sendApprovedApplicationEmail(owner, ordinary.id, ordinary.revision,'2001')).alreadySent, true); assert.equal(attempts, 1);
+    assert.equal(appliedSources.get(ordinary.job.id),'2002','replayed receipts never rebind historical applications');
     const changed = create(); writeFileSync(join(directory, 'resumes', 'CV.txt'), 'Different resume');
     await assert.rejects(sendApprovedApplicationEmail(owner, changed.id, changed.revision), /resume changed/); assert.equal(attempts, 1);
     writeFileSync(join(directory, 'resumes', 'CV.txt'), resume);
@@ -153,6 +163,18 @@ test('production email backend validates exact approvals and attachments; uncert
     intensive=true;
     await sendApprovedApplicationEmail(owner,activeAboveCap.id,activeAboveCap.revision);
     assert.equal(attempts,9,'Get Owtomated takes precedence over an overlapping Active Search pass');
+    priorSubmissions=0;
+    const deferred=create();mode='uncertain-unsent';
+    await assert.rejects(sendApprovedApplicationEmail(owner,deferred.id,deferred.revision,'2001'),/could not be confirmed/);
+    delivered.set(applicationEmailMessageId(deferred.id,deferred.revision),{id:'late-original-receipt',threadId:'late-thread'});
+    mode='success';
+    assert.equal((await sendApprovedApplicationEmail(owner,deferred.id,deferred.revision,'2002')).alreadySent,true);
+    assert.equal(appliedSources.get(deferred.job.id),'2001','later reconciliation retains the original send claim run');
+    const rejectedSource=create();mode='rejected';
+    await assert.rejects(sendApprovedApplicationEmail(owner,rejectedSource.id,rejectedSource.revision,'2001'));
+    mode='success';await sendApprovedApplicationEmail(owner,rejectedSource.id,rejectedSource.revision,'2002');
+    assert.equal(appliedSources.get(rejectedSource.job.id),'2002','a definitely rejected send is attributed to the actual later successful attempt');
+    assert.equal(appliedSources.get(lost.job.id),null,'legacy sends without server context receive no inferred historical run');
     assert.equal(readFileSync(join(directory, 'resumes', 'CV.txt')).equals(resume), true);
   } finally {
     pool.query = originals.query; pool.connect = originals.connect; OAuth2Client.prototype.request = originals.request;

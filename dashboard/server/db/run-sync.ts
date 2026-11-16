@@ -283,9 +283,10 @@ export async function syncRunResultsToDb(
   userId: string,
   dir: string,
   sourceRunId?:string,
-): Promise<{ applications: number; runEvents: number }> {
+): Promise<{ applications: number; runEvents: number; resultsSaved: boolean }> {
   let applications = 0;
   const appliedPath = resolve(dir, 'applied.json');
+  let resultsSaved = existsSync(appliedPath);
   if (existsSync(appliedPath)) {
     try {
       const apps = JSON.parse(readFileSync(appliedPath, 'utf8')) as Array<Record<string, any>>;
@@ -312,10 +313,11 @@ export async function syncRunResultsToDb(
           submittedByMyasis: a.submittedByMyasis ?? ((a.score ?? 0) > 0 || Boolean(a.coverLetter)),
           resumeName: typeof a.resume === 'string' ? a.resume : null,
           confirmationStatus: a.confirmationStatus === 'unconfirmed' ? 'unconfirmed' : null,
-        });
+        }, sourceRunId);
         if (inserted && (a.submittedByMyasis ?? ((a.score ?? 0) > 0 || Boolean(a.coverLetter)))) applications++;
       }
     } catch {
+      resultsSaved = false;
       /* leave applied.json as-is for inspection; nothing usable to sync */
     }
   }
@@ -363,6 +365,7 @@ export async function syncRunResultsToDb(
         runEvents++;
       } catch (error) {
         if (error instanceof ApplicationReviewError) throw error;
+        resultsSaved = false;
         /* skip an unparsable line rather than aborting the whole sync */
       }
     }
@@ -371,5 +374,5 @@ export async function syncRunResultsToDb(
   await syncCompletedJobReviews(userId,dir);
   await importTechnicalAttemptJournal(userId,dir);
   await syncCostJournal(userId, dir);
-  return { applications, runEvents };
+  return { applications, runEvents, resultsSaved };
 }

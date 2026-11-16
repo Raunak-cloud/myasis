@@ -7,7 +7,7 @@ const contact:HiringContact={email:'careers@company.org',kind:'recruitment',comp
 const job:HrJob={id:'21',user_id:'1',application_id:'4',company_key:'company',dedupe_key:'hash',job_id:'4',platform:'seek',title:'Analyst',company:'Company',url:'https://company.org/jobs/4',cover_letter:'Approved letter',status:'researching',to_email:null,subject:null,body:null,contact:null,created_at:new Date(),lease:'lease',attempts:1,cost_usd:0};
 function fixture(options:{fresh?:boolean;contact?:HiringContact|null;connected?:boolean;sendError?:Error;allowed?:boolean;uncertain?:boolean}={}){
   const events:any[]=[];
-  const deps={store:{allowed:async()=>options.allowed!==false,cache:async()=>({contact:options.contact===null?null:contact,fresh:options.fresh!==false}),
+  const deps={store:{allowed:async()=>options.allowed!==false,setPhase:async(_job:HrJob,phase:string)=>{events.push(['phase',phase]);},cache:async()=>({contact:options.contact===null?null:contact,fresh:options.fresh!==false}),
     saveContact:async(...args:any[])=>events.push(['cache',...args]),draft:async(...args:any[])=>events.push(['draft',...args]),sending:async()=>{events.push(['sending']);return true;},
     finish:async(...args:any[])=>events.push(['finish',...args])},
     access:async()=>({connected:options.connected!==false}),profile:async()=>({fullName:'Test Candidate',headline:'Analyst',experienceSummary:'Reporting',skills:'SQL',highestQualification:'BSc'}),
@@ -22,6 +22,7 @@ test('fresh shared contact is reused and exact delivered message saved before on
   const {deps,events}=fixture();await processHrJob({...job},deps);
   assert.equal(events.filter(e=>e[0]==='discover').length,0);
   assert.equal(events.filter(e=>e[0]==='send').length,1);
+  assert.deepEqual(events.filter(e=>e[0]==='phase').map(e=>e[1]),['researching','writing']);
   const draft=events.find(e=>e[0]==='draft'),send=events.find(e=>e[0]==='send');assert.equal(draft[4],send[1].body);assert.match(send[1].body,/Application reference: HR-/);
   assert.equal(events.at(-1)[2],'sent');
 });
@@ -40,6 +41,7 @@ test('unknown delivery is retained and never resubmitted on reconciliation',asyn
   const {deps,events}=fixture({sendError:new Error('Lost response')});await processHrJob({...job},deps);assert.equal(events.at(-1)[2],'unconfirmed');
   const next=fixture({uncertain:true});await processHrJob({...job,status:'unconfirmed',to_email:contact.email,subject:'Follow-up',body:'Original'},next.deps);
   assert.equal(next.events.some(e=>e[0]==='send'||e[0]==='compose'||e[0]==='discover'),false);assert.equal(next.events.at(-1)[2],'unconfirmed');
+  assert.deepEqual(next.events.filter(e=>e[0]==='phase').map(e=>e[1]),['checking']);
 });
 test('receipt recovery marks sent without second send; disconnected Gmail remains unconfirmed',async()=>{
   const uncertain={...job,status:'unconfirmed' as const,to_email:contact.email,subject:'Follow-up',body:'Original'};

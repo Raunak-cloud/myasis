@@ -92,7 +92,7 @@ import { loadTodayStats } from './server/today.js';
 import { listSiteAccounts, sitePasswordFor } from './server/site-accounts.js';
 import { stopAllSignins } from './server/signin.js';
 import { loadApplicationCosts } from './server/application-costs.js';
-import { listHrOutreachPage, getHrOutreachSettings, setHrOutreachEnabled } from './server/hr-outreach/store.js';
+import { listHrOutreachPage, hrOutreachProgress, getHrOutreachSettings, setHrOutreachEnabled } from './server/hr-outreach/store.js';
 
 interface ApplicationRow {
   confirmation_status: 'unconfirmed' | null;
@@ -392,7 +392,9 @@ function dataApi(): Plugin {
           const jobId = url.searchParams.get('jobId') ?? undefined;
           const platform = url.searchParams.get('platform') ?? undefined;
           if ((cursor !== undefined && (!/^[1-9]\d{0,18}$/.test(cursor) || BigInt(cursor) > 9223372036854775807n)) || (jobId !== undefined && (!jobId.trim() || jobId.length > 500 || !platform)) || (platform !== undefined && (!/^[a-z0-9-]{1,50}$/.test(platform) || !jobId))) return send({ error: 'Invalid email history request.' }, 400);
-          return send(await listHrOutreachPage(userId, { cursor, jobId, platform }));
+          const progress=await hrOutreachProgress(userId);
+          if(url.searchParams.get('activity')==='1')return send({items:[],nextCursor:null,progress});
+          return send({...await listHrOutreachPage(userId, { cursor, jobId, platform }),progress});
         });
       }
       case '/api/hr-outreach/settings': {

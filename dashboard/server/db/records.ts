@@ -128,13 +128,15 @@ interface ApplicationRow {
 }
 
 /** Board ids belong to their platform; the same id on another board is allowed. */
-export async function insertApplicationRow(uid: string, a: ApplicationRow): Promise<boolean> {
+export async function insertApplicationRow(uid: string, a: ApplicationRow, sourceRunId?: string): Promise<boolean> {
+  // Attribution comes from the server's run capability, never an applied.json field.
+  if (sourceRunId !== undefined && !/^[1-9]\d*$/.test(sourceRunId)) throw new Error('Invalid application source run.');
   const rows = await query<{ id: string }>(
     `INSERT INTO applications (
        user_id, job_id, title, company, location, url, platform, score, salary,
        work_arrangement, age_days_at_apply, cover_letter, answers, score_reasons,
-       outcome, applied_at, external, submitted_by_myasis, site, actions, resume_name, application_url, confirmation_status
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+       outcome, applied_at, external, submitted_by_myasis, site, actions, resume_name, application_url, confirmation_status${sourceRunId ? ', source_run_id' : ''}
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23${sourceRunId ? ', (SELECT id FROM run_starts WHERE id=$24 AND user_id=$1)' : ''})
      ON CONFLICT (user_id, platform, job_id) DO NOTHING
      RETURNING id`,
     [
@@ -147,6 +149,7 @@ export async function insertApplicationRow(uid: string, a: ApplicationRow): Prom
       a.site ?? null, JSON.stringify(a.actions ?? []), a.resumeName ?? null,
       a.applicationUrl ?? null,
       a.confirmationStatus ?? null,
+      ...(sourceRunId ? [sourceRunId] : []),
     ],
   );
   return rows.length > 0;
