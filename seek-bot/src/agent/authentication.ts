@@ -269,7 +269,7 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
         ? ` Wrong tool: these are ordinary application controls, not login fields. ${unsupported.map(({ field }) => ordinaryFieldGuidance(field)).join(' ')}`
         : '') +
       (failed.length ? ` Re-observe and retry fields the site rejected: ${failed.join('; ')}` : '') +
-      ' No button was clicked; account success is not established. Read the current page for the next control.' +
+      ` No button was clicked; account success is not established. Current buttons: ${JSON.stringify(ctx.observation.actions.filter(action => !action.disabled).slice(0,6).map(action => ({ ref: action.ref, label: action.text })))}.` +
       (setsPassword ? ' If the site then rejects the password for its rules, call fill_authentication_fields again with password_rules taken from that message.' : ''),
     failed.length || unsupported.length ? 'failed' : 'completed',
   );

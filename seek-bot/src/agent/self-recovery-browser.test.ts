@@ -125,6 +125,6 @@ try {
   assert.equal(run.result.outcome.status,'prepared'); assert.equal(run.sends,0);
   assert.match(run.trace.steps[0].result,/browser_upload and file_ids/);
   assert.doesNotMatch(run.trace.steps[0].result,/private-native-0/);
-  assert.ok(run.seen.some(text=>text.includes('previous')||text.includes('failedInteractions')),'observed failed attempts remain in application memory without a prescribed recovery flow');
+  assert.ok(run.seen.some(text=>text.includes('PREVIOUS FAILED INTERACTIONS')&&text.includes('"count":2')),'the compact memory shows both failed attempts without prescribing or blocking recovery');
  });
 } finally { globalThis.fetch = fetchOriginal; await browser.close(); closeCelerisQueues(); rmSync(directory, { recursive: true, force: true }); }
