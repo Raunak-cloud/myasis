@@ -43,7 +43,11 @@ test('async portalled combobox commits the exact chosen option, survives blur an
   assert.equal(await page.locator('body').getAttribute('data-wrong'),null,'an unrelated portal option is never selected');
   await nativeSelect(page.locator('#native'),'Native B');
   assert.equal(await page.locator('#native').inputValue(),'b');
-  await assert.rejects(nativeSelect(school,'Unlisted University'),/Timeout/);
+  await assert.rejects(nativeSelect(school,'Unlisted University'),error=>{
+    assert.match(String(error),/Dropdown selection is not confirmed/);
+    assert.match(String(error),/"selected":false/);
+    return true;
+  });
   assert.equal(await page.locator('#chosen').innerText(),'Other','no unrelated school or automatic fallback is invented');
   await page.setContent('<label for=skills>Skills</label><div class=select__value-container><span class=select__multi-value__label>SQL</span><span class=select__multi-value__label>Python</span><input id=skills role=combobox value="New search"></div><label for=free>Free entry</label><input id=free role=combobox value="Permitted free text">');
   const tags=await observe(page);
