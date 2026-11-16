@@ -127,7 +127,7 @@ export function HrOutreachSettings() {
   }
   return <div className="card hr-outreach-preference">
       <label><input type="checkbox" checked={enabled === true} disabled={enabled === null || saving} onChange={event => void changeEnabled(event.target.checked)} /><strong>Email hiring teams</strong></label>
-      <p className="job-meta">After your application run finishes, send a short introduction from your connected email account for new confirmed applications with a public hiring contact.</p>
+      <p className="job-meta">After each run, email a short introduction for newly submitted applications whenever a public hiring contact is available.</p>
       {enabled === null && !settingsError && <p className="job-meta" role="status">Loading your email preference…</p>}
       {saving && <p className="job-meta" role="status">Saving…</p>}
       {settingsError && <p className="job-meta" role="alert">{settingsError}</p>}
