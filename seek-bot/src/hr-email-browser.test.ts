@@ -13,9 +13,9 @@ test('real browser fixtures send exact plain-text HR message and refuse mismatch
   let externalRequests = 0;
   await context.route('**/*', route => { externalRequests++; return route.abort(); });
   const page = await context.newPage();
-  const fixture = async (opts: { from?: string; recipient?: string; bodyChange?: boolean; receipt?: boolean; sendLabel?: string; missingSend?: boolean; otherDraft?: boolean } = {}) => {
-    await page.setContent(`${opts.otherDraft ? '<section id="personal" role="dialog"><input name="subjectbox" value="Personal draft"><div role="textbox" contenteditable="true">Unrelated personal message</div><span email="friend@fixture.invalid"></span></section>' : ''}<button id="compose">Compose</button><section id="dialog" role="dialog" hidden>
-      <form><input name="from" type="hidden" value="${opts.from || 'candidate@fixture.invalid'}"><input name="to" aria-label="To recipients"><input name="subjectbox"><span id="chip"></span></form>
+  const fixture = async (opts: { from?: string; accountHeader?: string; recipient?: string; bodyChange?: boolean; receipt?: boolean; sendLabel?: string; missingSend?: boolean; otherDraft?: boolean } = {}) => {
+    await page.setContent(`${opts.accountHeader ? `<a aria-label="Google Account: Candidate (${opts.accountHeader})"></a>` : ''}${opts.otherDraft ? '<section id="personal" role="dialog"><input name="subjectbox" value="Personal draft"><div role="textbox" contenteditable="true">Unrelated personal message</div><span email="friend@fixture.invalid"></span></section>' : ''}<button id="compose">Compose</button><section id="dialog" role="dialog" hidden>
+      <form><input name="from" type="hidden" value="${opts.from ?? 'candidate@fixture.invalid'}"><input name="to" aria-label="To recipients"><input name="subjectbox"><span id="chip"></span></form>
       <div role="textbox" contenteditable="true"></div><button id="options">Send options</button><button id="scheduled">Schedule send</button><button id="send" ${opts.missingSend?'hidden':''} aria-label="${opts.sendLabel??'Send'}">Send</button></section><div id="result"></div>
       <script>document.body.dataset.sends='0';document.body.dataset.wrongSends='0';document.querySelector('#compose').onclick=()=>document.querySelector('#dialog').hidden=false;
       document.querySelector('#options').onclick=document.querySelector('#scheduled').onclick=()=>document.body.dataset.wrongSends=String(Number(document.body.dataset.wrongSends)+1);
@@ -29,6 +29,9 @@ test('real browser fixtures send exact plain-text HR message and refuse mismatch
     assert.match(receipt.id, /^browser_HR-/);
     assert.equal((await page.locator('[contenteditable]').innerText()).replace(/\n{3,}/g, '\n\n'), hrMailBody(mail));
     assert.equal(await page.locator('body').getAttribute('data-sends'), '1');
+    await fixture({ from: '', accountHeader: 'candidate@fixture.invalid' });
+    assert.match((await sendBrowserHrEmail(page, mail, 'candidate@fixture.invalid')).id, /^browser_HR-/);
+    assert.equal(await page.locator('body').getAttribute('data-sends'), '1', 'a fresh empty From field uses the verified account header');
     await fixture({ otherDraft: true });
     assert.match((await sendBrowserHrEmail(page, mail, 'candidate@fixture.invalid')).id, /^browser_HR-/);
     assert.equal(await page.locator('body').getAttribute('data-sends'), '1', 'normal compose sends only its known draft when a distinct personal draft is open');
@@ -42,7 +45,7 @@ test('real browser fixtures send exact plain-text HR message and refuse mismatch
       assert.equal(await page.locator('body').getAttribute('data-sends'),'1');
       assert.equal(await page.locator('body').getAttribute('data-wrong-sends'),'0','Send options and Schedule send are never selected');
     }
-    for (const opts of [{ from: 'other@fixture.invalid' }, { recipient: 'wrong@fixture.invalid' }, { bodyChange: true }]) {
+    for (const opts of [{ from: 'other@fixture.invalid' }, { from: '', accountHeader: 'other@fixture.invalid' }, { from: '' }, { recipient: 'wrong@fixture.invalid' }, { bodyChange: true }]) {
       await fixture(opts);
       await assert.rejects(sendBrowserHrEmail(page, mail, 'candidate@fixture.invalid'), (error: any) => error.code === 'unapproved');
       assert.equal(await page.locator('body').getAttribute('data-sends'), '0');
@@ -65,11 +68,11 @@ test('existing full-page drafts wait for the editor and send only the exact save
   await context.route('**/*', route => { externalRequests++; return route.abort(); });
   const page = await context.newPage();
   const escape = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-  const fixture = async (opts: { account?: string; recipient?: string; subject?: string; body?: string; extraDraft?: boolean; extraRecipient?: 'Cc' | 'Bcc'; pendingRecipient?: boolean; delayedEditor?: boolean } = {}) => {
+  const fixture = async (opts: { account?: string; from?: string; recipient?: string; subject?: string; body?: string; extraDraft?: boolean; extraRecipient?: 'Cc' | 'Bcc'; pendingRecipient?: boolean; delayedEditor?: boolean } = {}) => {
     const editor = `<div role="textbox" aria-label="Message Body" contenteditable="true" style="white-space:pre-wrap">${escape(opts.body ?? hrMailBody(mail))}</div>`;
     await page.setContent(`<a aria-label="Google Account: Candidate (${escape(opts.account ?? 'candidate@fixture.invalid')})"></a>
       <span email="candidate@fixture.invalid"></span><div data-hovercard-id="sidebar@fixture.invalid"></div>
-      <form><input name="from" type="hidden" value="candidate@fixture.invalid"><input name="subjectbox" value="${escape(opts.subject ?? mail.subject)}">${opts.extraDraft ? '<input name="subjectbox" value="Other draft">' : ''}
+      <form><input name="from" type="hidden" value="${escape(opts.from ?? 'candidate@fixture.invalid')}"><input name="subjectbox" value="${escape(opts.subject ?? mail.subject)}">${opts.extraDraft ? '<input name="subjectbox" value="Other draft">' : ''}
       <input aria-label="To recipients" value="${opts.pendingRecipient ? 'pending@fixture.invalid' : ''}">
       <span email="${escape(opts.recipient ?? mail.to)}" data-hovercard-id="${escape(opts.recipient ?? mail.to)}"></span>
       <div role="listbox"><div role="option" email="suggestion@fixture.invalid" data-hovercard-id="suggestion@fixture.invalid"></div></div>
@@ -79,7 +82,7 @@ test('existing full-page drafts wait for the editor and send only the exact save
       ${opts.delayedEditor ? `setTimeout(()=>document.body.insertAdjacentHTML('beforeend',${JSON.stringify(editor)}),150);` : ''}</script>`);
   };
   try {
-    await fixture({ delayedEditor: true });
+    await fixture({ delayedEditor: true, from: '' });
     assert.equal(await page.locator('[role="dialog"], [role="main"]').count(), 0, 'the live full-page draft has neither container');
     await validateExistingBrowserHrDraft(page, mail, 'candidate@fixture.invalid');
     assert.equal(await page.locator('body').getAttribute('data-sends'), '0', 'read-only validation never clicks Send');
@@ -87,7 +90,7 @@ test('existing full-page drafts wait for the editor and send only the exact save
     assert.equal(await page.locator('[contenteditable]').innerText(), hrMailBody(mail), 'read-only validation preserves the exact message');
     assert.match((await sendExistingBrowserHrDraft(page, mail, 'candidate@fixture.invalid')).id, /^browser_HR-/);
     assert.equal(await page.locator('body').getAttribute('data-sends'), '1', 'resuming the saved draft clicks Send only once');
-    for (const opts of [{ account: 'other@fixture.invalid' }, { recipient: 'wrong@fixture.invalid' }, { subject: 'Other role' },
+    for (const opts of [{ account: 'other@fixture.invalid' }, { from: 'other@fixture.invalid' }, { recipient: 'wrong@fixture.invalid' }, { subject: 'Other role' },
       { body: mail.body }, { extraDraft: true }, { extraRecipient: 'Cc' as const }, { extraRecipient: 'Bcc' as const }, { pendingRecipient: true }]) {
       await fixture(opts);
       await assert.rejects(validateExistingBrowserHrDraft(page, mail, 'candidate@fixture.invalid'), (error: any) => error.code === 'unapproved');

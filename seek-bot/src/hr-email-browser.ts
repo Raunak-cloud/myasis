@@ -25,7 +25,10 @@ export async function sendBrowserHrEmail(page: Page, mail: BrowserHrMail, accoun
     assertBrowserOperationActive();
     await page.getByRole('button', { name: 'Compose', exact: true }).click({ timeout: 8000 });
     const dialog = page.getByRole('dialog').last(), from = dialog.locator('input[name="from"]');
-    if (await from.count() && (await from.inputValue()).toLowerCase() !== account.toLowerCase()) throw new GmailServiceError('unapproved', 'Gmail selected a different sending address.');
+    const selectedFrom = await from.count() ? (await from.inputValue()).trim() : '';
+    // Fresh Gmail composers leave this hidden field empty until initialized.
+    // Only an explicit address can contradict the verified mailbox account.
+    if (selectedFrom && selectedFrom.toLowerCase() !== account.toLowerCase()) throw new GmailServiceError('unapproved', 'Gmail selected a different sending address.');
     const recipient = dialog.locator('input[peoplekit-id], input[name="to"], input[aria-label="To recipients"]').first();
     await recipient.fill(mail.to); await recipient.press('Enter');
     const subject = dialog.locator('input[name="subjectbox"]'), body = dialog.locator('[role="textbox"][contenteditable="true"]').first();
@@ -93,7 +96,7 @@ async function validateHrDraft(page: Page, mail: BrowserHrMail, account: string,
   const bodies = draft.locator('[role="textbox"][contenteditable="true"]:visible');
   if (await bodies.count() !== 1) throw new GmailServiceError('unapproved', 'The Gmail draft editor is ambiguous.');
   const body = bodies.first(), from = form.locator('input[name="from"]');
-  const fromValues = await from.evaluateAll(nodes => nodes.map(node => (node as HTMLInputElement).value.toLowerCase()));
+  const fromValues = await from.evaluateAll(nodes => nodes.map(node => (node as HTMLInputElement).value.trim().toLowerCase()).filter(Boolean));
   const labels = await page.locator('a[aria-label^="Google Account:"], button[aria-label^="Google Account:"]').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label') || '').join('\n'));
   const accounts = labels.match(/[^\s()<>]+@[^\s()<>]+/g) || [];
   if (fromValues.some(value => value !== account.toLowerCase()) || (accounts.length && !accounts.some(value => value.toLowerCase() === account.toLowerCase()))
