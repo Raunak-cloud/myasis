@@ -30,7 +30,8 @@ export async function retryHrOutreachForRun(userId:string,runId:string,options:H
       JOIN hr_outreach_preferences p ON p.user_id=h.user_id
       WHERE h.user_id=$1 AND a.source_run_id=$2 AND p.enabled AND a.applied_at>=p.enabled_since
       AND a.submitted_by_myasis=true AND a.confirmation_status IS NULL AND a.outcome IS NULL
-      AND h.status IN ('error','skipped') AND h.reason=ANY($3::text[])
+      AND h.status IN ('error','skipped') AND (h.reason=ANY($3::text[]) OR h.lookup_outcome IN ('no_contact','company_unverified','access_blocked','temporarily_unavailable','incomplete')
+        OR h.reason LIKE 'Contact research did not finish. The earlier attempt did not record a specific cause.%')
       AND h.send_started_at IS NULL AND h.message_id IS NULL AND h.thread_id IS NULL AND h.sent_at IS NULL
       AND h.to_email IS NULL AND h.subject IS NULL AND h.body IS NULL
       AND (h.lease IS NULL OR h.lease_until<now()) ORDER BY h.id FOR UPDATE OF h`,[userId,runId,CONTACT_LOOKUP_REASONS]);
@@ -38,7 +39,7 @@ export async function retryHrOutreachForRun(userId:string,runId:string,options:H
     if(options.expectedIds&&(ids.length!==options.expectedIds.length||options.expectedIds.some(id=>!ids.includes(id))))throw Error('The selected HR records changed. Nothing was retried.');
     if(ids.length){
       const companyKeys=[...new Set(eligible.rows.map(row=>row.company_key))];
-      await client.query(`UPDATE hr_outreach SET status='queued',phase='queued',attempts=0,available_at=now(),
+      await client.query(`UPDATE hr_outreach SET status='queued',phase='queued',attempts=0,retry_allowed=true,available_at=now(),
         lease=NULL,lease_until=NULL,reason='Retrying public hiring contact lookup.',updated_at=now()
         WHERE user_id=$1 AND id=ANY($2::bigint[])`,[userId,ids]);
       // A deliberate lookup retry may bypass an old negative cache entry, but

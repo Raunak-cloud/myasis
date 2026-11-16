@@ -21,7 +21,7 @@ test('real PostgreSQL retry is owner/admin/run scoped, never dispatches, preserv
       CREATE TEMP TABLE applications(id BIGINT PRIMARY KEY,user_id BIGINT,source_run_id BIGINT,submitted_by_myasis BOOLEAN,confirmation_status TEXT,outcome TEXT,applied_at TIMESTAMPTZ);
       CREATE TEMP TABLE hr_outreach(id BIGINT PRIMARY KEY,user_id BIGINT,application_id BIGINT,company_key TEXT,title TEXT,company TEXT,status TEXT,phase TEXT,reason TEXT,
         send_started_at TIMESTAMPTZ,message_id TEXT,thread_id TEXT,sent_at TIMESTAMPTZ,to_email TEXT,subject TEXT,body TEXT,lease TEXT,lease_until TIMESTAMPTZ,
-        attempts INTEGER,available_at TIMESTAMPTZ,updated_at TIMESTAMPTZ);
+        attempts INTEGER,available_at TIMESTAMPTZ,updated_at TIMESTAMPTZ,lookup_outcome TEXT,retry_allowed BOOLEAN NOT NULL DEFAULT true);
       CREATE TEMP TABLE hr_company_contacts(company_key TEXT PRIMARY KEY,contact JSONB,next_validation_at TIMESTAMPTZ);
       INSERT INTO users VALUES(1,'hr-retry-admin@example.test',NULL),(2,'hr-retry-admin@example.test',NULL),(3,'ordinary@example.test',NULL);
       INSERT INTO hr_outreach_preferences VALUES(1,true,now()-interval '1 day'),(2,true,now()-interval '1 day'),(3,true,now()-interval '1 day');

@@ -98,6 +98,51 @@ try {
   const second=await listHrOutreachPage('1',{cursor:first.nextCursor},db);assert.equal(second.items.length,7);assert.equal(second.nextCursor,null);
   assert.equal(new Set([...first.items,...second.items].map(r=>r.id)).size,57,'real SQL pages neither overlap nor lose old messages');
   assert.equal((await listHrOutreachPage('1',{jobId:'100',platform:'seek'},db)).items[0].body,'Historical exact email 100');
+  const platformContact={...contact,email:'hello@freehire.me',companyDomain:'freehire.me',sourceUrl:'https://freehire.me/talent',sourceText:'Hiring? Request access Join the network'};
+  const financeContact={...contact,email:'josh@lansonpartners.com',companyDomain:'lansonpartners.com',sourceUrl:'https://www.lansonpartners.com/our-team',sourceText:'Josh Fordham recruits for the Treasury & Finance market.'};
+  await client.query(`UPDATE hr_outreach SET contact=$1,to_email=$2,message_id='original-receipt',company='FiftyFive Group Pty Ltd' WHERE job_id='100'`,[JSON.stringify(platformContact),platformContact.email]);
+  await client.query(`UPDATE hr_outreach SET contact=$1,to_email=$2,company='Lanson Partners',title='Senior Software Engineer AI Enablement' WHERE job_id='101'`,[JSON.stringify(financeContact),financeContact.email]);
+  await store.saveContact('bad-platform','MKA IT Services',platformContact,'Legacy platform contact');
+  await client.query("UPDATE hr_company_contacts SET contact_assessed_version=0 WHERE company_key='bad-platform'");
+  await store.auditContacts();await store.auditContacts();
+  const audited=await listHrOutreachPage('1',{jobId:'100',platform:'seek'},db),specialist=await listHrOutreachPage('1',{jobId:'101',platform:'seek'},db);
+  assert.equal(audited.items[0].status,'sent','quality audit never erases a genuine send');
+  assert.equal(audited.items[0].toEmail,'hello@freehire.me');assert.equal(audited.items[0].body,'Historical exact email 100');
+  assert.equal(audited.items[0].contactReviewRequired,true);assert.match(audited.items[0].contactReviewReason,/platform/);
+  assert.equal(specialist.items[0].contactReviewRequired,true);assert.match(specialist.items[0].contactReviewReason,/finance/);
+  assert.equal((await client.query("SELECT message_id FROM hr_outreach WHERE job_id='100'")).rows[0].message_id,'original-receipt');
+  assert.equal(await store.cache('bad-platform'),null,'invalid platform contact cannot be reused');
+  await client.query(`INSERT INTO applications(id,user_id,job_id,platform,title,company,url,submitted_by_myasis,applied_at,source_run_id)
+    SELECT n,1,n::text,'seek','Retry fixture '||n,'Fixture Company','https://example.org/jobs/'||n,true,now(),11 FROM generate_series(210,212) n;
+    INSERT INTO hr_outreach(user_id,application_id,company_key,dedupe_key,job_id,platform,title,company,url,status,attempts,retry_allowed)
+    SELECT 1,n,'fixture','retry-'||n,n::text,'seek','Retry fixture '||n,'Fixture Company','https://example.org/jobs/'||n,'error',CASE WHEN n=210 THEN 4 ELSE 1 END,n<>211 FROM generate_series(210,212) n;`);
+  const retry=await store.claim();assert.ok(retry);assert.equal(retry.job_id,'212','only a retryable non-exhausted error can be reclaimed');
+  await store.recordLookup(retry,{contact:null,reason:'Provider temporarily unavailable.',outcome:'temporarily_unavailable',retryable:true,pagesRead:0,
+    diagnostics:{stage:'public_sources',searches:1,pagesAttempted:0,pagesRead:0,pagesBlocked:0,pagesFailed:0,candidatesRejected:0,unresolvedPriorityPages:0,events:[]}});
+  await store.recordFailure(retry,'researching','unexpected_error');
+  await store.finish(retry,'error','The public search provider is temporarily unavailable.',undefined,0,{retryable:true});
+  const pending=(await listHrOutreachPage('1',{jobId:'212',platform:'seek'},db)).items[0];
+  assert.ok(pending.lookupCheckedAt);assert.ok(pending.lookupRetryAt);assert.equal(pending.lookupOutcome,'temporarily_unavailable');
+  assert.equal('lookup_diagnostics' in pending,false,'internal traces never appear in customer history');
+  await client.query('UPDATE hr_outreach_preferences SET enabled=false WHERE user_id=1');
+  assert.equal((await listHrOutreachPage('1',{jobId:'212',platform:'seek'},db)).items[0].lookupRetryAt,null,'opt-out cannot advertise a scheduled retry');
+  await client.query('UPDATE hr_outreach_preferences SET enabled=true WHERE user_id=1');
+  await client.query('UPDATE run_starts SET hr_ready_at=NULL WHERE id=11');
+  assert.equal((await listHrOutreachPage('1',{jobId:'212',platform:'seek'},db)).items[0].lookupRetryAt,null,'a run not ready for HR cannot advertise a retry');
+  await client.query('UPDATE run_starts SET hr_ready_at=now() WHERE id=11');
+  await client.query("UPDATE applications SET outcome='closed' WHERE id=212");
+  assert.equal((await listHrOutreachPage('1',{jobId:'212',platform:'seek'},db)).items[0].lookupRetryAt,null,'an invalidated application cannot advertise a retry');
+  await client.query('UPDATE applications SET outcome=NULL WHERE id=212');
+  assert.equal((await listHrOutreachPage('1',{jobId:'210',platform:'seek'},db)).items[0].lookupRetryAt,null,'no false retry date after the final attempt');
+  assert.equal((await listHrOutreachPage('1',{jobId:'211',platform:'seek'},db)).items[0].lookupRetryAt,null,'permanent failure does not advertise a retry');
+  await client.query("UPDATE hr_outreach SET available_at=now(),attempts=4 WHERE job_id='212'");
+  assert.equal(await store.claim(),null,'exhausted or permanent errors cannot restart');
+  await client.query("UPDATE hr_outreach SET status='researching',phase='writing',lease='crashed-fourth-attempt',lease_until=now()-interval '1 minute' WHERE job_id='212'");
+  await client.query("UPDATE hr_outreach SET status='queued' WHERE job_id='210'");
+  await store.recover();
+  for(const id of ['210','212']){const recovered=(await listHrOutreachPage('1',{jobId:id,platform:'seek'},db)).items[0];
+    assert.equal(recovered.status,'error','an exhausted pre-send crash must not remain queued forever');
+    assert.match(recovered.reason,/Automatic retries have finished/);assert.equal(recovered.lookupRetryAt,null);}
   await setHrOutreachEnabled('2',false,db);
   assert.equal((await listHrOutreach('2',db))[0].status,'skipped','opt-out cancels unsent work');
   await client.query('DELETE FROM users WHERE id=1');

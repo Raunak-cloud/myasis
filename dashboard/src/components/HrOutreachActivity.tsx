@@ -10,6 +10,7 @@ export interface HrOutreachProgress {
   skipped: number;
   failed: number;
   runId: string | null;
+  contactReviewRequiredCount?: number;
 }
 
 export function hrPhaseLabel(phase: string | null | undefined): string {
@@ -19,7 +20,7 @@ export function hrPhaseLabel(phase: string | null | undefined): string {
 export function HrOutreachActivity({ progress, error = false, link = false }: {
   progress: HrOutreachProgress | null; error?: boolean; link?: boolean;
 }) {
-  if (!progress || (!progress.active && progress.phase !== 'waiting' && !progress.queued && !progress.sent && !progress.skipped && !progress.failed)) {
+  if (!progress || (!progress.active && progress.phase !== 'waiting' && !progress.queued && !progress.sent && !progress.skipped && !progress.failed && !progress.contactReviewRequiredCount)) {
     return error ? <p className="job-meta" role="status">HR email status is temporarily unavailable.</p> : null;
   }
   const waiting = ['waiting', 'waiting-for-run'].includes(progress.phase ?? '');
@@ -29,6 +30,7 @@ export function HrOutreachActivity({ progress, error = false, link = false }: {
     {waiting ? <p className="job-meta">Your application run is still finishing. HR emails will start afterwards.</p>
       : progress.active && (progress.title || progress.company) ? <p className="job-meta">{[progress.title, progress.company].filter(Boolean).join(' · ')}</p> : null}
     <p className="hr-outreach-counts">{progress.sent} sent · {progress.queued} waiting · {progress.skipped} not sent · {progress.failed} need attention</p>
+    {(progress.contactReviewRequiredCount ?? 0) > 0 && <p className="hr-contact-review">{progress.contactReviewRequiredCount} {progress.contactReviewRequiredCount === 1 ? 'contact needs' : 'contacts need'} review</p>}
     {error && <p className="job-meta">Could not refresh the status. Showing the last update.</p>}
     {link && <a href="/?tab=applications">Open Submitted Applications</a>}
   </section>;

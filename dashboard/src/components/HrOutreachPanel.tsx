@@ -19,6 +19,11 @@ export interface HrOutreachEmail {
   contactName?: string | null;
   phase?: 'queued' | 'researching' | 'writing' | 'sending' | 'checking' | null;
   sourceRunId?: string | null;
+  lookupOutcome?: 'found' | 'no_contact' | 'company_unverified' | 'access_blocked' | 'temporarily_unavailable' | 'incomplete' | null;
+  lookupCheckedAt?: string | null;
+  lookupRetryAt?: string | null;
+  contactReviewRequired?: boolean;
+  contactReviewReason?: string | null;
 }
 
 const STATUS: Record<HrOutreachEmail['status'], { label: string; tone: string }> = {
@@ -30,25 +35,45 @@ const STATUS: Record<HrOutreachEmail['status'], { label: string; tone: string }>
   error: { label: 'Could not send', tone: 'bad' },
   unconfirmed: { label: 'Delivery unconfirmed', tone: 'warn' },
 };
+const LOOKUP_OUTCOMES = {
+  no_contact: { label: 'No public contact', tone: 'muted', reason: 'No public hiring or recruitment email was found.' },
+  company_unverified: { label: 'Company unverified', tone: 'warn', reason: 'The company website or its connection to this vacancy could not be verified.' },
+  access_blocked: { label: 'Access blocked', tone: 'warn', reason: 'The public contact source blocked access.' },
+  temporarily_unavailable: { label: 'Search temporarily unavailable', tone: 'warn', reason: 'The contact search service is temporarily unavailable.' },
+  incomplete: { label: 'Lookup incomplete', tone: 'warn', reason: 'The contact search finished before enough evidence was collected.' },
+} as const;
 
 /** Plain text preserves the exact message without rendering employer content as HTML. */
 export function HrEmailMessage({ item }: { item: HrOutreachEmail }) {
   const baseStatus = STATUS[item.status] ?? { label: 'Pending', tone: 'muted' };
+  const lookup = item.lookupOutcome && item.lookupOutcome in LOOKUP_OUTCOMES ? LOOKUP_OUTCOMES[item.lookupOutcome as keyof typeof LOOKUP_OUTCOMES] : null;
   const status = item.phase && !['sent', 'skipped', 'error'].includes(item.status) && !(item.status==='unconfirmed'&&item.phase==='queued')
-    ? { label: hrPhaseLabel(item.phase), tone: 'info' } : baseStatus;
+    ? { label: hrPhaseLabel(item.phase), tone: 'info' }
+    : item.status === 'error' && item.lookupRetryAt === null ? { label: 'Failed', tone: 'bad' }
+      : lookup && ['skipped', 'error'].includes(item.status) ? lookup : baseStatus;
+  const retryAt = item.lookupRetryAt && ['queued', 'error', 'unconfirmed'].includes(item.status) ? item.lookupRetryAt : null;
+  const lookupReason = item.reason || lookup?.reason;
   return <article className="hr-email">
     <div className="hr-email-heading">
       <div className="minw"><strong>{item.title}</strong><div className="job-meta">{item.company}</div></div>
-      <span className={`badge ${status.tone}`}>{status.label}</span>
+      <div className="hr-email-badges"><span className={`badge ${status.tone}`}>{status.label}</span>
+        {item.contactReviewRequired && <span className="badge warn">Contact needs review</span>}
+      </div>
     </div>
     <dl className="hr-email-meta">
-      {item.toEmail && <div><dt>To</dt><dd>{item.contactName ? `${item.contactName} · ` : ''}{item.toEmail}</dd></div>}
+      {item.toEmail && <div><dt>To</dt><dd>{item.contactName && !item.contactReviewRequired ? `${item.contactName} · ` : ''}{item.toEmail}</dd></div>}
       <div><dt>{item.sentAt ? 'Sent' : 'Added'}</dt><dd>{fmtDateTime(item.sentAt ?? item.createdAt)}</dd></div>
       {item.subject && <div><dt>Subject</dt><dd>{item.subject}</dd></div>}
+      {item.lookupCheckedAt && <div><dt>Last check</dt><dd>{fmtDateTime(item.lookupCheckedAt)}</dd></div>}
+      {retryAt && <div><dt>{item.status === 'unconfirmed' ? 'Earliest delivery check' : 'Earliest retry'}</dt><dd>{Date.parse(retryAt) > Date.now()
+        ? `From ${fmtDateTime(retryAt)}`
+        : item.status === 'unconfirmed' ? 'Waiting to check delivery' : 'Waiting to retry'}</dd></div>}
     </dl>
     {item.body && <details className="hr-email-content"><summary>{item.status === 'sent' ? 'View sent email' : 'View email'}</summary><div className="letter">{item.body}</div></details>}
-    {item.reason && item.status !== 'sent' && <p className="job-meta">{item.reason}</p>}
-    {item.sourceUrl && /^https?:\/\//i.test(item.sourceUrl) && <a className="hr-contact-source" href={item.sourceUrl} target="_blank" rel="noreferrer">Public contact source ↗</a>}
+    {lookupReason && item.status !== 'sent' && <p className="job-meta">{lookupReason}</p>}
+    {item.status === 'error' && item.lookupRetryAt === null && <p className="job-meta">No automatic retry is scheduled.</p>}
+    {item.contactReviewRequired && <p className="hr-contact-review" role="note">{item.contactReviewReason || 'This address has not been verified as the right hiring contact for this application.'}</p>}
+    {item.sourceUrl && /^https?:\/\//i.test(item.sourceUrl) && <a className="hr-contact-source" href={item.sourceUrl} target="_blank" rel="noreferrer">{item.contactReviewRequired ? 'Recorded source' : lookup ? 'Source checked' : 'Public contact source'} ↗</a>}
   </article>;
 }
 

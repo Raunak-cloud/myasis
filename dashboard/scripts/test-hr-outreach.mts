@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 const root=resolve(import.meta.dirname,'..');
 const cli=resolve(root,'../seek-bot/node_modules/tsx/dist/cli.mjs');
 const runs=[
-  ['--test','server/hr-outreach/discovery.test.ts','server/hr-outreach/agent.test.ts','server/hr-outreach/transport.test.ts','server/hr-outreach/worker.test.ts','server/hr-outreach/worker-simulation.test.ts','server/hr-outreach/run-completion.test.ts'],
+  ['--test','server/hr-outreach/discovery.test.ts','server/hr-outreach/agent.test.ts','server/hr-outreach/transport.test.ts','server/hr-outreach/worker.test.ts','server/hr-outreach/worker-simulation.test.ts','server/hr-outreach/robustness.test.ts','server/hr-outreach/run-completion.test.ts'],
   ['server/hr-outreach/activity.test.ts'],['server/hr-outreach/store.test.ts'],['server/hr-outreach/search.test.ts'],['--test','server/hr-outreach/retry.test.ts'],
   ['scripts/test-hr-outreach-access.mts'],['scripts/test-hr-outreach-ui.mts'],
   ['--test','../seek-bot/src/hr-email-browser.test.ts'],

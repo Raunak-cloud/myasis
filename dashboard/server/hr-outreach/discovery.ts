@@ -1,5 +1,6 @@
 import { parseHTML } from 'linkedom';
-import { PublicCrawler, crawlUrl, type PageResponse } from '../job-index/network.js';
+import { PublicCrawler, CrawlBlocked, CrawlDeferred, crawlUrl, type PageResponse } from '../job-index/network.js';
+import { canonicalUrl } from '../job-index/extract.js';
 
 export interface HiringContact {
   email: string;
@@ -9,6 +10,7 @@ export interface HiringContact {
   sourceUrl: string;
   sourceText: string;
   validatedAt: string;
+  sourceKind?: 'public_page' | 'indexed_excerpt';
 }
 export interface ContactSearchResult { url: string; title?: string; description?: string; extra_snippets?: string[] }
 export type HiringContactSearch = (query: string, signal?: AbortSignal) => Promise<ContactSearchResult[]>;
@@ -18,8 +20,17 @@ export interface DiscoveryInput {
   jobUrl?: string;
   previous?: HiringContact;
   signal?: AbortSignal;
+  roleTitle?: string;
+  location?: string;
 }
-export interface DiscoveryResult { contact: HiringContact | null; reason: string; pagesRead: number; retryable: boolean }
+export type DiscoveryOutcome = 'found' | 'no_contact' | 'company_unverified' | 'access_blocked' | 'temporarily_unavailable' | 'incomplete';
+export type DiscoveryStage = 'revalidation' | 'employer_identity' | 'company_pages' | 'job_source' | 'public_sources';
+export interface DiscoveryDiagnostics {
+  stage: DiscoveryStage; searches: number; pagesAttempted: number; pagesRead: number; pagesBlocked: number; pagesFailed: number;
+  candidatesRejected: number; unresolvedPriorityPages: number;
+  events: Array<{ stage: DiscoveryStage; kind: string; url?: string; status?: number; detail: string }>;
+}
+export interface DiscoveryResult { contact: HiringContact | null; reason: string; pagesRead: number; retryable: boolean; outcome: DiscoveryOutcome; diagnostics: DiscoveryDiagnostics }
 export interface DiscoveryOptions {
   crawler?: Pick<PublicCrawler, 'get'>;
   search?: HiringContactSearch;
@@ -27,7 +38,7 @@ export interface DiscoveryOptions {
   now?: () => Date;
 }
 
-const ATS = /(?:^|\.)(?:seek\.com(?:\.au)?|indeed\.com(?:\.au)?|jora\.com|adzuna\.com(?:\.au)?|myworkdayjobs\.com|myworkdaysite\.com|workday\.com|pageuppeople\.com|smartrecruiters\.com|greenhouse\.io|lever\.co|ashbyhq\.com|successfactors\.(?:com|eu)|oraclecloud\.com|jobvite\.com|icims\.com|bamboohr\.com|applytojob\.com|workable\.com|recruitee\.com|breezy\.hr|jobadder\.com|taleo\.net|adp\.com|csod\.com|linkedin\.com|facebook\.com|instagram\.com|x\.com|twitter\.com|google\.com)$/i;
+const ATS = /(?:^|\.)(?:seek\.com(?:\.au)?|indeed\.com(?:\.au)?|jora\.com|adzuna\.com(?:\.au)?|freehire\.(?:me|com(?:\.au)?)|careerone\.com\.au|careerjet\.com(?:\.au)?|jooble\.org|jobrapido\.com|talent\.com|glassdoor\.com(?:\.au)?|myworkdayjobs\.com|myworkdaysite\.com|workday\.com|pageuppeople\.com|smartrecruiters\.com|greenhouse\.io|lever\.co|ashbyhq\.com|successfactors\.(?:com|eu)|oraclecloud\.com|jobvite\.com|icims\.com|bamboohr\.com|applytojob\.com|workable\.com|recruitee\.com|breezy\.hr|jobadder\.com|taleo\.net|adp\.com|csod\.com|linkedin\.com|facebook\.com|instagram\.com|x\.com|twitter\.com|google\.com)$/i;
 const RECRUITING = /\b(?:recruit(?:ing|ment|er|ers)?|careers?|hiring|talent acquisition|people (?:and|&) culture|human resources|HR|job enquiries|employment enquiries|(?:send|submit|share|email).{0,35}(?:resumes?|CVs?|applications?))\b/i;
 const FORBIDDEN = /^(?:no[._-]?reply|do[._-]?not[._-]?reply|privacy|legal|abuse|security|webmaster|postmaster|media|press|investor|sales|support|help|billing)(?:[._+-]|$)/i;
 const RECRUITING_LOCAL = /(?:^|[._+-])(?:hr|careers?|recruit(?:ment|ing)?|hiring|talent|jobs?|employment|resumes?|cvs?)(?:[._+-]|$)/i;
@@ -37,14 +48,36 @@ const clean = (v: string) => v.replace(/\s+/g, ' ').trim();
 const withoutVendorCredit = (v: string) => v.replace(/\b(?:recruitment|careers?|hiring)\s+(?:websites?|web\s+design|software)\s+(?:by|from)\b/gi,'Website vendor credit by');
 const domain = (host: string) => host.toLowerCase().replace(/^www\d*\./, '').replace(/^(?:careers?|jobs|talent|people)\./, '');
 const sameCompanyHost = (host: string, root: string) => host === root || host.endsWith(`.${root}`);
+const roleAreas: Array<[string, RegExp]> = [
+  ['technology', /\b(?:software|developer|devops|technology|digital|data|analytics|cyber|cloud|AI|information technology|infrastructure|systems|machine learning)\b/i],
+  ['finance', /\b(?:finance|financial|accounting|accountant|treasury|audit|tax|payroll)\b/i],
+  ['healthcare', /\b(?:nursing|nurse|healthcare|medical|clinical)\b/i],
+  ['construction', /\b(?:construction|civil|structural|mechanical|electrical)\b/i],
+];
+const areaMatches = ([area, pattern]: [string,RegExp], value: string) => pattern.test(value) || area==='technology' && /\bIT\b/.test(value);
+/** A sourced address is not automatically the right recipient for this role.
+ * This assessment also audits old cached/sent evidence without a network call. */
+export function assessHiringContact(contact: HiringContact, company: string, roleTitle = ''): { reviewRequired: boolean; reason: string | null } {
+  const source = publicUrl(contact.sourceUrl), emailHost = contact.email.split('@')[1]?.toLowerCase() ?? '';
+  if (!isCompanyUrl(`https://${contact.companyDomain}/`) || ATS.test(emailHost)) return { reviewRequired: true, reason: 'The published address belongs to a job platform, not this employer.' };
+  if (!source || !company.trim() || !emailHost) return { reviewRequired: true, reason: 'The public contact evidence is incomplete.' };
+  const evidence = contact.sourceText;
+  const target = roleAreas.find(area => areaMatches(area,roleTitle));
+  const local = contact.email.split('@')[0];
+  const personal = !RECRUITING_LOCAL.test(local) && !/^(?:info|hello|contact|enquiries|office|sydney|melbourne|brisbane|perth|adelaide|canberra|hobart|darwin)(?:[._+-]|$)/i.test(local);
+  const specialist = personal && /\b(?:speciali[sz](?:e|es|ed|ing|ation|ations)|market|practice|division|sector|focus(?:es|ed|ing)?|recruits?\s+(?:for|in)|covers?)\b/i.test(evidence);
+  const areas = roleAreas.filter(area => areaMatches(area,evidence));
+  if (target && specialist && areas.length && !areas.some(([area]) => area === target[0])) return { reviewRequired: true, reason: `The published recruiter specialises in ${areas.map(([area]) => area).join(' and ')}, while this application is a ${target[0]} role.` };
+  return { reviewRequired: false, reason: null };
+}
 function publicUrl(raw: string): string | null {
   try { return crawlUrl(raw).href; } catch { return null; }
 }
 function isCompanyUrl(raw: string): boolean {
   const url = publicUrl(raw);
-  return !!url && !ATS.test(new URL(url).hostname);
+  return !!url && !ATS.test(new URL(url).hostname) && !/(?:^|\.)(?:staging|stage|dev|test|preview|uat|sandbox)(?:[.-]|$)/i.test(new URL(url).hostname);
 }
-const words = (value: string) => value.normalize('NFKC').replace(/([a-z])([A-Z][a-z])/g, '$1 $2').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+const words = (value: string) => value.normalize('NFKC').replace(/\bp\s*\/\s*l\b/gi, ' Pty Ltd ').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2').replace(/([a-z])([A-Z][a-z])/g, '$1 $2').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean);
 const LEGAL = /^(?:pty|ltd|limited|inc|incorporated|llc|plc|corp|corporation)$/;
 const REGION = /^(?:australia|australian|nsw|vic|qld|act|wa|sa|nt|tas|au|nz)$/;
 const DESCRIPTION = /^(?:company|co|group|holdings?|international|it|professional|services|solutions|technolog(?:y|ies)|recruitment|recruiting)$/;
@@ -82,25 +115,55 @@ function documentFor(html: string) {
   document.querySelectorAll('title,br,p,li,div,h1,h2,h3,section').forEach(n => n.appendChild(document.createTextNode('\n')));
   return document;
 }
+function structuredNodes(html: string): Record<string, unknown>[] {
+  const { document } = parseHTML(`<html><body>${html.slice(0, 3_000_000)}</body></html>`);
+  const nodes: Record<string, unknown>[] = [];
+  for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+    const queue: unknown[] = []; try { queue.push(JSON.parse(script.textContent ?? '')); } catch { continue; }
+    while (queue.length && nodes.length < 150) {
+      const value = queue.shift(); if (Array.isArray(value)) { queue.push(...value.slice(0, 100)); continue; }
+      if (!value || typeof value !== 'object') continue;
+      const node = value as Record<string, unknown>; nodes.push(node);
+      if (Array.isArray(node['@graph'])) queue.push(...node['@graph'].slice(0, 100));
+      if (['WebPage','AboutPage','ContactPage'].some(type=>hasType(node,type))) for(const child of [node.about,node.mainEntity]) if(child&&typeof child==='object')queue.push(child);
+    }
+  }
+  return nodes;
+}
+const hasType = (node: Record<string, unknown>, type: string) => (Array.isArray(node['@type']) ? node['@type'] : [node['@type']]).includes(type);
+function employerWebsites(html: string, company: string): string[] {
+  const urls: string[] = [];
+  for (const node of structuredNodes(html)) {
+    if (!hasType(node, 'JobPosting')) continue;
+    const owner = node.hiringOrganization;
+    if (!owner || typeof owner !== 'object' || Array.isArray(owner)) continue;
+    const org = owner as Record<string, unknown>;
+    if (typeof org.name !== 'string' || !identifiesCompany(company, org.name)) continue;
+    for (const value of [org.url, ...(Array.isArray(org.sameAs) ? org.sameAs : [org.sameAs])]) if (typeof value === 'string' && isCompanyUrl(value)) urls.push(value);
+  }
+  return [...new Set(urls)];
+}
 function officialIdentity(company: string, doc: ReturnType<typeof documentFor>, host: string, linkedByEmployer: boolean, html = ''): boolean {
+  if (ATS.test(host)) return false;
   const text = clean(doc.body?.textContent ?? '');
-  if (!identifiesCompany(company, text)) return false;
   const siteName = doc.querySelector('meta[property="og:site_name"]')?.getAttribute('content') ?? '';
   const branding = [...doc.querySelectorAll('title,h1,header,[itemprop="name"]')].map(n => n.textContent ?? '').join(' ');
+  const nodes = structuredNodes(html);
+  const owners = nodes.filter(node => hasType(node, 'JobPosting')).map(node => node.hiringOrganization).filter((v): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v));
+  const publisherNames=nodes.filter(node=>hasType(node,'WebSite')).map(node=>node.name).filter((name):name is string=>typeof name==='string');
+  // A job publisher can repeat the employer's name and markup. Its own site
+  // identity must not be mistaken for the organisation offering the vacancy.
+  if (owners.length && !companyDomainMatches(company, host)
+    && (new Set(owners.map(owner => String(owner.name ?? '').toLowerCase())).size > 1 || siteName && !publisherNameMatches(company, siteName) || publisherNames.some(name=>!publisherNameMatches(company,name)))) return false;
+  if(!companyDomainMatches(company,host)&&publisherNames.some(name=>!publisherNameMatches(company,name))&&!linkedByEmployer)return false;
+  if (/\bhiring\??\s*(?:request access|join the network)|\btalent network\b/i.test(text) && !companyDomainMatches(company, host) && !publisherNameMatches(company, siteName)) return false;
   // A directory mentioning an employer does not thereby become its website.
   // Search results need a matching brand domain or publisher site identity;
   // explicit employer-linked sites may instead confirm their own branding.
-  if (companyDomainMatches(company,host) || publisherNameMatches(company,siteName) || linkedByEmployer && identifiesCompany(company,branding)) return true;
-  const raw = parseHTML(`<html><body>${html.slice(0,3_000_000)}</body></html>`).document;
-  for (const script of raw.querySelectorAll('script[type="application/ld+json"]')) {
-    const queue: unknown[]=[];try{queue.push(JSON.parse(script.textContent??''));}catch{continue;}
-    let count=0;while(queue.length&&count++<100){const value=queue.shift();if(Array.isArray(value)){queue.push(...value.slice(0,100));continue;}
-      if(!value||typeof value!=='object')continue;const v=value as Record<string,unknown>;
-      const types=Array.isArray(v['@type'])?v['@type']:[v['@type']];
-      if(types.some(t=>['Organization','Corporation','EmploymentAgency','ProfessionalService'].includes(String(t)))&&typeof v.name==='string'&&publisherNameMatches(company,v.name)){
-        for(const candidate of [v.url,...(Array.isArray(v.sameAs)?v.sameAs:[v.sameAs])])if(typeof candidate==='string'&&publicUrl(candidate)&&domain(new URL(candidate).hostname)===domain(host))return true;
-      }
-      if(Array.isArray(v['@graph']))queue.push(...v['@graph'].slice(0,100));
+  if (identifiesCompany(company,text) && (companyDomainMatches(company,host) || publisherNameMatches(company,siteName) && identifiesCompany(company,branding) || linkedByEmployer && identifiesCompany(company,branding))) return true;
+  for (const v of nodes) {
+    if (['Organization','Corporation','EmploymentAgency','ProfessionalService'].some(type => hasType(v,type)) && typeof v.name === 'string' && publisherNameMatches(company,v.name)) {
+      for (const candidate of [v.url,...(Array.isArray(v.sameAs)?v.sameAs:[v.sameAs])]) if (typeof candidate==='string' && isCompanyUrl(candidate) && domain(new URL(candidate).hostname)===domain(host)) return true;
     }
   }
   return false;
@@ -109,8 +172,9 @@ function officialIdentity(company: string, doc: ReturnType<typeof documentFor>, 
 /** A shared employer name alone cannot authorize sending to a cached company.
  * Direct employer URLs, publisher organisation metadata or an explicit employer
  * website link must associate the current vacancy with the cached domain. */
-export async function canReuseHiringContact(company: string, jobUrl: string, contact: HiringContact, options: DiscoveryOptions & { signal?: AbortSignal } = {}): Promise<boolean> {
+export async function canReuseHiringContact(company: string, jobUrl: string, contact: HiringContact, options: DiscoveryOptions & { signal?: AbortSignal; roleTitle?: string } = {}): Promise<boolean> {
   options.signal?.throwIfAborted();
+  if (assessHiringContact(contact, company, options.roleTitle).reviewRequired) return false;
   const raw = publicUrl(jobUrl), rootUrl = `https://${contact.companyDomain}/`;
   if (!raw || !isCompanyUrl(rootUrl)) return false;
   const root = domain(new URL(rootUrl).hostname);
@@ -174,7 +238,7 @@ export function publishedHiringContacts(html: string, sourceUrl: string, company
     const hiringManager = /\bhiring manager\b|\brecruit(?:ment|ing) (?:manager|partner)\b|\btalent acquisition (?:manager|partner)\b/i.test(context);
     const namedRecruiter = !RECRUITING_LOCAL.test(local) && /\b(?:recruitment|recruiting|talent acquisition) (?:consultant|partner|manager|lead|specialist|director)\b/i.test(context);
     const candidate = { email, kind: hiringManager && !RECRUITING_LOCAL.test(local) ? 'hiring_manager' as const : 'recruitment' as const,
-      companyDomain, sourceUrl, sourceText: clean(context).slice(0, 600), validatedAt: now.toISOString(),
+      companyDomain, sourceUrl, sourceText: clean(context).slice(0, 600), validatedAt: now.toISOString(), sourceKind: 'public_page' as const,
       score: (official ? 20 : 0) + (hiringManager||namedRecruiter ? 10 : 0) + (namedRecruiter&&/\b(?:principal|head|director)\b/i.test(context)?6:0) + (RECRUITING_LOCAL.test(local) ? 6 : 0) };
     if ((result.get(email)?.score ?? -1) < candidate.score) result.set(email, candidate);
   };
@@ -223,39 +287,89 @@ export async function discoverHiringContact(input: DiscoveryInput, options: Disc
   const crawler = options.crawler ?? new PublicCrawler(undefined, 40), maxPages = Math.min(16, Math.max(1, options.maxPages ?? 10));
   const signal = AbortSignal.any([AbortSignal.timeout(60_000), ...(input.signal ? [input.signal] : [])]);
   const now = (options.now ?? (() => new Date()))();
-  let pagesRead = 0, accessFailures = 0;
+  let pagesRead = 0, successfulPages = 0, searchCalls = 0, searchFailed = false, researchLimited = false;
+  let root = '', jobPage: PageResponse | null = null;
+  const diagnostics: DiscoveryDiagnostics = { stage: 'employer_identity', searches: 0, pagesAttempted: 0, pagesRead: 0, pagesBlocked: 0, pagesFailed: 0, candidatesRejected: 0, unresolvedPriorityPages: 0, events: [] };
   const seen = new Set<string>(), queue: string[] = [], employerLinked = new Set<string>();
+  const blocked = new Set<string>(), transient = new Set<string>();
   const priority=new Map<string,number>();
   const offices=[['nsw','sydney'],['vic','melbourne'],['qld','brisbane'],['wa','perth'],['sa','adelaide'],['act','canberra'],['tas','hobart'],['nt','darwin']];
-  const companyWords=words(input.company),preferredOffice=offices.find(([state,city])=>companyWords.includes(state)||companyWords.includes(city))?.[1];
-  const contactPriority=(value:string)=>preferredOffice&&new RegExp(`\\b${preferredOffice}\\b`,'i').test(value)?12:/\b(?:contact|office|branch|location|sydney|melbourne|brisbane|perth|adelaide|canberra|hobart|darwin)\b/i.test(value)?6
-    :/\b(?:about|team|people|consultant)\b/i.test(value)?5:/\b(?:career|careers|recruitment|talent|hiring)\b/i.test(value)?4:1;
-  const relevantContact=(contacts:HiringContact[]):HiringContact|undefined=>contacts.find(c=>{
+  const companyWords=words(`${input.location ?? ''} ${input.roleTitle ?? ''} ${input.company}`),preferredOffice=offices.find(([state,city])=>companyWords.includes(state)||companyWords.includes(city))?.[1];
+  const contactPriority=(value:string)=>preferredOffice&&new RegExp(`\\b${preferredOffice}\\b`,'i').test(value)?12:/\b(?:career|careers|recruitment|talent|hiring)\b/i.test(value)?9:/\b(?:contact|office|branch|location|sydney|melbourne|brisbane|perth|adelaide|canberra|hobart|darwin)\b/i.test(value)?6
+    :/\b(?:team|people|consultant)\b/i.test(value)?5:/\babout\b/i.test(value)?3:1;
+  const event = (kind: string, detail: string, url?: string, status?: number) => {
+    if (diagnostics.events.length >= 60) return;
+    let safe: string | undefined; try { if (url && publicUrl(url)) { const u = new URL(url); safe = `${u.origin}${u.pathname}`.slice(0,500); } } catch { /* no unverified addresses in diagnostics */ }
+    diagnostics.events.push({ stage: diagnostics.stage, kind, detail, ...(safe ? { url: safe } : {}), ...(status ? { status } : {}) });
+  };
+  const key = (url: string) => canonicalUrl(url);
+  const enqueue = (raw: string, score?: number) => {
+    const url = publicUrl(raw); if (!url) return;
+    const identity = key(url); priority.set(identity, Math.max(priority.get(identity) ?? 0, score ?? contactPriority(new URL(url).pathname)));
+    if (!seen.has(identity) && !queue.some(value => key(value) === identity)) queue.push(url);
+  };
+  const relevantContact=(contacts:HiringContact[]):HiringContact|undefined=>contacts.filter(c=>{
+    const assessment = assessHiringContact(c,input.company,input.roleTitle);
+    if (assessment.reviewRequired) { diagnostics.candidatesRejected++; event('contact_rejected',assessment.reason!,c.sourceUrl); return false; }
     if(!preferredOffice)return true;
     const office=offices.find(([,city])=>new RegExp(`\\b${city}\\b`,'i').test(`${c.email.split('@')[0]} ${new URL(c.sourceUrl).pathname}`))?.[1];
     return !office||office===preferredOffice;
-  });
+  }).sort((a,b)=>{
+    const area = roleAreas.find(area=>areaMatches(area,input.roleTitle ?? ''));
+    const score = (contact: HiringContact) => (area && areaMatches(area,contact.sourceText) ? 10 : 0) + (preferredOffice && new RegExp(`\\b${preferredOffice}\\b`,'i').test(`${contact.sourceText} ${contact.email}`) ? 5 : 0);
+    return score(b)-score(a);
+  })[0];
+  const finish = (contact: HiringContact | null, successReason = 'Public hiring contact found.'): DiscoveryResult => {
+    const pending = queue.filter(url => !seen.has(key(url)) && (!root || sameCompanyHost(new URL(url).hostname,root)) && (priority.get(key(url)) ?? 0)>=4);
+    diagnostics.unresolvedPriorityPages=pending.length; diagnostics.searches=searchCalls; diagnostics.pagesAttempted=pagesRead; diagnostics.pagesRead=successfulPages;
+    const relevant = (urls: Set<string>) => [...urls].some(url => root ? sameCompanyHost(new URL(url).hostname,root) : companyDomainMatches(input.company,new URL(url).hostname)||employerLinked.has(new URL(url).origin));
+    const outcome: DiscoveryOutcome = contact ? 'found' : signal.aborted || researchLimited ? 'incomplete' : searchFailed || relevant(transient) ? 'temporarily_unavailable' : pending.length ? 'incomplete' : relevant(blocked) ? 'access_blocked' : root ? 'no_contact' : 'company_unverified';
+    if (!contact && outcome==='incomplete') event('research_limit','Relevant public sources remain unchecked within this lookup limit.');
+    const reasons: Record<DiscoveryOutcome,string> = { found:successReason, no_contact:'No suitable hiring contact was found on the public sources checked.', company_unverified:"The employer's official website could not be verified.", access_blocked:"The employer's public contact sources block automated access.", temporarily_unavailable:'Contact research could not finish because a network or search request failed.', incomplete:'Contact research reached its time, request or page limit before relevant sources were checked.' };
+    return { contact, pagesRead, outcome, retryable: outcome==='temporarily_unavailable'||outcome==='incomplete', reason: reasons[outcome], diagnostics };
+  };
   const read = async (raw: string, optional = false): Promise<PageResponse | null> => {
     const url = publicUrl(raw);
-    if (!url || seen.has(url) || pagesRead >= maxPages) return null;
-    seen.add(url); pagesRead++;
+    if (!url || seen.has(key(url)) || pagesRead >= maxPages) return null;
+    seen.add(key(url)); pagesRead++;
     try { signal.throwIfAborted(); const page = await crawler.get(url, { signal });
-      // Injected transports and every redirect still receive URL validation.
-      if (!optional && (page.status === 408 || page.status === 429 || page.status >= 500)) accessFailures++;
-      if (!publicUrl(page.url) || page.status < 200 || page.status >= 300 || !/html|text\/plain/.test(page.type)) return null;
+      if (!publicUrl(page.url)) { event('invalid_source','A redirect left the allowed public web.',url); return null; }
+      if ([401,403].includes(page.status)) { diagnostics.pagesBlocked++; if(!optional)blocked.add(url); event('access_blocked','The public source refuses automated access.',url,page.status); return null; }
+      if (page.status===408 || page.status===429 || page.status>=500) { diagnostics.pagesFailed++; if(!optional)transient.add(url); event('transient_error','The public source returned a temporary HTTP failure.',url,page.status); return null; }
+      if (page.status<200||page.status>=300) { event('not_found','The public page was not found.',url,page.status);return null; }
+      if (!/html|text\/plain/.test(page.type)) { event('unsupported_source','The public source is not an HTML or text contact page.',url,page.status);return null; }
+      successfulPages++; event('page_read','Public page read.',page.url,page.status);
       return page;
-    } catch (error) { if (input.signal?.aborted) throw error; if(!optional)accessFailures++; return null; }
+    } catch (error) {
+      if (input.signal?.aborted) throw error;
+      const message = error instanceof Error ? error.message : '';
+      const code = (error as { code?: string })?.code;
+      const localLimit = error instanceof CrawlDeferred && (crawler instanceof PublicCrawler && crawler.requests>crawler.maxRequests || error.waitMs<=60_000);
+      const policy = error instanceof CrawlBlocked && /unsupported|3 MB|redirect limit|public internet|private|non-public|account and application|sign-in page/i.test(message);
+      const permanent = error instanceof CrawlBlocked || /robots|verification|access denied|^blocked$/i.test(message);
+      if (localLimit) { if(!optional)researchLimited=true;event('research_limit','Owtomate could not finish within this lookup request or pacing limit.',url); }
+      else if(policy) { event('policy_refused','Owtomate could not use this source within its public-page size, redirect, type or security rules.',url); }
+      else if (permanent) { diagnostics.pagesBlocked++; if(!optional)blocked.add(url); event('access_blocked',/robots/i.test(message)?'The source robots policy prevents this page read.':'The public source blocks automated access or requires verification.',url); }
+      else {
+        diagnostics.pagesFailed++; if(!optional)transient.add(url);
+        const dns = ['ENOTFOUND','EAI_AGAIN','EAI_FAIL'].includes(code??'') || /\bDNS\b/i.test(message);
+        const timeout = (error as { name?: string })?.name==='TimeoutError'||/timed?\s*out|timeout/i.test(message);
+        event(dns?'dns_failure':timeout?'request_timeout':error instanceof CrawlDeferred?'source_deferred':'network_failure',dns?'Owtomate could not resolve the public source address.':timeout?'The public page request timed out.':error instanceof CrawlDeferred?'The source requires a later request.':'The public page request could not finish.',url);
+      }
+      return null;
+    }
   };
-  let searchCalls=0;const indexedSources:ContactSearchResult[]=[];
+  const indexedSources:ContactSearchResult[]=[];
   const search = async (query: string) => {
     if (!options.search || signal.aborted) return [];
-    if(++searchCalls>3){accessFailures++;return [];}
+    if(searchCalls>=3){event('research_limit','This lookup used its bounded search queries.');return [];}
+    searchCalls++; event('search','Public employer/contact search requested.');
     try { const results=(await options.search(query, signal)).filter(r => publicUrl(r.url));indexedSources.push(...results);return results; }
-    catch (error) { if (input.signal?.aborted) throw error; accessFailures++; return []; }
+    catch (error) { if (input.signal?.aborted) throw error; searchFailed=true;event('search_unavailable','The public search request could not finish.');return []; }
   };
-  let root = '', jobPage: PageResponse | null = null;
   const previous = input.previous;
-  if (previous && isCompanyUrl(`https://${previous.companyDomain}/`)) {
+  if (previous && !assessHiringContact(previous,input.company,input.roleTitle).reviewRequired && isCompanyUrl(`https://${previous.companyDomain}/`)) {
+    diagnostics.stage='revalidation';
     root = domain(previous.companyDomain);
     const page = await read(previous.sourceUrl);
     if (page) {
@@ -269,25 +383,29 @@ export async function discoverHiringContact(input: DiscoveryInput, options: Disc
           && officialIdentity(input.company, documentFor(homepage.text), new URL(homepage.url).hostname, false, homepage.text);
       }
       if (publisherConfirmed && identifiesCompany(input.company, clean(documentFor(page.text).body?.textContent ?? ''))) {
-        if (contact) return { contact, reason: 'Previously published hiring contact revalidated.', pagesRead, retryable: false };
-        const replacement=relevantContact(contacts);if (replacement) return { contact: replacement, reason: 'The public source now publishes a replacement hiring contact.', pagesRead, retryable: false };
+        if (contact) return finish(contact,'Previously published hiring contact revalidated.');
+        const replacement=relevantContact(contacts);if (replacement) return finish(replacement,'The public source now publishes a replacement hiring contact.');
       }
     }
     // Re-establish the publisher after a removed/changed source. A domain sale
     // must not turn last month's cache into authority for a different company.
-    queue.push(`https://${root}/`);
+    enqueue(`https://${root}/`,9);
     root = '';
+  } else if(previous) {
+    diagnostics.candidatesRejected++;event('cached_contact_rejected','The cached public contact is not suitable for this employer and role.',previous.sourceUrl);
   }
-  for (const raw of [input.website, input.jobUrl]) if (raw && isCompanyUrl(raw)) { queue.push(raw); employerLinked.add(new URL(raw).origin); }
+  diagnostics.stage='employer_identity';
+  for (const raw of [input.website, input.jobUrl]) if (raw && isCompanyUrl(raw)) { enqueue(raw,9); employerLinked.add(new URL(raw).origin); }
   // An ATS or job-board page is useful only for its outbound employer link.
   if (!queue.length && input.jobUrl) {
     const page = await read(input.jobUrl, true);
     if (page) {
       jobPage = page;
       const doc = documentFor(page.text);
+      for(const url of employerWebsites(page.text,input.company)){enqueue(url,10);employerLinked.add(new URL(url).origin);event('employer_link','The job names this employer website in hiringOrganisation data.',url);}
       for (const link of doc.querySelectorAll('a[href]')) {
         try { const url = new URL(link.getAttribute('href')!, page.url).href;
-          if (isCompanyUrl(url) && identifiesCompany(input.company, `${link.textContent ?? ''} ${link.getAttribute('aria-label') ?? ''} ${new URL(url).hostname.replace(/[.-]/g, ' ')}`)) { queue.push(url); employerLinked.add(new URL(url).origin); }
+          if (isCompanyUrl(url) && identifiesCompany(input.company, `${link.textContent ?? ''} ${link.getAttribute('aria-label') ?? ''} ${new URL(url).hostname.replace(/[.-]/g, ' ')}`)) { enqueue(url,9); employerLinked.add(new URL(url).origin); }
         } catch { /* malformed links are not candidates */ }
       }
       if (!queue.length && identifiesCompany(input.company, clean(doc.body?.textContent ?? ''))) {
@@ -296,7 +414,7 @@ export async function discoverHiringContact(input: DiscoveryInput, options: Disc
         // public page must still confirm the company before any contact is used.
         for (const contact of publishedHiringContacts(page.text, page.url, '', true, now,input.company)) {
           const host = contact.email.split('@')[1], url = `https://${host}/`;
-          if (isCompanyUrl(url)) queue.push(url);
+          if (isCompanyUrl(url)) enqueue(url,8);
         }
       }
     }
@@ -315,49 +433,68 @@ export async function discoverHiringContact(input: DiscoveryInput, options: Disc
       if(!exactJob&&!identifiesCompany(input.company,text))continue;
       const escaped=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       const candidate=relevantContact(publishedHiringContacts(`<p>${escaped}</p>`,result.url,root,false,now,input.company));
-      if(candidate)return {...candidate,sourceText:`Public search excerpt: ${candidate.sourceText}`.slice(0,600)};
+      if(candidate){
+        // A readable current vacancy is stronger evidence than an older index
+        // excerpt. Do not restore an address removed from that actual page.
+        if(exactJob&&jobPage&&identifiesCompany(input.company,clean(documentFor(jobPage.text).body?.textContent??''))&&!publishedHiringContacts(jobPage.text,jobPage.url,root,false,now,input.company).some(contact=>contact.email===candidate.email))continue;
+        return {...candidate,sourceKind:'indexed_excerpt',sourceText:`Public search excerpt: ${candidate.sourceText}`.slice(0,600)};
+      }
     }
     return null;
   };
-  const enqueueSearch=(results:ContactSearchResult[])=>queue.push(...results.filter(r=>isCompanyUrl(r.url)&&(!root||sameCompanyHost(new URL(r.url).hostname,root)))
-    .sort((a,b)=>Number(companyDomainMatches(input.company,new URL(b.url).hostname))-Number(companyDomainMatches(input.company,new URL(a.url).hostname))).map(r=>r.url));
-  let searched = false;
-  if (!queue.length) { enqueueSearch(await search(`"${quotedCompany}" official company careers contact`)); searched = true; }
+  const enqueueSearch=(results:ContactSearchResult[])=>{
+    for(const result of results.filter(r=>isCompanyUrl(r.url)&&(!root||sameCompanyHost(new URL(r.url).hostname,root)))
+      .sort((a,b)=>Number(companyDomainMatches(input.company,new URL(b.url).hostname))-Number(companyDomainMatches(input.company,new URL(a.url).hostname))))enqueue(result.url,companyDomainMatches(input.company,new URL(result.url).hostname)?8:contactPriority(new URL(result.url).pathname));
+  };
+  if (!queue.length) enqueueSearch(await search(`"${quotedCompany}" official company careers contact`));
   const officialPages: PageResponse[] = [];
   const scanOfficial = async (reserveForFallback = false): Promise<HiringContact | null> => {
+    diagnostics.stage=root?'company_pages':'employer_identity';
     while (queue.length && pagesRead < Math.max(2,maxPages-2) && !signal.aborted) {
       // Do not spend the entire budget on directories before the brand search,
       // nor fetch other companies after an official publisher is established.
       if(reserveForFallback&&!root&&pagesRead>=Math.max(2,maxPages-4))break;
-      queue.sort((a,b)=>(priority.get(b)??contactPriority(new URL(b).pathname))-(priority.get(a)??contactPriority(new URL(a).pathname)));
+      queue.sort((a,b)=>(priority.get(key(b))??contactPriority(new URL(b).pathname))-(priority.get(key(a))??contactPriority(new URL(a).pathname)));
       const target=queue.shift()!;
+      if(seen.has(key(target)))continue;
       if(root&&!sameCompanyHost(new URL(target).hostname,root))continue;
       const page = await read(target); if (!page || !isCompanyUrl(page.url)) continue;
       const doc = documentFor(page.text), host = new URL(page.url).hostname;
       if (root && !sameCompanyHost(host, root)) continue;
-      if (!officialPages.length && !officialIdentity(input.company, doc, host, employerLinked.has(new URL(page.url).origin),page.text)) continue;
+      if (!officialPages.length && !officialIdentity(input.company, doc, host, employerLinked.has(new URL(page.url).origin),page.text)) { diagnostics.candidatesRejected++;event('identity_rejected','The page publisher could not be established as this employer.',page.url);continue; }
       root ||= domain(host); officialPages.push(page);
+      if(input.jobUrl&&publicUrl(input.jobUrl)&&key(input.jobUrl)===key(target))jobPage=page;
+      diagnostics.stage='company_pages';
       const contacts = publishedHiringContacts(page.text, page.url, root, true, now,input.company);
       const relevant=relevantContact(contacts);if (relevant) return relevant;
       const next: Array<{ url: string; score: number }> = [];
       for (const link of doc.querySelectorAll('a[href]')) {
         try { const u = new URL(link.getAttribute('href')!, page.url); u.hash = '';
           const label = `${link.textContent ?? ''} ${u.pathname}`;
-          if (isCompanyUrl(u.href) && sameCompanyHost(u.hostname, root) && /career|recruit|talent|hiring|contact|about|people|team|jobs|consultant|branch|office|location|sydney|melbourne|brisbane|perth|adelaide|canberra|hobart|darwin/i.test(label)) next.push({ url: u.href, score: contactPriority(label) });
+          const contactLink=/contact|about|people|team|consultant|branch|office|location/i.test(label);
+          const roleArea=roleAreas.find(area=>areaMatches(area,input.roleTitle??''));
+          const roleLink=!!roleArea&&areaMatches(roleArea,label);
+          const recruitment=/career|recruit|talent|hiring|join[-\s]+(?:our[-\s]+)?team/i.test(label);
+          if(!recruitment&&(/\/(?:blogs?|news|insights|articles|products?|services?|insurance|for-employers|employer-join)(?:[/-]|$)/i.test(u.pathname)||/^(?:warranty|shop|store|members|support|help)\./i.test(u.hostname)))continue;
+          const jobLeaf=/\/(?:jobs?|vacanc(?:y|ies)|opportunit(?:y|ies))\/[^/]+/i.test(u.pathname);
+          if(jobLeaf&&!contactLink&&!roleLink)continue;
+          if (isCompanyUrl(u.href) && sameCompanyHost(u.hostname, root) && /career|recruit|talent|hiring|contact|about|people|team|jobs|consultant|branch|office|location|sydney|melbourne|brisbane|perth|adelaide|canberra|hobart|darwin/i.test(label)) next.push({ url: u.href, score: contactPriority(label)+(roleLink?7:0) });
         } catch { /* malformed links are not candidates */ }
       }
-      for(const entry of next){priority.set(entry.url,Math.max(priority.get(entry.url)??0,entry.score));if(!seen.has(entry.url)&&!queue.includes(entry.url))queue.push(entry.url);}
+      for(const entry of next)enqueue(entry.url,entry.score);
     }
     return null;
   };
   let contact = await scanOfficial(true);
-  if (!contact && root && input.jobUrl && pagesRead < maxPages && !signal.aborted) {
+  if (root && input.jobUrl && (jobPage || pagesRead < maxPages) && !signal.aborted && (!contact || key(contact.sourceUrl)!==key(input.jobUrl))) {
+    diagnostics.stage='job_source';
     jobPage ??= await read(input.jobUrl,true);
     if (jobPage && identifiesCompany(input.company, clean(documentFor(jobPage.text).body?.textContent ?? ''))) {
-      contact = relevantContact(publishedHiringContacts(jobPage.text, jobPage.url, root, false, now,input.company)) ?? null;
+      contact = relevantContact(publishedHiringContacts(jobPage.text, jobPage.url, root, false, now,input.company)) ?? contact;
     }
   }
-  if (!contact && (!searched || !root) && pagesRead < maxPages) {
+  if (!contact && pagesRead < maxPages && searchCalls<3) {
+    diagnostics.stage=root?'company_pages':'employer_identity';
     const results = await search(root?`${brand} site:${root} recruitment email`:`${brand} Australia recruitment contact official website`);
     if(!root)queue.length=0;
     enqueueSearch(results);
@@ -367,8 +504,11 @@ export async function discoverHiringContact(input: DiscoveryInput, options: Disc
   // A publicly indexed external page may corroborate a company-domain contact,
   // but never defines the company identity or authorizes an unrelated mailbox.
   if (!contact && root && pagesRead < maxPages && !signal.aborted) {
-    const results = await search(`site:linkedin.com/company "${brand}" "@${root}" recruitment`);
+    diagnostics.stage='public_sources';
+    const results = await search(input.roleTitle?`"${brand}" "${input.roleTitle.slice(0,150).replace(/["\r\n]/g,' ')}" recruitment email`:`site:linkedin.com/company "${brand}" "@${root}" recruitment`);
+    contact=indexedJobContact();
     for (const result of results) {
+      if(contact)break;
       const page = await read(result.url);
       if(!page){
         // A public company-profile search excerpt is a separate attributed
@@ -381,8 +521,8 @@ export async function discoverHiringContact(input: DiscoveryInput, options: Disc
           const text=clean(documentFor(`<p>${[result.title??'',result.description??'',...snippets].join('. ').slice(0,8000)}</p>`).body?.textContent??'').slice(0,8000);
           if(identifiesCompany(input.company,text)&&RECRUITING.test(text)){
             const escaped=text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-            const excerpt=publishedHiringContacts(`<p>${escaped}</p>`,result.url,root,false,now,input.company)[0];
-            if(excerpt){contact={...excerpt,sourceText:`Public search excerpt: ${excerpt.sourceText}`.slice(0,600)};break;}
+            const excerpt=relevantContact(publishedHiringContacts(`<p>${escaped}</p>`,result.url,root,false,now,input.company));
+            if(excerpt){contact={...excerpt,sourceKind:'indexed_excerpt',sourceText:`Public search excerpt: ${excerpt.sourceText}`.slice(0,600)};break;}
           }
         }
         continue;
@@ -393,6 +533,5 @@ export async function discoverHiringContact(input: DiscoveryInput, options: Disc
       const relevant=relevantContact(contacts);if (relevant) { contact = relevant; break; }
     }
   }
-  const retryable = !contact && (accessFailures > 0 || signal.aborted || queue.some(url => !seen.has(url)));
-  return { contact, pagesRead, retryable, reason: contact ? 'Public hiring contact found.' : retryable ? 'Public contact lookup is incomplete or temporarily unavailable.' : officialPages.length ? 'The company pages do not publish a suitable hiring contact.' : 'The company website could not be verified from public sources.' };
+  return finish(contact);
 }

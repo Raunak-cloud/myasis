@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { processHrJob,type HrWorkerDependencies } from './worker.js';
 import type { HrJob } from './store.js';
-import type { HiringContact } from './discovery.js';
+import type { HiringContact, DiscoveryDiagnostics } from './discovery.js';
+const diagnostics:DiscoveryDiagnostics={stage:'company_pages',searches:0,pagesAttempted:1,pagesRead:1,pagesBlocked:0,pagesFailed:0,candidatesRejected:0,unresolvedPriorityPages:0,events:[]};
 const contact:HiringContact={email:'careers@company.org',kind:'recruitment',companyDomain:'company.org',sourceUrl:'https://company.org/careers',sourceText:'Recruitment email',validatedAt:new Date().toISOString()};
 const job:HrJob={id:'21',user_id:'1',application_id:'4',company_key:'company',dedupe_key:'hash',job_id:'4',platform:'seek',title:'Analyst',company:'Company',url:'https://company.org/jobs/4',cover_letter:'Approved letter',status:'researching',to_email:null,subject:null,body:null,contact:null,created_at:new Date(),lease:'lease',attempts:1,cost_usd:0};
 function fixture(options:{fresh?:boolean;contact?:HiringContact|null;connected?:boolean;sendError?:Error;allowed?:boolean;uncertain?:boolean}={}){
@@ -54,10 +55,10 @@ test('definite pre-send rejection can retry; malformed generation costs retained
 });
 test('a same-name company cache without job association forces fresh discovery',async()=>{
   const {deps,events}=fixture();deps.verifyContact=async()=>false;
-  deps.discover=async(input)=>{assert.equal(input.previous,undefined,'unassociated cache cannot seed discovery');events.push(['discover']);return {contact:null,reason:'Unverified',pagesRead:1,retryable:false};};
+  deps.discover=async(input)=>{assert.equal(input.previous,undefined,'unassociated cache cannot seed discovery');events.push(['discover']);return {contact:null,reason:'The employer website could not be verified.',pagesRead:1,retryable:false,outcome:'company_unverified',diagnostics};};
   await processHrJob({...job},deps);assert.equal(events.some(e=>e[0]==='send'),false);assert.equal(events.at(-1)[2],'skipped');
 });
 test('transient discovery failure does not poison the shared cache or mark permanently skipped',async()=>{
-  const {deps,events}=fixture({fresh:false});deps.discover=async()=>({contact:null,reason:'Rate limited',pagesRead:1,retryable:true});
+  const {deps,events}=fixture({fresh:false});deps.discover=async()=>({contact:null,reason:'The public search provider is temporarily unavailable.',pagesRead:1,retryable:true,outcome:'temporarily_unavailable',diagnostics});
   await processHrJob({...job},deps);assert.equal(events.some(e=>e[0]==='cache'||e[0]==='send'),false);assert.equal(events.at(-1)[2],'error');
 });

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { discoverHiringContact, publishedHiringContacts, createHiringContactSearch, canReuseHiringContact, hiringCompanyBrand, type HiringContact } from './discovery.js';
-import { PublicCrawler, type PageResponse } from '../job-index/network.js';
+import { discoverHiringContact, publishedHiringContacts, createHiringContactSearch, canReuseHiringContact, hiringCompanyBrand, assessHiringContact, type HiringContact } from './discovery.js';
+import { PublicCrawler, CrawlBlocked, type PageResponse } from '../job-index/network.js';
 
 const now = new Date('2026-11-16T01:00:00.000Z');
 const response = (url: string, text: string, status = 200): PageResponse => ({ url, text, status, type: 'text/html', retryAfter: null });
@@ -20,7 +20,7 @@ test('company careers pages precede search, select a published hiring contact, a
   assert.equal(result.contact?.email, 'jane.smith@acme.org');
   assert.equal(result.contact?.kind, 'hiring_manager'); assert.equal(result.contact?.sourceUrl, 'https://acme.org/careers');
   assert.equal(result.contact?.validatedAt, now.toISOString()); assert.match(result.contact!.sourceText, /recruitment manager/);
-  assert.deepEqual(crawler.calls, ['https://acme.org/', 'https://acme.org/contact', 'https://acme.org/careers']);
+  assert.deepEqual(crawler.calls, ['https://acme.org/', 'https://acme.org/careers']);
 });
 
 test('only visible published contacts are extracted; scripts, hidden traps and inappropriate mailboxes are ignored', () => {
@@ -356,7 +356,7 @@ test('regional recruitment contact is reached before deep repeated navigation ex
   const f=fixture({'https://acme.org/':`<h1>Acme</h1>${navigation}`,
     'https://acme.org/careers':`<h1>Acme</h1>${navigation}<a href="/careers/jobs">Career opportunities</a>`,
     'https://acme.org/sydney':'<title>Sydney IT Recruitment Agency - Acme</title><h1>Sydney office</h1><a href="mailto:sydney@acme.org">sydney@acme.org</a>'});
-  const result=await discoverHiringContact({company:'Acme IT Professional Services',website:'https://acme.org/'},{crawler:f,maxPages:4});
+  const result=await discoverHiringContact({company:'Acme IT Professional Services',roleTitle:'Software Engineer Sydney NSW',website:'https://acme.org/'},{crawler:f,maxPages:4});
   assert.equal(result.contact?.email,'sydney@acme.org');assert.deepEqual(f.calls,['https://acme.org/','https://acme.org/sydney']);
 });
 
@@ -400,4 +400,138 @@ test('public exact-job excerpts can publish a resume inbox after independent com
     ?[{url:'https://au.indeed.com/viewjob?jk=another-job',title:'Agentic AI Engineer - Sydney',description:'Please contact us at resumes@acme.org for additional details.'}]
     :[{url:'https://acme.org/',title:'Acme'}]});
   assert.equal(negative.contact,null,'an unrelated job excerpt must also identify the company');
+});
+
+test('platform hiring-sales contacts never become an employer contact or reusable cache',async()=>{
+  const platform={...previous,email:'hello@freehire.me',companyDomain:'freehire.me',sourceUrl:'https://freehire.me/talent',sourceText:'Hiring? Request access Join the network'};
+  for(const company of ['FiftyFive Group Pty Ltd','MKA IT Services Pty LTD']){
+    assert.equal(assessHiringContact(platform,company,'Software Developer').reviewRequired,true);
+    assert.equal(await canReuseHiringContact(company,'https://freehire.me/talent',platform),false);
+    const result=await discoverHiringContact({company,previous:platform},{crawler:fixture({'https://freehire.me/talent':`<meta property="og:site_name" content="${company}"><h1>${company}</h1><p>Hiring? Request access hello@freehire.me Join the network</p>`}),search:async()=>[{url:'https://freehire.me/talent'}]});
+    assert.equal(result.contact,null);assert.equal(result.outcome,'company_unverified');assert.ok(result.diagnostics.events.some(event=>event.kind==='cached_contact_rejected'));
+  }
+});
+
+test('a job publisher cannot establish employer ownership using repeated company names or hiringOrganisation metadata',async()=>{
+  const html='<meta property="og:site_name" content="Acme"><h1>Acme careers</h1><script type="application/ld+json">'+JSON.stringify({'@graph':[{'@type':'WebSite',name:'Vacancy Network'},{'@type':'JobPosting',hiringOrganization:{'@type':'Organization',name:'Acme'}}]})+'</script><p>Recruitment careers@network.org</p>';
+  const result=await discoverHiringContact({company:'Acme'},{crawler:fixture({'https://network.org/':html}),search:async()=>[{url:'https://network.org/'}]});
+  assert.equal(result.contact,null);assert.equal(result.outcome,'company_unverified');assert.ok(result.diagnostics.candidatesRejected>0);
+});
+
+test('published hiringOrganization sameAs leads to the real employer before any general web search',async()=>{
+  const board='https://www.seek.com.au/job/77';
+  const f=fixture({[board]:'<script type="application/ld+json">'+JSON.stringify({'@type':'JobPosting',hiringOrganization:{'@type':'Organization',name:'Australian Target Systems P/L',sameAs:'https://australiantargetsystems.org/'}})+'</script>',
+    'https://australiantargetsystems.org/':'<h1>Australian Target Systems</h1><p>Recruitment careers@australiantargetsystems.org</p>'});
+  const result=await discoverHiringContact({company:'Australian Target Systems P/L',jobUrl:board},{crawler:f,search:async()=>{throw Error('No search needed');}});
+  assert.equal(hiringCompanyBrand('Australian Target Systems P/L'),'australian target systems');
+  assert.equal(hiringCompanyBrand('NGSSuper Pty Ltd'),'ngs super');
+  assert.equal(result.contact?.companyDomain,'australiantargetsystems.org');assert.equal(result.diagnostics.searches,0);
+});
+
+test('tracking links and slash variants cannot consume the crawl repeatedly or create a false incomplete outcome',async()=>{
+  const f=fixture({'https://acme.org/':'<h1>Acme</h1><a href="/contact?utm_source=nav">Contact</a><a href="/contact?utm_source=footer">Contact</a><a href="/contact/">Contact</a><a href="/jobs/unused-123">Other vacancy</a>',
+    'https://acme.org/contact?utm_source=nav':'<h1>Acme</h1><p>No hiring inbox published.</p>'});
+  const result=await discoverHiringContact({company:'Acme',website:'https://acme.org/'},{crawler:f,maxPages:4});
+  assert.equal(result.outcome,'no_contact');assert.equal(result.retryable,false);assert.equal(f.calls.length,2);assert.equal(result.diagnostics.unresolvedPriorityPages,0);
+});
+
+test('permanent robots denial, temporary failures and a genuine research limit have distinct outcomes',async()=>{
+  const blocked=await discoverHiringContact({company:'Acme',website:'https://acme.org/'},{crawler:new PublicCrawler(async url=>response(url,'User-agent: *\nDisallow: /'))});
+  assert.equal(blocked.outcome,'access_blocked');assert.equal(blocked.retryable,false);assert.equal(blocked.diagnostics.pagesBlocked,1);
+  const outage=await discoverHiringContact({company:'Acme',website:'https://acme.org/'},{crawler:fixture({'https://acme.org/':response('https://acme.org/','',503)})});
+  assert.equal(outage.outcome,'temporarily_unavailable');assert.equal(outage.retryable,true);assert.equal(outage.diagnostics.pagesFailed,1);
+  const limited=await discoverHiringContact({company:'Acme',website:'https://acme.org/'},{maxPages:2,crawler:fixture({'https://acme.org/':'<h1>Acme</h1><a href="/contact">Contact</a>','https://acme.org/contact':'<h1>Acme</h1><a href="/team">Recruitment team</a>'})});
+  assert.equal(limited.outcome,'incomplete');assert.equal(limited.retryable,true);assert.ok(limited.diagnostics.unresolvedPriorityPages>0);
+});
+
+test('an inaccessible unrelated search result does not turn a verified clean negative into a website outage',async()=>{
+  const f=fixture({'https://acme.org/':'<h1>Acme</h1><p>Public company information.</p>'});
+  const result=await discoverHiringContact({company:'Acme'},{crawler:{get:async url=>url.includes('directory.org')?Promise.reject(Error('Temporary network failure')):f.get(url)},search:async query=>query.includes('official company')?[{url:'https://directory.org/contact'},{url:'https://acme.org/'}]:[]});
+  assert.equal(result.outcome,'no_contact');assert.equal(result.retryable,false);
+});
+
+test('role relevance rejects a named finance-only recruiter for software and finds the technology team',async()=>{
+  const finance={...previous,email:'josh@acme.org',sourceText:'Josh is a recruitment consultant for the Treasury & Finance market.'};
+  assert.equal(assessHiringContact(finance,'Acme','Software Engineer').reviewRequired,true);
+  assert.equal(assessHiringContact({...finance,email:'careers@acme.org',sourceText:'Acme Finance recruitment enquiries careers@acme.org'},'Acme Finance','Software Engineer').reviewRequired,false,'a finance employer can hire software engineers through its general hiring inbox');
+  assert.equal(assessHiringContact({...finance,email:'jane@acme.org',sourceText:'Jane, Recruitment Manager at Acme Finance. Contact Jane for applications.'},'Acme Finance','Software Engineer').reviewRequired,false,'the employer industry alone does not establish a named recruiter specialism');
+  const f=fixture({'https://acme.org/':'<h1>Acme</h1><p>Josh recruitment consultant, Treasury & Finance market: josh@acme.org</p><a href="/technology/team">Technology recruitment team</a>',
+    'https://acme.org/technology/team':'<h1>Acme</h1><p>Technology recruitment consultant Ellis: ellis@acme.org</p>'});
+  const result=await discoverHiringContact({company:'Acme',roleTitle:'Software Engineer',website:'https://acme.org/'},{crawler:f});
+  assert.equal(result.contact?.email,'ellis@acme.org');assert.ok(result.diagnostics.events.some(event=>event.kind==='contact_rejected'));
+});
+
+test('job location selects the relevant regional recruitment office without changing employer identity',async()=>{
+  const f=fixture({'https://acme.org/':'<h1>Acme</h1><a href="/perth">Perth office</a><a href="/sydney">Sydney office</a>',
+    'https://acme.org/perth':'<h1>Acme Recruitment</h1><p>Recruitment perth@acme.org</p>',
+    'https://acme.org/sydney':'<h1>Acme Recruitment</h1><p>Recruitment sydney@acme.org</p>'});
+  const result=await discoverHiringContact({company:'Acme',location:'Sydney NSW',roleTitle:'Developer',website:'https://acme.org/'},{crawler:f});
+  assert.equal(result.contact?.email,'sydney@acme.org');assert.equal(f.calls.includes('https://acme.org/perth'),false);
+});
+
+test('staging sites are not current employer publishers and diagnostics do not retain query strings or exception payloads',async()=>{
+  const f=fixture({'https://staging.acme.org/':'<h1>Acme</h1><p>Recruitment careers@acme.org</p>'});
+  const result=await discoverHiringContact({company:'Acme',website:'https://staging.acme.org/'},{crawler:{get:async url=>{throw Error('Provider secret PRIVATE_PAYLOAD '+url);}},search:async()=>[{url:'https://staging.acme.org/'}]});
+  assert.equal(result.contact,null);assert.equal(result.outcome,'company_unverified');assert.equal(f.calls.length,0);
+  const failure=await discoverHiringContact({company:'Acme',website:'https://acme.org/?email=private-address'},{crawler:{get:async()=>{throw Error('PRIVATE_PAYLOAD');}}});
+  assert.equal(JSON.stringify(failure.diagnostics).includes('PRIVATE_PAYLOAD'),false);assert.equal(JSON.stringify(failure.diagnostics).includes('private-address'),false);
+});
+
+test('crawler policy refusals and local request ceilings are not reported as employer access blocks',async()=>{
+  for(const message of ['Page exceeds the 3 MB indexing limit.','Unsupported public page type.','Page redirect limit reached.','Destination resolved outside the public internet.']){
+    const result=await discoverHiringContact({company:'Acme',website:'https://acme.org/'},{crawler:{get:async()=>{throw new CrawlBlocked(message);}}});
+    assert.equal(result.outcome,'company_unverified');assert.equal(result.diagnostics.pagesBlocked,0);assert.ok(result.diagnostics.events.some(event=>event.kind==='policy_refused'));
+  }
+  const limit=await discoverHiringContact({company:'Acme',website:'https://acme.org/'},{crawler:new PublicCrawler(async url=>response(url,'User-agent: *\nAllow: /'),1)});
+  assert.equal(limit.outcome,'incomplete');assert.equal(limit.diagnostics.pagesBlocked,0);assert.ok(limit.diagnostics.events.some(event=>event.kind==='research_limit'));
+});
+
+test('DNS and timeout failures preserve observed fault categories without claiming an employer or provider outage',async()=>{
+  for(const error of [Object.assign(Error('resolver unavailable'),{code:'EAI_AGAIN'}),Object.assign(Error('request timed out'),{name:'TimeoutError'})]){
+    const result=await discoverHiringContact({company:'Acme',website:'https://acme.org/'},{crawler:{get:async()=>{throw error;}}});
+    assert.equal(result.outcome,'temporarily_unavailable');assert.doesNotMatch(result.reason,/employer.*down|provider.*down/i);
+    assert.ok(result.diagnostics.events.some(event=>event.kind===(error.name==='TimeoutError'?'request_timeout':'dns_failure')));
+  }
+});
+
+test('an explicit current-vacancy recruitment contact wins over a general company inbox once employer identity is verified',async()=>{
+  const job='https://www.seek.com.au/job/88';
+  const f=fixture({'https://acme.org/':'<h1>Acme</h1><p>Recruitment careers@acme.org</p>',[job]:'<h1>Acme Software Engineer</h1><p>For this vacancy contact our technology recruitment consultant Ellis at ellis@acme.org.</p>'});
+  const result=await discoverHiringContact({company:'Acme',website:'https://acme.org/',jobUrl:job,roleTitle:'Software Engineer - Sydney NSW'},{crawler:f});
+  assert.equal(result.contact?.email,'ellis@acme.org');assert.equal(result.contact?.sourceUrl,job);
+});
+
+test('an office named in the actual job title directs recruitment contact selection',async()=>{
+  const f=fixture({'https://acme.org/':'<h1>Acme</h1><a href="/perth">Perth office</a><a href="/sydney">Sydney office</a>',
+    'https://acme.org/perth':'<h1>Acme</h1><p>Recruitment perth@acme.org</p>','https://acme.org/sydney':'<h1>Acme</h1><p>Recruitment sydney@acme.org</p>'});
+  const result=await discoverHiringContact({company:'Acme',roleTitle:'Software Engineer Sydney NSW',website:'https://acme.org/'},{crawler:f});
+  assert.equal(result.contact?.email,'sydney@acme.org');
+});
+
+test('a WebPage about its own organisation verifies an alias domain without trusting the job publisher',async()=>{
+  const html='<title>Careers at Acme | doacme.org</title><h1>Join Acme</h1><script type="application/ld+json">'+JSON.stringify({'@type':'WebPage',name:'Careers at Acme',about:{'@type':'Organization',name:'Acme',url:'https://doacme.org',contactPoint:{'@type':'ContactPoint',contactType:'Human Resources',email:'hr@doacme.org'}}})+'</script><p>Email your resume <a href="mailto:hr@doacme.org">hr@doacme.org</a></p>';
+  const result=await discoverHiringContact({company:'Acme Pty Ltd',roleTitle:'Software Engineer'},{crawler:fixture({'https://doacme.org/careers':html}),search:async()=>[{url:'https://doacme.org/careers'}]});
+  assert.equal(result.contact?.email,'hr@doacme.org');assert.equal(result.contact?.companyDomain,'doacme.org');assert.equal(result.contact?.sourceKind,'public_page');
+  const platform='<script type="application/ld+json">'+JSON.stringify({'@graph':[{'@type':'WebSite',name:'Vacancy Network'},{'@type':'WebPage',about:{'@type':'Organization',name:'Acme',url:'https://network.org/'}}]})+'</script><h1>Acme</h1><p>Hiring? Request access hello@network.org</p>';
+  assert.equal((await discoverHiringContact({company:'Acme'},{crawler:fixture({'https://network.org/':platform}),search:async()=>[{url:'https://network.org/'}]})).contact,null);
+});
+
+test('careers sources are checked before a large about/contact navigation can consume the lookup',async()=>{
+  const f=fixture({'https://acme.org/':'<h1>Acme</h1>'+Array.from({length:10},(_,i)=>`<a href="/about/${i}">About our people</a>`).join('')+'<a href="/contact">Contact</a><a href="/careers">Careers</a>',
+    'https://acme.org/careers':'<h1>Acme careers</h1><p>Hiring careers@acme.org</p>'});
+  const result=await discoverHiringContact({company:'Acme',website:'https://acme.org/'},{crawler:f,maxPages:2});
+  assert.equal(result.contact?.email,'careers@acme.org');assert.deepEqual(f.calls,['https://acme.org/','https://acme.org/careers']);
+});
+
+test('a readable current job does not regain a removed address from stale indexed excerpts',async()=>{
+  const job='https://au.indeed.com/viewjob?jk=current-readable';
+  const f=fixture({[job]:'<h1>Acme Software Engineer</h1><p>Apply through this page. The former email contact has been removed.</p>','https://acme.org/':'<h1>Acme</h1><p>We build software.</p>'});
+  const result=await discoverHiringContact({company:'Acme',jobUrl:job,roleTitle:'Software Engineer'},{crawler:f,search:async query=>query.includes('official company')?[{url:'https://acme.org/'}]:[{url:job,title:'Acme Software Engineer',description:'Send resumes to careers@acme.org'}]});
+  assert.equal(result.contact,null);assert.equal(result.outcome,'no_contact');
+});
+
+test('the pronoun it does not establish a technology recruiter specialism',()=>{
+  const contact={...previous,email:'josh@acme.org',sourceText:'Josh specialises in the Treasury and Finance market. He understands it well.'};
+  assert.equal(assessHiringContact(contact,'Acme','Software Engineer').reviewRequired,true);
+  assert.equal(assessHiringContact({...contact,sourceText:'Josh specialises in IT infrastructure recruitment.'},'Acme','IT Manager').reviewRequired,false);
 });

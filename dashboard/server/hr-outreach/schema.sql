@@ -55,6 +55,17 @@ CREATE TABLE IF NOT EXISTS hr_outreach (
 CREATE INDEX IF NOT EXISTS hr_outreach_owner_idx ON hr_outreach(user_id,created_at DESC);
 CREATE INDEX IF NOT EXISTS hr_outreach_queue_idx ON hr_outreach(status,available_at);
 ALTER TABLE hr_outreach ADD COLUMN IF NOT EXISTS phase TEXT CHECK(phase IN ('queued','researching','writing','sending','checking'));
+-- Discovery and transport are separate outcomes. Diagnostics stay server-side.
+ALTER TABLE hr_outreach ADD COLUMN IF NOT EXISTS lookup_outcome TEXT CHECK(lookup_outcome IN ('found','no_contact','company_unverified','access_blocked','temporarily_unavailable','incomplete'));
+ALTER TABLE hr_outreach ADD COLUMN IF NOT EXISTS lookup_checked_at TIMESTAMPTZ;
+ALTER TABLE hr_outreach ADD COLUMN IF NOT EXISTS lookup_diagnostics JSONB;
+ALTER TABLE hr_outreach ADD COLUMN IF NOT EXISTS retry_allowed BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE hr_outreach ADD COLUMN IF NOT EXISTS contact_review_required BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE hr_outreach ADD COLUMN IF NOT EXISTS contact_review_reason TEXT;
+ALTER TABLE hr_outreach ADD COLUMN IF NOT EXISTS contact_assessed_version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE hr_company_contacts ADD COLUMN IF NOT EXISTS lookup_outcome TEXT;
+ALTER TABLE hr_company_contacts ADD COLUMN IF NOT EXISTS lookup_diagnostics JSONB;
+ALTER TABLE hr_company_contacts ADD COLUMN IF NOT EXISTS contact_assessed_version INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS hr_application_run_idx ON applications(user_id,source_run_id);
 -- HR daily usage is tracked independently of job discovery, without a quota.
 CREATE TABLE IF NOT EXISTS hr_contact_search_usage (

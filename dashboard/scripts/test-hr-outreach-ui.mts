@@ -17,7 +17,25 @@ const items = ['sent', 'queued', 'researching', 'sending', 'skipped', 'error', '
 const olderItems = [{ ...items[0], id: '93', jobId: 'old-history', title: 'Older outreach role', subject: 'An older introduction' },
   { ...items[0], id: '1', jobId: 'archived', platform: 'external', title: 'Archived application', company: 'Historical Employer', subject: 'My archived application', body: 'Exact historical email body.' }];
 let enabled = false, failSave = false, failHistory = false, failSettings = false, emptyHistory = false, failOlder = false;
-let progress = { active: false, phase: 'waiting' as string | null, title: null as string | null, company: null as string | null, queued: 1, sent: 0, skipped: 0, failed: 0, runId: '42' };
+let progress: { active: boolean; phase: string | null; title: string | null; company: string | null; queued: number; sent: number; skipped: number; failed: number; runId: string | null; contactReviewRequiredCount?: number }
+  = { active: false, phase: 'waiting', title: null, company: null, queued: 1, sent: 0, skipped: 0, failed: 0, runId: '42' };
+let reportingMode = false;
+const checkedAt = new Date(Date.now() - 5 * 60_000).toISOString(), retryAt = new Date(Date.now() + 60 * 60_000).toISOString();
+const reportBase = { ...items[0], toEmail: null, subject: null, body: null, sentAt: null, reason: null, sourceUrl: 'https://fixture.invalid/careers', contactName: null, phase: null, lookupCheckedAt: checkedAt, lookupRetryAt: null };
+const reportingItems: Array<typeof items[number] & { lookupOutcome?: string; lookupCheckedAt?: string; lookupRetryAt?: string | null; contactReviewRequired?: boolean; contactReviewReason?: string; diagnostics?: unknown }> = [
+  { ...reportBase, id: '210', title: 'No public contact role', status: 'skipped', lookupOutcome: 'no_contact' },
+  { ...reportBase, id: '209', title: 'Unverified company role', status: 'skipped', lookupOutcome: 'company_unverified' },
+  { ...reportBase, id: '208', title: 'Blocked source role', status: 'error', lookupOutcome: 'access_blocked', lookupRetryAt: retryAt },
+  { ...reportBase, id: '207', title: 'Provider interruption role', status: 'error', lookupOutcome: 'temporarily_unavailable', lookupRetryAt: retryAt },
+  { ...reportBase, id: '206', title: 'Incomplete lookup role', status: 'error', lookupOutcome: 'incomplete', lookupRetryAt: retryAt },
+  { ...reportBase, id: '205', title: 'Exhausted lookup role', status: 'error', lookupOutcome: 'incomplete' },
+  { ...reportBase, id: '211', title: 'Unconfirmed delivery role', status: 'unconfirmed', lookupOutcome: 'found', lookupRetryAt: retryAt, reason: 'Delivery needs checking. The email will not be sent again automatically.' },
+  { ...items[0], id: '204', title: 'MKA historical role', company: 'MKA IT Services Pty LTD', toEmail: 'hello@freehire.me', subject: 'Exact historical subject', body: 'Exact historical message already sent.', sourceUrl: 'https://freehire.me/talent', contactName: null,
+    lookupOutcome: 'found', lookupCheckedAt: checkedAt, lookupRetryAt: null, contactReviewRequired: true, contactReviewReason: 'The email was sent to a platform address. Its connection to this employer’s hiring team has not been verified.', diagnostics: { internalOnly: 'selector:secret model:private stack:internal' } },
+  { ...items[0], id: '203', title: 'FiftyFive historical role', company: 'FiftyFive Group Pty Ltd', toEmail: 'hello@freehire.me', sourceUrl: 'https://freehire.me/talent', contactReviewRequired: true, contactReviewReason: 'This platform contact has not been verified as the employer’s hiring contact.' },
+  { ...items[0], id: '202', title: 'Lanson software role', company: 'Lanson Partners', toEmail: 'josh@lansonpartners.com', contactReviewRequired: true, contactReviewReason: 'The public contact covers finance recruitment. Relevance to this software role needs review.' },
+  { ...items[0], id: '201', title: 'Verified hiring contact role', contactReviewRequired: false, lookupOutcome: 'found', lookupCheckedAt: checkedAt, lookupRetryAt: null },
+];
 let runAdmin = true;
 const writes: unknown[] = [];
 const html = `<!doctype html><html><body><div id="root"></div><script type="module">import React from'react';import{createRoot}from'react-dom/client';import{ApplicationsPanel}from'/src/components/ApplicationsPanel.tsx';import'/src/index.css';const mode=new URLSearchParams(location.search).get('hr');createRoot(document.getElementById('root')).render(React.createElement(ApplicationsPanel,{apps:${JSON.stringify(apps)},onChange:()=>{},followUpDays:10,...(mode==='default'?{}:{showHrOutreach:mode!=='off'})}));</script></body></html>`;
@@ -36,9 +54,10 @@ const vite = await createServer({ configFile: false, root: resolve(import.meta.d
       if (url.searchParams.get('activity') === '1') { res.end(JSON.stringify({ items: [], nextCursor: null, progress })); return; }
       const failed = failHistory || (failOlder && url.searchParams.has('cursor'));
       res.statusCode = failed ? 503 : 200;
-      const rows = url.searchParams.has('jobId') ? [...items, ...olderItems].filter(item => item.jobId === url.searchParams.get('jobId') && item.platform === url.searchParams.get('platform'))
-        : url.searchParams.has('cursor') ? olderItems : items;
-      res.end(JSON.stringify(failed ? { error: 'fixture unavailable' } : { items: emptyHistory ? [] : rows, nextCursor: emptyHistory || url.searchParams.has('cursor') || url.searchParams.has('jobId') ? null : '94', progress })); return;
+      const allRows = reportingMode ? reportingItems : [...items, ...olderItems];
+      const rows = url.searchParams.has('jobId') ? allRows.filter(item => item.jobId === url.searchParams.get('jobId') && item.platform === url.searchParams.get('platform'))
+        : reportingMode ? reportingItems : url.searchParams.has('cursor') ? olderItems : items;
+      res.end(JSON.stringify(failed ? { error: 'fixture unavailable' } : { items: emptyHistory ? [] : rows, nextCursor: emptyHistory || reportingMode || url.searchParams.has('cursor') || url.searchParams.has('jobId') ? null : '94', progress })); return;
     }
     if (req.url === '/api/hr-outreach/settings') {
       if (failSettings) { res.statusCode = 503; res.end(JSON.stringify({ error: 'fixture unavailable' })); return; }
@@ -217,5 +236,42 @@ try {
     assert.equal(hrRequests, 0, `No HR API calls when flag ${mode}`);
     await regularPage.close();
   }
-  console.log('PASS: admin HR Run/history stages and waiting/finished feedback, regular/default users make no HR requests, settings recovery, exact escaped email, historical drawer, pagination, mobile layout and retries; fictional APIs, no real emails.');
+  reportingMode = true; emptyHistory = false;
+  progress = { active: false, phase: 'finished', title: null, company: null, queued: 0, sent: 4, skipped: 2, failed: 5, runId: '43', contactReviewRequiredCount: 3 };
+  await page.goto(origin + '/hr-preview.html'); await page.getByRole('tab', { name: 'HR emails' }).click();
+  const report = (title: string) => page.locator('.hr-email-list .hr-email').filter({ has: page.getByText(title, { exact: true }) });
+  for (const [title, label] of [['No public contact role', 'No public contact'], ['Unverified company role', 'Company unverified'], ['Blocked source role', 'Access blocked'], ['Provider interruption role', 'Search temporarily unavailable'], ['Incomplete lookup role', 'Lookup incomplete'], ['Exhausted lookup role', 'Failed']]) {
+    await report(title).locator('.badge').filter({ hasText: new RegExp(`^${label}$`) }).waitFor();
+    assert.match(await report(title).innerText(), /Last check/);
+  }
+  for (const title of ['Blocked source role', 'Provider interruption role', 'Incomplete lookup role']) {
+    assert.match(await report(title).innerText(), /Earliest retry/);
+    assert.match(await report(title).innerText(), /From /);
+  }
+  assert.match(await report('Exhausted lookup role').innerText(), /No automatic retry is scheduled/);
+  assert.doesNotMatch(await report('Exhausted lookup role').innerText(), /Earliest retry|From /);
+  assert.equal(await report('Unconfirmed delivery role').locator('.badge').filter({ hasText: /^Delivery unconfirmed$/ }).count(), 1);
+  assert.match(await report('Unconfirmed delivery role').innerText(), /Earliest delivery check/);
+  assert.match(await report('Unconfirmed delivery role').innerText(), /From /);
+  assert.doesNotMatch(await report('Unconfirmed delivery role').innerText(), /Waiting to retry/);
+  reportingItems[4] = { ...reportingItems[4], lookupRetryAt: checkedAt };
+  await report('Incomplete lookup role').getByText('Waiting to retry', { exact: true }).waitFor();
+  reportingItems[6] = { ...reportingItems[6], lookupRetryAt: checkedAt };
+  await report('Unconfirmed delivery role').getByText('Waiting to check delivery', { exact: true }).waitFor();
+  const misattributed = report('MKA historical role');
+  assert.equal(await misattributed.locator('.badge').filter({ hasText: /^Sent$/ }).count(), 1, 'Historical delivery remains Sent');
+  assert.equal(await misattributed.locator('.badge').filter({ hasText: /^Contact needs review$/ }).count(), 1);
+  assert.match(await misattributed.innerText(), /hello@freehire.me/);
+  assert.match(await misattributed.innerText(), /platform address/);
+  await misattributed.getByText('View sent email', { exact: true }).click();
+  assert.equal(await misattributed.locator('.letter').innerText(), 'Exact historical message already sent.');
+  assert.equal(await misattributed.getByRole('link', { name: 'Recorded source' }).getAttribute('href'), 'https://freehire.me/talent');
+  assert.equal(await page.locator('.hr-email-list .badge').filter({ hasText: /^Contact needs review$/ }).count(), 3);
+  assert.match(await page.locator('.hr-outreach-activity').innerText(), /4 sent/);
+  assert.match(await page.locator('.hr-outreach-activity').innerText(), /3 contacts need review/);
+  assert.doesNotMatch(await page.locator('.hr-outreach-panel').innerText(), /selector:secret|model:private|stack:internal/);
+  await page.setViewportSize({ width: 390, height: 950 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  await page.screenshot({ path: resolve(screenshotDir, 'contact-reporting-mobile.png'), fullPage: true });
+  console.log('PASS: truthful lookup outcomes and scheduled/terminal failures, preserved sent mail with contact-review markers, admin-only Run/history stages, settings, escaped messages, historical drawers, pagination, mobile layout and retries; fictional APIs, no real emails.');
 } finally { await browser.close(); await vite.close(); }
