@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { agentOnlyTools } from './agent-only.js';
 import { authenticationTools, EMAILED_CODE_EXAMPLES } from './auth-tools.js';
-import { BROWSER_ACTION_EXAMPLES } from './ordinary-field-guidance.js';
+import { BROWSER_ACTION_EXAMPLES, SIMPLE_BROWSER_EXAMPLES } from './ordinary-field-guidance.js';
 import { minimaxToolSchema, minimaxToolArguments } from './provider-tool-schema.js';
 import { validToolInput, toolInputIssue } from './tool-input.js';
 import { namedBrowserToolCall } from './browser-tools.js';
@@ -11,14 +11,19 @@ test('all advertised browser examples are executable contracts for both provider
   const browser = agentOnlyTools.find(tool => tool.name === 'browser_action')!;
   const batch = agentOnlyTools.find(tool => tool.name === 'browser_batch')!;
   const batchItems = ((batch.parameters.properties as Record<string, Record<string, unknown>>).actions.items as Record<string, unknown>);
-  const batchActions = ((batchItems.properties as Record<string, Record<string, unknown>>).action.enum as string[]);
+  const batchTools = ((batchItems.properties as Record<string, Record<string, unknown>>).tool.enum as string[]);
   for (const example of BROWSER_ACTION_EXAMPLES) {
     const call = namedBrowserToolCall('browser_action', { ...example });
     const tool = agentOnlyTools.find(tool => tool.name === call.name)!;
     assert.equal(validToolInput(call.args, tool.parameters), true, toolInputIssue(call.args, tool.parameters) ?? '');
     assert.equal(validToolInput(call.args, minimaxToolSchema(tool).parameters), true);
     assert.deepEqual(minimaxToolArguments(tool, structuredClone(call.args)), call.args, 'Examples need no argument coercion');
-    if (batchActions.includes(example.action)) assert.equal(validToolInput({ actions: [example] }, batch.parameters), true);
+    if (batchTools.includes(call.name)) assert.equal(validToolInput({ actions: [{tool:call.name,args:call.args}] }, batch.parameters), true);
+  }
+  for (const call of SIMPLE_BROWSER_EXAMPLES) {
+    const tool = agentOnlyTools.find(item => item.name === call.tool)!;
+    assert.equal(validToolInput(call.args, tool.parameters), true);
+    if (batchTools.includes(call.tool)) assert.equal(validToolInput({actions:[call]},batch.parameters),true);
   }
   for (const incomplete of [
     { action: 'set_input_files', ref: 'f0', file_id: 'document' },

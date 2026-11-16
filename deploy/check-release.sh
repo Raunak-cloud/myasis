@@ -71,6 +71,6 @@ timeout --signal=TERM --kill-after=2s 180s bash deploy/check-hr-outreach.sh
 timeout --signal=TERM --kill-after=2s 60s bash -e -c '
   export CHROME_PATH="${CHROME_PATH:-/usr/bin/google-chrome-stable}"
   cd seek-bot
-  node --test dist/agent/recovery-rollback-browser.test.js dist/agent/browser-tools.test.js dist/agent/browser-tools-browser.test.js dist/agent/browser-snapshot-action.test.js
+  node --test dist/agent/recovery-rollback-browser.test.js dist/agent/browser-tools.test.js dist/agent/browser-tools-browser.test.js dist/agent/browser-snapshot-action.test.js dist/agent/simple-browser-tools.test.js dist/agent/tool-guidance-examples.test.js dist/agent/application-memory.test.js dist/agent/interaction-memory.test.js
 '
 bash deploy/smoke-check.sh "${1:-0}"

@@ -55,7 +55,7 @@ import { addIndeedCoverLetter } from './indeed-cover-letter.js';
 import { jobBoardForUrl } from '../job-board-url.js';
 import { extractEmployerQuestions } from './question-evidence.js';
 import { browserCommandContract } from './browser-command-schema.js';
-import { browserToolCall, splitBrowserTools } from './browser-tools.js';
+import { browserToolCall, splitBrowserTools, presentBrowserTool } from './browser-tools.js';
 import { BROWSER_FIELD_GUIDANCE } from './ordinary-field-guidance.js';
 import {isSnapshotOperation} from './browser-snapshot-command.js';
 import { RecoveryRecord, RecoveryRecordError, recoveryContextHash, type RecoveryWork } from './recovery-record.js';
@@ -169,7 +169,8 @@ Press uses value=key; select_page uses page_index. For take_snapshot, add screen
   ]}),
 ];
 
-export const agentOnlyTools = applicationToolDefinitions.flatMap(tool => splitBrowserTools(tool));
+export const agentOnlyExecutionTools = applicationToolDefinitions.flatMap(tool => splitBrowserTools(tool));
+export const agentOnlyTools = agentOnlyExecutionTools.map(presentBrowserTool);
 
 export { AGENT_ONLY_PROMPT } from './application-policy.js';
 
@@ -254,11 +255,12 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     return {...tool,description:'CURRENT MODE: Semi-auto preparation. Native actions only; scripts are unavailable. Use inspect/take_snapshot for page evidence. '+tool.description.replace('browser scripts and ','').replace('Scripts follow the same contract and permissions as browser_action. ',''),parameters:{...tool.parameters,properties:{...properties,actions:{...properties.actions,
       items:{...command,properties:{...(command.properties as Record<string,unknown>),action:{...((command.properties as Record<string,unknown>).action as Record<string,unknown>),enum:preparationBatchActions},target_mode:targetMode},...browserCommandContract(preparationBatchActions,true)}}}}};
   }) : applicationToolDefinitions.filter(tool => reviewingApplications() || tool.name !== 'prepare_application');
-  const offeredTools = modeTools.flatMap(tool => splitBrowserTools(tool, preparingApplications()));
+  const executionTools = modeTools.flatMap(tool => splitBrowserTools(tool, preparingApplications()));
+  const offeredTools = executionTools.map(presentBrowserTool);
   // Older saved recipes and in-flight transcripts retain their command format.
   // It is not advertised as a second way to perform the dedicated operations.
   const legacyBrowserTool = modeTools.find(tool => tool.name === 'browser_action')!;
-  const helpers=options.continuation?.helpers??new ApplicationHelpers([...offeredTools.filter(tool => tool.name !== 'browser_action'), legacyBrowserTool]);
+  const helpers=options.continuation?.helpers??new ApplicationHelpers([...executionTools.filter(tool => tool.name !== 'browser_action'), legacyBrowserTool]);
   if (retiredJobSource(options.job)) return { outcome: { status: 'skipped', reason: RETIRED_SOURCE_MESSAGE }, captured: [], actions: [], submitPressed: false, steps: 0, usage: 'No model calls: job source removed.' };
 
   const isolated = options.simulation === 'isolated-form';
@@ -869,7 +871,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
           if (sources.length === 1) answerSources.set(actionLabel, { identity: sources[0].controlIdentity!, label: sources[0].label });
           if (isCoverLetterField(actionLabel)) ctx.coverLetter = saved;
         }
-        return ok(JSON.stringify({ action: args.action, requested: readback.private ? '[private credential]' : value, current: readback, dropdown, note: `Current browser readback; inspect validation and selection before advancing. This is not server receipt.${waitNote ? ` ${waitNote}` : ''}` }), waitNote || dropdown && !dropdown.selected ? 'reobserve' : undefined);
+        return ok(JSON.stringify({ summary: readback.private ? 'Private field updated; value withheld.' : dropdown && !dropdown.selected ? `${actionLabel || 'Dropdown'}: not selected. Read current options before continuing.` : `${actionLabel || 'Control'} readback: ${String(saved ?? '').slice(0, 200)}. Preserve this value if correct.`, action: args.action, requested: readback.private ? '[private credential]' : value, current: readback, dropdown, note: `Current browser readback; inspect validation and selection before advancing. This is not server receipt.${waitNote ? ` ${waitNote}` : ''}` }), waitNote || dropdown && !dropdown.selected ? 'reobserve' : undefined);
       }
       default: throw new Error('Unknown browser action.');
     }
@@ -976,7 +978,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       const dialog = dialogs.get(ctx.page);
       const draft = { answers: [...new Map(ctx.captured.map(item => [item.question, item])).values()], resume: ctx.resumeName,
         coverLetter: ctx.coverLetter && !ctx.captured.some(item => item.answer === ctx.coverLetter) ? ctx.coverLetter : undefined };
-      messages.push(observationMessage(ctx.observation, `${lastNote}\nOpen pages: ${JSON.stringify(pages)}\nSHARED RECOVERY RECORD (tool observations and agent assessments are separate; historical evidence is not a receipt or permission): ${JSON.stringify(shared.view())}\nRecorded draft (action audit, not independent proof of saved values): ${JSON.stringify(draft)}${dialog ? `\nPending ${dialog.type()} dialog: ${dialog.message()}` : ''}`));
+      messages.push(observationMessage(ctx.observation, `${lastNote}\n${memory.render(ctx.observation.fields)}\nOpen pages: ${JSON.stringify(pages)}\nSHARED RECOVERY RECORD (tool observations and agent assessments are separate; historical evidence is not a receipt or permission): ${JSON.stringify({...(shared.view() as Record<string,unknown>),applicationMemory:undefined})}\nRecorded draft (action audit, not independent proof of saved values): ${JSON.stringify(draft)}${dialog ? `\nPending ${dialog.type()} dialog: ${dialog.message()}` : ''}`));
       if (recordOnly) messages.push({ role: 'user', content: 'Browser-action spending is exhausted. Use the reserved completion lane only to prepare the current application for candidate confirmation or record its truthful final outcome. No edits or sends are available. Assess fresh canonical evidence and retain approval and document protections; unresolved required facts go to Needs attention, and unfinished technical work must be reported honestly. Continue directly to preparation when the observed form is complete; do not write another recovery report.' });
       if (checkpoint) {
         let wholePage = '';
@@ -1090,20 +1092,22 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
           planActions++;
           try {
             if (!tool) throw new Error('Unknown tool. Use the currently offered tools.');
-            const issue = toolInputIssue(call.args, call.name === 'browser_action' ? legacyBrowserTool.parameters : tool.parameters);
+            const executionTool = executionTools.find(item => item.name === call.name) ?? tool;
+            const issue = toolInputIssue(operation.name === 'browser_batch' ? operation.args : call.args,
+              call.name === 'browser_action' ? legacyBrowserTool.parameters : executionTool.parameters);
             if (issue) throw new Error(`Invalid tool input: ${issue}`);
             failureKind='execution';
             operationMayMutate=helpers.has(call.name)||['fill_authentication_fields','enter_emailed_code','open_emailed_link','add_cover_letter','wait_for_verification'].includes(call.name)
                 || call.name==='prepare_email_application'&&!preparingApplications()
                 || operation.name==='browser_action'&&operation.args.action==='script'
                 || operation.name==='browser_action'&&changesBrowserState(operation.args)
-                || call.name==='browser_batch'&&Array.isArray(call.args.actions)&&call.args.actions.some(changesBrowserState);
+                || operation.name==='browser_batch'&&Array.isArray(operation.args.actions)&&operation.args.actions.some(changesBrowserState);
             operationId = shared.begin(call.name, typeof operation.args.action==='string'?operation.args.action:undefined,operationMayMutate);
             dispatchStarted=true;
             turnCoordinator.executed(call.name);
             result = await act(call.name, call.args);
             failureKind='validation';
-            if (result.kind === 'ok' && result.disposition!=='uncertain' && !readiness.requested && !failedToolResult(result) && (call.name === 'browser_batch' && Array.isArray(call.args.actions) && call.args.actions.some(changesBrowserState)
+            if (result.kind === 'ok' && result.disposition!=='uncertain' && !readiness.requested && !failedToolResult(result) && (operation.name === 'browser_batch' && Array.isArray(operation.args.actions) && operation.args.actions.some(changesBrowserState)
               || ['fill_authentication_fields', 'enter_emailed_code', 'open_emailed_link'].includes(call.name)
               || operation.name === 'browser_action' && changesBrowserState(operation.args))) browserMutated = true;
             ownedPages.add(ctx.page);

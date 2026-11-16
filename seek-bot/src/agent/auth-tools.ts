@@ -17,7 +17,7 @@ const cachedVerification = {
 
 const AUTHENTICATION_TOOL: ToolSchema = {
     name: 'fill_authentication_fields',
-    description: "Fill private credentials on login, registration or password-reset forms. Ordinary answers use browser_fill, browser_select_dropdown, browser_choose_radio or browser_set_checkbox. Supply current authentication field numbers in refs, or targets when refs are unavailable. Check the saved employer account first. For a new password supply password_rules. Click Continue/Sign in with browser_click, then record_authentication_result.",
+    description: 'Fill account email/username and private passwords for sign_in, create_account or reset_password. Default inputs: purpose and current refs. Ordinary application answers, including name, city and education, use browser_fill or browser_select_dropdown. targets is an advanced fallback when refs are unavailable. For new passwords include the observed password_rules; username is only for a separate account login name. This tool does not click or confirm account success.',
   parameters: {
       type: 'object',
       properties: {
@@ -47,7 +47,7 @@ const AUTHENTICATION_TOOL: ToolSchema = {
           },
         },
       },
-      required: ['purpose', 'reason'],
+      required: ['purpose'],
       anyOf: [{ required: ['targets'] }, { required: ['refs'] }],
     },
   };

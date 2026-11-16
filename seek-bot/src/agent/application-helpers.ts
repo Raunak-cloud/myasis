@@ -24,7 +24,7 @@ type Prepared={definition:HelperDefinition;schema:ToolSchema;digest:string};
 type Pending={name:string;next:number;results:unknown[]};
 type Executor=(name:string,args:ObjectValue)=>Promise<ToolResult>;
 const forbiddenKeys=new Set(['__proto__','constructor','prototype']);
-const allowedTools=new Set(['browser_fill','browser_click','browser_upload','browser_select_dropdown','browser_choose_radio','browser_set_checkbox','browser_press_key','browser_inspect','browser_snapshot','browser_action','create_file','convert_file']);
+const allowedTools=new Set(['browser_fill','browser_click','browser_upload','browser_select_dropdown','browser_choose_radio','browser_set_checkbox','browser_press_key','browser_inspect','browser_snapshot','browser_run_script','browser_action','create_file','convert_file']);
 const allowedActions=new Set(['fill','type','click','check','select','press','inspect','take_snapshot','script','wait','hover','scroll','set_input_files']);
 const objectSchema={type:'object',additionalProperties:true};
 const inputSchema={type:'object',additionalProperties:false,properties:{type:{type:'string',enum:['object']},properties:objectSchema,required:{type:'array',maxItems:30,items:{type:'string',maxLength:100}},additionalProperties:{type:'boolean',enum:[false]}},required:['properties']};

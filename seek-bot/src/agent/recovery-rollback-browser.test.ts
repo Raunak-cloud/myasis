@@ -24,6 +24,10 @@ test('the agent can recover after repeated invalid calls and unchanged inspectio
   globalThis.fetch=(async(_url,init)=>{
    const body=JSON.parse(String(init?.body));assert.ok(body.tools.some((t:any)=>t.function.name==='browser_choose_radio'));
    const call=calls.shift();assert.ok(call,'No extra model decisions expected.');
+   if(call.name==='browser_snapshot') {
+    const observation=String(body.messages.filter((message:any)=>message.role==='user').at(-1)?.content);
+    assert.match(observation,/APPLICATION MEMORY/);assert.match(observation,/"count":6/,'repeated failures remain visible to the model without stopping its next call');
+   }
    if(call.name==='finish')assert.equal(await page.locator('main').innerText(),'Application received: ROLLBACK-FIXTURE');
    return Response.json({choices:[{message:{role:'assistant',content:null,tool_calls:[{id:crypto.randomUUID(),type:'function',function:{name:call.name,arguments:JSON.stringify(call.args)}}]}}],usage:{prompt_tokens:30,completion_tokens:10}});
   }) as typeof fetch;

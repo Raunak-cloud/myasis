@@ -28,8 +28,8 @@ test('dedicated browser tools require only their own arguments for both provider
   }
   const generic = agentOnlyTools.find(tool => tool.name === 'browser_action')!;
   const props = generic.parameters.properties as Record<string, any>;
-  for (const action of ['click', 'fill', 'set_input_files', 'navigate', 'select', 'check', 'press', 'inspect', 'take_snapshot']) assert.ok(!props.action.enum.includes(action));
-  assert.equal(props.file_ids, undefined);
+  for (const action of ['click', 'fill', 'set_input_files', 'navigate', 'select', 'check', 'press', 'inspect', 'take_snapshot']) assert.ok(props.action.enum.includes(action), 'Advanced fallback retains every operation');
+  assert.ok(props.file_ids);
   const snapshot=agentOnlyTools.find(tool=>tool.name==='browser_snapshot')!;
   assert.equal(toolInputIssue({screenshot:true},snapshot.parameters),null);
   assert.ok(toolInputIssue({sends_application:true},snapshot.parameters));

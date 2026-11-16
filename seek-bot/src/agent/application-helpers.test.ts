@@ -14,7 +14,7 @@ import {closeCelerisQueues} from '../../../shared/celeris-queue.mjs';
 const directory=mkdtempSync(join(tmpdir(),'helper-integration-'));
 Object.assign(process.env,{DATA_DIR:directory,APPLICATION_AI_MODEL:'minimax',OPENROUTER_API_KEY:'fictional-fixture-key',CELERIS_API_KEY:'fixture-only',ALLOW_EXTERNAL_APPLY:'true',DRY_RUN:'false',COST_TRACKING:'false',CELERIS_QUEUE_FILE:join(directory,'queue.sqlite'),CELERIS_MIN_INTERVAL_MS:'0',OWTOMATE_LIVE_REPAIR:'',APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN:'false',FORM_CORPUS_DIR:join(directory,'corpus')});
 mkdirSync(join(directory,'resumes'));writeFileSync(join(directory,'resumes','cv.txt'),'Fictional candidate resume');writeFileSync(join(directory,'resumes.json'),JSON.stringify([{id:'cv',label:'Fixture',fileName:'cv.txt'}]));
-const {agentOnlyTools,runAgentOnlyApplication}=await import('./agent-only.js');
+const {agentOnlyExecutionTools:agentOnlyTools,runAgentOnlyApplication}=await import('./agent-only.js');
 const {config}=await import('../config.js');config.dryRun=false;config.allowExternalApply=true;
 const fetchBefore=globalThis.fetch;
 after(()=>{globalThis.fetch=fetchBefore;closeCelerisQueues();rmSync(directory,{recursive:true,force:true});});

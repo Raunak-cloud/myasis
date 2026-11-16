@@ -24,7 +24,7 @@ const action=agentOnlyTools.find(t=>t.name==='browser_action')!;
 const snapshot=agentOnlyTools.find(t=>t.name==='browser_snapshot')!;
 assert.ok(!agentOnlyTools.some(t=>t.name==='take_snapshot'),'the duplicate standalone tool is no longer offered');
 const names=agentOnlyTools.map(t=>t.name);
-const expected=['test_application_helper','record_application_review','add_cover_letter','prepare_application','prepare_email_application','browser_batch','browser_action','browser_click','browser_fill','browser_upload','browser_navigate','browser_select_dropdown','browser_choose_radio','browser_set_checkbox','browser_press_key','browser_inspect','browser_snapshot','create_file','render_approved_cover_letter','convert_file','combine_approved_documents','read_candidate_evidence','read_browser_experience','read_application_attempts','save_progress','reason_through_problem','check_employer_account','fill_authentication_fields','enter_emailed_code','open_emailed_link','record_authentication_result','wait_for_verification','investigate_application_state','wait_for_submission_result','finish'];
+const expected=['test_application_helper','record_application_review','add_cover_letter','prepare_application','prepare_email_application','browser_batch','browser_action','browser_click','browser_fill','browser_upload','browser_navigate','browser_select_dropdown','browser_choose_radio','browser_set_checkbox','browser_press_key','browser_inspect','browser_snapshot','browser_run_script','create_file','render_approved_cover_letter','convert_file','combine_approved_documents','read_candidate_evidence','read_browser_experience','read_application_attempts','save_progress','reason_through_problem','check_employer_account','fill_authentication_fields','enter_emailed_code','open_emailed_link','record_authentication_result','wait_for_verification','investigate_application_state','wait_for_submission_result','finish'];
 const inboxTools=new Set(['enter_emailed_code','open_emailed_link']);
 assert.deepEqual([...names].sort(),expected.filter(name=>!inboxTools.has(name)||names.includes(name)).sort(),'all other tools remain available, subject only to the existing inbox connection');
 
@@ -33,7 +33,7 @@ const examples=[{action:'take_snapshot',target_mode:'page'},
  {action:'take_snapshot',target_mode:'locator',locator:{by:'css',value:'input[name="question_36[]"]'}},
  {action:'take_snapshot',selector:'section',screenshot:false}];
 for(const args of examples){
- assert.equal(validToolInput(Object.fromEntries(Object.entries(args).filter(([key])=>key!=='action')),snapshot.parameters),true);
+ assert.equal(validToolInput(args,action.parameters),true,'advanced snapshots retain focused targeting');
  assert.equal(changesBrowserState(args),false);
  assert.equal(isSnapshotOperation('browser_action',args),true);
  const wire=minimaxToolSchema(snapshot);assert.deepEqual(wire.parameters.required,[]);

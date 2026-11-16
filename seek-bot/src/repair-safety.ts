@@ -9,7 +9,7 @@ export function traceProvesNoSend(trace: Record<string, any>, runId: string, att
     if (step.disposition === 'not-executed') continue;
     if (step.execution === 'not-started') continue;
     const operation = browserToolCall(step.tool, step.args ?? {});
-    const commands = step.tool === 'browser_batch' ? step.args?.actions : operation.name === 'browser_action' ? [operation.args] : [];
+    const commands = operation.name === 'browser_batch' ? operation.args.actions : operation.name === 'browser_action' ? [operation.args] : [];
     if (!Array.isArray(commands)) return false;
     for (const command of commands) {
       if (!command || command.sends_application === true || ['script','press','mouse_click'].includes(command.action))return false;

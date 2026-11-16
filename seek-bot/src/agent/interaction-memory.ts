@@ -19,6 +19,6 @@ export class InteractionMemory {
   }
 
   render(): string {
-    return this.failures.size ? `PREVIOUS FAILED INTERACTIONS (historical evidence, not restrictions). Diagnose using fresh controls; do not blindly repeat the same failed approach.\n${JSON.stringify([...this.failures.values()])}` : '';
+    return this.failures.size ? `PREVIOUS FAILED INTERACTIONS (historical targets, not restrictions). Use current refs. An unchanged failure needs a corrected call or a different approach.\n${JSON.stringify([...this.failures.values()].map(item => ({ ...item, target: item.target.slice(0, 220), error: item.error.split('\n')[0].slice(0, 240) })))}` : '';
   }
 }

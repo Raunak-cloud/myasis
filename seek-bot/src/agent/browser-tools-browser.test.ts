@@ -4,6 +4,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { chromium } from 'patchright';
+import { namedBrowserToolCall } from './browser-tools.js';
+import { toolInputIssue } from './tool-input.js';
 import { closeCelerisQueues } from '../../../shared/celeris-queue.mjs';
 
 test('named tools and batches retain real controls, uploads, single sends, Semi-auto approval and audit evidence', { timeout: 90000 }, async () => {
@@ -18,7 +20,7 @@ test('named tools and batches retain real controls, uploads, single sends, Semi-
   const { withApplicationModel } = await import('../application-model.js');
   const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
   try {
-    for (const [provider, mode, batched] of [['minimax', '', false], ['minimax', 'prepare', false], ['celeris', '', false], ['celeris', 'prepare', false], ['minimax', '', true]] as const) {
+    for (const [provider, mode, batched] of [['minimax', '', false], ['minimax', 'prepare', false], ['celeris', '', false], ['celeris', 'prepare', false], ['minimax', '', true], ['celeris', '', true], ['minimax', 'prepare', true]] as const) {
       process.env.APPLICATION_REVIEW_MODE = mode;
       const id = `${provider}-${mode || 'auto'}-${batched ? 'batch' : 'named'}`, receipt = `Application received: ${id}`;
       const context = await browser.newContext();
@@ -37,7 +39,7 @@ test('named tools and batches retain real controls, uploads, single sends, Semi-
         {action:'select',selector:'#country',value:'Australian citizen'}, {action:'check',selector:'#wireno',value:'true'},
         {action:'check',selector:'#consent',value:'true'}, {action:'check',selector:'#updates',value:'false'},
         { action: 'click', selector: '#send', sends_application: true }];
-      const calls: Array<{ name: string; args: Record<string, unknown> }> = batched ? [{ name: 'browser_batch', args: { actions } }] : [
+      const calls: Array<{ name: string; args: Record<string, unknown> }> = batched ? [{ name: 'browser_batch', args: { actions: actions.map(action => {const call=namedBrowserToolCall('browser_action',action);return {tool:call.name,args:call.args};}) } }] : [
         { name: 'browser_navigate', args: { url } },
         { name: 'browser_fill', args: { ref: 'f0' } },
         { name: 'browser_fill', args: { ref: 'f0', value: 'Alex Fixture' } },
@@ -52,6 +54,7 @@ test('named tools and batches retain real controls, uploads, single sends, Semi-
         { name: 'browser_snapshot', args: {selector:'#questions'} },
         { name: 'browser_click', args: { selector: '#send', sends_application: true } },
       ];
+      if (!mode && !batched) calls.splice(calls.length-1,0,{name:'browser_run_script',args:{script:'return document.querySelector("#country").value',script_intent:'inspect'}});
       if (!mode) calls.push({ name: 'finish', args: { status: 'applied', reason: receipt, evidence: receipt, receipt: { quote: receipt } } });
       let previous = '';
       globalThis.fetch = (async (_input, init) => {
@@ -73,13 +76,20 @@ test('named tools and batches retain real controls, uploads, single sends, Semi-
         const call = calls.shift(); assert.ok(call, 'No extra model turns are required');
         // Use the refs from this observation; file controls may use a selector
         // when the form extractor does not assign them a field number.
-        const targets = call.name === 'browser_batch' ? call.args.actions as Record<string, unknown>[] : [call.args];
+        const targets = call.name === 'browser_batch' ? (call.args.actions as Array<{args:Record<string,unknown>}>).map(action=>action.args) : [call.args];
+        if (batched) for (const target of targets) if (target.selector) {
+          const node=page.locator(String(target.selector));
+          const ref=await node.getAttribute('data-field-id')??await node.getAttribute('data-ref-id');
+          assert.ok(ref, 'Normal batch controls have current refs'); delete target.selector;target.ref=ref;
+        }
         for (const target of targets) if (target.ref) {
+          if (batched) continue;
           const selector = target.ref === 'f0' ? '#name' : '#cv';
           const ref = await page.locator(selector).getAttribute('data-field-id');
           if (ref) target.ref = ref;
           else { delete target.ref; target.selector = selector; }
         }
+        if(batched)assert.equal(toolInputIssue(call.args,body.tools.find((tool:any)=>tool.function.name===call.name).function.parameters),null);
         previous = call.name === 'browser_fill' && call.args.value === undefined ? 'invalid-fill' : call.name;
         return Response.json({ choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: crypto.randomUUID(), type: 'function', function: { name: call.name, arguments: JSON.stringify(call.args) } }] } }], usage: { prompt_tokens: 50, completion_tokens: 10 } });
       }) as typeof fetch;

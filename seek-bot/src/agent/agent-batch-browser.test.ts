@@ -18,7 +18,7 @@ globalThis.fetch=(async(_url,init)=>{
   assert.equal(body.tools.some((t:{function:{name:string}})=>t.function.name==='prepare_application'),false,'Auto apply cannot choose an unavailable Semi auto preparation tool');
   assert.ok(body.tools.some((t:{function:{name:string}})=>t.function.name==='prepare_email_application'),'email still requires explicit candidate confirmation');
   const batch=body.tools.find((t:{function:{name:string}})=>t.function.name==='browser_batch');
-  assert.ok(batch.function.parameters.properties.actions.items.properties.action.enum.includes('inspect'));
+  assert.ok(batch.function.parameters.properties.actions.items.properties.tool.enum.includes('browser_inspect'));
   calls=[{name:'browser_batch',args:{actions:[{action:'fill',selector:'#name',value:'Alex Fixture'},{action:'inspect',selector:'input'}]}}];
  }else if(turn===1){
   const batch=JSON.parse(latest());assert.equal(batch.completed,2);

@@ -18,7 +18,7 @@ Object.assign(process.env,{DATA_DIR:directory,APPLICATION_AI_MODEL:'celeris',CEL
   OWTOMATE_LIVE_REPAIR:'',APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN:'false',FORM_CORPUS_DIR:join(directory,'corpus')});
 mkdirSync(join(directory,'resumes'));writeFileSync(join(directory,'resumes','CV.txt'),'Fictional candidate. Sydney.');
 writeFileSync(join(directory,'resumes.json'),JSON.stringify([{id:'cv',label:'Fixture CV',fileName:'CV.txt'}]));
-const {agentOnlyTools,runAgentOnlyApplication}=await import('./agent-only.js');
+const {agentOnlyExecutionTools:agentOnlyTools,runAgentOnlyApplication}=await import('./agent-only.js');
 const {config}=await import('../config.js');config.dryRun=false;config.allowExternalApply=true;
 const originalFetch=globalThis.fetch;
 after(()=>{globalThis.fetch=originalFetch;closeCelerisQueues();rmSync(directory,{recursive:true,force:true});});

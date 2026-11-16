@@ -266,10 +266,10 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
     `${filled.length} authentication field(s) completed${filled.length ? `: ${filled.join('; ')}` : ''}.` +
       (alreadyCorrect.length ? ` Already matched the requested candidate values: ${alreadyCorrect.join('; ')}. Those inputs were left unchanged; repeating this fill will not advance the form. Use refill=true only if you choose to trigger native input events for an uncommitted field.` : '') +
       (unsupported.length
-        ? ` These are ordinary application controls, not login fields. ${unsupported.map(({ field }) => ordinaryFieldGuidance(field)).join(' ')} Use their refs or locators from the current page.`
+        ? ` Wrong tool: these are ordinary application controls, not login fields. ${unsupported.map(({ field }) => ordinaryFieldGuidance(field)).join(' ')}`
         : '') +
       (failed.length ? ` Re-observe and retry fields the site rejected: ${failed.join('; ')}` : '') +
-      ` No button was clicked and no account acceptance was established. Inspect the current response and choose the next actual control. Visible enabled controls: ${JSON.stringify(ctx.observation.actions.filter(action => !action.disabled).map(action => action.text).slice(0, 12))}.` +
+      ' No button was clicked; account success is not established. Read the current page for the next control.' +
       (setsPassword ? ' If the site then rejects the password for its rules, call fill_authentication_fields again with password_rules taken from that message.' : ''),
     failed.length || unsupported.length ? 'failed' : 'completed',
   );
