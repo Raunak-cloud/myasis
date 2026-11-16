@@ -4,7 +4,7 @@ import { createHrTransport, hrEmailMessage, hrMessageId, hrDeliveredBody, type H
 
 const mail: HrMail = { id: 'outreach-owner-job', to: 'hiring@example.invalid', subject: 'Developer application', body: 'Hello hiring team,\n\nI applied for the Developer role.\n\nTaylor', createdAt: '2026-11-16T00:00:00Z' };
 function fixture(overrides: Partial<HrTransportDependencies> = {}): HrTransportDependencies {
-  return { access: async () => ({ connected: true, account: 'candidate@example.invalid', provider: 'mcp' } as any), owner: async () => ({ email: 'candidate@example.invalid' }),
+  return { access: async () => ({ connected: true, admin: true, account: 'candidate@example.invalid', provider: 'mcp' } as any), owner: async () => ({ email: 'candidate@example.invalid' }),
     request: async () => { throw Error('Unexpected request'); }, sendBrowser: async () => { throw Error('Unexpected browser'); }, reconcileBrowser: async () => null, ...overrides };
 }
 
@@ -28,9 +28,14 @@ test('send uses owner mailbox and requires actual receipt', async () => {
   assert.deepEqual(await sender.send('owner', mail), { messageId: 'sent-id', threadId: 'thread' });
   await assert.rejects(createHrTransport(fixture({ request: (async () => ({})) as HrTransportDependencies['request'] })).send('owner', mail), (error: any) => error.code === 'uncertain');
 });
+test('ordinary accounts and revoked admin access cannot send or reconcile even with a connected mailbox',async()=>{
+  const transport=createHrTransport(fixture({access:async()=>({connected:true,admin:false,account:'candidate@example.invalid',provider:'mcp'} as any)}));
+  await assert.rejects(transport.send('ordinary',mail),(error:any)=>error.code==='unapproved');
+  await assert.rejects(transport.reconcile('ordinary',mail),(error:any)=>error.code==='unapproved');
+});
 
 test('disconnected or mismatched mailboxes cannot send or reconcile', async () => {
-  for (const overrides of [{ owner: async () => ({ email: 'other@example.invalid' }) }, { access: async () => ({ connected: false, account: null } as any) }]) {
+  for (const overrides of [{ owner: async () => ({ email: 'other@example.invalid' }) }, { access: async () => ({ connected: false, admin: true, account: null } as any) }]) {
     const transport = createHrTransport(fixture(overrides));
     await assert.rejects(transport.send('owner', mail), (error: any) => error.code === 'reconnect');
     await assert.rejects(transport.reconcile('owner', mail), (error: any) => error.code === 'reconnect');
@@ -56,7 +61,7 @@ test('OAuth reconciliation requires Sent and exact reference header, never subje
 
 test('browser transport uses selected provider without falling through to another account', async () => {
   let count = 0;
-  const transport = createHrTransport(fixture({ access: async () => ({ connected: true, account: 'candidate@example.invalid', provider: 'browser' } as any),
+  const transport = createHrTransport(fixture({ access: async () => ({ connected: true, admin: true, account: 'candidate@example.invalid', provider: 'browser' } as any),
     sendBrowser: async (userId, actual, account) => { assert.equal(userId, 'owner'); assert.equal(actual, mail); assert.equal(account, 'candidate@example.invalid'); count++; return { id: 'browser-confirmed' }; },
     reconcileBrowser: async () => ({ id: 'browser-confirmed', threadId: 'thread' }),
   }));
@@ -65,7 +70,7 @@ test('browser transport uses selected provider without falling through to anothe
 });
 
 test('private browser failures before opening the composer are safely retryable', async () => {
-  const transport = createHrTransport(fixture({ access: async () => ({ connected: true, account: 'candidate@example.invalid', provider: 'browser' } as any),
+  const transport = createHrTransport(fixture({ access: async () => ({ connected: true, admin: true, account: 'candidate@example.invalid', provider: 'browser' } as any),
     withBrowser: async () => { throw Error('Profile is in use'); },
   }));
   await assert.rejects(transport.send('owner', mail), (error: any) => error.definitiveRejection === true && error.code !== 'uncertain');

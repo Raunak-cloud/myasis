@@ -15,7 +15,7 @@ function simulation() {
   const events: string[] = [];
   const state = { enabled: true, sends: 0, generations: 0, discovers: 0, lostReceipt: false, failSentWrite: false, disableInCompose: false, denySendClaim: false };
   const remote: { id: string; raw: string }[] = [];
-  const transport = createHrTransport({ access: async () => ({ connected: true, account: 'candidate@fixture.invalid', provider: 'mcp' } as any),
+  const transport = createHrTransport({ access: async () => ({ connected: true, admin: true, account: 'candidate@fixture.invalid', provider: 'mcp' } as any),
     owner: async () => ({ email: 'candidate@fixture.invalid' }),
     request: (async (user, path, options) => {
       assert.equal(user, row.user_id, 'every transport access belongs to the queued owner');

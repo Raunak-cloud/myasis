@@ -143,8 +143,6 @@ as_app "cd $APP/market-scout && npm exec tsc -- -p ."
 # Reserve two seconds for forced termination within the configured bound.
 # A failed or timed-out check stops the release; it never counts as a pass.
 echo "Running limited deployment checks ($CHECK_TIMEOUT_SECONDS-second maximum)"
-as_app "cd $APP && timeout --signal=TERM --kill-after=2s 60s bash deploy/check-application-service.sh"
-as_app "cd $APP && timeout --signal=TERM --kill-after=2s 180s bash deploy/check-hr-outreach.sh"
 FORCE_FLAG=0
 if [ "${FORCE_DEPLOY:-}" = 1 ]; then FORCE_FLAG=1; fi
 REPLAY_BASELINE_FLAG=""
@@ -152,7 +150,7 @@ if [ -n "${REPLAY_BASELINE_SHA:-}" ]; then
   [[ "$REPLAY_BASELINE_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo 'Replay baseline must be a full production revision' >&2; exit 1; }
   REPLAY_BASELINE_FLAG="REPLAY_BASELINE_SHA=$REPLAY_BASELINE_SHA "
 fi
-as_app "cd $APP && ${REPLAY_BASELINE_FLAG}FORCE_DEPLOY=$FORCE_FLAG timeout --signal=TERM --kill-after=2s ${CHECK_SOFT_TIMEOUT_SECONDS}s bash deploy/smoke-check.sh $REPLAY_REQUIRED"
+as_app "cd $APP && ${REPLAY_BASELINE_FLAG}FORCE_DEPLOY=$FORCE_FLAG timeout --signal=TERM --kill-after=2s ${CHECK_SOFT_TIMEOUT_SECONDS}s bash deploy/check-release.sh $REPLAY_REQUIRED"
 # Apply idempotent schema upgrades before the new dashboard and its scheduler
 # start querying new columns. A migration failure leaves the old process up.
 as_app "cd $APP/dashboard && ../seek-bot/node_modules/.bin/tsx scripts/migrate-db.mts"

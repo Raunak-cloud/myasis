@@ -574,7 +574,7 @@ export default function App() {
           {tab === 'prepared' && <PreparedApplications running={running} canChangeCoverLetterMode={entitlements?.fineTune} onCountChange={setPreparedCount} onStarted={() => window.dispatchEvent(new Event('entitlements-refresh'))} />}
           {tab === 'marketing' && isAdmin && <MarketingAgent />}
           {tab === 'applications' && (
-            <ApplicationsPanel apps={apps} loading={appsLoading} loadError={appsError} onChange={setApps} followUpDays={FOLLOW_UP_DAYS} showSkipped={isAdmin} showCosts={isAdmin} />
+            <ApplicationsPanel apps={apps} loading={appsLoading} loadError={appsError} onChange={setApps} followUpDays={FOLLOW_UP_DAYS} showSkipped={isAdmin} showCosts={isAdmin} showHrOutreach={isAdmin} />
           )}
           {tab === 'admin' && isAdmin && <AdminPanel />}
           {tab === 'jobs' && isAdmin && <JobsPanel />}

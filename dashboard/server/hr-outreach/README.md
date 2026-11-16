@@ -1,6 +1,6 @@
 # HR outreach
 
-Users enable **Email hiring teams after I apply** in Submitted Applications → HR emails. It starts disabled for existing accounts. Enabling it does not contact employers from historical applications. Turning it off cancels unsent work.
+This release is administrator-only. The interface, HTTP APIs, queue, final send claim and Gmail transport require a current administrator account. Regular users cannot see or enable HR outreach. Administrators enable **Email hiring teams after I apply** in Submitted Applications → HR emails. It starts disabled for existing accounts. Enabling it does not contact employers from historical applications. Turning it off cancels unsent work.
 
 The independent application service runs the HR worker every 30 seconds. Confirmed submissions made after opt-in are queued durably. Prepared, failed, unconfirmed and already-applied records do not create outreach. The HR agent has its own system prompt and writes a brief, factual email using the candidate's profile and submitted cover letter. It does not modify the applying-agent prompt or search preferences.
 

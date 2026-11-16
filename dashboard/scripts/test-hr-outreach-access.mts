@@ -6,13 +6,19 @@ import { getPool } from '../server/db/index.js';
 
 const pool = getPool();
 const originalQuery = pool.query;
-const preferences = new Map([['1', false], ['2', true]]);
+const originalAdmins = process.env.ADMIN_EMAILS;
+process.env.ADMIN_EMAILS = 'admin-1@example.test,admin-3@example.test';
+const emailFor = (id: string) => id === '2' ? 'ordinary-2@example.test' : `admin-${id}@example.test`;
+const preferences = new Map([['1', false], ['2', true], ['3', true]]);
 let hrReads = 0, hrWrites = 0;
 const mutations: Array<{ userId: string; enabled: boolean }> = [];
 pool.query = (async (sql: string, values: unknown[] = []) => {
   if (sql.includes('FROM sessions')) {
-    const id = values[0] === 'first-session' ? '1' : values[0] === 'second-session' ? '2' : null;
-    return { rows: id ? [{ id, email: `ordinary-${id}@example.test`, name: `Fixture ${id}`, avatarUrl: null }] : [] };
+    const id = values[0] === 'first-session' ? '1' : values[0] === 'second-session' ? '2' : values[0] === 'third-session' ? '3' : null;
+    return { rows: id ? [{ id, email: emailFor(id), name: `Fixture ${id}`, avatarUrl: null }] : [] };
+  }
+  if (sql.startsWith('SELECT email FROM users WHERE id=')) {
+    const id = String(values[0]); return { rows: preferences.has(id) ? [{ email: emailFor(id) }] : [] };
   }
   if (sql.includes('FROM hr_outreach h')) {
     assert.match(sql, /WHERE h\.user_id=\$1/, 'History query must scope rows to the authenticated owner');
@@ -72,6 +78,13 @@ try {
   }
   assert.equal((await request('/api/hr-outreach/settings', undefined, { enabled: true })).status, 401);
   assert.equal(hrReads, 0); assert.equal(hrWrites, 0, 'Signed-out requests must not access private HR data');
+  for (const path of ['/api/hr-outreach', '/api/hr-outreach?userId=1', '/api/hr-outreach/settings']) {
+    assert.equal((await request(path, 'second-session')).status, 403);
+  }
+  assert.equal((await request('/api/hr-outreach/settings', 'second-session', { enabled: true, userId: '1' })).status, 403);
+  assert.equal((await request('/api/hr-outreach/settings', 'second-session', { enabled: 'invalid' })).status, 403, 'Admin guard precedes body validation');
+  assert.equal((await request('/api/hr-outreach?cursor=invalid', 'second-session')).status, 403, 'Admin guard precedes private request processing');
+  assert.equal(hrReads, 0); assert.equal(hrWrites, 0, 'Ordinary accounts cannot read or mutate HR data even with an old enabled preference');
   const first = await request('/api/hr-outreach?userId=2', 'first-session');
   assert.equal(first.status, 200); assert.equal(first.body.items[0].body, 'Private body 1');
   assert.doesNotMatch(JSON.stringify(first.body), /Private body 2|hiring-2/);
@@ -86,10 +99,10 @@ try {
   const readsBeforeInvalid = hrReads;
   for (const query of ['cursor=garbage', 'cursor=-1', 'cursor=9999999999999999999', 'jobId=one', 'platform=seek', 'jobId=one&platform=INVALID']) assert.equal((await request('/api/hr-outreach?' + query, 'first-session')).status, 400);
   assert.equal(hrReads, readsBeforeInvalid, 'Invalid pagination filters never reach the database');
-  const second = await request('/api/hr-outreach', 'second-session');
-  assert.equal(second.status, 200); assert.equal(second.body.items[0].body, 'Private body 2');
+  const second = await request('/api/hr-outreach?userId=1', 'third-session');
+  assert.equal(second.status, 200); assert.equal(second.body.items[0].body, 'Private body 3');
   assert.deepEqual((await request('/api/hr-outreach/settings', 'first-session')).body, { enabled: false });
-  assert.deepEqual((await request('/api/hr-outreach/settings', 'second-session')).body, { enabled: true });
+  assert.deepEqual((await request('/api/hr-outreach/settings', 'third-session')).body, { enabled: true });
   const writesBeforeBad = hrWrites;
   assert.equal((await request('/api/hr-outreach/settings', 'first-session', { enabled: true }, true)).status, 403);
   for (const enabled of [undefined, null, 'true', 1, [], {}]) assert.equal((await request('/api/hr-outreach/settings', 'first-session', { enabled })).status, 400);
@@ -97,13 +110,23 @@ try {
   const save = await request('/api/hr-outreach/settings?userId=2', 'first-session', { enabled: true, userId: '2' });
   assert.equal(save.status, 200); assert.deepEqual(save.body, { enabled: true });
   assert.deepEqual(mutations, [{ userId: '1', enabled: true }], 'Query/body owner spoofing cannot write another account');
-  await request('/api/hr-outreach/settings', 'second-session', { enabled: false });
-  assert.equal(preferences.get('1'), true); assert.equal(preferences.get('2'), false);
+  await request('/api/hr-outreach/settings?userId=1', 'third-session', { enabled: false, userId: '1' });
+  assert.equal(preferences.get('1'), true); assert.equal(preferences.get('3'), false); assert.equal(preferences.get('2'), true);
+  assert.deepEqual(mutations, [{ userId: '1', enabled: true }, { userId: '3', enabled: false }]);
+  process.env.ADMIN_EMAILS = 'admin-3@example.test';
+  const readsBeforeRevocation = hrReads, writesBeforeRevocation = hrWrites;
+  assert.equal((await request('/api/hr-outreach', 'first-session')).status, 403);
+  assert.equal((await request('/api/hr-outreach/settings', 'first-session', { enabled: false })).status, 403);
+  assert.equal(hrReads, readsBeforeRevocation); assert.equal(hrWrites, writesBeforeRevocation, 'Admin revocation takes effect on the next request');
   assert.equal((await request('/api/hr-outreach', 'first-session', undefined, false, 'DELETE')).status, 405);
   assert.equal((await request('/api/hr-outreach/settings', 'first-session', undefined, false, 'DELETE')).status, 405);
-  console.log('PASS: real HR API middleware rejects signed-out, cross-site and invalid writes/filters; owner-scoped pagination and historical job lookup; ordinary users cannot spoof another owner; fixture database only, no workers or email sends.');
+  console.log('PASS: admin-only HR API rejects ordinary and signed-out users before HR access, respects current admin revocation, rejects cross-site and invalid writes/filters, and scopes admin pagination/settings to their own account; fixture database only, no workers or email sends.');
 } finally {
-  if (server) await new Promise<void>((done, reject) => server!.close(error => error ? reject(error) : done()));
-  pool.query = originalQuery;
-  await pool.end();
+  try {
+    if (server) await new Promise<void>((done, reject) => server!.close(error => error ? reject(error) : done()));
+  } finally {
+    pool.query = originalQuery;
+    if (originalAdmins === undefined) delete process.env.ADMIN_EMAILS; else process.env.ADMIN_EMAILS = originalAdmins;
+    await pool.end();
+  }
 }

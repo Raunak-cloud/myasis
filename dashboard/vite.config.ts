@@ -386,6 +386,8 @@ function dataApi(): Plugin {
       case '/api/hr-outreach': {
         if (req.method !== 'GET') return send({ error: 'GET required' }, 405);
         return withUser(async userId => {
+          const actor = await currentUser(req.headers?.cookie);
+          if (actor?.id !== userId || !isAdminEmail(actor.email)) return send({ error: 'Admins only.' }, 403);
           const cursor = url.searchParams.get('cursor') ?? undefined;
           const jobId = url.searchParams.get('jobId') ?? undefined;
           const platform = url.searchParams.get('platform') ?? undefined;
@@ -396,6 +398,8 @@ function dataApi(): Plugin {
       case '/api/hr-outreach/settings': {
         if (req.method !== 'GET' && req.method !== 'POST') return send({ error: 'GET or POST required' }, 405);
         return withUser(async userId => {
+          const actor = await currentUser(req.headers?.cookie);
+          if (actor?.id !== userId || !isAdminEmail(actor.email)) return send({ error: 'Admins only.' }, 403);
           if (req.method === 'POST') {
             const body = await readBody();
             if (typeof body?.enabled !== 'boolean') return send({ error: 'Choose whether hiring-team emails are enabled.' }, 400);

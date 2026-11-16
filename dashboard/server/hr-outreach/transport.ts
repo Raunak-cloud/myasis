@@ -36,6 +36,7 @@ const defaults: HrTransportDependencies = { access: gmailAccess, owner: userId =
 export function createHrTransport(deps: HrTransportDependencies = defaults) {
   const identity = async (userId: string) => {
     const [connection, owner] = await Promise.all([deps.access(userId), deps.owner(userId)]);
+    if(connection.admin!==true)throw new GmailServiceError('unapproved','HR emails are currently available to administrators only.');
     if (!connection.connected || !connection.account || !owner?.email || owner.email.trim().toLowerCase() !== connection.account.toLowerCase()) throw new GmailServiceError('reconnect', 'Connect the Gmail address saved in your application profile.');
     return connection as typeof connection & { account: string };
   };

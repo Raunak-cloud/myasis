@@ -4,13 +4,14 @@ import { getPool } from '../db/index.js';
 import { HrStore,companyKey,outreachKey,getHrOutreachSettings,setHrOutreachEnabled,listHrOutreach,listHrOutreachPage } from './store.js';
 import type { HiringContact } from './discovery.js';
 
+const oldAdmins=process.env.ADMIN_EMAILS;process.env.ADMIN_EMAILS='admin-one@example.test,admin-two@example.test';
 const client=await getPool().connect();
 try {
   await client.query('BEGIN');
-  await client.query(`CREATE TEMP TABLE users(id BIGINT PRIMARY KEY,blocked_at TIMESTAMPTZ);
+  await client.query(`CREATE TEMP TABLE users(id BIGINT PRIMARY KEY,email TEXT,blocked_at TIMESTAMPTZ);
     CREATE TEMP TABLE applications(id BIGINT PRIMARY KEY,user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,job_id TEXT,platform TEXT,title TEXT,company TEXT,url TEXT,cover_letter TEXT,
       submitted_by_myasis BOOLEAN,confirmation_status TEXT,outcome TEXT,applied_at TIMESTAMPTZ);
-    INSERT INTO users VALUES(1,NULL),(2,NULL),(3,now());`);
+    INSERT INTO users VALUES(1,'admin-one@example.test',NULL),(2,'admin-two@example.test',NULL),(3,'admin-one@example.test',now()),(4,'ordinary@example.test',NULL);`);
   await client.query(readFileSync(new URL('./schema.sql',import.meta.url),'utf8').replaceAll('CREATE TABLE IF NOT EXISTS','CREATE TEMP TABLE IF NOT EXISTS'));
   await client.query(readFileSync(new URL('./schema.sql',import.meta.url),'utf8').replaceAll('CREATE TABLE IF NOT EXISTS','CREATE TEMP TABLE IF NOT EXISTS'));
   const db={query:async(text:string,params?:any[])=>client.query(text,params)};
@@ -18,7 +19,10 @@ try {
   assert.equal(companyKey('  Example   LTD '),'example ltd');
   assert.equal(outreachKey('Example LTD','Data Analyst'),outreachKey('EXAMPLE LTD','Data   Analyst'));
   assert.deepEqual(await getHrOutreachSettings('1',db),{enabled:false});
-  await setHrOutreachEnabled('1',true,db);await setHrOutreachEnabled('2',true,db);await setHrOutreachEnabled('3',true,db);
+  await setHrOutreachEnabled('1',true,db);await setHrOutreachEnabled('2',true,db);
+  await assert.rejects(setHrOutreachEnabled('4',true,db),/administrators/);
+  await assert.rejects(setHrOutreachEnabled('3',true,db),/administrators/);
+  await client.query('INSERT INTO hr_outreach_preferences(user_id,enabled) VALUES(3,true),(4,true)');
   const enabledSince=(await client.query('SELECT enabled_since FROM hr_outreach_preferences WHERE user_id=1')).rows[0].enabled_since;
   await setHrOutreachEnabled('1',true,db);
   assert.equal(+(await client.query('SELECT enabled_since FROM hr_outreach_preferences WHERE user_id=1')).rows[0].enabled_since,+enabledSince,'idempotent enable cannot reset cutoff');
@@ -29,15 +33,23 @@ try {
     (4,1,'draft','seek','Draft','Example LTD','https://example.org/jobs/4',NULL,false,NULL,NULL,now()+interval '1 second'),
     (5,2,'peer','seek','Data Analyst','Example LTD','https://example.org/jobs/1',NULL,true,NULL,NULL,now()+interval '1 second'),
     (6,3,'blocked','seek','Blocked Role','Example LTD','https://example.org/jobs/6',NULL,true,NULL,NULL,now()+interval '1 second'),
-    (7,1,'duplicate','indeed','Data Analyst','EXAMPLE LTD','https://example.org/jobs/1',NULL,true,NULL,NULL,now()+interval '1 second');`);
+    (7,1,'duplicate','indeed','Data Analyst','EXAMPLE LTD','https://example.org/jobs/1',NULL,true,NULL,NULL,now()+interval '1 second'),
+    (8,4,'ordinary','seek','Ordinary Role','Example LTD','https://example.org/jobs/8',NULL,true,NULL,NULL,now()+interval '1 second');`);
   await store.enqueue();await store.enqueue();
   assert.equal((await listHrOutreach('1',db)).length,2,'original and explicitly skipped duplicate only');
   assert.equal((await listHrOutreach('2',db)).length,1,'other owner has independent outreach');
   assert.equal((await listHrOutreach('3',db)).length,0,'blocked account excluded');
+  assert.equal((await listHrOutreach('4',db)).length,0,'ordinary account with saved opt-in cannot enqueue');
   assert.equal((await listHrOutreach('1',db)).filter(r=>r.status==='skipped').length,1);
   const job=await store.claim();assert.ok(job);assert.equal(job.user_id,'1');
   assert.ok(await store.allowed(job));
+  process.env.ADMIN_EMAILS='admin-two@example.test';assert.equal(await store.allowed(job),false,'admin revocation blocks pending job');assert.equal(await store.sending(job),false,'final send claim rechecks role');process.env.ADMIN_EMAILS='admin-one@example.test,admin-two@example.test';
   assert.equal((await store.claim())?.user_id,'2','concurrent claim cannot reuse researching job');
+  await client.query(`INSERT INTO hr_outreach(user_id,application_id,company_key,dedupe_key,job_id,platform,title,company,url,status,lease,lease_until)
+    VALUES(4,8,'fixture','forged-ordinary','ordinary','seek','Ordinary Role','Example LTD','https://example.org/jobs/8','researching','forged-lease',now()+interval '10 minutes')`);
+  const forged=(await client.query('SELECT *,id::text,user_id::text,application_id::text FROM hr_outreach WHERE user_id=4')).rows[0];
+  assert.equal(await store.allowed(forged),false,'ordinary users cannot process forged or legacy queue records');assert.equal(await store.sending(forged),false,'ordinary users cannot claim final send');
+  await client.query("UPDATE hr_outreach SET status='queued',lease=NULL WHERE user_id=4");assert.equal(await store.claim(),null,'ordinary records remain excluded from worker claims');
   const contact:HiringContact={email:'careers@example.org',kind:'recruitment',companyDomain:'example.org',sourceUrl:'https://example.org/careers',sourceText:'Recruitment',validatedAt:new Date().toISOString()};
   await store.saveContact(job.company_key,job.company,contact,'Published');
   assert.equal((await store.cache(job.company_key))?.fresh,true);
@@ -79,4 +91,4 @@ try {
   assert.equal((await listHrOutreach('1',db)).length,0,'private messages cascade on deletion');
   assert.ok(await store.cache(job.company_key),'shared public contact survives account deletion');
   console.log('PASS: real PostgreSQL HR queue, opt-in, no historical/draft sends, duplicate prevention, owner isolation, monthly cache TTL, leases, uncertain recovery and deletion. TEMP tables only.');
-}finally{await client.query('ROLLBACK');client.release();await getPool().end();}
+}finally{await client.query('ROLLBACK');client.release();await getPool().end();if(oldAdmins===undefined)delete process.env.ADMIN_EMAILS;else process.env.ADMIN_EMAILS=oldAdmins;}

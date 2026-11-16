@@ -18,7 +18,7 @@ const olderItems = [{ ...items[0], id: '93', jobId: 'old-history', title: 'Older
   { ...items[0], id: '1', jobId: 'archived', platform: 'external', title: 'Archived application', company: 'Historical Employer', subject: 'My archived application', body: 'Exact historical email body.' }];
 let enabled = false, failSave = false, failHistory = false, failSettings = false, emptyHistory = false, failOlder = false;
 const writes: unknown[] = [];
-const html = `<!doctype html><html><body><div id="root"></div><script type="module">import React from'react';import{createRoot}from'react-dom/client';import{ApplicationsPanel}from'/src/components/ApplicationsPanel.tsx';import'/src/index.css';createRoot(document.getElementById('root')).render(React.createElement(ApplicationsPanel,{apps:${JSON.stringify(apps)},onChange:()=>{},followUpDays:10}));</script></body></html>`;
+const html = `<!doctype html><html><body><div id="root"></div><script type="module">import React from'react';import{createRoot}from'react-dom/client';import{ApplicationsPanel}from'/src/components/ApplicationsPanel.tsx';import'/src/index.css';const mode=new URLSearchParams(location.search).get('hr');createRoot(document.getElementById('root')).render(React.createElement(ApplicationsPanel,{apps:${JSON.stringify(apps)},onChange:()=>{},followUpDays:10,...(mode==='default'?{}:{showHrOutreach:mode!=='off'})}));</script></body></html>`;
 const vite = await createServer({ configFile: false, root: resolve(import.meta.dirname, '..'), plugins: [react(), { name: 'hr-outreach-fixture', configureServer(server) {
   server.middlewares.use(async (req, res, next) => {
     if (req.url?.split('?')[0] === '/hr-preview.html') { res.setHeader('Content-Type', 'text/html'); res.end(await server.transformIndexHtml(req.url, html)); return; }
@@ -144,5 +144,20 @@ try {
   assert.equal(await checkbox.isChecked(), false);
   emptyHistory = true; await page.reload(); await page.getByRole('tab', { name: 'HR emails' }).click();
   await page.getByText('No HR emails yet', { exact: true }).waitFor();
-  console.log('PASS: opt-in save/load recovery, all statuses, polling until sent, exact escaped email, public source, historical drawer, pagination/retry/preservation, mobile layout, empty state, manual history retry and automatic recovery; fictional APIs, no real emails.');
+  for (const mode of ['off', 'default']) {
+    const regularPage = await browser.newPage();
+    let hrRequests = 0;
+    regularPage.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/hr-outreach')) hrRequests++; });
+    await regularPage.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+    await regularPage.goto(origin + '/hr-preview.html?hr=' + mode);
+    await regularPage.locator('.application-item').first().waitFor();
+    assert.equal(await regularPage.getByRole('tab', { name: 'HR emails' }).count(), 0, `HR tab hidden when flag ${mode}`);
+    await regularPage.locator('.application-item').filter({ hasText: 'Fixture Employer' }).click();
+    await regularPage.locator('.drawer').getByRole('heading', { name: 'Outcome', exact: true }).waitFor();
+    assert.equal(await regularPage.locator('.drawer').getByRole('heading', { name: 'HR email', exact: true }).count(), 0);
+    assert.equal(await regularPage.getByRole('checkbox', { name: 'Email hiring teams after I apply' }).count(), 0);
+    assert.equal(hrRequests, 0, `No HR API calls when flag ${mode}`);
+    await regularPage.close();
+  }
+  console.log('PASS: admin HR visibility, regular/default users make no HR requests, opt-in save/load recovery, statuses/polling, exact escaped email, historical drawer, pagination, mobile layout and manual/automatic retry; fictional APIs, no real emails.');
 } finally { await browser.close(); await vite.close(); }

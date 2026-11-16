@@ -14,6 +14,8 @@ interface Props {
   /** Offer the Skipped view beside what was sent (administrators, while it is tried out). */
   showSkipped?: boolean;
   showCosts?: boolean;
+  /** HR outreach is restricted to the admin pilot. */
+  showHrOutreach?: boolean;
   loading?: boolean;
   loadError?: string | null;
 }
@@ -98,7 +100,7 @@ const OUTCOMES: Array<{ id: Outcome; label: string; tone: string }> = [
  * unanswered for a fortnight is the single most actionable thing a job seeker
  * has, and nothing else in the product surfaces it.
  */
-export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = false, showCosts = false, loading = false, loadError = null }: Props) {
+export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = false, showCosts = false, showHrOutreach = false, loading = false, loadError = null }: Props) {
   const [costs, setCosts] = useState<Record<string, ApplicationCost>>({});
   const [costError, setCostError] = useState(false);
   const costsEnabled = showCosts && !loading && !loadError;
@@ -129,6 +131,12 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
   const [hrMoreError, setHrMoreError] = useState<string | null>(null);
   const hrLoadedMore = useRef(false);
   useEffect(() => {
+    if (!showHrOutreach) {
+      setHrEmails([]); setHrLoading(false); setHrError(null); setHrNextCursor(null);
+      hrLoadedMore.current = false;
+      setView(current => current === 'hr' ? 'sent' : current);
+      return;
+    }
     let active = true;
     const controller = new AbortController();
     async function load() {
@@ -149,9 +157,9 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
     void load();
     const timer = window.setInterval(() => void load(), 30_000);
     return () => { active = false; controller.abort(); window.clearInterval(timer); };
-  }, [apps, hrRefresh]);
+  }, [apps, hrRefresh, showHrOutreach]);
   async function loadMoreHr() {
-    if (!hrNextCursor || hrMoreLoading) return;
+    if (!showHrOutreach || !hrNextCursor || hrMoreLoading) return;
     setHrMoreLoading(true); setHrMoreError(null);
     try {
       const response = await fetch(`/api/hr-outreach?cursor=${encodeURIComponent(hrNextCursor)}`);
@@ -184,7 +192,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
   const [hrDrawerLoading, setHrDrawerLoading] = useState(false);
   const [hrDrawerError, setHrDrawerError] = useState<string | null>(null);
   useEffect(() => {
-    if (!open) { setHrDrawerLoading(false); setHrDrawerError(null); return; }
+    if (!showHrOutreach || !open) { setHrDrawerLoading(false); setHrDrawerError(null); return; }
     let active = true;
     const controller = new AbortController();
     const params = new URLSearchParams({ jobId: open.jobId, platform: open.platform ?? 'seek' });
@@ -201,7 +209,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
     void load();
     const timer = window.setInterval(() => void load(), 30_000);
     return () => { active = false; controller.abort(); window.clearInterval(timer); };
-  }, [open]);
+  }, [open, showHrOutreach]);
   const [outcomeSaving, setOutcomeSaving] = useState(false);
   const [outcomeError, setOutcomeError] = useState<{ jobId: string; platform: string; message: string } | null>(null);
   const [query, setQuery] = useState('');
@@ -468,7 +476,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                 )}
               </div>
 
-              {(hrDrawerLoading || hrDrawerError || hrEmails.some(item => item.jobId === open.jobId && item.platform === (open.platform ?? 'seek'))) && <div className="section">
+              {showHrOutreach && (hrDrawerLoading || hrDrawerError || hrEmails.some(item => item.jobId === open.jobId && item.platform === (open.platform ?? 'seek'))) && <div className="section">
                 <h3>HR email</h3>
                 {hrDrawerLoading && <p className="job-meta" role="status">Loading HR email…</p>}
                 {hrDrawerError && <p className="job-meta" role="alert">{hrDrawerError}</p>}
@@ -524,21 +532,22 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
     </div>
   );
 
-  // Outreach is available to every owner. The skipped-job view remains admin-only.
+  if (!showSkipped && !showHrOutreach) return sent;
+  // HR outreach and skipped jobs are available only to the admin pilot.
   return (
     <>
       <div className="view-switch applications-views" role="tablist" aria-label="Applications and emails">
         <button type="button" role="tab" aria-selected={view === 'sent'} className={view === 'sent' ? 'on' : ''} onClick={() => setView('sent')}>
           Applied<span className="view-count">{apps.filter(app => !app.confirmationStatus).length}</span>
         </button>
-        <button type="button" role="tab" aria-selected={view === 'hr'} className={view === 'hr' ? 'on' : ''} onClick={() => setView('hr')}>
+        {showHrOutreach && <button type="button" role="tab" aria-selected={view === 'hr'} className={view === 'hr' ? 'on' : ''} onClick={() => setView('hr')}>
           HR emails{hrEmails.length ? <span className="view-count">{hrEmails.length}{hrNextCursor ? '+' : ''}</span> : null}
-        </button>
+        </button>}
         {showSkipped && <button type="button" role="tab" aria-selected={view === 'skipped'} className={view === 'skipped' ? 'on' : ''} onClick={() => setView('skipped')}>
           Skipped{skipped ? <span className="view-count">{skipped.length}</span> : null}
         </button>}
       </div>
-      {view === 'sent' ? sent : view === 'hr' ? <HrOutreachPanel items={hrEmails} loading={hrLoading} error={hrError} onRetry={() => setHrRefresh(value => value + 1)} hasMore={Boolean(hrNextCursor)} loadingMore={hrMoreLoading} moreError={hrMoreError} onLoadMore={() => void loadMoreHr()} /> : (
+      {view === 'sent' || (view === 'hr' && !showHrOutreach) ? sent : view === 'hr' ? <HrOutreachPanel items={hrEmails} loading={hrLoading} error={hrError} onRetry={() => setHrRefresh(value => value + 1)} hasMore={Boolean(hrNextCursor)} loadingMore={hrMoreLoading} moreError={hrMoreError} onLoadMore={() => void loadMoreHr()} /> : (
         <Suspense fallback={<div className="card empty"><p>Loading skipped jobs…</p></div>}>
           <SkippedPanel items={skipped} error={skippedError} onItems={setSkipped} />
         </Suspense>
