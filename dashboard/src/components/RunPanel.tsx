@@ -26,6 +26,7 @@ import { MAX_SEARCH_TERMS } from '../search-limits';
 import { activityEvents, activitySummary, formatActivityReason, runResultLabel, type LogLine } from '../activity';
 import './RunPanel.css';
 import { HrOutreachActivity, hasHrActivity, useHrOutreachActivity } from './HrOutreachActivity';
+import { HrOutreachSettings } from './HrOutreachPanel';
 
 interface AutoScheduleStatus {
   enabled: boolean;
@@ -846,6 +847,7 @@ export function RunPanel({
           <p className="job-meta last-run-line">{lastRunSummary}</p>
         )}
         </div>
+        {isAdmin && <HrOutreachSettings />}
       </div>
 
       <section className="card saved-search-card" aria-labelledby="saved-search-title">

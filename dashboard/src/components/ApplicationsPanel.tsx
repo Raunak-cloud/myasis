@@ -5,7 +5,7 @@ import type { Application, ApplicationAction, Outcome, SiteAccount } from '../ty
 import type { SkippedJob } from './SkippedPanel';
 import { fmtDate, fmtTime, daysSince, scoreClass } from '../format';
 import { formatApplicationCost, type ApplicationCost } from '../application-cost';
-import { HrEmailMessage, HrOutreachSettings, hrEmailStatus, type HrOutreachEmail } from './HrOutreachPanel';
+import { HrEmailMessage, hrEmailStatus, type HrOutreachEmail } from './HrOutreachPanel';
 
 
 interface Props {
@@ -256,7 +256,6 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
 
   const sent = (
     <div className="applications-panel">
-      {showHrOutreach && <HrOutreachSettings />}
       {showHrOutreach && hrError && <p className="job-meta" role="alert">{hrError} <button type="button" className="btn btn-small" onClick={()=>setHrRefresh(value=>value+1)}>Refresh HR status</button></p>}
       <div className="queue-bar">
         <div className="chips">

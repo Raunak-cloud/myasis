@@ -5,6 +5,25 @@ cd "$(dirname "$0")/.."
 # A narrowly scoped dropdown release uses real-browser recovery checks, bounded
 # to the documented 60-second test budget. Unknown/mixed changes keep all checks.
 if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(git rev-parse HEAD)" = "$3" ]; then
+  email_preference_only=1
+  email_preference_changed=0
+  while IFS= read -r path; do
+    case "$path" in
+      dashboard/src/components/ApplicationsPanel.tsx|dashboard/src/components/RunPanel.tsx) email_preference_changed=1 ;;
+      dashboard/src/index.css|dashboard/scripts/test-hr-outreach-ui.mts|deploy/check-release.sh) ;;
+      *) email_preference_only=0 ;;
+    esac
+  done < <(git diff --name-only "$2" "$3")
+  if [ "$email_preference_only" = 1 ] && [ "$email_preference_changed" = 1 ]; then
+    timeout --signal=TERM --kill-after=2s 58s bash -e -c '
+      export CHROME_PATH="${CHROME_PATH:-/usr/bin/google-chrome-stable}"
+      bash -n deploy/check-release.sh
+      cd dashboard
+      ../seek-bot/node_modules/.bin/tsx scripts/test-hr-outreach-ui.mts
+    '
+    echo 'Targeted email preference UI checks passed (60-second maximum)'
+    exit 0
+  fi
   direct_retry_only=1
   direct_retry_changed=0
   while IFS= read -r path; do

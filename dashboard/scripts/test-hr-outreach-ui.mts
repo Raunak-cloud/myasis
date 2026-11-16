@@ -90,11 +90,10 @@ try {
   await page.addInitScript(()=>{const interval=window.setInterval.bind(window);window.setInterval=((handler:TimerHandler,delay?:number,...args:unknown[])=>interval(handler,[5000,30000].includes(delay??0)?150:delay,...args)) as typeof window.setInterval;});
   await page.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
   await page.goto(origin+'/hr-preview.html');
-  const checkbox=page.getByRole('checkbox',{name:'Email hiring teams after I apply'});await checkbox.waitFor();await page.waitForFunction(()=>!(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.disabled);
+  await page.locator('.applications-list').waitFor();
+  assert.equal(await page.getByRole('checkbox',{name:'Email hiring teams after I apply'}).count(),0,'Email preference has moved out of Submitted Applications');
   assert.equal(await page.getByRole('tab',{name:/^HR emails/}).count(),0,'No separate HR tab');
   assert.equal(await page.locator('.hr-role-link').count(),3,'Every applied role offers its own HR details');
-  assert.equal(await checkbox.isChecked(),false);await checkbox.click();await page.waitForFunction(()=>!(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.disabled);await page.waitForFunction(()=>(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.checked===true);assert.equal(enabled,true);
-  failSave=true;await checkbox.click();await page.getByRole('alert').filter({hasText:'Could not save'}).waitFor();assert.equal(await checkbox.isChecked(),true);failSave=false;
   await page.getByRole('button',{name:'HR email for Data Analyst at Fixture Employer'}).click();
   await page.locator('.drawer .hr-email').waitFor();await page.locator('.drawer').getByText('View sent email',{exact:true}).click();
   assert.equal(await page.locator('.drawer .hr-email .letter').innerText(),literal);assert.equal(await page.locator('.drawer .hr-email img').count(),0);
@@ -108,7 +107,6 @@ try {
   await page.locator('.drawer').getByText('My archived application',{exact:true}).waitFor();await page.locator('.drawer').getByText('View sent email',{exact:true}).click();assert.match(await page.locator('.drawer .letter').innerText(),/Exact historical email body/);
   await page.locator('.drawer').getByRole('button',{name:'Close',exact:true}).click();
   failHistory=true;await page.reload();await page.getByRole('alert').filter({hasText:'Could not load your HR emails'}).waitFor();failHistory=false;await page.getByRole('button',{name:'Refresh HR status'}).click();await page.getByRole('button',{name:'HR email for Data Analyst at Fixture Employer'}).click();await page.locator('.drawer .hr-email').waitFor();await page.locator('.drawer').getByRole('button',{name:'Close',exact:true}).click();
-  failSettings=true;await page.reload();await page.getByRole('alert').filter({hasText:'Could not load your email preference'}).waitFor();failSettings=false;await page.getByRole('button',{name:'Reload preference'}).click();await checkbox.waitFor();
   reportingMode=true;await page.reload();await page.getByRole('button',{name:'HR email for Data Analyst at Fixture Employer'}).click();
   const report=(title:string)=>page.locator('.drawer .hr-email').filter({has:page.getByText(title,{exact:true})});
   await report('No public contact role').waitFor();
@@ -122,6 +120,12 @@ try {
   await page.setViewportSize({width:390,height:950});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);await page.screenshot({path:resolve(screenshotDir,'role-email-mobile.png'),fullPage:true});
   const live=await browser.newPage({viewport:{width:1150,height:950}});await live.addInitScript(()=>{const interval=window.setInterval.bind(window);window.setInterval=((handler:TimerHandler,delay?:number,...args:unknown[])=>interval(handler,[5000,30000].includes(delay??0)?150:delay,...args)) as typeof window.setInterval;});
   await live.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());await live.goto(origin+'/hr-live-preview.html');
+  const checkbox=live.getByRole('checkbox',{name:'Email hiring teams after I apply'});await checkbox.waitFor();
+  await live.waitForFunction(()=>!(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.disabled);
+  assert.equal(writes.length,0,'Opening either page does not change the saved preference');
+  assert.equal(await checkbox.isChecked(),false);await checkbox.click();await live.waitForFunction(()=>!(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.disabled);await live.waitForFunction(()=>(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.checked===true);assert.equal(enabled,true);
+  failSave=true;await checkbox.click();await live.getByRole('alert').filter({hasText:'Could not save'}).waitFor();assert.equal(await checkbox.isChecked(),true);failSave=false;
+  failSettings=true;await live.reload();await live.getByRole('alert').filter({hasText:'Could not load your email preference'}).waitFor();failSettings=false;await live.getByRole('button',{name:'Reload preference'}).click();await live.waitForFunction(()=>!(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.disabled);assert.equal(await checkbox.isChecked(),true,'Reloading Apply preserves the saved preference');
   const inline=live.locator('.console-card .hr-activity-inline');await inline.waitFor();assert.equal(await live.locator('.hr-outreach-activity').count(),0,'Separate Apply card removed');assert.equal(await live.locator('.hr-activity-inline').count(),1);assert.match(await inline.innerText(),/HR emails will start afterwards/);
   for(const[phase,label]of [['researching','Finding contact'],['writing','Writing email'],['sending','Sending email'],['checking','Checking delivery']]){
     progress={...progress,active:true,phase,title:'Data Analyst',company:'Fixture Employer'};await inline.locator('.badge').filter({hasText:new RegExp(`^${label}$`)}).waitFor();assert.match(await inline.innerText(),/Data Analyst · Fixture Employer/);
@@ -131,6 +135,7 @@ try {
   await live.setViewportSize({width:390,height:950});const openActivity=live.getByRole('button',{name:'Activity',exact:true});if(await openActivity.isVisible())await openActivity.click();await inline.waitFor();assert.equal(await live.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);await live.screenshot({path:resolve(screenshotDir,'activity-progress-mobile.png'),fullPage:true});
   runAdmin=false;const regular=await browser.newPage();let hrRequests=0;regular.on('request',r=>{if(r.url().includes('/api/hr-outreach'))hrRequests++;});await regular.goto(origin+'/hr-preview.html?hr=off');await regular.locator('.applications-list').waitFor();assert.equal(await regular.locator('.hr-role-link').count(),0);assert.equal(hrRequests,0);
   await regular.goto(origin+'/hr-live-preview.html');await regular.locator('.run-layout').waitFor();await regular.waitForTimeout(350);assert.equal(await regular.locator('.hr-activity-inline').count(),0);assert.equal(hrRequests,0);
+  assert.equal(await regular.getByRole('checkbox',{name:'Email hiring teams after I apply'}).count(),0,'Preference keeps its existing access restriction');
   assert.deepEqual(writes,[{enabled:true},{enabled:false}]);
-  console.log('PASS: HR emails live inside each applied role, historical/board-scoped attempts and delivery reporting are preserved, no HR tab/separate Apply card remains, Activity stages refresh live on desktop/mobile, messages are escaped, opt-in errors recover and ordinary users make no HR requests. Fictional APIs only; no real mail sent.');
+  console.log('PASS: Email preference lives on Apply, saves and reloads correctly, HR history remains per applied role, Activity refreshes on desktop/mobile, messages are escaped and ordinary users make no HR requests. Fictional APIs only; no real mail sent.');
 }finally{await browser.close();await vite.close();}
