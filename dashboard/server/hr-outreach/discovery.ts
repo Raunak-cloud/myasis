@@ -1,6 +1,7 @@
 import { parseHTML } from 'linkedom';
 import { PublicCrawler, CrawlBlocked, CrawlDeferred, crawlUrl, type PageResponse } from '../job-index/network.js';
 import { canonicalUrl } from '../job-index/extract.js';
+import { publicResearchFailure } from './research-failure.js';
 
 export interface HiringContact {
   email: string;
@@ -33,7 +34,8 @@ export type DiscoveryStage = 'revalidation' | 'employer_identity' | 'company_pag
 export interface DiscoveryDiagnostics {
   stage: DiscoveryStage; searches: number; pagesAttempted: number; pagesRead: number; pagesBlocked: number; pagesFailed: number;
   candidatesRejected: number; unresolvedPriorityPages: number;
-  events: Array<{ stage: DiscoveryStage; kind: string; url?: string; status?: number; detail: string }>;
+  events: Array<{ stage: DiscoveryStage; kind: string; url?: string; status?: number; detail: string; code?:string; action?:string }>;
+  research?:{stopReason:string;modelConclusion:string;turns:number;searches:number;pageReads:number;failures:Record<string,number>};
 }
 export interface DiscoveryResult { contact: HiringContact | null; reason: string; pagesRead: number; retryable: boolean; outcome: DiscoveryOutcome; diagnostics: DiscoveryDiagnostics }
 export interface DiscoveryOptions {
@@ -357,10 +359,10 @@ export async function discoverHiringContact(input: DiscoveryInput, options: Disc
       || /\b(?:office[-\s]+(?:catering|meals|kitchen|event)|corporate[-\s]+catering|cup[-\s]+catering)\b/i.test(`${url.pathname} ${label}`)
       || /^(?:warranty|shop|store|members|support|help)\./i.test(url.hostname)
       || /\b(?:office catering|corporate catering|book a demo|cookie preferences|subscribe)\b/i.test(label));
-  const event = (kind: string, detail: string, url?: string, status?: number) => {
+  const event = (kind: string, detail: string, url?: string, status?: number, extra:{code?:string;action?:string}={}) => {
     if (diagnostics.events.length >= 60) return;
     let safe: string | undefined; try { if (url && publicUrl(url)) { const u = new URL(url); safe = `${u.origin}${u.pathname}`.slice(0,500); } } catch { /* no unverified addresses in diagnostics */ }
-    diagnostics.events.push({ stage: diagnostics.stage, kind, detail, ...(safe ? { url: safe } : {}), ...(status ? { status } : {}) });
+    diagnostics.events.push({ stage: diagnostics.stage, kind, detail, ...(safe ? { url: safe } : {}), ...(status ? { status } : {}),...extra });
   };
   const key = (url: string) => {
     const value=new URL(canonicalUrl(url));value.hostname=value.hostname.replace(/^www\d*\./,'');
@@ -407,6 +409,7 @@ export async function discoverHiringContact(input: DiscoveryInput, options: Disc
       return page;
     } catch (error) {
       if (input.signal?.aborted) throw error;
+      const failure=publicResearchFailure(error,signal);event('source_failure',failure.detail,url,undefined,{code:failure.code,action:'read_public_page'});
       const message = error instanceof Error ? error.message : '';
       const code = (error as { code?: string })?.code;
       const localLimit = error instanceof CrawlDeferred && (crawler instanceof PublicCrawler && crawler.requests>crawler.maxRequests || error.waitMs<=60_000);

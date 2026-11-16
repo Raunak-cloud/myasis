@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createServer,connect,type AddressInfo } from 'node:net';
-import { CrawlBlocked, CrawlDeferred, PublicCrawler, crawlUrl, publicIPv4, pinnedLookup, type PageResponse } from './network.js';
+import { CrawlBlocked, CrawlDeferred, PublicVerificationRequired, PublicCrawler, crawlUrl, publicIPv4, pinnedLookup, type PageResponse } from './network.js';
 import {canonicalUrl} from './extract.js';
 
 test('pinned DNS connects through the real Node transport with both lookup callback modes',async()=>{
@@ -23,6 +23,17 @@ test('crawler excludes private, metadata, IP literal and credential form address
   for(const url of ['https://127.0.0.1/jobs','https://2130706433/jobs','https://[::1]/jobs','https://metadata.google.internal/jobs','https://host.local/jobs','https://user:password@public.org/jobs','http://public.org/jobs','https://public.org/apply','https://public.org/login'])assert.throws(()=>crawlUrl(url),url);
 });
 const response=(url:string,text:string,status=200,location?:string):PageResponse=>({url,text,status,type:'text/html',retryAfter:null,...(location?{location}:{})});
+test('inline Cloudflare bootstrap, challenge headers and JSON security responses enter verification recovery',async()=>{
+ const fixtures=[
+  response('https://public.org/jobs','<title>Just a moment...</title><script>window._cf_chl_opt={cType:"managed"};var s=document.createElement("script");s.src="/cdn-cgi/challenge-platform/h/g/orchestrate/chl_page/v1";</script>',403),
+  {...response('https://public.org/jobs','Security check',403),verification:'challenge'},
+  {...response('https://public.org/jobs',JSON.stringify({appId:'PXfixture',jsClientSrc:'/fixture/init.js',blockScript:'/fixture/captcha.js'}),403),type:'application/json'},
+ ];
+ for(const page of fixtures){const c=new PublicCrawler(async url=>url.endsWith('/robots.txt')?response(url,'User-agent: *\nAllow: /'):page);await assert.rejects(c.get(page.url),PublicVerificationRequired);}
+ for(const [type,text] of [['text/html','<h1>Cloudflare developer vacancy</h1><script>const docs="/cdn-cgi/challenge-platform/";</script>'],['application/json','{"jobs":[{"appId":"PXfixture","description":"Build CAPTCHA software"}]}']]){
+  const c=new PublicCrawler(async url=>url.endsWith('/robots.txt')?response(url,'User-agent: *\nAllow: /'):{...response(url,text),type});assert.equal((await c.get('https://public.org/jobs')).status,200);
+ }
+});
 test('employer feed adapter preserves manual PageUp redirects and AWS challenge headers after robots checks',async()=>{
  const calls:string[]=[];
  const c=new PublicCrawler(async url=>{

@@ -33,6 +33,15 @@ test('self-clearing verification never purchases a solution',{skip:!existsSync(e
  const f=await fixture(challenge+'<script>setTimeout(()=>verificationDone("fixture-solved-token"),500);</script>');let purchases=0;
  const result=await readVerifiedHrPage(url,{...f,solve:async()=>{purchases++;return 'solved';}});assert.match(result.text,/Recruitment/);assert.equal(purchases,0);assert.ok(f.stats.closed);
 });
+
+test('inline challenge can self-clear and an unsupported JSON challenge never becomes contact evidence',{skip:!existsSync(executable),timeout:20000},async()=>{
+ const bootstrap='<title>Just a moment...</title><script>window._cf_chl_opt={};const path="/cdn-cgi/challenge-platform/h/g/";</script>';
+ let purchases=0;
+ const f=await fixture(bootstrap+'<script>setTimeout(()=>{document.title="Careers";document.body.innerHTML="<h1>Recruitment</h1><p>careers@public.org</p>"},500);</script>');
+ const result=await readVerifiedHrPage(url,{...f,solve:async()=>{purchases++;return "solved";}});assert.match(result.text,/careers@public.org/);assert.equal(purchases,0);assert.ok(f.stats.closed);
+ const blocked=await fixture('<pre>'+JSON.stringify({appId:'PXfixture',jsClientSrc:'/fixture/init.js',blockScript:'/fixture/captcha.js'})+'</pre>');
+ await assert.rejects(readVerifiedHrPage(url,{...blocked,solve:async()=>{purchases++;return 'solved';}}),/not supported/);assert.equal(purchases,0);assert.ok(blocked.stats.closed);
+});
 test('public browser blocks form posts and private hosts and closes after reading',{skip:!existsSync(executable),timeout:15000},async()=>{
  const f=await fixture('<h1>Employer careers</h1><p>Recruitment</p><script>fetch("https://127.0.0.1/private").catch(()=>{});fetch("/submit",{method:"POST",body:"x"}).catch(()=>{});</script>');
  await readVerifiedHrPage(url,f);assert.deepEqual(f.stats.requests,[`GET ${url}`]);assert.ok(f.stats.closed);

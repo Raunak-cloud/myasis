@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
 import { parseHTML } from 'linkedom';
-import { crawlUrl, CrawlBlocked, type PageResponse } from '../job-index/network.js';
+import { crawlUrl, CrawlBlocked, accessChallenge, type PageResponse } from '../job-index/network.js';
 import { assertExternalNavigationUrl } from '../../../seek-bot/src/external-url.js';
 import { detectChallenge, hasCaptchaSurface } from '../../../seek-bot/src/captcha/detect.js';
 import { browserDeadline, browserOperationSignal, browserCleanup, browserDelay } from '../../../seek-bot/src/browser-deadline.js';
@@ -38,18 +38,26 @@ export async function readVerifiedHrPage(raw:string,options:VerificationBrowserO
     });
     const page=await context.newPage();page.setDefaultTimeout(30_000);
     await page.goto(destination.href,{waitUntil:'domcontentloaded',timeout:30_000});
-    if(await hasCaptchaSurface(page)){
+    const verificationRemains=async()=>{
+      if(await hasCaptchaSurface(page))return true;
+      const html=await page.content();
+      if(accessChallenge({url:page.url(),status:200,type:'text/html',text:html,retryAfter:null})==='verification')return true;
+      // Chromium displays JSON security responses in a <pre> element.
+      const text=parseHTML(html).document.body?.textContent??'';
+      return accessChallenge({url:page.url(),status:403,type:'application/json',text,retryAfter:null})==='verification';
+    };
+    if(await verificationRemains()){
       // A short self-clear wait avoids purchasing a token for automatic checks.
-      for(let i=0;i<6&&await hasCaptchaSurface(page);i++)await browserDelay(500);
-      if(await hasCaptchaSurface(page)){
+      for(let i=0;i<6&&await verificationRemains();i++)await browserDelay(500);
+      if(await verificationRemains()){
         const challenge=await detectChallenge(page);
         if(!challenge)throw new CrawlBlocked('Security verification is not supported by the configured solver.');
         // Existing bot runtime is loaded only for an actual supported challenge.
         const solver=options.solve?null:await import(new URL('../../../seek-bot/src/captcha.ts',import.meta.url).href);
         if(solver&&!solver.captchaEnabled())throw new CrawlBlocked('Security verification solver is not enabled.');
         if(await(options.solve??solver.handleCaptchaWithCapMonster)(page)!=='solved')throw new CrawlBlocked('Security verification could not be cleared by CapMonster.');
-        for(let i=0;i<20&&await hasCaptchaSurface(page);i++)await browserDelay(500);
-        if(await hasCaptchaSurface(page))throw new CrawlBlocked('Security verification remained after the CapMonster attempt.');
+        for(let i=0;i<20&&await verificationRemains();i++)await browserDelay(500);
+        if(await verificationRemains())throw new CrawlBlocked('Security verification remained after the CapMonster attempt.');
       }
     }
     signal.throwIfAborted();await page.waitForLoadState('domcontentloaded',{timeout:30_000});

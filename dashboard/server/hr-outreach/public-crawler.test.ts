@@ -25,3 +25,11 @@ test('temporary ordinary page failures can be retried without invoking the paid 
  let reads=0,renders=0;const crawler=new HrPublicCrawler({get:async url=>{if(++reads===1)throw Error('Temporary network failure');return page(url);}},async url=>{renders++;return page(url);});
  await assert.rejects(crawler.get('https://employer.org/careers'),/Temporary/);await crawler.get('https://employer.org/careers');assert.equal(reads,2);assert.equal(renders,0);
 });
+
+test('inline Cloudflare reaches browser recovery and unsupported verification is reported precisely',async()=>{
+ let renders=0;
+ const primary=new PublicCrawler(async url=>page(url,url.endsWith('/robots.txt')?'User-agent: *\nAllow: /':'<title>Just a moment...</title><script>window._cf_chl_opt={};const path="/cdn-cgi/challenge-platform/h/g/";</script>',url.endsWith('/robots.txt')?200:403));
+ const crawler=new HrPublicCrawler(primary,async()=>{renders++;throw new CrawlBlocked('Security verification is not supported by the configured solver.');});
+ await assert.rejects(crawler.get('https://employer.org/careers'),/not supported/);
+ assert.equal(renders,1);assert.equal(crawler.events.at(-1)?.code,'verification_unsupported');
+});

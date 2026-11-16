@@ -3,6 +3,8 @@ import { test } from 'node:test';
 import { researchHiringContact } from './research.js';
 import type { DiscoveryResult } from './discovery.js';
 import { processHrJob, type HrWorkerDependencies } from './worker.js';
+import { CrawlBlocked } from '../job-index/network.js';
+import { publicResearchFailure, researchSourceUrl } from './research-failure.js';
 const first:DiscoveryResult={contact:null,outcome:'no_contact',reason:'No suitable contact found.',retryable:false,pagesRead:1,diagnostics:{stage:'company_pages',searches:1,pagesAttempted:1,pagesRead:1,pagesBlocked:0,pagesFailed:0,candidatesRejected:0,unresolvedPriorityPages:0,events:[]}};
 const input={company:'Acme',website:'https://acme.org/',jobUrl:'https://acme.org/jobs/1',roleTitle:'Software Engineer',location:'Sydney Australia'};
 const root='<title>Acme</title><h1>Acme</h1><p>Technology company in Australia.</p>';
@@ -64,6 +66,30 @@ test('aborted or unconfigured research never contacts the model',async()=>{
   for(const settings of [{apiKey:''},{apiKey:'fixture',signal:AbortSignal.abort()}]){
     const result=await researchHiringContact({...input,...(settings.signal?{signal:settings.signal}:{})},first,{...f,apiKey:settings.apiKey,fetcher});assert.equal(result.outcome,'incomplete');
   }assert.equal(calls,0);
+});
+
+test('research persists exact safe failure categories, action URLs and the real stop reason',async()=>{
+ const f=fixture([['read_public_page',{url:'https://acme.org/blocked'}],['read_public_page',{}],['finish_research',{outcome:'incomplete',sourceUrls:[]}]]);
+ const result=await researchHiringContact(input,first,{...f,apiKey:'fixture',crawler:{get:async()=>{throw new CrawlBlocked('Robots policy excludes this address.');}}});
+ const failures=result.diagnostics.events.filter(e=>e.kind==='agent_action_unavailable');
+ assert.equal(failures[0].code,'robots_denied');assert.equal(failures[0].url,'https://acme.org/blocked');assert.equal(failures[0].action,'read_public_page');assert.equal(failures[1].code,'invalid_tool_arguments');
+ assert.equal(result.diagnostics.research?.stopReason,'model_finished_with_unavailable_sources');assert.equal(result.diagnostics.research?.modelConclusion,'incomplete');assert.equal(result.diagnostics.research?.turns,3);assert.equal(result.diagnostics.research?.failures.robots_denied,1);assert.match(result.reason,/refuse automated access/);
+ const limited=fixture([['search_public',{query:'first attempt'}]]);
+ const exhausted=await researchHiringContact(input,first,{...limited,apiKey:'fixture',maxTurns:1});assert.equal(exhausted.diagnostics.research?.stopReason,'turn_limit');assert.match(exhausted.reason,/allowance/);
+ const provider=await researchHiringContact(input,first,{apiKey:'fixture',search:async()=>[],fetcher:async()=>Response.json({error:'PRIVATE_PROVIDER_PAYLOAD'},{status:503})});assert.equal(provider.diagnostics.research?.stopReason,'provider_http_error');assert.doesNotMatch(JSON.stringify(provider),/PRIVATE_PROVIDER_PAYLOAD/);
+});
+
+test('unsupported verification remains distinct from a bad recipient or a send failure',async()=>{
+ const f=fixture([['read_public_page',{url:'https://acme.org/blocked'}],['finish_research',{outcome:'incomplete',sourceUrls:[]}]]);
+ const result=await researchHiringContact(input,first,{...f,apiKey:'fixture',crawler:{get:async()=>{throw new CrawlBlocked('Security verification is not supported by the configured solver.');}}});
+ assert.equal(result.contact,null);assert.equal(result.diagnostics.research?.failures.verification_unsupported,1);assert.match(result.reason,/solver does not support/);
+});
+
+test('failure diagnostics strip URL query data and never retain exception payloads',()=>{
+ assert.equal(researchSourceUrl('https://acme.org/careers?email=PRIVATE_QUERY#PRIVATE_FRAGMENT'),'https://acme.org/careers');
+ assert.equal(researchSourceUrl('https://127.0.0.1/private'),undefined);
+ for(const [error,code] of [[Object.assign(Error('PRIVATE_PAYLOAD'),{code:'ENOTFOUND'}),'dns_failure'],[Object.assign(Error('PRIVATE_PAYLOAD'),{name:'TimeoutError'}),'request_timeout'],[Error('PRIVATE_PAYLOAD'),'request_failed']] as const){const result=publicResearchFailure(error);assert.equal(result.code,code);assert.doesNotMatch(JSON.stringify(result),/PRIVATE_PAYLOAD/);}
+ assert.equal(publicResearchFailure(Error('PRIVATE_PAYLOAD'),AbortSignal.abort()).code,'deadline_exceeded');
 });
 test('worker invokes fallback only after no contact, accounts research once and keeps candidate evidence out',async()=>{
   const events:any[]=[];const contact={email:'talent@acme.org',kind:'recruitment' as const,companyDomain:'acme.org',sourceUrl:'https://acme.org/careers',sourceText:'Acme recruitment',validatedAt:new Date().toISOString()};

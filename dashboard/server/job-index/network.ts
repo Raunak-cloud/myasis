@@ -37,10 +37,19 @@ export const pinnedLookup=(address:string):LookupFunction=>(_host,options,callba
 };
 
 /** A CAPTCHA library/configuration on a public careers page is not a challenge. */
-function accessChallenge(page:PageResponse):'verification'|'denied'|false {
+export function accessChallenge(page:PageResponse):'verification'|'denied'|false {
+  if(page.verification)return 'verification';
+  // Some security vendors return a JSON interstitial, not an HTML widget.
+  if([401,403].includes(page.status)&&/json/.test(page.type)){
+    try{const body=JSON.parse(page.text);if(/^PX[\w-]+$/.test(body.appId??'')&&typeof body.jsClientSrc==='string'&&(typeof body.captchaUrl==='string'||typeof body.blockScript==='string'))return 'verification';}catch{ /* Not a recognised security response. */ }
+  }
   if(!/html/.test(page.type))return false;
   const {document}=parseHTML(`<html><body>${page.text}</body></html>`);
   if(document.querySelector('script[src*="/cdn-cgi/challenge-platform/"]'))return 'verification';
+  // Cloudflare often creates that external script from an inline bootstrap.
+  // Require the actual challenge configuration, not incidental vendor mentions.
+  const challengeTitle=/^(?:just a moment|security check|checking (?:your )?browser|attention required)/i.test(document.querySelector('title')?.textContent?.trim()??'');
+  if(([401,403].includes(page.status)||challengeTitle)&&[...document.querySelectorAll('script:not([src])')].some(script=>/\b(?:window\.)?_cf_chl_opt\s*=/.test(script.textContent??'')&&/\/cdn-cgi\/challenge-platform\//.test(script.textContent??'')))return 'verification';
   document.querySelectorAll('script,style,noscript,template,[hidden]').forEach(n=>n.remove());
   const visible=(document.body?.textContent??document.textContent??'').replace(/\s+/g,' ');
   if(/verify (?:that )?you are human|please (?:complete|solve) (?:the )?(?:captcha|security check)/i.test(visible))return 'verification';
@@ -69,7 +78,7 @@ export async function publicRequest(raw: string, init: { body?: string; signal?:
       let size=0; const chunks: Buffer[]=[];
       res.on('data',(chunk:Buffer)=>{ size+=chunk.length; if(size>3_000_000) res.destroy(new CrawlBlocked('Page exceeds the 3 MB indexing limit.')); else chunks.push(chunk); });
       res.on('error',reject); res.on('end',()=>resolve({url:u.href,status,type,text:Buffer.concat(chunks).toString('utf8'),retryAfter:typeof res.headers['retry-after']==='string'?res.headers['retry-after']:null,
-        ...(typeof res.headers['x-amzn-waf-action']==='string'?{verification:res.headers['x-amzn-waf-action'].toLowerCase()}:{})}));
+        ...(typeof res.headers['x-amzn-waf-action']==='string'?{verification:res.headers['x-amzn-waf-action'].toLowerCase()}:res.headers['cf-mitigated']==='challenge'?{verification:'challenge'}:{})}));
     });
     req.on('error',reject); if(init.body)req.write(init.body); req.end();
   });
