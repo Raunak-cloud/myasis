@@ -189,14 +189,19 @@ try {
   assert.match(await livePage.locator('.hr-outreach-activity').innerText(), /1 sent · 0 waiting · 1 not sent · 0 need attention/);
   assert.equal(await livePage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   await livePage.screenshot({ path: resolve(screenshotDir, 'run-finished-mobile.png'), fullPage: true });
-  let disabledLiveRequests = 0;
-  livePage.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/hr-outreach')) disabledLiveRequests++; });
-  runAdmin = false;
-  await livePage.goto(origin + '/hr-live-preview.html?hr=off');
-  await livePage.locator('.run-layout').waitFor();
-  assert.equal(await livePage.locator('.hr-outreach-activity').count(), 0);
-  assert.equal(disabledLiveRequests, 0, 'Disabled Run activity never reads HR APIs');
+  // A fresh document isolates disabled access from the enabled view's polling
+  // timer, which can otherwise fire between adding the listener and navigation.
   await livePage.close();
+  const disabledLivePage = await browser.newPage({ viewport: { width: 390, height: 950 } });
+  await disabledLivePage.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+  let disabledLiveRequests = 0;
+  disabledLivePage.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/hr-outreach')) disabledLiveRequests++; });
+  runAdmin = false;
+  await disabledLivePage.goto(origin + '/hr-live-preview.html?hr=off');
+  await disabledLivePage.locator('.run-layout').waitFor();
+  assert.equal(await disabledLivePage.locator('.hr-outreach-activity').count(), 0);
+  assert.equal(disabledLiveRequests, 0, 'Disabled Run activity never reads HR APIs');
+  await disabledLivePage.close();
   for (const mode of ['off', 'default']) {
     const regularPage = await browser.newPage();
     let hrRequests = 0;
