@@ -16,6 +16,7 @@ if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(
   done < <(git diff --name-only "$2" "$3")
   if [ "$dropdown_only" = 1 ] && [ "$dropdown_changed" = 1 ]; then
     timeout --signal=TERM --kill-after=2s 58s bash -e -c '
+      export CHROME_PATH="${CHROME_PATH:-/usr/bin/google-chrome-stable}"
       bash -n deploy/deploy.sh
       bash -n deploy/check-release.sh
       cd seek-bot
