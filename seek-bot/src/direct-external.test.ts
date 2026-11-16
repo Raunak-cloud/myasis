@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {mkdtempSync,readFileSync,rmSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,writeFileSync,readFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {chromium} from 'patchright';
@@ -9,6 +9,27 @@ import {config} from './config.js';
 import {identifyDirectJob,runDirectExternalApplication} from './direct-external.js';
 import {captureApplicationFailure} from './application-diagnostics.js';
 import type {FitAssessment} from './llm.js';
+import { reviewContentFingerprint, reviewContextFingerprint } from './review-cache.js';
+import type { JobListing, CandidateProfile } from './types.js';
+
+test('exact failed direct retry reaches the agent with its unchanged 82-point approval and original identity', async () => {
+ const dir=mkdtempSync(join(tmpdir(),'direct-approved-retry-')),previous={dry:config.dryRun,external:config.allowExternalApply};
+ config.dryRun=true;config.allowExternalApply=true;
+ const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
+ try { await withApplicationModel({DATA_DIR:dir,COST_TRACKING:'false'},async()=>{
+  const url='https://employer.fixture.invalid/approved-analyst',profile={name:'Alex Fixture',email:'fixture@example.invalid',skills:['Analytics']} as CandidateProfile;
+  const base:JobListing={id:'original-matched-vacancy',platform:'smartrecruiters',title:'Data Analyst',company:'Fixture',location:'Sydney',url,source:'search',description:'Analyse data and build reports.',applicationMode:'external'};
+  const job={...base,fitReview:{score:82,reason:'Previously approved.',evidence:['Analytics work.'],contentFingerprint:reviewContentFingerprint(base)!,contextFingerprint:reviewContextFingerprint(profile)}};
+  mkdirSync(join(dir,'traces'));writeFileSync(join(dir,'traces','attempt-11111111-1111-4111-8111-111111111111.json'),JSON.stringify({job,outcome:{status:'error',retryable:true},sendAudit:{attempted:false},steps:[]}));
+  const page=await browser.newPage();await page.route('**/*',route=>route.fulfill({contentType:'text/html',body:'<meta property="og:site_name" content="Fixture"><main><h1>Data Analyst</h1><p>Analyse data and build reports.</p><input id=name></main>'}));
+  let calls=0;
+  await runDirectExternalApplication(page,url,profile,()=>null,{refreshPrior:async()=>({...base}),match:async()=>{throw Error('Previously approved unchanged job was rematched');},runAgent:async({job:actual})=>{
+   calls++;assert.equal(actual.id,base.id);assert.equal(actual.platform,base.platform);assert.equal(actual.fitReview?.score,82);
+   return {outcome:{status:'needs-human',reason:'Fictional check complete.'},captured:[],actions:[],submitPressed:false,steps:1,usage:'offline fixture'};
+  }});
+  assert.equal(calls,1);
+ }); } finally {await browser.close();config.dryRun=previous.dry;config.allowExternalApply=previous.external;rmSync(dir,{recursive:true,force:true});}
+});
 
 test('Amazon direct vacancy reads the employing entity from its matching visible job-ID header',async()=>{
  const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});

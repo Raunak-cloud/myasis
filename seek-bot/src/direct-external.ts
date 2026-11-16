@@ -8,6 +8,7 @@ import { outcomeFromRun } from './agent/outcome.js';
 import { applicationFailureContext } from './application-diagnostics.js';
 import { assessFit } from './llm.js';
 import { refreshMatchedApplication } from './matched-application.js';
+import { priorDirectApproval } from './direct-retry-approval.js';
 import { config } from './config.js';
 import { AppliedIndex, logOutcome, saveRunSummary, recordUnconfirmedApplication } from './store.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
@@ -105,7 +106,7 @@ export async function runDirectExternalApplication(
   url: string,
   profile: CandidateProfile,
   navigationBlocked: () => string | null,
-  test?: { runAgent: typeof runApplicationAgent; match?: typeof assessFit },
+  test?: { runAgent: typeof runApplicationAgent; match?: typeof assessFit; refreshPrior?: (previous: JobListing) => Promise<JobListing> },
 ): Promise<void> {
   if (test && (!config.dryRun || !new URL(url).hostname.endsWith('.invalid'))) {
     throw new Error('Direct application dependency overrides require an isolated dry-run fixture.');
@@ -147,8 +148,14 @@ export async function runDirectExternalApplication(
     return;
   }
 
-  // A URL is discovery input, not candidate approval of any occupation.
-  // Review before an agent can fill a form or upload candidate data.
+  // Recover a still-current matcher approval from this owner's failed unsent
+  // attempt before treating the same URL as newly discovered work.
+  const prior = await priorDirectApproval(job, profile, test?.refreshPrior);
+  if (prior) {
+    job = prior;
+    console.log(`Reusing the saved ${prior.fitReview!.score}/100 matching approval for this unchanged vacancy and candidate context.`);
+  }
+  // Bare URLs and changed facts still need the ordinary matching review.
   const reviewed = await refreshMatchedApplication(job, job, profile, test?.match ?? assessFit);
   if ('outcome' in reviewed) {
     saveRunSummary(0);

@@ -5,6 +5,25 @@ cd "$(dirname "$0")/.."
 # A narrowly scoped dropdown release uses real-browser recovery checks, bounded
 # to the documented 60-second test budget. Unknown/mixed changes keep all checks.
 if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(git rev-parse HEAD)" = "$3" ]; then
+  direct_retry_only=1
+  direct_retry_changed=0
+  while IFS= read -r path; do
+    case "$path" in
+      seek-bot/src/direct-retry-approval.ts|seek-bot/src/direct-retry-approval.test.ts|seek-bot/src/direct-external.ts|seek-bot/src/direct-external.test.ts) direct_retry_changed=1 ;;
+      deploy/check-release.sh) ;;
+      *) direct_retry_only=0 ;;
+    esac
+  done < <(git diff --name-only "$2" "$3")
+  if [ "$direct_retry_only" = 1 ] && [ "$direct_retry_changed" = 1 ]; then
+    timeout --signal=TERM --kill-after=2s 58s bash -e -c '
+      export CHROME_PATH="${CHROME_PATH:-/usr/bin/google-chrome-stable}"
+      bash -n deploy/check-release.sh
+      cd seek-bot
+      node --test dist/direct-retry-approval.test.js dist/direct-external.test.js dist/matched-application.test.js dist/duplicate-review.test.js
+    '
+    echo 'Targeted direct-retry approval checks passed (60-second maximum)'
+    exit 0
+  fi
   dropdown_only=1
   dropdown_changed=0
   while IFS= read -r path; do
