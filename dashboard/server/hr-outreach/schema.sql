@@ -56,7 +56,7 @@ CREATE INDEX IF NOT EXISTS hr_outreach_owner_idx ON hr_outreach(user_id,created_
 CREATE INDEX IF NOT EXISTS hr_outreach_queue_idx ON hr_outreach(status,available_at);
 ALTER TABLE hr_outreach ADD COLUMN IF NOT EXISTS phase TEXT CHECK(phase IN ('queued','researching','writing','sending','checking'));
 CREATE INDEX IF NOT EXISTS hr_application_run_idx ON applications(user_id,source_run_id);
--- HR searches have their own bounded allowance, independent of job discovery.
+-- HR daily usage is tracked independently of job discovery, without a quota.
 CREATE TABLE IF NOT EXISTS hr_contact_search_usage (
   day DATE PRIMARY KEY,
   calls INTEGER NOT NULL CHECK(calls>=0),
