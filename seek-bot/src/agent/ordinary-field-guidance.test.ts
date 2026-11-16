@@ -15,13 +15,13 @@ test('ordinary controls receive only advice for their observed type, without can
   const city = ordinaryFieldGuidance({ label: 'City', kind: 'text', inputType: 'text' });
   assert.match(city, /browser_fill and value/);
   assert.doesNotMatch(city, /upload|file_ids|set_input_files|authentication/);
-  assert.match(ordinaryFieldGuidance({ label: 'Country', kind: 'select' }), /action="select" and value/);
-  assert.match(ordinaryFieldGuidance({ label: 'Country', kind: 'text', inputType: 'select-one' }), /action="select" and value/);
-  assert.match(ordinaryFieldGuidance({ label: 'City', kind: 'text', autocomplete: true }), /browser_fill.*click the matching suggested option/);
+  assert.match(ordinaryFieldGuidance({ label: 'Country', kind: 'select' }), /browser_select_dropdown and option/);
+  assert.match(ordinaryFieldGuidance({ label: 'Country', kind: 'text', inputType: 'select-one' }), /browser_select_dropdown and option/);
+  assert.match(ordinaryFieldGuidance({ label: 'City', kind: 'text', autocomplete: true }), /browser_fill.*Read dropdown feedback/);
   assert.match(ordinaryFieldGuidance({ label: 'Resume', kind: 'text', inputType: 'file' }), /browser_upload and file_ids, an array/);
   assert.doesNotMatch(ordinaryFieldGuidance({ label: 'Resume', kind: 'text', inputType: 'file' }), /\bfile_id\b/);
-  assert.match(ordinaryFieldGuidance({ label: 'Consent', kind: 'checkbox' }), /action="check"/);
-  assert.match(ordinaryFieldGuidance({ label: 'Consent', kind: 'text', inputType: 'checkbox' }), /action="check"/);
+  assert.match(ordinaryFieldGuidance({ label: 'Consent', kind: 'checkbox' }), /browser_set_checkbox/);
+  assert.match(ordinaryFieldGuidance({ label: 'Consent', kind: 'text', inputType: 'checkbox' }), /browser_set_checkbox/);
   assert.match(ordinaryFieldGuidance({ label: 'Save experience', kind: 'text', inputType: 'button' }), /browser_click/);
 });
 
@@ -36,7 +36,7 @@ test('the actual private-fill misuse on City, Country and Resume changes no form
     await withApplicationModel({ DATA_DIR: directory }, async () => {
       await page.goto('https://application.fixture.invalid/apply');
       const profile = { name: 'Alex Fixture', email: 'alex@fixture.invalid', phone: '0400000000' } as CandidateProfile;
-      for (const [selector, expected, unrelated] of [['#city', /browser_fill and value/, /upload|file_ids/], ['#country', /action="select" and value/, /upload|file_ids/], ['#cv', /browser_upload and file_ids/, /\bfile_id\b/]] as const) {
+      for (const [selector, expected, unrelated] of [['#city', /browser_fill and value/, /upload|file_ids/], ['#country', /browser_select_dropdown and option/, /upload|file_ids/], ['#cv', /browser_upload and file_ids/, /\bfile_id\b/]] as const) {
         const ctx = { page, profile, job: { id: 'guidance', title: 'Analyst', company: 'Fictional Employer' }, observation: await observe(page), actions: [], captured: [], log: () => {} } as unknown as ToolContext;
         const result = await doCompleteAuthentication(ctx, { purpose: 'sign_in', reason: 'Replay the observed wrong-tool call', targets: [{ selector }] });
         assert.equal(result.kind, 'ok');

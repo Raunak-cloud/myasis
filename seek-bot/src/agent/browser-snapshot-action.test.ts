@@ -21,9 +21,10 @@ writeFileSync(join(directory,'resumes.json'),JSON.stringify([{id:'cv-1',label:'F
 writeFileSync(join(directory,'answers.json'),'[]');
 const {agentOnlyTools}=await import('./agent-only.js');
 const action=agentOnlyTools.find(t=>t.name==='browser_action')!;
+const snapshot=agentOnlyTools.find(t=>t.name==='browser_snapshot')!;
 assert.ok(!agentOnlyTools.some(t=>t.name==='take_snapshot'),'the duplicate standalone tool is no longer offered');
 const names=agentOnlyTools.map(t=>t.name);
-const expected=['test_application_helper','record_application_review','add_cover_letter','prepare_application','prepare_email_application','browser_batch','browser_action','browser_click','browser_fill','browser_upload','browser_navigate','create_file','render_approved_cover_letter','convert_file','combine_approved_documents','read_candidate_evidence','read_browser_experience','read_application_attempts','save_progress','reason_through_problem','check_employer_account','fill_authentication_fields','enter_emailed_code','open_emailed_link','record_authentication_result','wait_for_verification','investigate_application_state','wait_for_submission_result','finish'];
+const expected=['test_application_helper','record_application_review','add_cover_letter','prepare_application','prepare_email_application','browser_batch','browser_action','browser_click','browser_fill','browser_upload','browser_navigate','browser_select_dropdown','browser_choose_radio','browser_set_checkbox','browser_press_key','browser_inspect','browser_snapshot','create_file','render_approved_cover_letter','convert_file','combine_approved_documents','read_candidate_evidence','read_browser_experience','read_application_attempts','save_progress','reason_through_problem','check_employer_account','fill_authentication_fields','enter_emailed_code','open_emailed_link','record_authentication_result','wait_for_verification','investigate_application_state','wait_for_submission_result','finish'];
 const inboxTools=new Set(['enter_emailed_code','open_emailed_link']);
 assert.deepEqual([...names].sort(),expected.filter(name=>!inboxTools.has(name)||names.includes(name)).sort(),'all other tools remain available, subject only to the existing inbox connection');
 
@@ -32,15 +33,15 @@ const examples=[{action:'take_snapshot',target_mode:'page'},
  {action:'take_snapshot',target_mode:'locator',locator:{by:'css',value:'input[name="question_36[]"]'}},
  {action:'take_snapshot',selector:'section',screenshot:false}];
 for(const args of examples){
- assert.equal(validToolInput(args,action.parameters),true);
+ assert.equal(validToolInput(Object.fromEntries(Object.entries(args).filter(([key])=>key!=='action')),snapshot.parameters),true);
  assert.equal(changesBrowserState(args),false);
  assert.equal(isSnapshotOperation('browser_action',args),true);
- const wire=minimaxToolSchema(action);assert.deepEqual(wire.parameters.required,['action']);
- assert.deepEqual(minimaxToolArguments(action,args),args);
+ const wire=minimaxToolSchema(snapshot);assert.deepEqual(wire.parameters.required,[]);
+ assert.deepEqual(minimaxToolArguments(snapshot,args),args);
 }
 for(const extra of [{sends_application:true},{sends_application:false},{replaces_file_ids:['fixture']},{value:'unsafe'},{script:'document.body.remove()'},
  {file_ids:['fixture']},{wait:{url:'https://other.invalid'}},{page_index:2},{x:10,y:10},{unexpected:true},{screenshot:'yes'}]){
- assert.equal(validToolInput({action:'take_snapshot',...extra},action.parameters),false,JSON.stringify(extra));
+ assert.equal(validToolInput(extra,snapshot.parameters),false,JSON.stringify(extra));
 }
 for(const screenshot of [true,false,null])assert.equal(validToolInput({action:'fill',selector:'input',value:'fixture',screenshot},action.parameters),false,
  'declaring screenshot for snapshot must not silently allow it on writes');
@@ -67,19 +68,19 @@ globalThis.fetch=(async(_url,init)=>{
  }
  lastCaptureCount=captures;
  if(turn===0){
-  const offered=body.tools.find((t:any)=>t.function.name==='browser_action');
-  assert.match(offered.function.description,/take_snapshot/);
+  const offered=body.tools.find((t:any)=>t.function.name==='browser_snapshot');
+  assert.match(offered.function.description,/privacy-masked screenshot/);
   assert.doesNotMatch(offered.function.description,/action=script needs/, 'MiniMax must not be instructed to invoke unavailable script actions');
   const batch=body.tools.find((t:any)=>t.function.name==='browser_batch');
   assert.match(batch.function.description,/Native actions only; scripts are unavailable/);
   assert.doesNotMatch(batch.function.description,/browser scripts and/);
-  call={name:'browser_action',args:{action:'take_snapshot',target_mode:'page',screenshot:true}};
+  call={name:'browser_snapshot',args:{target_mode:'page',screenshot:true}};
  }else if(turn===1){
   assert.ok(Array.isArray(latest)&&latest.some((p:any)=>p.type==='image_url'),'snapshot screenshot request reaches the next privacy-masked observation');
-  call={name:'browser_action',args:{action:'take_snapshot',target_mode:'locator',locator:{by:'css',value:'section'}}};
+  call={name:'browser_snapshot',args:{target_mode:'locator',locator:{by:'css',value:'section'}}};
  }else if(turn===2){
   assert.match(String(last),/Matched 2 snapshot targets/);
-  call={name:'browser_action',args:{action:'take_snapshot',target_mode:'locator',locator:{by:'css',value:'#first'}}};
+  call={name:'browser_snapshot',args:{target_mode:'locator',locator:{by:'css',value:'#first'}}};
  }else if(turn===3){
   call={name:'browser_action',args:{action:'take_snapshot',target_mode:'ref',ref:refFrom(String(last))!}};
  }else if(turn===4){

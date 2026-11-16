@@ -8,8 +8,8 @@ import {applicationModelEnvironment,withApplicationModel} from '../application-m
 import {AgentFiles} from './agent-files.js';
 import type {ToolSchema} from './celeris.js';
 import {failedToolResult,ok,type ToolResult} from './context.js';
-import {browserTarget} from './browser-target.js';
-import {nativeInspect,nativeReadback,evaluateBrowser,waitAfterAction,nativeScroll} from './native-browser.js';
+import {browserTarget,hasBrowserTarget} from './browser-target.js';
+import {nativeInspect,nativeReadback,evaluateBrowser,waitAfterAction,nativeScroll,nativeSnapshot} from './native-browser.js';
 import {observe} from './observe.js';
 import {toolInputIssue} from './tool-input.js';
 import {browserToolCall,namedBrowserToolCall} from './browser-tools.js';
@@ -24,8 +24,8 @@ type Prepared={definition:HelperDefinition;schema:ToolSchema;digest:string};
 type Pending={name:string;next:number;results:unknown[]};
 type Executor=(name:string,args:ObjectValue)=>Promise<ToolResult>;
 const forbiddenKeys=new Set(['__proto__','constructor','prototype']);
-const allowedTools=new Set(['browser_fill','browser_click','browser_upload','browser_action','create_file','convert_file']);
-const allowedActions=new Set(['fill','type','click','check','select','press','inspect','script','wait','hover','scroll','set_input_files']);
+const allowedTools=new Set(['browser_fill','browser_click','browser_upload','browser_select_dropdown','browser_choose_radio','browser_set_checkbox','browser_press_key','browser_inspect','browser_snapshot','browser_action','create_file','convert_file']);
+const allowedActions=new Set(['fill','type','click','check','select','press','inspect','take_snapshot','script','wait','hover','scroll','set_input_files']);
 const objectSchema={type:'object',additionalProperties:true};
 const inputSchema={type:'object',additionalProperties:false,properties:{type:{type:'string',enum:['object']},properties:objectSchema,required:{type:'array',maxItems:30,items:{type:'string',maxLength:100}},additionalProperties:{type:'boolean',enum:[false]}},required:['properties']};
 /** A complete executable reference teaches the composition contract to the
@@ -37,7 +37,7 @@ export const helperRecipeExample={name:'join_document',description:'Create one t
 export const helperBrowserRecipeExample={name:'fill_field',description:'Fill one supplied current field and read its actual saved value.',
  parameters:{properties:{selector:{type:'string'},value:{type:'string'}},required:['selector','value']},
  steps:[{tool:'browser_fill',args:{selector:{$input:'selector'},value:{$input:'value'}}},
-   {tool:'browser_action',args:{action:'inspect',selector:{$input:'selector'}}}],
+   {tool:'browser_inspect',args:{selector:{$input:'selector'}}}],
  tests:[{html:'<label>Example<input id=example></label>',input:{selector:'#example',value:'Dummy'},
    assertions:[{step:0,path:'current.value',equals:'Dummy'},{step:1,path:'value',equals:'Dummy'}]}]};
 const schemaKeys=new Set(['type','properties','required','additionalProperties','items','enum','minLength','maxLength','minimum','maximum','minItems','maxItems','description']);
@@ -78,7 +78,7 @@ function parameterSchema(schema:unknown,depth=0):void{
   if(s.enum!==undefined&&(!Array.isArray(s.enum)||s.enum.length>50||s.enum.some(v=>v!==null&&!['string','number','boolean'].includes(typeof v))))throw Error('Use small scalar parameter enums.');
 }
 const helperDefinitionTool:ToolSchema={name:'test_application_helper',description:
-  'Build a temporary helper from browser_fill/browser_click/browser_upload/browser_action/create_file/convert_file steps. No authentication, host code or submission. Templates: {$input:"field"}, {$result:"0.field"}, {$concat:[...]}, {$json:template}. Supply dummy HTML/input tests and expected step results. Only passing helpers become callable; inspect their live results. Example: '+JSON.stringify(helperBrowserRecipeExample),
+  'Build a temporary helper from the dedicated browser tools, browser_action, create_file or convert_file steps. No authentication, host code or submission. Templates: {$input:"field"}, {$result:"0.field"}, {$concat:[...]}, {$json:template}. Supply dummy HTML/input tests and expected step results. Only passing helpers become callable; inspect their live results. Example: '+JSON.stringify(helperBrowserRecipeExample),
   parameters:{type:'object',additionalProperties:false,properties:{
     name:{type:'string',pattern:'^[a-z][a-z0-9_]{1,38}$'},description:{type:'string',minLength:10,maxLength:1200},parameters:{...inputSchema,description:'Input schema example: {"properties":{"letter":{"type":"string"},"resume":{"type":"string"}},"required":["letter","resume"]}. Object type and closed properties are applied automatically. String maxLength defaults to 40000, array maxItems to 32; smaller bounds are welcome. Only typed properties, required, enums and scalar size/range constraints. No patterns or refs.'},
     steps:{type:'array',minItems:1,maxItems:12,items:{type:'object',additionalProperties:false,properties:{tool:{type:'string',enum:[...allowedTools]},args:objectSchema},required:['tool','args']}},
@@ -251,6 +251,7 @@ async function testPrimitive(page:Page,files:AgentFiles,name:string,args:ObjectV
   if(name==='create_file')return files.create(String(args.name),String(args.text),args.format as never);
   if(name==='convert_file')return files.convert(String(args.file_id),args.format as never);
   if(args.action==='script')return evaluateBrowser(page,args);
+  if(args.action==='take_snapshot')return nativeSnapshot(hasBrowserTarget(args)?browserTarget(page,args):page);
   if(args.action==='scroll'){await nativeScroll(page,args);return {action:'scroll'};}
   if(args.action==='wait'){const note=await waitAfterAction(page,args);if(note)throw Error(note);return {action:'wait'};}
   const target=browserTarget(page,args),value=String(args.value??'');

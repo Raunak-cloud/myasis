@@ -12,6 +12,11 @@ test('dedicated browser tools require only their own arguments for both provider
     ['browser_upload', { ref: 'f1', file_ids: ['cv'] }, { ref: 'f1' }],
     ['browser_click', { ref: 'a1' }, {}],
     ['browser_navigate', { url: 'https://fixture.invalid/apply' }, {}],
+    ['browser_select_dropdown', { ref: 'f2', option: 'Australian citizen' }, { ref: 'f2' }],
+    ['browser_choose_radio', { ref: 'f3:1' }, {}],
+    ['browser_set_checkbox', { ref: 'f4', checked: false }, { ref: 'f4' }],
+    ['browser_press_key', { key: 'Tab' }, {}],
+    ['browser_inspect', { ref: 'f2' }, {}],
   ] as const;
   for (const [name, valid, invalid] of cases) {
     const tool = agentOnlyTools.find(tool => tool.name === name)!;
@@ -23,9 +28,11 @@ test('dedicated browser tools require only their own arguments for both provider
   }
   const generic = agentOnlyTools.find(tool => tool.name === 'browser_action')!;
   const props = generic.parameters.properties as Record<string, any>;
-  for (const action of ['click', 'fill', 'set_input_files', 'navigate']) assert.ok(!props.action.enum.includes(action));
+  for (const action of ['click', 'fill', 'set_input_files', 'navigate', 'select', 'check', 'press', 'inspect', 'take_snapshot']) assert.ok(!props.action.enum.includes(action));
   assert.equal(props.file_ids, undefined);
-  assert.ok(props.action.enum.includes('take_snapshot'));
+  const snapshot=agentOnlyTools.find(tool=>tool.name==='browser_snapshot')!;
+  assert.equal(toolInputIssue({screenshot:true},snapshot.parameters),null);
+  assert.ok(toolInputIssue({sends_application:true},snapshot.parameters));
   assert.ok(props.action.enum.includes('script'));
   assert.equal(new Set(agentOnlyTools.map(tool => tool.name)).size, agentOnlyTools.length);
 });
@@ -36,6 +43,11 @@ test('named operations preserve native arguments, upload IDs, frames and send in
     { action: 'click', locator: { by: 'role', value: 'button', name: 'Submit', frame: 'frame1' }, sends_application: true },
     { action: 'set_input_files', selector: 'input[type=file]', file_ids: ['cv'], replaces_file_ids: ['old'], file_chooser: false },
     { action: 'navigate', value: 'https://fixture.invalid/apply', wait: { url: '**/apply' } },
+    { action: 'select', ref: 'frame1:f2', value: 'Australian citizen' },
+    { action: 'check', ref: 'f3', value: 'false' },
+    { action: 'press', value: 'Enter', sends_application: true },
+    { action: 'inspect', locator: {by:'role',value:'combobox',name:'Country',frame:'frame1'} },
+    { action: 'take_snapshot', screenshot: true },
   ]) {
     const before = structuredClone(command), named = namedBrowserToolCall('browser_action', command);
     assert.deepEqual(browserToolCall(named.name, named.args), { name: 'browser_action', args: command });
@@ -68,4 +80,19 @@ test('recovery audits still recognize sends, uncertain clicks and changed destin
   assert.equal(check('browser_navigate', { url: trace.job.url }), true);
   assert.equal(check('browser_navigate', { url: 'https://fixture.invalid/other' }), false);
   assert.deepEqual(browserToolCall('constructor', { value: 'unchanged' }), { name: 'constructor', args: { value: 'unchanged' } });
+  assert.deepEqual(browserToolCall('browser_choose_radio',{ref:'f2:1'}),{name:'browser_action',args:{ref:'f2:1',action:'check',value:'true'}});
+  assert.equal(check('browser_press_key',{key:'Enter'}),false,'A keyboard send is not incorrectly classified as a read');
+  assert.equal(check('browser_snapshot',{}),true);
+  assert.equal(check('browser_inspect',{ref:'f1'}),true);
+});
+
+test('radio, checkbox, dropdown and keyboard tools have unambiguous arguments and Semi-auto intent',()=>{
+ const byName=(name:string)=>agentOnlyTools.find(tool=>tool.name===name)!;
+ assert.ok(toolInputIssue({ref:'f1',value:'No'},byName('browser_choose_radio').parameters));
+ assert.ok(toolInputIssue({ref:'f1',checked:'false'},byName('browser_set_checkbox').parameters));
+ const original=byName('browser_action');
+ const legacy={...original,parameters:{...original.parameters,properties:{...(original.parameters.properties as object),action:{enum:['press']}}}};
+ const press=splitBrowserTools(legacy,true).find(tool=>tool.name==='browser_press_key')!;
+ assert.ok(toolInputIssue({key:'Enter'},press.parameters));
+ assert.equal(toolInputIssue({key:'Enter',sends_application:false},press.parameters),null);
 });

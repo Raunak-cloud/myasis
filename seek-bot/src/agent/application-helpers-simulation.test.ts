@@ -35,6 +35,23 @@ test('the browser recipe advertised to real models executes and wrong result pat
   assert.equal(helpers.schemas().length,1,'the incorrect recipe is not published');
 });
 
+test('a temporary helper can compose the dedicated dropdown, radio, checkbox, key, inspect and snapshot tools',async()=>{
+ const helpers=new ApplicationHelpers(agentOnlyTools);
+ const result=await helpers.test({name:'complete_screening',description:'Complete fictional screening controls and inspect the actual saved selection.',
+  parameters:{properties:{country:{type:'string'},updates:{type:'boolean'}},required:['country','updates']},
+  steps:[{tool:'browser_select_dropdown',args:{selector:'#country',option:{$input:'country'}}},
+   {tool:'browser_choose_radio',args:{selector:'#no'}},
+   {tool:'browser_set_checkbox',args:{selector:'#updates',checked:{$input:'updates'}}},
+   {tool:'browser_press_key',args:{selector:'#name',key:'Tab'}},
+   {tool:'browser_snapshot',args:{selector:'main'}},
+   {tool:'browser_inspect',args:{selector:'#country'}}],
+  tests:[{html:'<main><label>Name<input id=name></label><label>Country<select id=country><option>Choose</option><option>Australia</option></select></label><fieldset><legend>Wireframing experience</legend><label><input type=radio name=wire checked>Yes</label><label><input id=no type=radio name=wire>No</label></fieldset><label><input id=updates type=checkbox checked>Updates</label></main>',
+   input:{country:'Australia',updates:false},assertions:[{step:0,path:'current.selected.0.label',equals:'Australia'},
+    {step:1,path:'current.checked',equals:true},{step:2,path:'current.checked',equals:false},
+    {step:5,path:'selected.0.label',equals:'Australia'}]}]});
+ assert.match(String(result.name),/^helper_complete_screening_/);assert.equal(helpers.schemas().length,1);
+});
+
 test('an interrupted helper resumes remaining operations with fresh inputs and a single-use token',async()=>{
   const helpers=new ApplicationHelpers(agentOnlyTools),definition=structuredClone(simple);
   definition.steps.splice(1,0,{tool:'browser_action',args:{action:'wait',selector:'#ready',timeout_ms:20}});

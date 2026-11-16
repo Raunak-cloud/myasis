@@ -203,7 +203,7 @@ async function assertCurrentRef(ctx: ToolContext, args: Record<string, unknown>)
   }
   const radioQuestion = ctx.observation.fields.find(field => field.ref === ref && field.kind === 'radio');
   if (radioQuestion) {
-    throw new BrowserTargetInputError(`Observed radio question ${JSON.stringify(radioQuestion.label)} (${ref}) does not resolve to a current individual option. No action was attempted. Inspect its visible options and use the intended option's current ref or a scoped role/label locator. The check action targets one checkbox or radio input; its value argument does not select an option from a question group. Do not repeat this unresolved group ref.`);
+    throw new BrowserTargetInputError(`Observed radio question ${JSON.stringify(radioQuestion.label)} (${ref}) does not resolve to a current individual option. No action was attempted. Inspect its visible options, then use browser_choose_radio with the intended option's current ref or a scoped role/label locator, not the question group ref. No value argument is needed. Do not repeat this unresolved group ref.`);
   }
   throw new StaleObservedRefError(ref);
 }

@@ -6,7 +6,7 @@ import { join, resolve, sep } from 'node:path';
 import { chromium } from 'patchright';
 import { closeCelerisQueues } from '../../../shared/celeris-queue.mjs';
 
-test('named tools and batches retain real uploads, single sends, Semi-auto approval and audit evidence', { timeout: 60000 }, async () => {
+test('named tools and batches retain real controls, uploads, single sends, Semi-auto approval and audit evidence', { timeout: 90000 }, async () => {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-named-browser-'));
   const environment = { ...process.env }, fetchBefore = globalThis.fetch;
   Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', OPENROUTER_API_KEY: 'fixture-only',
@@ -29,16 +29,27 @@ test('named tools and batches retain real uploads, single sends, Semi-auto appro
           sends++; submitted = route.request().postData() ?? '';
           return route.fulfill({ contentType: 'text/html', body: `<main><h1>${receipt}</h1></main>` });
         }
-        return route.fulfill({ contentType: 'text/html', body: `<main><h1>Fictional Analyst application</h1><form method=post enctype="multipart/form-data" onsubmit="event.preventDefault();const form=this;form.querySelector('[type=file]').files[0].text().then(text=>{sessionStorage.setItem('sent-file',text);form.submit()})"><label>Name<input name=name id=name required></label><label>CV<input type=file name=cv id=cv required></label><button id=send>Submit application</button></form></main>` });
+        return route.fulfill({ contentType: 'text/html', body: `<main><h1>Fictional Analyst application</h1><form method=post enctype="multipart/form-data" onsubmit="event.preventDefault();const form=this;form.querySelector('[type=file]').files[0].text().then(text=>{sessionStorage.setItem('sent-file',text);form.submit()})"><label>Name<input name=name id=name required></label><label>CV<input type=file name=cv id=cv required></label><section id=questions><label>Right to work<select id=country name=country required><option value="">Choose</option><option value=AU>Australian citizen</option></select></label><fieldset><legend>Do you have Wireframing experience?</legend><label><input type=radio id=wireyes name=wire value=Yes checked>Yes</label><label><input type=radio id=wireno name=wire value=No>No</label></fieldset><label><input id=consent type=checkbox name=consent required>Accept application terms</label><label><input id=updates type=checkbox name=updates checked>Send optional updates</label></section><button id=send>Submit application</button></form></main>` });
       });
       const page = await context.newPage(), url = `https://named.fixture.invalid/${id}`;
       await page.goto(url);
-      const actions = [{ action: 'fill', ref: 'f0', value: 'Alex Fixture' }, { action: 'set_input_files', ref: 'f1', file_ids: ['cv'] }, { action: 'click', selector: '#send', sends_application: true }];
+      const actions = [{ action: 'fill', selector: '#name', value: 'Alex Fixture' }, { action: 'set_input_files', selector: '#cv', file_ids: ['cv'] },
+        {action:'select',selector:'#country',value:'Australian citizen'}, {action:'check',selector:'#wireno',value:'true'},
+        {action:'check',selector:'#consent',value:'true'}, {action:'check',selector:'#updates',value:'false'},
+        { action: 'click', selector: '#send', sends_application: true }];
       const calls: Array<{ name: string; args: Record<string, unknown> }> = batched ? [{ name: 'browser_batch', args: { actions } }] : [
         { name: 'browser_navigate', args: { url } },
         { name: 'browser_fill', args: { ref: 'f0' } },
         { name: 'browser_fill', args: { ref: 'f0', value: 'Alex Fixture' } },
         { name: 'browser_upload', args: { ref: 'f1', file_ids: ['cv'] } },
+        { name: 'fill_authentication_fields', args: {purpose:'sign_in',reason:'Controlled wrong-tool recovery fixture',targets:[{selector:'#country'}]} },
+        { name: 'browser_select_dropdown', args: {selector:'#country',option:'Australian citizen'} },
+        { name: 'browser_choose_radio', args: {selector:'#wireno'} },
+        { name: 'browser_set_checkbox', args: {selector:'#consent',checked:true} },
+        { name: 'browser_set_checkbox', args: {selector:'#updates',checked:false} },
+        { name: 'browser_press_key', args: {selector:'#name',key:'Tab',sends_application:false} },
+        { name: 'browser_inspect', args: {selector:'#country'} },
+        { name: 'browser_snapshot', args: {selector:'#questions'} },
         { name: 'browser_click', args: { selector: '#send', sends_application: true } },
       ];
       if (!mode) calls.push({ name: 'finish', args: { status: 'applied', reason: receipt, evidence: receipt, receipt: { quote: receipt } } });
@@ -50,6 +61,14 @@ test('named tools and batches retain real uploads, single sends, Semi-auto appro
         if (previous === 'invalid-fill') {
           assert.equal(await page.locator('#name').inputValue(), '', 'A missing value cannot silently clear or change the field');
           assert.match(body.messages.filter((message: any) => message.role === 'tool').at(-1).content, /value is required/);
+        }
+        if(previous==='fill_authentication_fields')assert.match(body.messages.filter((m:any)=>m.role==='tool').at(-1).content,/browser_select_dropdown and option/);
+        if(previous==='browser_snapshot'){
+          assert.equal(await page.locator('#country').inputValue(),'AU');
+          assert.equal(await page.locator('#wireno').isChecked(),true);
+          assert.equal(await page.locator('#wireyes').isChecked(),false);
+          assert.equal(await page.locator('#consent').isChecked(),true);
+          assert.equal(await page.locator('#updates').isChecked(),false);
         }
         const call = calls.shift(); assert.ok(call, 'No extra model turns are required');
         // Use the refs from this observation; file controls may use a selector
@@ -77,7 +96,7 @@ test('named tools and batches retain real uploads, single sends, Semi-auto appro
       const trace = JSON.parse(readFileSync(join(directory, 'traces', `${id}.json`), 'utf8'));
       const steps = trace.steps ?? trace.trace;
       assert.ok(Array.isArray(steps));
-      if (!batched) for (const name of ['browser_navigate', 'browser_fill', 'browser_upload', 'browser_click']) assert.ok(steps.some((step: any) => step.tool === name), name);
+      if (!batched) for (const name of ['browser_navigate', 'browser_fill', 'browser_upload', 'browser_select_dropdown','browser_choose_radio','browser_set_checkbox','browser_press_key','browser_inspect','browser_snapshot','browser_click']) assert.ok(steps.some((step: any) => step.tool === name), name);
       await context.close();
     }
   } finally {

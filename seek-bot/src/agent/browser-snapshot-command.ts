@@ -1,11 +1,11 @@
 import {browserTargetProperties} from './browser-target.js';
 
-/** Snapshot arguments for the single advertised browser_action operation. */
+/** Read-only arguments shared by dedicated and historical snapshot calls. */
 export const snapshotProperties = {screenshot:{type:'boolean'},...browserTargetProperties};
 
 export function isSnapshotOperation(name:string,args:Record<string,unknown>):boolean {
   // Recognize the retired name only for historical traces and transcripts.
-  return name==='take_snapshot'||name==='browser_action'&&args.action==='take_snapshot';
+  return name==='browser_snapshot'||name==='take_snapshot'||name==='browser_action'&&args.action==='take_snapshot';
 }
 
 /** The snapshot action accepts only read-only snapshot arguments.

@@ -21,7 +21,8 @@ export function ordinaryFieldGuidance(field: Pick<FormField, 'label' | 'kind' | 
   if (field.inputType === 'file') return `${label}: upload with browser_upload and file_ids, an array of document IDs.`;
   if (['button', 'submit', 'reset'].includes(field.inputType ?? '')) return `${label}: use browser_click with its current control ref.`;
   if (field.autocomplete) return `${label}: enter search text with browser_fill and value. Read dropdown feedback: a unique exact match may already be selected. Otherwise inspect current options and select a truthful match; typed text alone is not a committed answer. Empty results require a supported alternate spelling/full name or inspection of free-text/Other support, not the same search again.`;
-  if (field.kind === 'select' || ['select-one', 'select-multiple'].includes(field.inputType ?? '')) return `${label}: choose an observed option with browser_action action="select" and value.`;
-  if (field.kind === 'checkbox' || field.kind === 'radio' || ['checkbox', 'radio'].includes(field.inputType ?? '')) return `${label}: use browser_action action="check" and value for the intended selection.`;
+  if (field.kind === 'select' || ['select-one', 'select-multiple'].includes(field.inputType ?? '')) return `${label}: choose an observed option with browser_select_dropdown and option.`;
+  if (field.kind === 'radio' || field.inputType === 'radio') return `${label}: choose the intended individual answer option with browser_choose_radio and that option's current ref or a scoped locator, not the question group ref.`;
+  if (field.kind === 'checkbox' || field.inputType === 'checkbox') return `${label}: use browser_set_checkbox with checked=true or checked=false.`;
   return `${label}: enter the candidate's answer with browser_fill and value.`;
 }
