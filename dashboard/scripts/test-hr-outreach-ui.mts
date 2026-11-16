@@ -55,7 +55,8 @@ const vite = await createServer({ configFile: false, root: resolve(import.meta.d
     if (!req.url?.startsWith('/api/')) return next();
     res.setHeader('Content-Type', 'application/json');
     const url = new URL(req.url!, 'http://fixture.test');
-    if (url.pathname === '/api/entitlements') { res.end(JSON.stringify({ tier: runAdmin ? 'admin' : 'standard', manualRuns: runAdmin, autoRunsPerDay: 0, canPauseAutoApply: false, fineTune: false, advancedFilters: false, runScopes: false, employerSources: false })); return; }
+    if (url.pathname === '/api/entitlements') { res.end(JSON.stringify({ tier: runAdmin ? 'admin' : 'standard', manualRuns: runAdmin, autoRunsPerDay: runAdmin ? 4 : 0, canPauseAutoApply: runAdmin, fineTune: false, advancedFilters: false, runScopes: runAdmin, employerSources: false })); return; }
+    if (url.pathname === '/api/auto-schedule') { res.end(JSON.stringify({enabled:false,applicationMode:'auto',runsUsedToday:0,runsPerDay:4,nextRunAt:null,dueNow:false,timeZone:'Australia/Sydney',lastError:null,waitingForSetup:false,waitingForBoard:false,waitingForFirstRun:false})); return; }
     if (url.pathname === '/api/run/status') { res.end(JSON.stringify({ running: false, mode: null, applicationMode: 'auto', startedAt: null, finishedAt: null, exitCode: 0, applied: 2, prepared: 0, hasKey: true, isOwner: true })); return; }
     if (url.pathname === '/api/settings') { res.end(JSON.stringify({ PLATFORMS: 'seek' })); return; }
     if (url.pathname === '/api/hr-outreach') {
@@ -137,10 +138,18 @@ try {
     if(phase==='writing'){assert.match(await inline.innerText(),/Contact found\. Writing your follow-up/);assert.equal(await inline.locator('[aria-current="step"]').innerText(),'2\nContact found');await live.screenshot({path:resolve(screenshotDir,'activity-progress-desktop.png'),fullPage:true});}
   }
   progress={...progress,active:false,phase:null,queued:0,sent:2,skipped:1,failed:1,deliveryFailedCount:1};await inline.locator('.badge').filter({hasText:/^Finished$/}).waitFor();assert.match(await inline.innerText(),/2 sent · 0 waiting · 1 not sent · 1 need attention/);assert.match(await inline.innerText(),/1 email could not be delivered/);
-  await live.setViewportSize({width:390,height:950});
+  for(const width of [320,390,430,768]){
+    await live.setViewportSize({width,height:844});
+    const mobile=await live.evaluate(()=>{const search=document.querySelector('.saved-search-card')!.getBoundingClientRect(),settings=document.querySelector('.run-controls-card')!.getBoundingClientRect(),bar=document.querySelector('.run-actions')!.getBoundingClientRect(),start=document.querySelector('.run-actions .btn.lg')!.getBoundingClientRect();return{overflow:document.documentElement.scrollWidth>innerWidth,searchFirst:search.bottom<=settings.top,startHeight:start.height,footerBottom:bar.bottom,footerHeight:bar.height,inputFont:getComputedStyle(document.querySelector('#saved-search-terms')!).fontSize};});
+    assert.equal(mobile.overflow,false,`${width}px: no horizontal scrolling`);assert.equal(mobile.searchFirst,true,`${width}px: search appears before application settings`);assert.ok(mobile.startHeight>=48,`${width}px: thumb-sized start button`);assert.ok(mobile.footerBottom<=845&&mobile.footerHeight<168,`${width}px: compact footer stays on screen`);assert.equal(mobile.inputFont,'16px',`${width}px: fields avoid iPhone focus zoom`);
+    assert.equal(await live.locator('.run-actions .run-scope-actions, .run-actions .run-auto-row').count(),0,'Secondary settings stay out of the fixed footer');
+  }
+  await live.setViewportSize({width:390,height:844});
+  await live.getByRole('button',{name:'Semi auto',exact:true}).click();await live.getByRole('button',{name:'Start Semi auto',exact:true}).waitFor();
+  await live.getByRole('button',{name:'Auto apply',exact:true}).click();await live.getByRole('button',{name:'Start Auto apply',exact:true}).waitFor();
   assert.equal(await live.evaluate(()=>document.querySelector('.apply-overview')!.getBoundingClientRect().bottom<=document.querySelector('.run-side')!.getBoundingClientRect().top),true,'Mobile overview stays above settings');
   assert.equal(await live.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);await live.screenshot({path:resolve(screenshotDir,'apply-mobile.png'),fullPage:true});
-  const openActivity=live.getByRole('button',{name:'Activity',exact:true});if(await openActivity.isVisible())await openActivity.click();await inline.waitFor();assert.equal(await live.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);await live.screenshot({path:resolve(screenshotDir,'activity-progress-mobile.png'),fullPage:true});
+  const openActivity=live.getByRole('button',{name:'Activity',exact:true});if(await openActivity.isVisible())await openActivity.click();await inline.waitFor();assert.equal(await live.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);await live.screenshot({path:resolve(screenshotDir,'activity-progress-mobile.png'),fullPage:true});await live.getByRole('button',{name:'Close',exact:true}).click();assert.equal(await openActivity.isVisible(),true,'Activity closes back to the mobile controls');
   runAdmin=false;const regular=await browser.newPage();let hrRequests=0;regular.on('request',r=>{if(r.url().includes('/api/hr-outreach'))hrRequests++;});await regular.goto(origin+'/hr-preview.html?hr=off');await regular.locator('.applications-list').waitFor();assert.equal(await regular.locator('.hr-role-link').count(),0);assert.equal(hrRequests,0);
   await regular.goto(origin+'/hr-live-preview.html');await regular.locator('.run-layout').waitFor();await regular.waitForTimeout(350);assert.equal(await regular.locator('.hr-activity-inline').count(),0);assert.equal(hrRequests,0);
   assert.equal(await regular.getByRole('checkbox',{name:'Email hiring teams',exact:true}).count(),0,'Preference keeps its existing access restriction');

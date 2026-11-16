@@ -2210,6 +2210,36 @@ textarea.run-instructions-input {
 button.apply-stat { cursor: pointer; }
 button.apply-stat:hover strong, button.apply-stat:hover > span { color: var(--accent); }
 button.apply-stat > span > span { flex: none; color: var(--text-faint); }
+
+@media (max-width: 900px) {
+  .run-dashboard .run-side > .saved-search-card { order: -1; }
+  .run-dashboard .apply-overview { padding: 16px; }
+  .run-dashboard .apply-overview-head { margin-bottom: 12px; }
+  .run-dashboard .apply-overview-head h2 { font-size: 14px; }
+  .run-dashboard .apply-attention { min-height: 44px; padding: 8px 10px; }
+  .run-dashboard .apply-stat { gap: 4px; padding-inline: 10px; }
+  .run-dashboard .apply-stat:first-child { padding-left: 0; }
+  .run-dashboard .apply-stat:last-child { padding-right: 0; }
+  .run-dashboard .apply-stat strong { font-size: 24px; }
+  .run-dashboard .apply-stat > span { font-size: 11px; }
+  .run-dashboard .run-mode-controls { display: grid; gap: 8px; }
+  .run-dashboard .run-mode-controls > .chips { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+  .run-dashboard .run-mode-controls .chip { min-height: 44px; padding: 8px 12px; }
+  .run-dashboard .run-admin-mode-control { justify-content: space-between; min-height: 36px; }
+  .run-dashboard .run-application-model { margin-top: 0; }
+  .run-dashboard .run-application-model select { width: 100%; }
+  .run-dashboard .hr-outreach-preference label { align-items: center; min-height: 28px; }
+  .run-dashboard .hr-outreach-preference input { width: 18px; height: 18px; margin: 0; flex: none; }
+  .run-dashboard input:not([type='checkbox']), .run-dashboard select, .run-dashboard textarea { font-size: 16px; }
+  .run-dashboard .input, .run-dashboard .terms-entry { min-height: 44px; }
+  .run-dashboard input, .run-dashboard select, .run-dashboard textarea { scroll-margin-block: 80px calc(var(--run-bar-h, 112px) + 24px); }
+  .run-dashboard .run-controls-card .run-scope-actions { gap: 8px; }
+  .run-dashboard .run-scope-actions > button { flex: 1 1 140px; min-height: 44px; border: 1px solid var(--border); background: var(--surface-2); }
+  .run-dashboard .run-controls-card .run-auto-row { justify-content: flex-start; padding-top: 4px; }
+  .main-shell.run-dashboard .run-actions > .btn.lg,
+  .main-shell.run-dashboard .run-actions > .activity-open { min-height: 48px; }
+  .run-dashboard .run-actions > .resume-line { line-height: 1.4; }
+}
 .run-dashboard .console-card {
   min-height: 560px; border: 1px solid var(--border); border-radius: 12px;
   background: var(--surface); box-shadow: 0 2px 6px rgba(10, 25, 45, .03);

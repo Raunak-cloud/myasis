@@ -789,28 +789,6 @@ export function RunPanel({
               >
                 {applicationMode === 'semi-auto' ? 'Start Semi auto' : 'Start Auto apply'}
               </button>
-              {entitlements?.runScopes && (
-                <div className="run-scope-actions">
-                  <button
-                    type="button"
-                    className="run-scope-link"
-                    disabled={accountSetupIncomplete || verifyingSignIn}
-                    title="Skips employer websites and applies only through SEEK or Indeed."
-                    onClick={() => { reviewOpen.current = true; modeChosenByUser.current = true; setScope('hosted'); setConfirming(true); }}
-                  >
-                    Skip employer websites
-                  </button>
-                  <button
-                    type="button"
-                    className="run-scope-link"
-                    disabled={accountSetupIncomplete || verifyingSignIn}
-                    title="Applies only where the employer's own site takes the application, on every board in the run."
-                    onClick={() => { reviewOpen.current = true; modeChosenByUser.current = true; setScope('external'); setConfirming(true); }}
-                  >
-                    Employer sites only <span className="beta-flag">Beta</span>
-                  </button>
-                </div>
-              )}
               {accountSetupIncomplete && (
                 <span className="job-meta">Finish the setup steps above to start a run.</span>
               )}
@@ -819,6 +797,21 @@ export function RunPanel({
               )}
             </>
           )}
+        </div>
+        {!running && driving && !(autoSchedule?.enabled && !adminMode) && entitlements?.runScopes && (
+          <div className="run-scope-actions">
+            <button type="button" className="run-scope-link" disabled={accountSetupIncomplete || verifyingSignIn}
+              title="Skips employer websites and applies only through SEEK or Indeed."
+              onClick={() => { reviewOpen.current = true; modeChosenByUser.current = true; setScope('hosted'); setConfirming(true); }}>
+              Skip employer websites
+            </button>
+            <button type="button" className="run-scope-link" disabled={accountSetupIncomplete || verifyingSignIn}
+              title="Applies only where the employer's own site takes the application, on every board in the run."
+              onClick={() => { reviewOpen.current = true; modeChosenByUser.current = true; setScope('external'); setConfirming(true); }}>
+              Employer sites only <span className="beta-flag">Beta</span>
+            </button>
+          </div>
+        )}
         {showAutoApply && (
           <div className={`run-auto-row${!autoSchedule?.enabled ? ' paused' : ''}`} aria-live="polite">
             <span className="run-auto-label">{entitlements.autoRunsPerDay} {entitlements.autoRunsPerDay === 1 ? 'run' : 'runs'} daily</span>
@@ -830,7 +823,6 @@ export function RunPanel({
             </button>}
           </div>
         )}
-        </div>
         {autoSchedule?.lastError && !running && !signedOutEverywhere && (
           <div className="banner banner-bad run-auto-error" role="alert">
             <strong>The last scheduled run could not start.</strong> {formatActivityReason(autoSchedule.lastError.message, isAdmin)}
