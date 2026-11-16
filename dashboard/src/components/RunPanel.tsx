@@ -1,6 +1,6 @@
 import { EMPLOYER_SOURCES, EMPLOYER_SOURCE_DEFAULTS, isEmployerSource } from '../../../seek-bot/src/employer-source-config';
 import { APPLICATION_MODELS, applicationModelLabel, CUSTOMER_APPLICATION_MODEL } from '../../../seek-bot/src/application-model-catalog';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useEntitlements } from '../entitlements';
 import { useBillingStatus } from '../billing';
 import { useBoardsStatus } from '../boards';
@@ -145,12 +145,10 @@ export function RunPanel({
   lastRunAt,
   onFinished,
   onGoPricing,
-  overview,
 }: {
   lastRunAt: string | null;
   onFinished: () => void;
   onGoPricing: () => void;
-  overview?: ReactNode;
 }) {
   /** One poll for the whole page; see runStatus.ts. */
   const status = useRunStatus();
@@ -941,7 +939,6 @@ export function RunPanel({
       </div>
 
       <div className="run-activity-column">
-      {overview}
       <div className={`card console-card${activityOpen ? ' open' : ''}`}>
         <div className="console-head">
           <div className="console-status">

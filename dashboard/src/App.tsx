@@ -33,7 +33,7 @@ import { captureRedditClickId, initRedditPixel, trackRedditEvent } from './reddi
 import { initMetaPixel, trackMetaEvent } from './metaPixel';
 import { useRunStatus } from './runStatus';
 
-type Tab = 'run' | 'prepared' | 'attention' | 'applications' | 'pricing' | 'setup' | 'support' | 'admin' | 'jobs' | 'marketing';
+type Tab = 'overview' | 'run' | 'prepared' | 'attention' | 'applications' | 'pricing' | 'setup' | 'support' | 'admin' | 'jobs' | 'marketing';
 
 const FOLLOW_UP_DAYS = 10;
 const THEME_CYCLE: ThemePref[] = ['system', 'light', 'dark'];
@@ -46,6 +46,7 @@ interface TodayStats {
 }
 
 const PAGE_COPY: Record<Tab, { title: string; description: string }> = {
+  overview: { title: 'Overview', description: '' },
   marketing: { title: 'Marketing agent', description: 'Improve website health, organic content, AI visibility and measured results.' },
   run: {
     title: 'Apply for jobs',
@@ -250,6 +251,7 @@ export default function App() {
   }, [apps, attention]);
 
   const primaryNav: Array<{ id: Tab; label: string; badge?: number }> = [
+    { id: 'overview', label: 'Overview' },
     { id: 'run', label: 'Apply' },
     { id: 'attention', label: 'Needs attention', badge: stats.blocked },
     { id: 'prepared', label: 'Prepared Applications', badge: preparedCount },
@@ -521,7 +523,7 @@ export default function App() {
       {/* Tapping beside the drawer closes it, the way every drawer on a phone does. */}
       <button type="button" className="nav-scrim" tabIndex={-1} aria-hidden="true" onClick={() => setMenuOpen(false)} />
 
-      <main className={`main-shell ${tab === 'run' ? 'run-dashboard' : ''} ${tab === 'pricing' ? 'pricing-dashboard' : ''}`}>
+      <main className={`main-shell ${tab === 'run' ? 'run-dashboard' : ''} ${tab === 'overview' ? 'overview-dashboard' : ''} ${tab === 'pricing' ? 'pricing-dashboard' : ''}`}>
         <header className="page-header">
           <div>
             <h1>{PAGE_COPY[tab].title}</h1>
@@ -545,17 +547,17 @@ export default function App() {
               lastRunAt={lastRunAt}
               onFinished={load}
               onGoPricing={() => setTab('pricing')}
-              overview={<ApplicationOverview
-                week={appsLoading || appsError ? null : stats.week}
-                submitted={todayAvailable ? today.submitted : null}
-                reviewed={todayAvailable ? today.reviewed : null}
-                needsAttention={stats.blocked}
-                needsVerification={Boolean(stats.verification)}
-                onViewApplications={() => setTab('applications')}
-                onViewAttention={() => setTab('attention')}
-              />}
             />
           )}
+          {tab === 'overview' && <ApplicationOverview
+            week={appsLoading || appsError ? null : stats.week}
+            submitted={todayAvailable ? today.submitted : null}
+            reviewed={todayAvailable ? today.reviewed : null}
+            needsAttention={stats.blocked}
+            needsVerification={Boolean(stats.verification)}
+            onViewApplications={() => go('applications')}
+            onViewAttention={() => go('attention')}
+          />}
           {tab === 'attention' && <AttentionPanel items={attention} onCleared={load} loading={attentionLoading} loadError={attentionError} isAdmin={isAdmin} />}
           {tab === 'prepared' && <PreparedApplications running={running} canChangeCoverLetterMode={entitlements?.fineTune} onCountChange={setPreparedCount} onStarted={() => window.dispatchEvent(new Event('entitlements-refresh'))} />}
           {tab === 'marketing' && isAdmin && <MarketingAgent />}

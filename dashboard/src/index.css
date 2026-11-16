@@ -2180,6 +2180,9 @@ textarea.run-instructions-input {
 .run-dashboard .metric-tile { display: flex; align-items: baseline; gap: 8px; }
 .run-dashboard .metric-tile strong { font-size: 20px; font-weight: 650; letter-spacing: -.03em; }
 .run-dashboard .page-header { margin-bottom: 16px; }
+.run-dashboard > .page-header, .run-dashboard > .page-content { margin-left: 0; margin-right: 0; }
+.overview-dashboard > .page-header, .overview-dashboard > .page-content { max-width: 960px; margin-left: 0; }
+@media (min-width: 901px) { .main-shell.run-dashboard { padding-left: 20px; } }
 .run-dashboard .run-layout { grid-template-columns: minmax(340px, 420px) minmax(0, 1fr); gap: 20px; }
 .run-dashboard .run-layout:has(> .run-notes:empty) { grid-template-areas: "controls activity"; }
 .run-dashboard .run-side {
@@ -2212,15 +2215,15 @@ button.apply-stat:hover strong, button.apply-stat:hover > span { color: var(--ac
 button.apply-stat > span > span { flex: none; color: var(--text-faint); }
 
 @media (max-width: 900px) {
-  .run-dashboard .apply-overview { padding: 12px 14px; }
-  .run-dashboard .apply-overview-head { margin-bottom: 6px; gap: 6px 10px; }
-  .run-dashboard .apply-overview-head h2 { font-size: 13px; }
-  .run-dashboard .apply-attention { min-height: 32px; padding: 4px 8px; gap: 6px; font-size: 11px; }
-  .run-dashboard .apply-stat { min-height: 44px; gap: 3px; padding-inline: 10px; }
-  .run-dashboard .apply-stat:first-child { padding-left: 0; }
-  .run-dashboard .apply-stat:last-child { padding-right: 0; }
-  .run-dashboard .apply-stat strong { font-size: 20px; }
-  .run-dashboard .apply-stat > span { font-size: 10.5px; line-height: 1.3; }
+  .overview-dashboard .apply-overview { padding: 12px 14px; }
+  .overview-dashboard .apply-overview-head { margin-bottom: 6px; gap: 6px 10px; }
+  .overview-dashboard .apply-overview-head h2 { font-size: 13px; }
+  .overview-dashboard .apply-attention { min-height: 32px; padding: 4px 8px; gap: 6px; font-size: 11px; }
+  .overview-dashboard .apply-stat { min-height: 44px; gap: 3px; padding-inline: 10px; }
+  .overview-dashboard .apply-stat:first-child { padding-left: 0; }
+  .overview-dashboard .apply-stat:last-child { padding-right: 0; }
+  .overview-dashboard .apply-stat strong { font-size: 20px; }
+  .overview-dashboard .apply-stat > span { font-size: 10.5px; line-height: 1.3; }
   .run-dashboard .run-mode-controls { display: grid; gap: 8px; }
   .run-dashboard .run-mode-controls > .chips { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
   .run-dashboard .run-mode-controls .chip { min-height: 44px; padding: 8px 12px; }
@@ -2312,9 +2315,6 @@ button.apply-stat > span > span { flex: none; color: var(--text-faint); }
 @media (max-width: 1120px) {
   .run-dashboard .run-layout:has(> .run-notes:empty) { grid-template-areas: "controls" "activity"; }
   .run-activity-column { display: contents; }
-  .run-dashboard .run-layout:has(.apply-overview) { grid-template-areas: "readiness" "overview" "controls" "activity"; }
-  .run-dashboard .run-layout:has(> .run-notes:empty):has(.apply-overview) { grid-template-areas: "overview" "controls" "activity"; }
-  .apply-overview { grid-area: overview; }
   .run-dashboard .run-activity-column > .console-card { grid-area: activity; }
 }
 

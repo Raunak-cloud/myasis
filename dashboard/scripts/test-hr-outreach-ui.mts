@@ -47,14 +47,19 @@ const reportingItems: Array<typeof items[number] & { lookupOutcome?: string; loo
 let runAdmin = true;
 const writes: unknown[] = [];
 const html = `<!doctype html><html><body><div id="root"></div><script type="module">import React from'react';import{createRoot}from'react-dom/client';import{ApplicationsPanel}from'/src/components/ApplicationsPanel.tsx';import'/src/index.css';const mode=new URLSearchParams(location.search).get('hr');createRoot(document.getElementById('root')).render(React.createElement(ApplicationsPanel,{apps:${JSON.stringify(apps)},onChange:()=>{},followUpDays:10,...(mode==='default'?{}:{showHrOutreach:mode!=='off'})}));</script></body></html>`;
-const liveHtml = `<!doctype html><html><body><main class="main-shell run-dashboard"><header class="page-header"><h1>Apply for jobs</h1></header><div id="root" class="page-content"></div></main><script type="module">import React from'react';import{createRoot}from'react-dom/client';import{RunPanel}from'/src/components/RunPanel.tsx';import{ApplicationOverview}from'/src/components/ApplicationOverview.tsx';import'/src/index.css';createRoot(document.getElementById('root')).render(React.createElement(RunPanel,{lastRunAt:null,onFinished:()=>{},onGoPricing:()=>{},overview:React.createElement(ApplicationOverview,{week:51,submitted:32,reviewed:224,needsAttention:2,needsVerification:false,onViewApplications:()=>{},onViewAttention:()=>{}})}));</script></body></html>`;
+const liveHtml = `<!doctype html><html><body><main class="main-shell run-dashboard"><header class="page-header"><h1>Apply for jobs</h1></header><div id="root" class="page-content"></div></main><script type="module">import React from'react';import{createRoot}from'react-dom/client';import{RunPanel}from'/src/components/RunPanel.tsx';import'/src/index.css';createRoot(document.getElementById('root')).render(React.createElement(RunPanel,{lastRunAt:null,onFinished:()=>{},onGoPricing:()=>{}}));</script></body></html>`;
+const shellHtml = `<!doctype html><html><body><div id="root"></div><script type="module">import React from'react';import{createRoot}from'react-dom/client';import App from'/src/App.tsx';import'/src/index.css';createRoot(document.getElementById('root')).render(React.createElement(App));</script></body></html>`;
 const vite = await createServer({ configFile: false, root: resolve(import.meta.dirname, '..'), plugins: [react(), { name: 'hr-outreach-fixture', configureServer(server) {
   server.middlewares.use(async (req, res, next) => {
     if (req.url?.split('?')[0] === '/hr-preview.html') { res.setHeader('Content-Type', 'text/html'); res.end(await server.transformIndexHtml(req.url, html)); return; }
     if (req.url?.split('?')[0] === '/hr-live-preview.html') { res.setHeader('Content-Type', 'text/html'); res.end(await server.transformIndexHtml(req.url, liveHtml)); return; }
+    if (req.url?.split('?')[0] === '/hr-shell-preview.html') { res.setHeader('Content-Type', 'text/html'); res.end(await server.transformIndexHtml(req.url, shellHtml)); return; }
     if (!req.url?.startsWith('/api/')) return next();
     res.setHeader('Content-Type', 'application/json');
     const url = new URL(req.url!, 'http://fixture.test');
+    if (url.pathname === '/api/auth/me') { res.end(JSON.stringify({user:{id:'fixture',name:'Fixture Candidate',email:'fixture@example.test',avatarUrl:null},googleConfigured:true})); return; }
+    if (url.pathname === '/api/today') { res.end(JSON.stringify({runs:1,submitted:32,reviewed:224})); return; }
+    if (url.pathname === '/api/applications') { res.end(JSON.stringify(apps)); return; }
     if (url.pathname === '/api/entitlements') { res.end(JSON.stringify({ tier: runAdmin ? 'admin' : 'standard', manualRuns: runAdmin, autoRunsPerDay: runAdmin ? 4 : 0, canPauseAutoApply: runAdmin, fineTune: false, advancedFilters: false, runScopes: runAdmin, employerSources: false })); return; }
     if (url.pathname === '/api/auto-schedule') { res.end(JSON.stringify({enabled:false,applicationMode:'auto',runsUsedToday:0,runsPerDay:4,nextRunAt:null,dueNow:false,timeZone:'Australia/Sydney',lastError:null,waitingForSetup:false,waitingForBoard:false,waitingForFirstRun:false})); return; }
     if (url.pathname === '/api/run/status') { res.end(JSON.stringify({ running: false, mode: null, applicationMode: 'auto', startedAt: null, finishedAt: null, exitCode: 0, applied: 2, prepared: 0, hasKey: true, isOwner: true })); return; }
@@ -128,11 +133,10 @@ try {
   failSave=true;await checkbox.click();await live.getByRole('alert').filter({hasText:'Could not save'}).waitFor();assert.equal(await checkbox.isChecked(),true);failSave=false;
   failSettings=true;await live.reload();await live.getByRole('alert').filter({hasText:'Could not load your email preference'}).waitFor();failSettings=false;await live.getByRole('button',{name:'Reload preference'}).click();await live.waitForFunction(()=>!(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.disabled);assert.equal(await checkbox.isChecked(),true,'Reloading Apply preserves the saved preference');
   const inline=live.locator('.console-card .hr-activity-inline');await inline.waitFor();assert.equal(await live.locator('.hr-outreach-activity').count(),0,'Separate Apply card removed');assert.equal(await live.locator('.hr-activity-inline').count(),1);assert.match(await inline.innerText(),/HR emails will start afterwards/);
-  const overview=live.getByRole('region',{name:'Application summary'});
-  assert.match(await overview.innerText(),/51\s+Applied this week/);assert.match(await overview.innerText(),/224\s+Reviewed today/);
+  assert.equal(await live.getByRole('region',{name:'Application summary'}).count(),0,'Overview is no longer part of Apply');
   assert.equal(await live.locator('.run-controls-card .hr-outreach-preference').count(),1,'Email preference is grouped with application settings');
-  const desktopLayout=await live.evaluate(()=>{const overview=document.querySelector('.apply-overview')!.getBoundingClientRect(),settings=document.querySelector('.run-side')!.getBoundingClientRect();return{beside:overview.left>settings.right,aligned:Math.abs(overview.top-settings.top)<2,overflow:document.documentElement.scrollWidth>innerWidth};});
-  assert.deepEqual(desktopLayout,{beside:true,aligned:true,overflow:false},'Desktop overview aligns with the settings column');
+  const desktopLayout=await live.evaluate(()=>{const activity=document.querySelector('.run-activity-column')!.getBoundingClientRect(),settings=document.querySelector('.run-side')!.getBoundingClientRect();return{beside:activity.left>settings.right,aligned:Math.abs(activity.top-settings.top)<2,overflow:document.documentElement.scrollWidth>innerWidth};});
+  assert.deepEqual(desktopLayout,{beside:true,aligned:true,overflow:false},'Activity aligns with the settings column');
   for(const[phase,label]of [['researching','Finding contact'],['writing','Writing email'],['sending','Sending email'],['checking','Checking delivery']]){
     progress={...progress,active:true,phase,title:'Data Analyst',company:'Fixture Employer'};await inline.locator('.badge').filter({hasText:new RegExp(`^${label}$`)}).waitFor();assert.match(await inline.innerText(),/Data Analyst · Fixture Employer/);
     if(phase==='writing'){assert.match(await inline.innerText(),/Contact found\. Writing your follow-up/);assert.equal(await inline.locator('[aria-current="step"]').innerText(),'2\nContact found');await live.screenshot({path:resolve(screenshotDir,'activity-progress-desktop.png'),fullPage:true});}
@@ -147,12 +151,31 @@ try {
   await live.setViewportSize({width:390,height:844});
   await live.getByRole('button',{name:'Semi auto',exact:true}).click();await live.getByRole('button',{name:'Start Semi auto',exact:true}).waitFor();
   await live.getByRole('button',{name:'Auto apply',exact:true}).click();await live.getByRole('button',{name:'Start Auto apply',exact:true}).waitFor();
-  assert.equal(await live.evaluate(()=>document.querySelector('.apply-overview')!.getBoundingClientRect().bottom<=document.querySelector('.run-side')!.getBoundingClientRect().top),true,'Mobile overview stays above settings');
+  assert.equal(await live.getByRole('region',{name:'Application summary'}).count(),0,'Mobile Apply has no Overview section');
   assert.equal(await live.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);await live.screenshot({path:resolve(screenshotDir,'apply-mobile.png'),fullPage:true});
   const openActivity=live.getByRole('button',{name:'Activity',exact:true});if(await openActivity.isVisible())await openActivity.click();await inline.waitFor();assert.equal(await live.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);await live.screenshot({path:resolve(screenshotDir,'activity-progress-mobile.png'),fullPage:true});await live.getByRole('button',{name:'Close',exact:true}).click();assert.equal(await openActivity.isVisible(),true,'Activity closes back to the mobile controls');
   runAdmin=false;const regular=await browser.newPage();let hrRequests=0;regular.on('request',r=>{if(r.url().includes('/api/hr-outreach'))hrRequests++;});await regular.goto(origin+'/hr-preview.html?hr=off');await regular.locator('.applications-list').waitFor();assert.equal(await regular.locator('.hr-role-link').count(),0);assert.equal(hrRequests,0);
   await regular.goto(origin+'/hr-live-preview.html');await regular.locator('.run-layout').waitFor();await regular.waitForTimeout(350);assert.equal(await regular.locator('.hr-activity-inline').count(),0);assert.equal(hrRequests,0);
   assert.equal(await regular.getByRole('checkbox',{name:'Email hiring teams',exact:true}).count(),0,'Preference keeps its existing access restriction');
+  runAdmin=true;
+  const shell=await browser.newPage({viewport:{width:1950,height:950}});
+  await shell.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
+  await shell.goto(origin+'/hr-shell-preview.html?tab=overview');
+  await shell.getByRole('region',{name:'Application summary'}).waitFor();
+  assert.equal(await shell.getByRole('button',{name:'Overview',exact:true}).getAttribute('aria-current'),'page','Overview is a sidebar destination');
+  await shell.getByRole('button',{name:'3 Applied this week',exact:true}).click();await shell.getByRole('heading',{name:'Submitted Applications',exact:true}).waitFor();
+  await shell.getByRole('button',{name:'Apply',exact:true}).click();await shell.locator('.run-controls-card').waitFor();
+  assert.equal(await shell.getByRole('region',{name:'Application summary'}).count(),0,'Real Apply shell excludes Overview');
+  assert.equal(await shell.evaluate(()=>Math.round(document.querySelector('.run-controls-card')!.getBoundingClientRect().left-document.querySelector('main')!.getBoundingClientRect().left)),20,'Apply aligns near the left edge on wide desktops');
+  await shell.getByRole('button',{name:'Overview',exact:true}).click();await shell.getByRole('region',{name:'Application summary'}).waitFor();
+  await shell.screenshot({path:resolve(screenshotDir,'overview-page-desktop.png'),fullPage:true});
+  await shell.setViewportSize({width:390,height:844});await shell.getByRole('button',{name:'Menu',exact:true}).click();await shell.getByRole('button',{name:'Apply',exact:true}).click();await shell.locator('.run-controls-card').waitFor();
+  assert.equal(await shell.getByRole('region',{name:'Application summary'}).count(),0,'Mobile Apply excludes Overview');
+  await shell.getByRole('button',{name:'Menu',exact:true}).click();await shell.getByRole('button',{name:'Overview',exact:true}).click();await shell.getByRole('region',{name:'Application summary'}).waitFor();
+  assert.equal(await shell.getByRole('button',{name:'Menu',exact:true}).getAttribute('aria-expanded'),'false','Choosing Overview closes the mobile menu');
+  await shell.waitForFunction(()=>getComputedStyle(document.querySelector('.side-nav')!).visibility==='hidden');
+  assert.equal(await shell.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Overview fits on mobile');
+  await shell.screenshot({path:resolve(screenshotDir,'overview-page-mobile.png'),fullPage:true});
   assert.deepEqual(writes,[{enabled:true},{enabled:false}]);
-  console.log('PASS: Email preference lives on Apply, saves and reloads correctly, HR history remains per applied role, Activity refreshes on desktop/mobile, messages are escaped and ordinary users make no HR requests. Fictional APIs only; no real mail sent.');
+  console.log('PASS: Overview opens from desktop/mobile navigation, Apply is left-aligned without Overview, email preferences persist, HR history stays per role and ordinary users make no HR requests. Fictional APIs only; no real mail sent.');
 }finally{await browser.close();await vite.close();}

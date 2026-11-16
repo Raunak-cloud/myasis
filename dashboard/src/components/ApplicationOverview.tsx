@@ -11,7 +11,7 @@ interface Props {
 export function ApplicationOverview({ week, submitted, reviewed, needsAttention, needsVerification, onViewApplications, onViewAttention }: Props) {
   return <section className="apply-overview card" aria-label="Application summary">
     <div className="apply-overview-head">
-      <h2>Overview</h2>
+      <h2>Application activity</h2>
       {needsAttention > 0 && <button type="button" className="apply-attention" onClick={onViewAttention}>
         {needsAttention} {needsVerification ? 'need verification' : 'need attention'} <span aria-hidden="true">↗</span>
       </button>}
