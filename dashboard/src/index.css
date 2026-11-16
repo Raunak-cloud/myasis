@@ -2212,7 +2212,6 @@ button.apply-stat:hover strong, button.apply-stat:hover > span { color: var(--ac
 button.apply-stat > span > span { flex: none; color: var(--text-faint); }
 
 @media (max-width: 900px) {
-  .run-dashboard .run-side > .saved-search-card { order: -1; }
   .run-dashboard .apply-overview { padding: 16px; }
   .run-dashboard .apply-overview-head { margin-bottom: 12px; }
   .run-dashboard .apply-overview-head h2 { font-size: 14px; }
