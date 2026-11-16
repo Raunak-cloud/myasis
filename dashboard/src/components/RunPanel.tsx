@@ -1,6 +1,6 @@
 import { EMPLOYER_SOURCES, EMPLOYER_SOURCE_DEFAULTS, isEmployerSource } from '../../../seek-bot/src/employer-source-config';
 import { APPLICATION_MODELS, applicationModelLabel, CUSTOMER_APPLICATION_MODEL } from '../../../seek-bot/src/application-model-catalog';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useEntitlements } from '../entitlements';
 import { useBillingStatus } from '../billing';
 import { useBoardsStatus } from '../boards';
@@ -145,10 +145,12 @@ export function RunPanel({
   lastRunAt,
   onFinished,
   onGoPricing,
+  overview,
 }: {
   lastRunAt: string | null;
   onFinished: () => void;
   onGoPricing: () => void;
+  overview?: ReactNode;
 }) {
   /** One poll for the whole page; see runStatus.ts. */
   const status = useRunStatus();
@@ -696,6 +698,7 @@ export function RunPanel({
       <div className="run-side">
       <div className="card run-controls-card">
         <div className="panel-body">
+        <h2 className="run-section-title">Application settings</h2>
         {status && !status.hasKey && !isAdmin && (
           <div className="banner">Job matching is temporarily unavailable. Please try again later.</div>
         )}
@@ -746,6 +749,7 @@ export function RunPanel({
           {applicationMode === 'semi-auto' && <p className="job-meta">Review and confirm jobs in <a href="/?tab=prepared">Prepared Applications</a>.</p>}
           {entitlements && !isAdmin && <p className="job-meta">{entitlements.autoRunsUsedToday} of {entitlements.autoRunsPerDay} runs started in the last 24 hours. You can confirm prepared applications while the schedule is paused.</p>}
         </div>}
+        {isAdmin && <HrOutreachSettings />}
         <div className="run-actions" ref={runBar}>
           {/* Beside the run button on a phone; the desktop layout hides it. */}
           <button
@@ -847,7 +851,6 @@ export function RunPanel({
           <p className="job-meta last-run-line">{lastRunSummary}</p>
         )}
         </div>
-        {isAdmin && <HrOutreachSettings />}
       </div>
 
       <section className="card saved-search-card" aria-labelledby="saved-search-title">
@@ -945,6 +948,8 @@ export function RunPanel({
       </section>
       </div>
 
+      <div className="run-activity-column">
+      {overview}
       <div className={`card console-card${activityOpen ? ' open' : ''}`}>
         <div className="console-head">
           <div className="console-status">
@@ -1052,6 +1057,7 @@ export function RunPanel({
         </div>
       </div>
 
+      </div>
       {liveViewOpen && running && <LiveActionViewer preparing={preparing} onClose={() => setLiveViewOpen(false)} activity={liveEvent ? [liveEvent.title, liveEvent.detail].filter(Boolean).join(' · ') : events.at(-1)?.title} />}
 
       {stopConfirming && running && (

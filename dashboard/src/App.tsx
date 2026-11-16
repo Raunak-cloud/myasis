@@ -7,6 +7,7 @@ import type { AttentionItem } from './components/AttentionPanel';
  * reading the landing page used to download the whole dashboard first.
  */
 const RunPanel = lazy(() => import('./components/RunPanel').then((m) => ({ default: m.RunPanel })));
+const ApplicationOverview = lazy(() => import('./components/ApplicationOverview').then((m) => ({ default: m.ApplicationOverview })));
 const AttentionPanel = lazy(() => import('./components/AttentionPanel').then((m) => ({ default: m.AttentionPanel })));
 const ApplicationsPanel = lazy(() => import('./components/ApplicationsPanel').then((m) => ({ default: m.ApplicationsPanel })));
 const PreparedApplications = lazy(() => import('./components/PreparedApplications').then((m) => ({ default: m.PreparedApplications })));
@@ -531,30 +532,6 @@ export default function App() {
           </div>
         </header>
 
-        {tab === 'run' && (
-          <section className="dashboard-metrics" aria-label="Application summary">
-            <button type="button" className="metric-tile" onClick={() => setTab('applications')}>
-              <strong>{appsLoading || appsError ? '?' : stats.week}</strong>
-              <span>applied this week</span>
-            </button>
-            <div className="metric-tile">
-              <strong>{todayAvailable ? today.submitted : '?'}</strong>
-              <span>sent today</span>
-            </div>
-            <div className="metric-tile">
-              <strong>{todayAvailable ? today.reviewed : '?'}</strong>
-              <span>reviewed today</span>
-            </div>
-            {/* Only when there is something to do: a row of zeros is noise. */}
-            {stats.blocked > 0 && (
-              <button type="button" className="metric-tile needs-action" onClick={() => setTab('attention')}>
-                <strong>{stats.blocked}</strong>
-                <span>{stats.verification ? 'need verification' : 'need attention'}</span>
-              </button>
-            )}
-          </section>
-        )}
-
         {simulation && (
           <div className="simulation-bar" role="status">
             <span><strong>Preview:</strong> {simulation.group} · {simulation.label}. Nothing you press is sent.</span>
@@ -568,6 +545,15 @@ export default function App() {
               lastRunAt={lastRunAt}
               onFinished={load}
               onGoPricing={() => setTab('pricing')}
+              overview={<ApplicationOverview
+                week={appsLoading || appsError ? null : stats.week}
+                submitted={todayAvailable ? today.submitted : null}
+                reviewed={todayAvailable ? today.reviewed : null}
+                needsAttention={stats.blocked}
+                needsVerification={Boolean(stats.verification)}
+                onViewApplications={() => setTab('applications')}
+                onViewAttention={() => setTab('attention')}
+              />}
             />
           )}
           {tab === 'attention' && <AttentionPanel items={attention} onCleared={load} loading={attentionLoading} loadError={attentionError} isAdmin={isAdmin} />}

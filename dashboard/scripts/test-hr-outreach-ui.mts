@@ -47,7 +47,7 @@ const reportingItems: Array<typeof items[number] & { lookupOutcome?: string; loo
 let runAdmin = true;
 const writes: unknown[] = [];
 const html = `<!doctype html><html><body><div id="root"></div><script type="module">import React from'react';import{createRoot}from'react-dom/client';import{ApplicationsPanel}from'/src/components/ApplicationsPanel.tsx';import'/src/index.css';const mode=new URLSearchParams(location.search).get('hr');createRoot(document.getElementById('root')).render(React.createElement(ApplicationsPanel,{apps:${JSON.stringify(apps)},onChange:()=>{},followUpDays:10,...(mode==='default'?{}:{showHrOutreach:mode!=='off'})}));</script></body></html>`;
-const liveHtml = `<!doctype html><html><body><div id="root"></div><script type="module">import React from'react';import{createRoot}from'react-dom/client';import{RunPanel}from'/src/components/RunPanel.tsx';import'/src/index.css';createRoot(document.getElementById('root')).render(React.createElement(RunPanel,{lastRunAt:null,onFinished:()=>{},onGoPricing:()=>{}}));</script></body></html>`;
+const liveHtml = `<!doctype html><html><body><main class="main-shell run-dashboard"><header class="page-header"><h1>Apply for jobs</h1></header><div id="root" class="page-content"></div></main><script type="module">import React from'react';import{createRoot}from'react-dom/client';import{RunPanel}from'/src/components/RunPanel.tsx';import{ApplicationOverview}from'/src/components/ApplicationOverview.tsx';import'/src/index.css';createRoot(document.getElementById('root')).render(React.createElement(RunPanel,{lastRunAt:null,onFinished:()=>{},onGoPricing:()=>{},overview:React.createElement(ApplicationOverview,{week:51,submitted:32,reviewed:224,needsAttention:2,needsVerification:false,onViewApplications:()=>{},onViewAttention:()=>{}})}));</script></body></html>`;
 const vite = await createServer({ configFile: false, root: resolve(import.meta.dirname, '..'), plugins: [react(), { name: 'hr-outreach-fixture', configureServer(server) {
   server.middlewares.use(async (req, res, next) => {
     if (req.url?.split('?')[0] === '/hr-preview.html') { res.setHeader('Content-Type', 'text/html'); res.end(await server.transformIndexHtml(req.url, html)); return; }
@@ -79,7 +79,7 @@ const vite = await createServer({ configFile: false, root: resolve(import.meta.d
     }
     res.end(JSON.stringify([]));
   });
-} }], server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' });
+} }], optimizeDeps: { noDiscovery: true, include: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] }, server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' });
 await vite.listen();
 const origin = `http://127.0.0.1:${(vite.httpServer!.address() as { port: number }).port}`;
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : { executablePath: '/usr/bin/google-chrome-stable' }) });
@@ -120,19 +120,27 @@ try {
   await page.setViewportSize({width:390,height:950});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);await page.screenshot({path:resolve(screenshotDir,'role-email-mobile.png'),fullPage:true});
   const live=await browser.newPage({viewport:{width:1150,height:950}});await live.addInitScript(()=>{const interval=window.setInterval.bind(window);window.setInterval=((handler:TimerHandler,delay?:number,...args:unknown[])=>interval(handler,[5000,30000].includes(delay??0)?150:delay,...args)) as typeof window.setInterval;});
   await live.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());await live.goto(origin+'/hr-live-preview.html');
-  const checkbox=live.getByRole('checkbox',{name:'Email hiring teams',exact:true});await checkbox.waitFor();
+  const checkbox=live.getByRole('checkbox',{name:'Email hiring teams',exact:true});await checkbox.waitFor({timeout:10000}).catch(async error=>{console.error('Apply fixture state:',await live.locator('body').innerText());throw error;});
   await live.waitForFunction(()=>!(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.disabled);
   assert.equal(writes.length,0,'Opening either page does not change the saved preference');
   assert.equal(await checkbox.isChecked(),false);await checkbox.click();await live.waitForFunction(()=>!(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.disabled);await live.waitForFunction(()=>(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.checked===true);assert.equal(enabled,true);
   failSave=true;await checkbox.click();await live.getByRole('alert').filter({hasText:'Could not save'}).waitFor();assert.equal(await checkbox.isChecked(),true);failSave=false;
   failSettings=true;await live.reload();await live.getByRole('alert').filter({hasText:'Could not load your email preference'}).waitFor();failSettings=false;await live.getByRole('button',{name:'Reload preference'}).click();await live.waitForFunction(()=>!(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.disabled);assert.equal(await checkbox.isChecked(),true,'Reloading Apply preserves the saved preference');
   const inline=live.locator('.console-card .hr-activity-inline');await inline.waitFor();assert.equal(await live.locator('.hr-outreach-activity').count(),0,'Separate Apply card removed');assert.equal(await live.locator('.hr-activity-inline').count(),1);assert.match(await inline.innerText(),/HR emails will start afterwards/);
+  const overview=live.getByRole('region',{name:'Application summary'});
+  assert.match(await overview.innerText(),/51\s+Applied this week/);assert.match(await overview.innerText(),/224\s+Reviewed today/);
+  assert.equal(await live.locator('.run-controls-card .hr-outreach-preference').count(),1,'Email preference is grouped with application settings');
+  const desktopLayout=await live.evaluate(()=>{const overview=document.querySelector('.apply-overview')!.getBoundingClientRect(),settings=document.querySelector('.run-side')!.getBoundingClientRect();return{beside:overview.left>settings.right,aligned:Math.abs(overview.top-settings.top)<2,overflow:document.documentElement.scrollWidth>innerWidth};});
+  assert.deepEqual(desktopLayout,{beside:true,aligned:true,overflow:false},'Desktop overview aligns with the settings column');
   for(const[phase,label]of [['researching','Finding contact'],['writing','Writing email'],['sending','Sending email'],['checking','Checking delivery']]){
     progress={...progress,active:true,phase,title:'Data Analyst',company:'Fixture Employer'};await inline.locator('.badge').filter({hasText:new RegExp(`^${label}$`)}).waitFor();assert.match(await inline.innerText(),/Data Analyst · Fixture Employer/);
     if(phase==='writing'){assert.match(await inline.innerText(),/Contact found\. Writing your follow-up/);assert.equal(await inline.locator('[aria-current="step"]').innerText(),'2\nContact found');await live.screenshot({path:resolve(screenshotDir,'activity-progress-desktop.png'),fullPage:true});}
   }
   progress={...progress,active:false,phase:null,queued:0,sent:2,skipped:1,failed:1,deliveryFailedCount:1};await inline.locator('.badge').filter({hasText:/^Finished$/}).waitFor();assert.match(await inline.innerText(),/2 sent · 0 waiting · 1 not sent · 1 need attention/);assert.match(await inline.innerText(),/1 email could not be delivered/);
-  await live.setViewportSize({width:390,height:950});const openActivity=live.getByRole('button',{name:'Activity',exact:true});if(await openActivity.isVisible())await openActivity.click();await inline.waitFor();assert.equal(await live.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);await live.screenshot({path:resolve(screenshotDir,'activity-progress-mobile.png'),fullPage:true});
+  await live.setViewportSize({width:390,height:950});
+  assert.equal(await live.evaluate(()=>document.querySelector('.apply-overview')!.getBoundingClientRect().bottom<=document.querySelector('.run-side')!.getBoundingClientRect().top),true,'Mobile overview stays above settings');
+  assert.equal(await live.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);await live.screenshot({path:resolve(screenshotDir,'apply-mobile.png'),fullPage:true});
+  const openActivity=live.getByRole('button',{name:'Activity',exact:true});if(await openActivity.isVisible())await openActivity.click();await inline.waitFor();assert.equal(await live.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);await live.screenshot({path:resolve(screenshotDir,'activity-progress-mobile.png'),fullPage:true});
   runAdmin=false;const regular=await browser.newPage();let hrRequests=0;regular.on('request',r=>{if(r.url().includes('/api/hr-outreach'))hrRequests++;});await regular.goto(origin+'/hr-preview.html?hr=off');await regular.locator('.applications-list').waitFor();assert.equal(await regular.locator('.hr-role-link').count(),0);assert.equal(hrRequests,0);
   await regular.goto(origin+'/hr-live-preview.html');await regular.locator('.run-layout').waitFor();await regular.waitForTimeout(350);assert.equal(await regular.locator('.hr-activity-inline').count(),0);assert.equal(hrRequests,0);
   assert.equal(await regular.getByRole('checkbox',{name:'Email hiring teams',exact:true}).count(),0,'Preference keeps its existing access restriction');
