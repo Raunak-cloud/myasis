@@ -167,6 +167,7 @@ try {
   await shell.getByRole('button',{name:'Apply',exact:true}).click();await shell.locator('.run-controls-card').waitFor();
   assert.equal(await shell.getByRole('region',{name:'Application summary'}).count(),0,'Real Apply shell excludes Overview');
   assert.equal(await shell.evaluate(()=>Math.round(document.querySelector('.run-controls-card')!.getBoundingClientRect().left-document.querySelector('main')!.getBoundingClientRect().left)),20,'Apply aligns near the left edge on wide desktops');
+  assert.ok(await shell.evaluate(()=>Math.abs(document.querySelector('.page-content')!.getBoundingClientRect().width/document.querySelector('main')!.getBoundingClientRect().width-.95)<.001),'Apply uses 95% of the width beside the sidebar');
   await shell.getByRole('button',{name:'Overview',exact:true}).click();await shell.getByRole('region',{name:'Application summary'}).waitFor();
   await shell.screenshot({path:resolve(screenshotDir,'overview-page-desktop.png'),fullPage:true});
   await shell.setViewportSize({width:390,height:844});await shell.getByRole('button',{name:'Menu',exact:true}).click();await shell.getByRole('button',{name:'Apply',exact:true}).click();await shell.locator('.run-controls-card').waitFor();
