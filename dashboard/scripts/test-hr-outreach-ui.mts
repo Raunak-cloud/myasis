@@ -91,7 +91,7 @@ try {
   await page.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
   await page.goto(origin+'/hr-preview.html');
   await page.locator('.applications-list').waitFor();
-  assert.equal(await page.getByRole('checkbox',{name:'Email hiring teams after I apply'}).count(),0,'Email preference has moved out of Submitted Applications');
+  assert.equal(await page.getByRole('checkbox',{name:'Email hiring teams',exact:true}).count(),0,'Email preference has moved out of Submitted Applications');
   assert.equal(await page.getByRole('tab',{name:/^HR emails/}).count(),0,'No separate HR tab');
   assert.equal(await page.locator('.hr-role-link').count(),3,'Every applied role offers its own HR details');
   await page.getByRole('button',{name:'HR email for Data Analyst at Fixture Employer'}).click();
@@ -120,7 +120,7 @@ try {
   await page.setViewportSize({width:390,height:950});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);await page.screenshot({path:resolve(screenshotDir,'role-email-mobile.png'),fullPage:true});
   const live=await browser.newPage({viewport:{width:1150,height:950}});await live.addInitScript(()=>{const interval=window.setInterval.bind(window);window.setInterval=((handler:TimerHandler,delay?:number,...args:unknown[])=>interval(handler,[5000,30000].includes(delay??0)?150:delay,...args)) as typeof window.setInterval;});
   await live.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());await live.goto(origin+'/hr-live-preview.html');
-  const checkbox=live.getByRole('checkbox',{name:'Email hiring teams after I apply'});await checkbox.waitFor();
+  const checkbox=live.getByRole('checkbox',{name:'Email hiring teams',exact:true});await checkbox.waitFor();
   await live.waitForFunction(()=>!(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.disabled);
   assert.equal(writes.length,0,'Opening either page does not change the saved preference');
   assert.equal(await checkbox.isChecked(),false);await checkbox.click();await live.waitForFunction(()=>!(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.disabled);await live.waitForFunction(()=>(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.checked===true);assert.equal(enabled,true);
@@ -135,7 +135,7 @@ try {
   await live.setViewportSize({width:390,height:950});const openActivity=live.getByRole('button',{name:'Activity',exact:true});if(await openActivity.isVisible())await openActivity.click();await inline.waitFor();assert.equal(await live.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);await live.screenshot({path:resolve(screenshotDir,'activity-progress-mobile.png'),fullPage:true});
   runAdmin=false;const regular=await browser.newPage();let hrRequests=0;regular.on('request',r=>{if(r.url().includes('/api/hr-outreach'))hrRequests++;});await regular.goto(origin+'/hr-preview.html?hr=off');await regular.locator('.applications-list').waitFor();assert.equal(await regular.locator('.hr-role-link').count(),0);assert.equal(hrRequests,0);
   await regular.goto(origin+'/hr-live-preview.html');await regular.locator('.run-layout').waitFor();await regular.waitForTimeout(350);assert.equal(await regular.locator('.hr-activity-inline').count(),0);assert.equal(hrRequests,0);
-  assert.equal(await regular.getByRole('checkbox',{name:'Email hiring teams after I apply'}).count(),0,'Preference keeps its existing access restriction');
+  assert.equal(await regular.getByRole('checkbox',{name:'Email hiring teams',exact:true}).count(),0,'Preference keeps its existing access restriction');
   assert.deepEqual(writes,[{enabled:true},{enabled:false}]);
   console.log('PASS: Email preference lives on Apply, saves and reloads correctly, HR history remains per applied role, Activity refreshes on desktop/mobile, messages are escaped and ordinary users make no HR requests. Fictional APIs only; no real mail sent.');
 }finally{await browser.close();await vite.close();}

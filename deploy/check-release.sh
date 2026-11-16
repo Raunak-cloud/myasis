@@ -9,7 +9,7 @@ if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(
   email_preference_changed=0
   while IFS= read -r path; do
     case "$path" in
-      dashboard/src/components/ApplicationsPanel.tsx|dashboard/src/components/RunPanel.tsx) email_preference_changed=1 ;;
+      dashboard/src/components/ApplicationsPanel.tsx|dashboard/src/components/RunPanel.tsx|dashboard/src/components/HrOutreachPanel.tsx) email_preference_changed=1 ;;
       dashboard/src/index.css|dashboard/scripts/test-hr-outreach-ui.mts|deploy/check-release.sh) ;;
       *) email_preference_only=0 ;;
     esac
