@@ -43,34 +43,19 @@ export async function sendExistingBrowserHrDraft(page: Page, mail: BrowserHrMail
   return sendHrDraft(page, mail, account);
 }
 
+/** Inspect the open draft without changing it or dispatching an email. */
+export async function validateExistingBrowserHrDraft(page: Page, mail: BrowserHrMail, account: string): Promise<void> {
+  try { await validateHrDraft(page, mail, account); }
+  catch (error) {
+    if (error instanceof GmailServiceError) throw error;
+    throw new GmailServiceError('reconnect', 'The Gmail draft could not be inspected. Reconnect browser Gmail.');
+  }
+}
+
 async function sendHrDraft(page: Page, mail: BrowserHrMail, account: string, knownDraft?: Locator): Promise<{ id: string }> {
-  validateHrMail(mail);
-  if (!validApplicationEmail(account)) throw new GmailServiceError('reconnect', 'Connect your profile Gmail address.');
   let pressed = false;
   try {
-    assertBrowserOperationActive();
-    // Full-page Gmail drafts have neither role=dialog nor role=main. Wait for
-    // their editor to load before checking that exactly one draft is open.
-    const scope = knownDraft ?? page;
-    const subjects = scope.locator('input[name="subjectbox"]:visible');
-    await subjects.first().waitFor({ state: 'visible', timeout: 10000 });
-    await scope.locator('[role="textbox"][contenteditable="true"]:visible').first().waitFor({ state: 'visible', timeout: 10000 });
-    if (await subjects.count() !== 1) throw new GmailServiceError('unapproved', 'Gmail has more than one open draft.');
-    const subject = subjects.first();
-    const ancestor = subject.locator('xpath=ancestor::*[@role="dialog"][1]');
-    const draft = knownDraft ?? (await ancestor.count() ? ancestor : page.locator('body'));
-    const bodies = draft.locator('[role="textbox"][contenteditable="true"]:visible');
-    if (await bodies.count() !== 1) throw new GmailServiceError('unapproved', 'The Gmail draft editor is ambiguous.');
-    const body = bodies.first(), from = draft.locator('input[name="from"]');
-    const fromValues = await from.evaluateAll(nodes => nodes.map(node => (node as HTMLInputElement).value.toLowerCase()));
-    const labels = await page.locator('a[aria-label^="Google Account:"], button[aria-label^="Google Account:"]').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label') || '').join('\n'));
-    const accounts = labels.match(/[^\s()<>]+@[^\s()<>]+/g) || [];
-    if (fromValues.some(value => value !== account.toLowerCase()) || (accounts.length && !accounts.some(value => value.toLowerCase() === account.toLowerCase()))
-      || (!fromValues.length && !accounts.length)) throw new GmailServiceError('unapproved', 'Gmail selected a different sending address.');
-    const normalize = (text: string) => text.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-    if (await subject.inputValue() !== mail.subject || normalize(await body.innerText()) !== normalize(hrMailBody(mail))) throw new GmailServiceError('unapproved', 'The Gmail draft differs from the HR email.');
-    const recipients = await draft.locator('[email], [data-hovercard-id]').evaluateAll(nodes => nodes.map(node => node.getAttribute('email') || node.getAttribute('data-hovercard-id')).filter(Boolean));
-    if (!recipients.length || recipients.some(email => email?.toLowerCase() !== mail.to.toLowerCase())) throw new GmailServiceError('unapproved', 'The Gmail recipient differs from the HR contact.');
+    const draft = await validateHrDraft(page, mail, account, knownDraft);
     assertBrowserOperationActive();
     // Gmail wraps keyboard shortcuts in invisible direction marks. Match only
     // the primary Send control, excluding Send options and Schedule send.
@@ -88,6 +73,40 @@ async function sendHrDraft(page: Page, mail: BrowserHrMail, account: string, kno
     if (error instanceof GmailServiceError) throw error;
     throw new GmailServiceError('reconnect', 'The Gmail draft could not be completed. Reconnect browser Gmail.');
   }
+}
+
+async function validateHrDraft(page: Page, mail: BrowserHrMail, account: string, knownDraft?: Locator): Promise<Locator> {
+  validateHrMail(mail);
+  if (!validApplicationEmail(account)) throw new GmailServiceError('reconnect', 'Connect your profile Gmail address.');
+  assertBrowserOperationActive();
+  // Full-page Gmail drafts have neither role=dialog nor role=main. Wait for
+  // their editor to load before checking that exactly one draft is open.
+  const scope = knownDraft ?? page;
+  const subjects = scope.locator('input[name="subjectbox"]:visible');
+  await subjects.first().waitFor({ state: 'visible', timeout: 10000 });
+  await scope.locator('[role="textbox"][contenteditable="true"]:visible').first().waitFor({ state: 'visible', timeout: 10000 });
+  if (await subjects.count() !== 1) throw new GmailServiceError('unapproved', 'Gmail has more than one open draft.');
+  const subject = subjects.first(), form = subject.locator('xpath=ancestor::form[1]');
+  if (await form.count() !== 1) throw new GmailServiceError('unapproved', 'The Gmail recipient form could not be verified.');
+  const ancestor = subject.locator('xpath=ancestor::*[@role="dialog"][1]');
+  const draft = knownDraft ?? (await ancestor.count() ? ancestor : page.locator('body'));
+  const bodies = draft.locator('[role="textbox"][contenteditable="true"]:visible');
+  if (await bodies.count() !== 1) throw new GmailServiceError('unapproved', 'The Gmail draft editor is ambiguous.');
+  const body = bodies.first(), from = form.locator('input[name="from"]');
+  const fromValues = await from.evaluateAll(nodes => nodes.map(node => (node as HTMLInputElement).value.toLowerCase()));
+  const labels = await page.locator('a[aria-label^="Google Account:"], button[aria-label^="Google Account:"]').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label') || '').join('\n'));
+  const accounts = labels.match(/[^\s()<>]+@[^\s()<>]+/g) || [];
+  if (fromValues.some(value => value !== account.toLowerCase()) || (accounts.length && !accounts.some(value => value.toLowerCase() === account.toLowerCase()))
+    || (!fromValues.length && !accounts.length)) throw new GmailServiceError('unapproved', 'Gmail selected a different sending address.');
+  const normalize = (text: string) => text.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (await subject.inputValue() !== mail.subject || normalize(await body.innerText()) !== normalize(hrMailBody(mail))) throw new GmailServiceError('unapproved', 'The Gmail draft differs from the HR email.');
+  // Gmail's subject form owns To/Cc/Bcc chips. The page also contains account,
+  // sidebar and autocomplete email nodes, none of which are recipients.
+  const recipients = await form.locator('[email]').evaluateAll(nodes => nodes.filter(node => !node.closest('[role="option"], [role="listbox"]')).map(node => node.getAttribute('email')).filter(Boolean));
+  if (!recipients.length || recipients.some(email => email?.toLowerCase() !== mail.to.toLowerCase())) throw new GmailServiceError('unapproved', 'The Gmail recipient differs from the HR contact.');
+  const pending = await form.locator('input[aria-label$=" recipients"]:visible').evaluateAll(nodes => nodes.some(node => (node as HTMLInputElement).value.trim()));
+  if (pending) throw new GmailServiceError('unapproved', 'Gmail has an unconfirmed recipient.');
+  return draft;
 }
 
 export async function sendHrMailInBrowser(userId: string, mail: BrowserHrMail, account: string) {

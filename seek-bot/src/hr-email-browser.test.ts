@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { chromium } from 'patchright';
-import { sendBrowserHrEmail, sendExistingBrowserHrDraft, hrMailBody, reconcileHrEmailOnPage, type BrowserHrMail } from './hr-email-browser.js';
+import { sendBrowserHrEmail, sendExistingBrowserHrDraft, validateExistingBrowserHrDraft, hrMailBody, reconcileHrEmailOnPage, type BrowserHrMail } from './hr-email-browser.js';
 
 const executablePath = process.env.CHROME_PATH || (process.platform === 'win32' ? 'C:/Program Files/Google/Chrome/Application/chrome.exe' : '/usr/bin/google-chrome-stable');
 const mail: BrowserHrMail = { id: 'fixture-outreach', to: 'hr@fixture.invalid', subject: 'Analyst application', body: 'Hello hiring team,\n\nI applied for the Analyst role.\n\nTaylor', createdAt: '2026-11-16T00:00:00Z' };
@@ -15,11 +15,11 @@ test('real browser fixtures send exact plain-text HR message and refuse mismatch
   const page = await context.newPage();
   const fixture = async (opts: { from?: string; recipient?: string; bodyChange?: boolean; receipt?: boolean; sendLabel?: string; missingSend?: boolean; otherDraft?: boolean } = {}) => {
     await page.setContent(`${opts.otherDraft ? '<section id="personal" role="dialog"><input name="subjectbox" value="Personal draft"><div role="textbox" contenteditable="true">Unrelated personal message</div><span email="friend@fixture.invalid"></span></section>' : ''}<button id="compose">Compose</button><section id="dialog" role="dialog" hidden>
-      <input name="from" value="${opts.from || 'candidate@fixture.invalid'}"><input name="to"><input name="subjectbox">
-      <div role="textbox" contenteditable="true"></div><span id="chip"></span><button id="options">Send options</button><button id="scheduled">Schedule send</button><button id="send" ${opts.missingSend?'hidden':''} aria-label="${opts.sendLabel??'Send'}">Send</button></section><div id="result"></div>
+      <form><input name="from" type="hidden" value="${opts.from || 'candidate@fixture.invalid'}"><input name="to" aria-label="To recipients"><input name="subjectbox"><span id="chip"></span></form>
+      <div role="textbox" contenteditable="true"></div><button id="options">Send options</button><button id="scheduled">Schedule send</button><button id="send" ${opts.missingSend?'hidden':''} aria-label="${opts.sendLabel??'Send'}">Send</button></section><div id="result"></div>
       <script>document.body.dataset.sends='0';document.body.dataset.wrongSends='0';document.querySelector('#compose').onclick=()=>document.querySelector('#dialog').hidden=false;
       document.querySelector('#options').onclick=document.querySelector('#scheduled').onclick=()=>document.body.dataset.wrongSends=String(Number(document.body.dataset.wrongSends)+1);
-      document.querySelector('[name=to]').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();document.querySelector('#chip').setAttribute('email',${JSON.stringify(opts.recipient || mail.to)});}};
+      document.querySelector('[name=to]').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();document.querySelector('#chip').setAttribute('email',${JSON.stringify(opts.recipient || mail.to)});e.target.value='';}};
       ${opts.bodyChange ? "document.querySelector('[contenteditable]').oninput=e=>e.target.innerText='changed';" : ''}
       document.querySelector('#send').onclick=()=>{document.body.dataset.sends=String(Number(document.body.dataset.sends)+1);${opts.receipt === false ? '' : "document.querySelector('#result').innerHTML='<div role=alert>Message sent</div>';"}};</script>`);
   };
@@ -65,11 +65,15 @@ test('existing full-page drafts wait for the editor and send only the exact save
   await context.route('**/*', route => { externalRequests++; return route.abort(); });
   const page = await context.newPage();
   const escape = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-  const fixture = async (opts: { account?: string; recipient?: string; subject?: string; body?: string; extraDraft?: boolean; extraRecipient?: boolean; delayedEditor?: boolean } = {}) => {
+  const fixture = async (opts: { account?: string; recipient?: string; subject?: string; body?: string; extraDraft?: boolean; extraRecipient?: 'Cc' | 'Bcc'; pendingRecipient?: boolean; delayedEditor?: boolean } = {}) => {
     const editor = `<div role="textbox" aria-label="Message Body" contenteditable="true" style="white-space:pre-wrap">${escape(opts.body ?? hrMailBody(mail))}</div>`;
     await page.setContent(`<a aria-label="Google Account: Candidate (${escape(opts.account ?? 'candidate@fixture.invalid')})"></a>
-      <input name="subjectbox" value="${escape(opts.subject ?? mail.subject)}">${opts.extraDraft ? '<input name="subjectbox" value="Other draft">' : ''}
-      <div email="${escape(opts.recipient ?? mail.to)}"></div><span email="${escape(opts.recipient ?? mail.to)}"></span>${opts.extraRecipient ? '<span email="other@fixture.invalid"></span>' : ''}
+      <span email="candidate@fixture.invalid"></span><div data-hovercard-id="sidebar@fixture.invalid"></div>
+      <form><input name="from" type="hidden" value="candidate@fixture.invalid"><input name="subjectbox" value="${escape(opts.subject ?? mail.subject)}">${opts.extraDraft ? '<input name="subjectbox" value="Other draft">' : ''}
+      <input aria-label="To recipients" value="${opts.pendingRecipient ? 'pending@fixture.invalid' : ''}">
+      <span email="${escape(opts.recipient ?? mail.to)}" data-hovercard-id="${escape(opts.recipient ?? mail.to)}"></span>
+      <div role="listbox"><div role="option" email="suggestion@fixture.invalid" data-hovercard-id="suggestion@fixture.invalid"></div></div>
+      ${opts.extraRecipient ? `<div aria-label="${opts.extraRecipient}"><span email="other@fixture.invalid"></span></div>` : ''}</form>
       ${opts.delayedEditor ? '' : editor}<button id="send" aria-label="Send &#x202a;(Ctrl-Enter)&#x202c;">Send</button><div id="result"></div>
       <script>document.body.dataset.sends='0';document.querySelector('#send').onclick=()=>{document.body.dataset.sends=String(Number(document.body.dataset.sends)+1);document.querySelector('#result').innerHTML='<div role=alert>Message sent</div>';};
       ${opts.delayedEditor ? `setTimeout(()=>document.body.insertAdjacentHTML('beforeend',${JSON.stringify(editor)}),150);` : ''}</script>`);
@@ -77,11 +81,16 @@ test('existing full-page drafts wait for the editor and send only the exact save
   try {
     await fixture({ delayedEditor: true });
     assert.equal(await page.locator('[role="dialog"], [role="main"]').count(), 0, 'the live full-page draft has neither container');
+    await validateExistingBrowserHrDraft(page, mail, 'candidate@fixture.invalid');
+    assert.equal(await page.locator('body').getAttribute('data-sends'), '0', 'read-only validation never clicks Send');
+    assert.equal(await page.locator('form input[name="subjectbox"]').inputValue(), mail.subject);
+    assert.equal(await page.locator('[contenteditable]').innerText(), hrMailBody(mail), 'read-only validation preserves the exact message');
     assert.match((await sendExistingBrowserHrDraft(page, mail, 'candidate@fixture.invalid')).id, /^browser_HR-/);
     assert.equal(await page.locator('body').getAttribute('data-sends'), '1', 'resuming the saved draft clicks Send only once');
     for (const opts of [{ account: 'other@fixture.invalid' }, { recipient: 'wrong@fixture.invalid' }, { subject: 'Other role' },
-      { body: mail.body }, { extraDraft: true }, { extraRecipient: true }]) {
+      { body: mail.body }, { extraDraft: true }, { extraRecipient: 'Cc' as const }, { extraRecipient: 'Bcc' as const }, { pendingRecipient: true }]) {
       await fixture(opts);
+      await assert.rejects(validateExistingBrowserHrDraft(page, mail, 'candidate@fixture.invalid'), (error: any) => error.code === 'unapproved');
       await assert.rejects(sendExistingBrowserHrDraft(page, mail, 'candidate@fixture.invalid'), (error: any) => error.code === 'unapproved');
       assert.equal(await page.locator('body').getAttribute('data-sends'), '0');
     }
