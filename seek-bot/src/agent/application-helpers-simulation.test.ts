@@ -102,7 +102,7 @@ test('invalid arguments and unknown templates publish nothing and never invoke l
 });
 
 test('helpers inherit the existing mode capabilities, including the absence of browser scripts',async()=>{
-  const nativeOnly=agentOnlyTools.map(tool=>tool.name==='browser_action'?{...tool,parameters:{...tool.parameters,
+  const nativeOnly=agentOnlyTools.filter(tool=>tool.name!=='browser_run_script').map(tool=>tool.name==='browser_action'?{...tool,parameters:{...tool.parameters,
     properties:{...(tool.parameters.properties as object),action:{type:'string',enum:['fill','inspect']}}}}:tool);
   const helpers=new ApplicationHelpers(nativeOnly),script=structuredClone(simple);
   script.steps=[{tool:'browser_action',args:{action:'script',script:'()=>({value:"Dummy"})',script_intent:'inspect'}}];script.tests[0].assertions[0].step=0;
