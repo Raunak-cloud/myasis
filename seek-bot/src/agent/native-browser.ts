@@ -3,6 +3,7 @@ import { browserDeadline, BROWSER_OPERATION_TIMEOUT_MS, browserOperationTimeout,
 import { browserTarget, browserTargetProperties, hasBrowserTarget, observedFrame } from './browser-target.js';
 import { privateAuthenticationValues, redactPrivateAuthenticationData } from '../private-auth-fields.js';
 import { readComboboxStates } from '../combobox-state.js';
+import { dropdownFeedback, repeatedDropdownSearch } from './dropdown-feedback.js';
 
 export const MAX_BROWSER_BATCH = 32;
 const waitState = { type: 'string', enum: ['visible', 'hidden', 'attached', 'detached'] };
@@ -95,27 +96,15 @@ export async function nativeSelect(target: Locator, value: string): Promise<void
     return;
   }
   if (await target.getAttribute('role') !== 'combobox') throw Error('select requires a native select or an observed combobox.');
+  const repeated = await repeatedDropdownSearch(target, value);
+  if (repeated) throw Error(JSON.stringify(repeated));
   await target.click(browserOperationOptions());
   if (tag === 'INPUT') {
     await target.fill('', browserOperationOptions());
     await target.pressSequentially(value, browserOperationOptions());
   }
-  // Menus can be portalled elsewhere in the same frame. Scope with the
-  // control's own ARIA relationship, never an unrelated open dropdown.
-  const controls = (await target.getAttribute('aria-controls') || await target.getAttribute('aria-owns') || '').split(/\s+/).filter(Boolean);
-  if (!controls.length) throw Error('Combobox has no current menu relationship. Inspect its suggestions and select an observed option directly.');
-  const frame = await target.elementHandle().then(async handle => {
-    try { return await handle?.ownerFrame(); } finally { await handle?.dispose(); }
-  });
-  if (!frame) throw Error('Combobox frame changed. Inspect the fresh page.');
-  const menu = frame.locator(controls.map(id => `[id=${JSON.stringify(id)}]`).join(','));
-  const option = menu.getByRole('option', { name: value, exact: true });
-  await option.click(browserOperationOptions());
-  await target.press('Tab', browserOperationOptions());
-  const readback = await nativeReadback(target) as { widgetText?: string; invalid?: string; expanded?: string };
-  if (readback.invalid === 'true' || readback.expanded === 'true' || readback.widgetText !== value) {
-    throw Error('The chosen option was clicked, but a committed selection is not yet established. Inspect the current field and validation before repeating anything.');
-  }
+  const feedback = await dropdownFeedback(target, value);
+  if (!feedback?.selected) throw Error(`Dropdown selection is not confirmed. ${JSON.stringify(feedback)} Inspect the current field before choosing a different approach.`);
 }
 
 /** Mutation readback remains strict: exactly the target the action addressed. */

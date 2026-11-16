@@ -63,6 +63,7 @@ import { currentApplicationWorker } from '../application-workers.js';
 import { investigationTool, investigateApplicationState } from './investigation.js';
 import {ApplicationHelpers, helperBuilderTool, helperRecipeExample} from './application-helpers.js';
 import { ApplicationBrowserRecovery } from './browser-recovery.js';
+import { dropdownFeedback, repeatedDropdownSearch } from './dropdown-feedback.js';
 
 const string = { type: 'string' };
 const batchActions = ['click', 'fill', 'type', 'select', 'check', 'press', 'hover', 'wait', 'inspect', 'set_input_files', 'script'];
@@ -837,6 +838,8 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       case 'fill': {
         if (['fill', 'type'].includes(String(args.action)) && typeof args.value !== 'string') throw new Error('Provide the complete value to fill.');
         const element = target(ctx, args);
+        const repeated = ['fill', 'type'].includes(String(args.action)) ? await repeatedDropdownSearch(element, value) : undefined;
+        if (repeated) return ok(JSON.stringify({ action: args.action, dropdown: repeated }), 'reobserve');
         assertBrowserOperationActive();browserEffectEpoch++;
         // The locator resolves the current element for each call, including after
         // framework rerenders. No retained node or structural-fingerprint veto.
@@ -844,15 +847,21 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         else if (args.action === 'type') await element.pressSequentially(value, browserOperationOptions());
         else if (args.action === 'check') await element.setChecked(value !== 'false', browserOperationOptions());
         else await nativeSelect(element, value);
+        const dropdown = ['fill', 'type'].includes(String(args.action))
+          ? await dropdownFeedback(target(ctx, args), value) : undefined;
         const waitNote = await waitAfterAction(ctx.page, args);
         const readback = await nativeReadback(target(ctx, args)) as { private: boolean; controlIdentity?: string; value?: string; widgetText?: string; committedValue?:string; selectionState?:string; checked?: boolean; selected?: Array<{ label: string }> };
         // The actual native readback, never the requested fill text, can bind
         // approved-letter evidence just like a separate explicit inspection.
         files.witnessInspectedLetter(readback,ctx.observation.fields);ctx.letterWitness=files.checkpointLetterWitness();
         browserMutated = true; // retain successful writes even if a later command in the batch fails
-        const saved = args.action === 'check' ? String(readback.checked)
+        const saved = dropdown && !dropdown.selected ? undefined : args.action === 'check' ? String(readback.checked)
           : readback.selectionState ? readback.selectionState==='selected'?readback.committedValue:undefined
           : args.action === 'select' ? readback.selected?.map(option => option.label).join(', ') ?? readback.widgetText : readback.value;
+        if (dropdown && !dropdown.selected && actionLabel) {
+          ctx.captured = ctx.captured.filter(answer => answer.question !== actionLabel);
+          answerSources.delete(actionLabel);
+        }
         if (!readback.private && typeof saved === 'string' && actionLabel) {
           ctx.captured = [...ctx.captured.filter(answer => answer.question !== actionLabel), { question: actionLabel, answer: saved }];
           const sources = ctx.observation.fields.filter(field => field.controlIdentity && field.controlIdentity === readback.controlIdentity);
@@ -860,7 +869,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
           if (sources.length === 1) answerSources.set(actionLabel, { identity: sources[0].controlIdentity!, label: sources[0].label });
           if (isCoverLetterField(actionLabel)) ctx.coverLetter = saved;
         }
-        return ok(JSON.stringify({ action: args.action, requested: readback.private ? '[private credential]' : value, current: readback, note: `Current browser readback; inspect validation and selection before advancing. This is not server receipt.${waitNote ? ` ${waitNote}` : ''}` }), waitNote ? 'reobserve' : undefined);
+        return ok(JSON.stringify({ action: args.action, requested: readback.private ? '[private credential]' : value, current: readback, dropdown, note: `Current browser readback; inspect validation and selection before advancing. This is not server receipt.${waitNote ? ` ${waitNote}` : ''}` }), waitNote || dropdown && !dropdown.selected ? 'reobserve' : undefined);
       }
       default: throw new Error('Unknown browser action.');
     }

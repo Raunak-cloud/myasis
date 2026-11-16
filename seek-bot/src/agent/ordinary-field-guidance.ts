@@ -20,7 +20,7 @@ export function ordinaryFieldGuidance(field: Pick<FormField, 'label' | 'kind' | 
   const label = JSON.stringify(field.label || 'Selected control');
   if (field.inputType === 'file') return `${label}: upload with browser_upload and file_ids, an array of document IDs.`;
   if (['button', 'submit', 'reset'].includes(field.inputType ?? '')) return `${label}: use browser_click with its current control ref.`;
-  if (field.autocomplete) return `${label}: enter search text with browser_fill and value, then click the matching suggested option.`;
+  if (field.autocomplete) return `${label}: enter search text with browser_fill and value. Read dropdown feedback: a unique exact match may already be selected. Otherwise inspect current options and select a truthful match; typed text alone is not a committed answer. Empty results require a supported alternate spelling/full name or inspection of free-text/Other support, not the same search again.`;
   if (field.kind === 'select' || ['select-one', 'select-multiple'].includes(field.inputType ?? '')) return `${label}: choose an observed option with browser_action action="select" and value.`;
   if (field.kind === 'checkbox' || field.kind === 'radio' || ['checkbox', 'radio'].includes(field.inputType ?? '')) return `${label}: use browser_action action="check" and value for the intended selection.`;
   return `${label}: enter the candidate's answer with browser_fill and value.`;
