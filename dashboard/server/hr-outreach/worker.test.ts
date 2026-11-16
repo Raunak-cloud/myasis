@@ -62,3 +62,17 @@ test('transient discovery failure does not poison the shared cache or mark perma
   const {deps,events}=fixture({fresh:false});deps.discover=async()=>({contact:null,reason:'The public search provider is temporarily unavailable.',pagesRead:1,retryable:true,outcome:'temporarily_unavailable',diagnostics});
   await processHrJob({...job},deps);assert.equal(events.some(e=>e[0]==='cache'||e[0]==='send'),false);assert.equal(events.at(-1)[2],'error');
 });
+test('new public vacancy evidence bypasses a company negative cache without exposing candidate evidence',async()=>{
+  const {deps,events}=fixture({contact:null});
+  let description='Company recruitment: careers@company.org',checks=0;
+  deps.publicEvidence=async()=>({description,location:'Sydney NSW',sourceUrl:job.url,observedAt:'2026-11-16T00:00:00Z',sourceKind:'stored_vacancy'});
+  deps.discover=async input=>{checks++;assert.equal(input.jobDescription,description);assert.equal(input.location,'Sydney NSW');assert.equal(input.jobDescriptionObservedAt,'2026-11-16T00:00:00Z');assert.equal('cover_letter'in input,false);
+    return {contact:null,reason:'No suitable public contact.',pagesRead:1,retryable:false,outcome:'no_contact',diagnostics};};
+  await processHrJob({...job},deps);assert.equal(checks,1,'an old company-wide negative cannot suppress a new job advertisement');
+  const saved=events.find(e=>e[0]==='cache');const contextKey=saved.at(-1);assert.match(contextKey,/^[a-f0-9]{64}$/);
+  deps.store.cache=async()=>({contact:null,fresh:true,reason:'No suitable public contact.',outcome:'no_contact',diagnostics,contextKey});
+  await processHrJob({...job},deps);assert.equal(checks,1,'an unchanged vacancy can reuse its bounded negative lookup');
+  description='Company recruitment now publishes talent@company.org';
+  await processHrJob({...job},deps);assert.equal(checks,2,'changed public evidence receives a fresh lookup');
+  assert.equal(events.some(e=>e[0]==='send'||e[0]==='compose'),false);
+});

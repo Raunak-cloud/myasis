@@ -21,8 +21,9 @@ let progress: { active: boolean; phase: string | null; title: string | null; com
   = { active: false, phase: 'waiting', title: null, company: null, queued: 1, sent: 0, skipped: 0, failed: 0, runId: '42' };
 let reportingMode = false;
 const checkedAt = new Date(Date.now() - 5 * 60_000).toISOString(), retryAt = new Date(Date.now() + 60 * 60_000).toISOString();
+const sourceObservedAt = new Date(Date.now() - 7 * 24 * 60 * 60_000).toISOString();
 const reportBase = { ...items[0], toEmail: null, subject: null, body: null, sentAt: null, reason: null, sourceUrl: 'https://fixture.invalid/careers', contactName: null, phase: null, lookupCheckedAt: checkedAt, lookupRetryAt: null };
-const reportingItems: Array<typeof items[number] & { lookupOutcome?: string; lookupCheckedAt?: string; lookupRetryAt?: string | null; contactReviewRequired?: boolean; contactReviewReason?: string; diagnostics?: unknown }> = [
+const reportingItems: Array<typeof items[number] & { lookupOutcome?: string; lookupCheckedAt?: string; lookupRetryAt?: string | null; contactReviewRequired?: boolean; contactReviewReason?: string; sourceKind?: string; sourceCheckedAt?: string; diagnostics?: unknown }> = [
   { ...reportBase, id: '210', title: 'No public contact role', status: 'skipped', lookupOutcome: 'no_contact' },
   { ...reportBase, id: '209', title: 'Unverified company role', status: 'skipped', lookupOutcome: 'company_unverified' },
   { ...reportBase, id: '208', title: 'Blocked source role', status: 'error', lookupOutcome: 'access_blocked', lookupRetryAt: retryAt },
@@ -35,6 +36,9 @@ const reportingItems: Array<typeof items[number] & { lookupOutcome?: string; loo
   { ...items[0], id: '203', title: 'FiftyFive historical role', company: 'FiftyFive Group Pty Ltd', toEmail: 'hello@freehire.me', sourceUrl: 'https://freehire.me/talent', contactReviewRequired: true, contactReviewReason: 'This platform contact has not been verified as the employer’s hiring contact.' },
   { ...items[0], id: '202', title: 'Lanson software role', company: 'Lanson Partners', toEmail: 'josh@lansonpartners.com', contactReviewRequired: true, contactReviewReason: 'The public contact covers finance recruitment. Relevance to this software role needs review.' },
   { ...items[0], id: '201', title: 'Verified hiring contact role', contactReviewRequired: false, lookupOutcome: 'found', lookupCheckedAt: checkedAt, lookupRetryAt: null },
+  { ...items[0], id: '200', title: 'Saved advertisement contact role', contactName: null, sourceKind: 'stored_vacancy', sourceCheckedAt: sourceObservedAt, lookupCheckedAt: checkedAt, lookupOutcome: 'found', lookupRetryAt: null },
+  { ...items[0], id: '199', title: 'Indexed contact role', sourceKind: 'indexed_excerpt', sourceCheckedAt: sourceObservedAt, lookupCheckedAt: checkedAt, lookupOutcome: 'found', lookupRetryAt: null },
+  { ...items[0], id: '198', title: 'Current page contact role', sourceKind: 'public_page', sourceCheckedAt: sourceObservedAt, lookupCheckedAt: checkedAt, lookupOutcome: 'found', lookupRetryAt: null },
 ];
 let runAdmin = true;
 const writes: unknown[] = [];
@@ -270,6 +274,20 @@ try {
   assert.match(await page.locator('.hr-outreach-activity').innerText(), /4 sent/);
   assert.match(await page.locator('.hr-outreach-activity').innerText(), /3 contacts need review/);
   assert.doesNotMatch(await page.locator('.hr-outreach-panel').innerText(), /selector:secret|model:private|stack:internal/);
+  const savedSource = report('Saved advertisement contact role');
+  assert.equal(await savedSource.getByRole('link', { name: 'Saved job advertisement' }).getAttribute('href'), 'https://fixture.invalid/careers');
+  const savedDate = await savedSource.locator('dl > div').filter({ has: page.getByText('Advertisement saved', { exact: true }) }).locator('dd').innerText();
+  const lookupDate = await savedSource.locator('dl > div').filter({ has: page.getByText('Last check', { exact: true }) }).locator('dd').innerText();
+  assert.notEqual(savedDate, lookupDate, 'A new lookup keeps the original saved advertisement date');
+  assert.doesNotMatch(await savedSource.innerText(), /Source checked|stored_vacancy|validatedAt|sourceCheckedAt/);
+  await savedSource.getByText('View sent email', { exact: true }).click();
+  assert.equal(await savedSource.locator('.letter').innerText(), literal);
+  assert.equal(await savedSource.locator('.letter img').count(), 0, 'Saved-source messages remain escaped plain text');
+  assert.equal(await page.evaluate(() => (window as unknown as Record<string, unknown>).fixtureInjected), undefined);
+  assert.equal(await report('Indexed contact role').getByRole('link', { name: 'Public search result' }).count(), 1);
+  assert.match(await report('Indexed contact role').innerText(), /Search result checked/);
+  assert.equal(await report('Current page contact role').getByRole('link', { name: 'Public contact source' }).count(), 1);
+  assert.match(await report('Current page contact role').innerText(), /Source checked/);
   await page.setViewportSize({ width: 390, height: 950 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   await page.screenshot({ path: resolve(screenshotDir, 'contact-reporting-mobile.png'), fullPage: true });

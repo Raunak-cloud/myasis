@@ -535,3 +535,93 @@ test('the pronoun it does not establish a technology recruiter specialism',()=>{
   assert.equal(assessHiringContact(contact,'Acme','Software Engineer').reviewRequired,true);
   assert.equal(assessHiringContact({...contact,sourceText:'Josh specialises in IT infrastructure recruitment.'},'Acme','IT Manager').reviewRequired,false);
 });
+
+test('a dedicated experienced-careers publisher can publish its regional queries mailbox without an HR local part',async()=>{
+  const url='https://careers.acme.org/go/Australia-Experienced/123/';
+  const html='<title>Career Opportunities in Australia | Find Your Spark</title><meta name="description" content="Job Opportunities for Experienced Professionals | Acme Careers"><h1>Current Openings in Australia</h1><p>Acme</p><heading>Can’t Find the Job of Your Choice?</heading><p>For queries, email to:<a href="mailto:acme.au@acme.org">acme.au@acme.org</a></p>';
+  const f=fixture({[url]:html});
+  const result=await discoverHiringContact({company:'Acme',roleTitle:'Senior Technical Specialist',location:'Sydney NSW'},{crawler:f,search:async()=>[{url:'https://acme.org/'},{url,title:'Career Opportunities in Australia'}]});
+  assert.equal(result.contact?.email,'acme.au@acme.org');assert.equal(result.contact?.sourceKind,'public_page');assert.deepEqual(f.calls,[url]);
+  assert.match(result.contact!.sourceText,/Careers enquiries/);
+  assert.deepEqual(publishedHiringContacts('<title>Acme products</title><p>For queries: acme.au@acme.org</p>','https://acme.org/products','acme.org',true),[]);
+});
+
+test('a regional named page binds a legal employer to its actual parent-brand publisher without trusting a platform',async()=>{
+  const url='https://acmegroup.org/au-en';
+  const owner={'@type':'Organization','@id':`${url}#organization`,name:'Acme Insurance',legalName:'Acme Pacific Holdings Pty Ltd',url};
+  const structured={'@type':'WebPage',name:'Acme Insurance Brokers Australia - Homepage',url,about:{'@id':owner['@id']},isPartOf:{'@type':'WebSite',name:'Acme Insurance (AU)',url,publisher:owner}};
+  const html=`<title>Acme Australia - Local Insurance Brokers</title><script type="application/ld+json">${JSON.stringify(structured)}</script><p>Acme Insurance Brokers Australia</p><p>HR queries hraustralia@acmegroup.org</p>`;
+  const result=await discoverHiringContact({company:'Acme Insurance Brokers (Australia)'},{crawler:fixture({[url]:html}),search:async()=>[{url}]});
+  assert.equal(result.contact?.email,'hraustralia@acmegroup.org');
+  const platform=JSON.stringify({...structured,isPartOf:{'@type':'WebSite',name:'Vacancy Directory',url,publisher:{...owner,name:'Vacancy Directory'}}});
+  const bad=await discoverHiringContact({company:'Acme Insurance Brokers Australia'},{crawler:fixture({[url]:`<script type="application/ld+json">${platform}</script><h1>Acme Insurance Brokers Australia</h1><p>Hiring enquiries hello@acmegroup.org</p>`}),search:async()=>[{url}]});
+  assert.equal(bad.contact,null);assert.equal(bad.outcome,'company_unverified');
+});
+
+test('office products and cookie or audience navigation do not consume a careers lookup or create false pending HR pages',async()=>{
+  const f=fixture({'https://acme.org/careers':'<h1>Careers at Acme</h1><p>Join our team.</p>'+['office-meals','office-catering','office-kitchen','office-event-popups-and-workplace-activations','how/esg-office-catering','for-you/office-managers','melbourne-cup-catering','cookie-preferences'].map(path=>`<a href="/${path}">${path.replace(/-/g,' ')}</a>`).join('')});
+  const result=await discoverHiringContact({company:'Acme',website:'https://acme.org/careers',location:'Sydney NSW'},{crawler:f,maxPages:4});
+  assert.deepEqual(f.calls,['https://acme.org/careers']);assert.equal(result.outcome,'no_contact');assert.equal(result.diagnostics.unresolvedPriorityPages,0);
+});
+
+test('escaped quote wrappers are removed before resolving a published careers link',async()=>{
+  const f=fixture({'https://acme.org/':'<h1>Acme</h1><a href="\\&quot;/careers\\&quot;">Careers</a>','https://acme.org/careers':'<h1>Acme careers</h1><p>Hiring careers@acme.org</p>'});
+  const result=await discoverHiringContact({company:'Acme',website:'https://acme.org/'},{crawler:f});
+  assert.equal(result.contact?.email,'careers@acme.org');assert.deepEqual(f.calls,['https://acme.org/','https://acme.org/careers']);assert.doesNotMatch(JSON.stringify(result.diagnostics),/%22/);
+});
+
+test('agency identity does not promote an unrelated competition mailbox, but an official jobseeker contact remains valid',()=>{
+  const footy='<title>Acme IT Recruitment</title><h1>Footy tipping competition</h1><p>For the competition password contact acmemarketing@acme.org</p><a href="/careers">Careers</a>';
+  assert.deepEqual(publishedHiringContacts(footy,'https://acme.org/footy-tipping','acme.org',true),[]);
+  const old={...previous,email:'acmemarketing@acme.org',sourceText:'Footy tipping competition password: contact acmemarketing@acme.org'};
+  assert.equal(assessHiringContact(old,'Acme','Software Engineer').reviewRequired,true);
+  const contact='<title>Contact us | Acme IT Recruitment Agency</title><h1>Connect With Our Team</h1><p>Whether you’re hiring or looking for your next role, our local experts are here to help.</p><div>Get In Touch acmemarketing@acme.org</div>';
+  const found=publishedHiringContacts(contact,'https://acme.org/contact-us','acme.org',true);
+  assert.equal(found[0]?.email,'acmemarketing@acme.org');assert.doesNotMatch(found[0]!.sourceText,/footy/i);
+});
+
+test('stored exact-vacancy contact preserves its observation date and never overrides a readable newer job page',async()=>{
+  const job='https://www.seek.com.au/job/991',observed='2026-11-15T12:00:00.000Z';
+  const input={company:'Acme',website:'https://acme.org/',jobUrl:job,roleTitle:'Software Engineer',jobDescription:'For this software vacancy contact our technology recruitment consultant Ellis at ellis@acme.org.',jobDescriptionObservedAt:observed};
+  const home='<h1>Acme</h1><p>Recruitment careers@acme.org</p>';
+  const result=await discoverHiringContact(input,{crawler:fixture({'https://acme.org/':home}),now:()=>now});
+  assert.equal(result.contact?.email,'ellis@acme.org');assert.equal(result.contact?.sourceKind,'stored_vacancy');assert.equal(result.contact?.sourceUrl,job);assert.equal(result.contact?.validatedAt,observed);
+  const fresh=await discoverHiringContact(input,{crawler:fixture({'https://acme.org/':home,[job]:'<h1>Acme</h1><p>This vacancy no longer publishes a personal email. Apply here.</p>'}),now:()=>now});
+  assert.equal(fresh.contact?.email,'careers@acme.org');assert.equal(fresh.contact?.sourceKind,'public_page');
+  const undated=await discoverHiringContact({...input,jobDescriptionObservedAt:undefined},{crawler:fixture({'https://acme.org/':home}),now:()=>now});
+  assert.equal(undated.contact?.email,'careers@acme.org');
+});
+
+test('an observed masked HR domain can corroborate a legal trade brand but can never become an email address',async()=>{
+  const job='https://www.seek.com.au/job/992';
+  const f=fixture({'https://acmegroup.org/':'<title>Acme Australia</title><h1>Acme</h1><p>Acme Insurance Brokers Australia</p><p>Recruitment hr@acmegroup.org</p>'});
+  const result=await discoverHiringContact({company:'Acme Insurance Brokers Australia',jobUrl:job,jobDescription:'Our Human Resources team: ••••@acmegroup.org',jobDescriptionObservedAt:now.toISOString()},{crawler:f,now:()=>now});
+  assert.equal(result.contact?.email,'hr@acmegroup.org');assert.equal(result.contact?.sourceKind,'public_page');assert.ok(!result.contact?.email.includes('•'));
+  const unrelated=await discoverHiringContact({company:'Acme Insurance Brokers Australia',jobUrl:job,jobDescription:'Our Human Resources team: ••••@platform.org',jobDescriptionObservedAt:now.toISOString()},{crawler:fixture({'https://platform.org/':'<title>Vacancy Directory</title><h1>Acme Insurance Brokers Australia jobs</h1><p>HR hr@platform.org</p>'}),now:()=>now});
+  assert.equal(unrelated.contact,null);
+  assert.deepEqual(publishedHiringContacts('<h1>Acme Careers</h1><p>Human Resources: ****@acme.org</p><p>Recruitment ••••@acme.org</p>','https://acme.org/careers','acme.org',true),[]);
+});
+
+test('regional cache reuse honours the actual job location while national recruitment inboxes remain reusable',async()=>{
+  const sydney={...previous,email:'sydney@acme.org',sourceUrl:'https://acme.org/sydney'};
+  assert.equal(await canReuseHiringContact('Acme Australia NSW','https://acme.org/careers',sydney,{location:'Perth WA'}),false);
+  assert.equal(await canReuseHiringContact('Acme Australia NSW','https://acme.org/careers',previous,{location:'Perth WA'}),true);
+  const f=fixture({'https://acme.org/':'<h1>Acme</h1><a href="/sydney">Sydney office</a><a href="/perth">Perth office</a>','https://acme.org/perth':'<h1>Acme</h1><p>Recruitment perth@acme.org</p>'});
+  const result=await discoverHiringContact({company:'Acme Australia NSW',location:'Perth WA',website:'https://acme.org/'},{crawler:f});
+  assert.equal(result.contact?.email,'perth@acme.org');assert.equal(f.calls.includes('https://acme.org/sydney'),false);
+});
+
+test('a known Australian job reaches the regional careers page ahead of global catalogues and locale copies',async()=>{
+  const home='https://careers.acme.org/',local='https://careers.acme.org/go/Australia-Experienced/123/';
+  const f=fixture({[home]:'<title>Acme Careers</title><h1>Acme</h1><a href="/?locale=de_DE">Deutsch</a><a href="/?locale=en_US">English</a><a href="https://www.careers.acme.org/?locale=fr_FR">Français</a><a href="/jobs/">All jobs</a><a href="https://acme.org/careers">Global careers</a><a href="/go/Australia-Experienced/123/">Australia Experienced</a>',
+    [local]:'<title>Career Opportunities in Australia | Acme Careers</title><h1>Current Openings in Australia</h1><p>For queries, email to:<a href="mailto:acme.au@acme.org">acme.au@acme.org</a></p>'});
+  const queries:string[]=[];
+  const result=await discoverHiringContact({company:'Acme',roleTitle:'Technical Specialist',location:'Sydney NSW'},{crawler:f,maxPages:4,search:async query=>{queries.push(query);return [{url:home,title:'Acme global careers'}];}});
+  assert.equal(result.contact?.email,'acme.au@acme.org');assert.deepEqual(f.calls,[home,local]);assert.match(queries[0],/Australia/);
+});
+
+test('regional delivery areas and supplier partner pages cannot masquerade as recruitment offices',async()=>{
+  const f=fixture({'https://acme.org/careers':'<title>Acme Careers</title><h1>Acme</h1><p>Join our team</p><a href="/locations/countries/australia/cities/sydney">Sydney</a><a href="/partner/foodlab-sydney">Foodlab Sydney</a><a href="/partner/little-caterer-sydney">Sydney office catering</a><a href="/get-a-quote">Contact our team for a quote</a><a href="/discover-at-work">Discover our workplace partners</a>'});
+  const result=await discoverHiringContact({company:'Acme',website:'https://acme.org/careers',location:'Sydney NSW'},{crawler:f,maxPages:4});
+  assert.deepEqual(f.calls,['https://acme.org/careers']);assert.equal(result.outcome,'no_contact');assert.equal(result.diagnostics.unresolvedPriorityPages,0);
+});

@@ -29,12 +29,15 @@ pool.query = (async (sql: string, values: unknown[] = []) => {
     assert.match(sql, /h\.id<\$2/); assert.match(sql, /h\.job_id=\$3 AND h\.platform=\$4/);
     assert.match(sql, /h\.lookup_outcome AS "lookupOutcome"/);
     assert.match(sql, /h\.lookup_checked_at AS "lookupCheckedAt"/);
+    assert.match(sql, /h\.contact->>'sourceKind' AS "sourceKind"/);
+    assert.match(sql, /h\.contact->>'validatedAt' AS "sourceCheckedAt"/);
     assert.match(sql, /h\.contact_review_required AS "contactReviewRequired"/);
     assert.doesNotMatch(sql.split(/FROM hr_outreach h/)[0], /\bh\.(?:lookup_(?:diagnostics|details|trace)|diagnostics)\b/, 'Raw lookup diagnostics must not be projected into customer history');
+    assert.doesNotMatch(sql.split(/FROM hr_outreach h/)[0], /(?:job_description|jobDescription|sourceText|cover_letter)/, 'Raw vacancy and candidate evidence must not be projected into email history');
     hrReads++;
     const userId = String(values[0]);
     let rows = Array.from({ length: userId === '1' ? 55 : 1 }, (_, i) => ({ id: String(100 - i), jobId: i ? `archived-${userId}-${i}` : `job-${userId}`, platform: i === 54 ? 'external' : 'seek', title: `Role ${userId}`, company: 'Fixture Company', status: 'sent', toEmail: `hiring-${userId}@example.test`, subject: `Private subject ${userId}`, body: `Private body ${userId}`,
-      lookupOutcome:'found',lookupCheckedAt:'2026-11-16T01:00:00.000Z',lookupRetryAt:null,contactReviewRequired:userId==='1'&&i===0,contactReviewReason:userId==='1'&&i===0?'The contact’s relevance to this employer needs review.':null }));
+      sourceKind:'stored_vacancy',sourceCheckedAt:'2026-11-09T01:00:00.000Z',lookupOutcome:'found',lookupCheckedAt:'2026-11-16T01:00:00.000Z',lookupRetryAt:null,contactReviewRequired:userId==='1'&&i===0,contactReviewReason:userId==='1'&&i===0?'The contact’s relevance to this employer needs review.':null }));
     if (values[1]) rows = rows.filter(row => BigInt(row.id) < BigInt(String(values[1])));
     if (values[2]) rows = rows.filter(row => row.jobId === values[2] && row.platform === values[3]);
     return { rows: rows.slice(0, 51) };
@@ -102,6 +105,11 @@ try {
   assert.equal(first.body.items[0].subject,'Private subject 1');
   assert.equal(first.body.items[0].lookupOutcome,'found');
   assert.equal(first.body.items[0].lookupCheckedAt,'2026-11-16T01:00:00.000Z');
+  assert.equal(first.body.items[0].sourceKind,'stored_vacancy');
+  assert.equal(first.body.items[0].sourceCheckedAt,'2026-11-09T01:00:00.000Z');
+  assert.notEqual(first.body.items[0].sourceCheckedAt,first.body.items[0].lookupCheckedAt,'A lookup does not refresh the saved source observation date');
+  assert.equal(Object.hasOwn(first.body.items[0],'jobDescription'),false);
+  assert.equal(Object.hasOwn(first.body.items[0],'sourceText'),false);
   assert.equal(first.body.items[0].lookupRetryAt,null);
   assert.equal(first.body.items[0].contactReviewRequired,true);
   assert.match(first.body.items[0].contactReviewReason,/needs review/);

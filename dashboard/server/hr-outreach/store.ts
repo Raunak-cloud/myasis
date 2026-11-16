@@ -12,7 +12,7 @@ export interface HrJob {
   job_id: string; platform: string; title: string; company: string; url: string; cover_letter: string | null;
   status: HrStatus; to_email: string | null; subject: string | null; body: string | null;
   contact: HiringContact | null; created_at: Date | string; lease: string; attempts: number; cost_usd: number;
-  source_run_id?:string|null;phase?:HrPhase|null;
+  source_run_id?:string|null;phase?:HrPhase|null;location?:string|null;applied_at?:Date|string;
 }
 export function companyKey(company: string): string {
   return company.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
@@ -51,7 +51,7 @@ const historyLookupFields=`h.lookup_outcome AS "lookupOutcome",h.lookup_checked_
 export async function listHrOutreach(userId: string, db = database) {
   const { rows } = await db.query(`SELECT h.id::text,h.job_id AS "jobId",h.platform,h.title,h.company,h.status,
     h.to_email AS "toEmail",h.subject,h.body,h.created_at AS "createdAt",h.sent_at AS "sentAt",h.reason,h.phase,a.source_run_id::text AS "sourceRunId",
-    h.contact->>'sourceUrl' AS "sourceUrl",h.contact->>'name' AS "contactName",
+    h.contact->>'sourceUrl' AS "sourceUrl",h.contact->>'name' AS "contactName",h.contact->>'sourceKind' AS "sourceKind",h.contact->>'validatedAt' AS "sourceCheckedAt",
     ${historyLookupFields}
     FROM hr_outreach h JOIN applications a ON a.id=h.application_id AND a.user_id=h.user_id WHERE h.user_id=$1 ORDER BY h.created_at DESC,h.id DESC LIMIT 200`, [userId]);
   return rows;
@@ -61,7 +61,7 @@ export async function listHrOutreachPage(userId:string, options:{cursor?:string;
   if((options.jobId&&!options.platform)||(!options.jobId&&options.platform)|| (options.jobId?.length??0)>1000 || (options.platform?.length??0)>50)throw new Error('Choose a valid application.');
   const {rows}=await db.query(`SELECT h.id::text,h.job_id AS "jobId",h.platform,h.title,h.company,h.status,
     h.to_email AS "toEmail",h.subject,h.body,h.created_at AS "createdAt",h.sent_at AS "sentAt",h.reason,h.phase,a.source_run_id::text AS "sourceRunId",
-    h.contact->>'sourceUrl' AS "sourceUrl",h.contact->>'name' AS "contactName",
+    h.contact->>'sourceUrl' AS "sourceUrl",h.contact->>'name' AS "contactName",h.contact->>'sourceKind' AS "sourceKind",h.contact->>'validatedAt' AS "sourceCheckedAt",
     ${historyLookupFields}
     FROM hr_outreach h JOIN applications a ON a.id=h.application_id AND a.user_id=h.user_id WHERE h.user_id=$1 AND ($2::bigint IS NULL OR h.id<$2)
     AND ($3::text IS NULL OR (h.job_id=$3 AND h.platform=$4)) ORDER BY h.id DESC LIMIT 51`,
@@ -146,7 +146,7 @@ export class HrStore {
   async claim(): Promise<HrJob | null> {
     const lease = randomUUID();
     const { rows } = await this.db.query(`WITH candidate AS (
-      SELECT h.id FROM hr_outreach h JOIN hr_outreach_preferences p ON p.user_id=h.user_id
+      SELECT h.id,a.source_run_id::text AS source_run_id,a.location,a.applied_at FROM hr_outreach h JOIN hr_outreach_preferences p ON p.user_id=h.user_id
       JOIN users u ON u.id=h.user_id JOIN applications a ON a.id=h.application_id AND a.user_id=h.user_id
       JOIN run_starts r ON r.id=a.source_run_id AND r.user_id=a.user_id
       WHERE p.enabled AND u.blocked_at IS NULL AND h.status IN ('queued','error','unconfirmed') AND h.available_at<=now()
@@ -161,7 +161,7 @@ export class HrStore {
       AND (SELECT coalesce(sum(cost_usd),0) FROM hr_outreach spent WHERE spent.user_id=h.user_id AND spent.updated_at>now()-interval '24 hours')<1))
       ORDER BY h.created_at,h.id FOR UPDATE OF h SKIP LOCKED LIMIT 1)
       UPDATE hr_outreach h SET status=CASE WHEN status='unconfirmed' THEN 'unconfirmed' ELSE 'researching' END,phase='queued',lease=$1,lease_until=now()+interval '10 minutes',attempts=attempts+1,updated_at=now()
-      FROM candidate c WHERE h.id=c.id RETURNING h.*,h.id::text,h.user_id::text,h.application_id::text`, [lease,adminAddresses()]);
+      FROM candidate c WHERE h.id=c.id RETURNING h.*,h.id::text,h.user_id::text,h.application_id::text,c.source_run_id,c.location,c.applied_at`, [lease,adminAddresses()]);
     return rows[0] ?? null;
   }
   async allowed(job: HrJob): Promise<boolean> {
@@ -178,16 +178,18 @@ export class HrStore {
   async setPhase(job:HrJob,phase:HrPhase):Promise<void> {
     await this.db.query('UPDATE hr_outreach SET phase=$4,updated_at=now() WHERE id=$1 AND user_id=$2 AND lease=$3',[job.id,job.user_id,job.lease,phase]);
   }
-  async cache(key: string): Promise<{ contact: HiringContact | null; fresh: boolean; reason: string; outcome: DiscoveryResult['outcome'] | null; diagnostics: DiscoveryResult['diagnostics'] | null } | null> {
-    const { rows } = await this.db.query("SELECT contact,(next_validation_at>now() AND validated_at+interval '1 month'>now()) AS fresh,reason,lookup_outcome AS outcome,lookup_diagnostics AS diagnostics FROM hr_company_contacts WHERE company_key=$1", [key]);
+  async cache(key: string): Promise<{ contact: HiringContact | null; fresh: boolean; reason: string; outcome: DiscoveryResult['outcome'] | null; diagnostics: DiscoveryResult['diagnostics'] | null; contextKey?:string|null } | null> {
+    const { rows } = await this.db.query("SELECT contact,(next_validation_at>now() AND validated_at+interval '1 month'>now()) AS fresh,reason,lookup_outcome AS outcome,lookup_diagnostics AS diagnostics,lookup_context_key AS \"contextKey\" FROM hr_company_contacts WHERE company_key=$1", [key]);
     return rows[0] ?? null;
   }
-  async saveContact(key: string, company: string, contact: HiringContact | null, reason: string, lookup?:DiscoveryResult): Promise<void> {
-    await this.db.query(`INSERT INTO hr_company_contacts(company_key,company,contact,reason,validated_at,next_validation_at,lookup_outcome,lookup_diagnostics,contact_assessed_version)
-      VALUES($1,$2,$3,$4,now(),now()+CASE WHEN $3::jsonb IS NULL THEN interval '1 day' ELSE interval '1 month' END,$5,$6,1)
-      ON CONFLICT(company_key) DO UPDATE SET contact=EXCLUDED.contact,reason=EXCLUDED.reason,validated_at=now(),next_validation_at=EXCLUDED.next_validation_at,
-      lookup_outcome=EXCLUDED.lookup_outcome,lookup_diagnostics=EXCLUDED.lookup_diagnostics,contact_assessed_version=1`,
-    [key,company,contact ? JSON.stringify(contact) : null,reason,lookup?.outcome??(contact?'found':'no_contact'),lookup?.diagnostics?JSON.stringify(lookup.diagnostics):null]);
+  async saveContact(key: string, company: string, contact: HiringContact | null, reason: string, lookup?:DiscoveryResult, contextKey?:string): Promise<void> {
+    const checkedAt=contact?new Date(contact.validatedAt):new Date();
+    if(!Number.isFinite(checkedAt.getTime())||checkedAt.getTime()>Date.now()+60_000)throw Error('The public contact source has no valid check date.');
+    await this.db.query(`INSERT INTO hr_company_contacts(company_key,company,contact,reason,validated_at,next_validation_at,lookup_outcome,lookup_diagnostics,contact_assessed_version,lookup_context_key)
+      VALUES($1,$2,$3,$4,$7::timestamptz,$7::timestamptz+CASE WHEN $3::jsonb IS NULL THEN interval '1 day' ELSE interval '1 month' END,$5,$6,1,$8)
+      ON CONFLICT(company_key) DO UPDATE SET contact=EXCLUDED.contact,reason=EXCLUDED.reason,validated_at=EXCLUDED.validated_at,next_validation_at=EXCLUDED.next_validation_at,
+      lookup_outcome=EXCLUDED.lookup_outcome,lookup_diagnostics=EXCLUDED.lookup_diagnostics,contact_assessed_version=1,lookup_context_key=EXCLUDED.lookup_context_key`,
+    [key,company,contact ? JSON.stringify(contact) : null,reason,lookup?.outcome??(contact?'found':'no_contact'),lookup?.diagnostics?JSON.stringify(lookup.diagnostics):null,checkedAt.toISOString(),contextKey??null]);
   }
   async recordLookup(job:HrJob,lookup:DiscoveryResult):Promise<void> {
     await this.db.query(`UPDATE hr_outreach SET lookup_outcome=$4,lookup_checked_at=now(),lookup_diagnostics=$5,updated_at=now()

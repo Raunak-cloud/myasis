@@ -66,6 +66,7 @@ ALTER TABLE hr_outreach ADD COLUMN IF NOT EXISTS contact_assessed_version INTEGE
 ALTER TABLE hr_company_contacts ADD COLUMN IF NOT EXISTS lookup_outcome TEXT;
 ALTER TABLE hr_company_contacts ADD COLUMN IF NOT EXISTS lookup_diagnostics JSONB;
 ALTER TABLE hr_company_contacts ADD COLUMN IF NOT EXISTS contact_assessed_version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE hr_company_contacts ADD COLUMN IF NOT EXISTS lookup_context_key TEXT;
 CREATE INDEX IF NOT EXISTS hr_application_run_idx ON applications(user_id,source_run_id);
 -- HR daily usage is tracked independently of job discovery, without a quota.
 CREATE TABLE IF NOT EXISTS hr_contact_search_usage (

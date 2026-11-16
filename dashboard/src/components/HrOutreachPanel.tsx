@@ -16,6 +16,8 @@ export interface HrOutreachEmail {
   sentAt: string | null;
   reason?: string | null;
   sourceUrl?: string | null;
+  sourceKind?: 'public_page' | 'indexed_excerpt' | 'stored_vacancy' | null;
+  sourceCheckedAt?: string | null;
   contactName?: string | null;
   phase?: 'queued' | 'researching' | 'writing' | 'sending' | 'checking' | null;
   sourceRunId?: string | null;
@@ -53,6 +55,8 @@ export function HrEmailMessage({ item }: { item: HrOutreachEmail }) {
       : lookup && ['skipped', 'error'].includes(item.status) ? lookup : baseStatus;
   const retryAt = item.lookupRetryAt && ['queued', 'error', 'unconfirmed'].includes(item.status) ? item.lookupRetryAt : null;
   const lookupReason = item.reason || lookup?.reason;
+  const sourceCaption = item.contactReviewRequired ? 'Recorded source' : item.sourceKind === 'stored_vacancy' ? 'Saved job advertisement'
+    : item.sourceKind === 'indexed_excerpt' ? 'Public search result' : 'Public contact source';
   return <article className="hr-email">
     <div className="hr-email-heading">
       <div className="minw"><strong>{item.title}</strong><div className="job-meta">{item.company}</div></div>
@@ -65,6 +69,7 @@ export function HrEmailMessage({ item }: { item: HrOutreachEmail }) {
       <div><dt>{item.sentAt ? 'Sent' : 'Added'}</dt><dd>{fmtDateTime(item.sentAt ?? item.createdAt)}</dd></div>
       {item.subject && <div><dt>Subject</dt><dd>{item.subject}</dd></div>}
       {item.lookupCheckedAt && <div><dt>Last check</dt><dd>{fmtDateTime(item.lookupCheckedAt)}</dd></div>}
+      {item.sourceCheckedAt && <div><dt>{item.sourceKind === 'stored_vacancy' ? 'Advertisement saved' : item.sourceKind === 'indexed_excerpt' ? 'Search result checked' : 'Source checked'}</dt><dd>{fmtDateTime(item.sourceCheckedAt)}</dd></div>}
       {retryAt && <div><dt>{item.status === 'unconfirmed' ? 'Earliest delivery check' : 'Earliest retry'}</dt><dd>{Date.parse(retryAt) > Date.now()
         ? `From ${fmtDateTime(retryAt)}`
         : item.status === 'unconfirmed' ? 'Waiting to check delivery' : 'Waiting to retry'}</dd></div>}
@@ -73,7 +78,7 @@ export function HrEmailMessage({ item }: { item: HrOutreachEmail }) {
     {lookupReason && item.status !== 'sent' && <p className="job-meta">{lookupReason}</p>}
     {item.status === 'error' && item.lookupRetryAt === null && <p className="job-meta">No automatic retry is scheduled.</p>}
     {item.contactReviewRequired && <p className="hr-contact-review" role="note">{item.contactReviewReason || 'This address has not been verified as the right hiring contact for this application.'}</p>}
-    {item.sourceUrl && /^https?:\/\//i.test(item.sourceUrl) && <a className="hr-contact-source" href={item.sourceUrl} target="_blank" rel="noreferrer">{item.contactReviewRequired ? 'Recorded source' : lookup ? 'Source checked' : 'Public contact source'} ↗</a>}
+    {item.sourceUrl && /^https?:\/\//i.test(item.sourceUrl) && <a className="hr-contact-source" href={item.sourceUrl} target="_blank" rel="noreferrer">{sourceCaption} ↗</a>}
   </article>;
 }
 

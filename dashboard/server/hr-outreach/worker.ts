@@ -1,4 +1,5 @@
 import { getPool } from '../db/index.js';
+import { createHash } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { readEnv, deploying } from '../runner.js';
 import { loadProfile } from '../profile.js';
@@ -11,6 +12,7 @@ import { composeHrEmail } from './agent.js';
 import { sendHrEmail, reconcileHrEmail, hrDeliveredBody, type HrMail } from './transport.js';
 import { withHrBrowser } from './browser.js';
 import { markHrActive } from './activity.js';
+import { loadPublicVacancyEvidence } from './public-evidence.js';
 
 interface Slots { claimStart(userId:string):boolean; releaseStart(userId:string):void; activeCount?():number }
 let wakeWorker:(()=>void)|null=null;
@@ -26,12 +28,13 @@ export interface HrWorkerDependencies {
   profile: typeof loadProfile;
   apiKey: () => string;
   verifyContact?: typeof canReuseHiringContact;
+  publicEvidence?: typeof loadPublicVacancyEvidence;
   log?: (event:{jobId:string;stage:HrPhase;code:string})=>void;
 }
 const defaultDependencies: HrWorkerDependencies = {
   store:new HrStore(), discover:discoverHiringContact,compose:composeHrEmail,send:sendHrEmail,reconcile:reconcileHrEmail,
   access:gmailAccess,profile:loadProfile,apiKey:()=>({...readEnv(),...process.env}).OPENROUTER_API_KEY||'',
-  verifyContact:canReuseHiringContact,
+  verifyContact:canReuseHiringContact,publicEvidence:loadPublicVacancyEvidence,
 };
 /** One durable job owns one send attempt. Recovery never retries an uncertain send. */
 export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defaultDependencies): Promise<void> {
@@ -50,15 +53,22 @@ export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defa
       await store.finish(job,receipt?'sent':'unconfirmed',receipt?null:'Email delivery could not be confirmed. It will not be sent again automatically.',receipt??undefined);
       return;
     }
+    const evidence=await deps.publicEvidence?.(job)??null;
+    const vacancy={roleTitle:job.title,location:job.location||evidence?.location||undefined,
+      jobDescription:evidence?.description,jobDescriptionObservedAt:evidence?.observedAt};
+    const contextKey=createHash('sha256').update(JSON.stringify([job.url,job.title,vacancy.location??'',vacancy.jobDescription??'',vacancy.jobDescriptionObservedAt??''])).digest('hex');
     const cache=await store.cache(job.company_key);
-    const associated=cache?.contact?!assessHiringContact(cache.contact,job.company,job.title).reviewRequired&&await (deps.verifyContact?.(job.company,job.url,cache.contact,{signal})??Promise.resolve(true)):true;
-    let contact:HiringContact|null=cache?.fresh&&associated?cache.contact:null;
-    if(!cache?.fresh||!associated) {
-      const found=await deps.discover({company:job.company,jobUrl:job.url,roleTitle:job.title,previous:associated?cache?.contact??undefined:undefined,signal},{search:deps===defaultDependencies?hrContactSearch():undefined,maxPages:12});
+    // A company-wide negative result cannot suppress new vacancy-specific
+    // recruitment evidence, even while yesterday's website lookup is cached.
+    const fresh=cache?.fresh&&(cache.contact!==null||cache.contextKey===contextKey);
+    const associated=cache?.contact?!assessHiringContact(cache.contact,job.company,job.title).reviewRequired&&await (deps.verifyContact?.(job.company,job.url,cache.contact,{signal,...vacancy})??Promise.resolve(true)):true;
+    let contact:HiringContact|null=fresh&&associated?cache!.contact:null;
+    if(!fresh||!associated) {
+      const found=await deps.discover({company:job.company,jobUrl:job.url,...vacancy,previous:associated?cache?.contact??undefined:undefined,signal},{search:deps===defaultDependencies?hrContactSearch():undefined,maxPages:12});
       await store.recordLookup?.(job,found);
       if(found.retryable&&!found.contact){await store.finish(job,'error',found.reason,undefined,0,{retryable:true});return;}
       contact=found.contact;
-      await store.saveContact(job.company_key,job.company,contact,found.reason,found);
+      await store.saveContact(job.company_key,job.company,contact,found.reason,found,contextKey);
       if(!contact){await store.finish(job,'skipped',found.reason,undefined,0,{retryable:false});return;}
     } else {
       const reused:DiscoveryResult={contact,reason:cache!.reason??'Reused a recently checked public contact.',pagesRead:0,retryable:false,

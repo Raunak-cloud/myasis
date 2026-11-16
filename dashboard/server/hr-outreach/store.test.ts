@@ -12,7 +12,7 @@ try {
     CREATE TEMP TABLE run_starts(id BIGINT PRIMARY KEY,user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,finished_at TIMESTAMPTZ);
     CREATE TEMP TABLE application_email_sends(id BIGINT PRIMARY KEY);
     CREATE TEMP TABLE applications(id BIGINT PRIMARY KEY,user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,job_id TEXT,platform TEXT,title TEXT,company TEXT,url TEXT,cover_letter TEXT,
-      submitted_by_myasis BOOLEAN,confirmation_status TEXT,outcome TEXT,applied_at TIMESTAMPTZ);
+      submitted_by_myasis BOOLEAN,confirmation_status TEXT,outcome TEXT,applied_at TIMESTAMPTZ,location TEXT);
     INSERT INTO users VALUES(1,'admin-one@example.test',NULL),(2,'admin-two@example.test',NULL),(3,'admin-one@example.test',now()),(4,'ordinary@example.test',NULL);`);
   await client.query(readFileSync(new URL('./schema.sql',import.meta.url),'utf8').replaceAll('CREATE TABLE IF NOT EXISTS','CREATE TEMP TABLE IF NOT EXISTS'));
   await client.query(readFileSync(new URL('./schema.sql',import.meta.url),'utf8').replaceAll('CREATE TABLE IF NOT EXISTS','CREATE TEMP TABLE IF NOT EXISTS'));
@@ -143,6 +143,15 @@ try {
   for(const id of ['210','212']){const recovered=(await listHrOutreachPage('1',{jobId:id,platform:'seek'},db)).items[0];
     assert.equal(recovered.status,'error','an exhausted pre-send crash must not remain queued forever');
     assert.match(recovered.reason,/Automatic retries have finished/);assert.equal(recovered.lookupRetryAt,null);}
+  const observedAt=new Date(Date.now()-14*86400_000).toISOString();
+  const storedContact={...contact,sourceKind:'stored_vacancy' as const,validatedAt:observedAt};
+  await store.saveContact('stored-source','Example LTD',storedContact,'Published in the saved advertisement');
+  const stored=(await client.query("SELECT validated_at,next_validation_at FROM hr_company_contacts WHERE company_key='stored-source'")).rows[0];
+  assert.equal(stored.validated_at.toISOString(),observedAt,'a lookup cannot freshen the original stored-source observation');
+  assert.ok(stored.next_validation_at.getTime()<Date.now()+18*86400_000,'the monthly source TTL starts when evidence was observed');
+  await store.saveContact('negative-context','Example LTD',null,'No contact',undefined,'specific-vacancy');
+  assert.equal((await store.cache('negative-context'))?.contextKey,'specific-vacancy');
+  await assert.rejects(store.saveContact('invalid-date','Example LTD',{...contact,validatedAt:'invalid'},'Invalid'),/valid check date/);
   await setHrOutreachEnabled('2',false,db);
   assert.equal((await listHrOutreach('2',db))[0].status,'skipped','opt-out cancels unsent work');
   await client.query('DELETE FROM users WHERE id=1');
