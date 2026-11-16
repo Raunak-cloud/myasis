@@ -21,3 +21,7 @@ test('failed verification is recorded accurately, cached per lookup and never tr
  let renders=0;const crawler=new HrPublicCrawler({get:async url=>{throw new PublicVerificationRequired(page(url));}},async()=>{renders++;throw Error('SECRET_PROVIDER_PAYLOAD');});
  await assert.rejects(crawler.get('https://employer.org/careers'),/could not finish/);await assert.rejects(crawler.get('https://employer.org/careers'));assert.equal(renders,1);assert.doesNotMatch(JSON.stringify(crawler.events),/SECRET_PROVIDER_PAYLOAD/);assert.equal(crawler.events.at(-1)?.kind,'verification_failed');
 });
+test('temporary ordinary page failures can be retried without invoking the paid solver',async()=>{
+ let reads=0,renders=0;const crawler=new HrPublicCrawler({get:async url=>{if(++reads===1)throw Error('Temporary network failure');return page(url);}},async url=>{renders++;return page(url);});
+ await assert.rejects(crawler.get('https://employer.org/careers'),/Temporary/);await crawler.get('https://employer.org/careers');assert.equal(reads,2);assert.equal(renders,0);
+});
