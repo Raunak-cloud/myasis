@@ -24,7 +24,9 @@ globalThis.fetch = (async (_url, init) => {
     const schema = body.tools.find((tool: any) => tool.function.name === 'browser_action').function.parameters;
     assert.match(toolInputIssue({ action: 'script' }, schema)!, /\$\.script is required/);
     const batchSchema = body.tools.find((tool: any) => tool.function.name === 'browser_batch').function.parameters;
-    assert.match(toolInputIssue({ actions: [{ action: 'script' }] }, batchSchema)!, /\$\.actions\[0\]\.script is required/);
+    assert.match(toolInputIssue({ actions: [{ tool: 'browser_run_script' }] }, batchSchema)!, /\$\.actions\[0\]\.args is required/);
+    const scriptSchema = body.tools.find((tool: any) => tool.function.name === 'browser_run_script').function.parameters;
+    assert.match(toolInputIssue({}, scriptSchema)!, /\$\.script is required/);
     const uploadSchema = body.tools.find((tool: any) => tool.function.name === 'browser_upload').function.parameters;
     assert.match(toolInputIssue({ selector: '#resume' }, uploadSchema)!, /\$\.file_ids is required/);
     assert.ok(toolInputIssue({ action: 'wait', timeout_ms: 1000 }, schema));

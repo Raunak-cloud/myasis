@@ -30,15 +30,15 @@ test('approved letter renders and uploads byte-exact without model transcription
    if(turn===1){
     const action=body.tools.find((t:any)=>t.function.name==='browser_action').function.parameters;
     const batch=body.tools.find((t:any)=>t.function.name==='browser_batch').function.parameters;
-    for(const command of [action,batch.properties.actions.items]){
-     assert.ok(command.properties.action.enum.includes('script'),'approved retries have the full browser tools');
-     assert.equal(validToolInput({action:'script',script:'return document.title'},command),true);
-    }
+    assert.ok(action.properties.action.enum.includes('script'),'approved retries retain advanced scripts');
+    assert.equal(validToolInput({action:'script',script:'return document.title'},action),true);
+    assert.ok(batch.properties.actions.items.properties.tool.enum.includes('browser_run_script'));
+    assert.equal(validToolInput({actions:[{tool:'browser_run_script',args:{script:'return document.title'}}]},batch),true);
     assert.equal(validToolInput({action:'dialog',value:'dismiss'},action),true,'dismissing a dialog remains available');
     assert.equal(validToolInput({action:'dialog',value:'accept'},action),true,'approved retries can accept dialogs');
-    assert.equal(validToolInput({action:'click',selector:'#send',sends_application:false},batch.properties.actions.items),true);
+    assert.equal(validToolInput({actions:[{tool:'browser_click',args:{ref:'a0',sends_application:false}}]},batch),true);
     const click=body.tools.find((t:any)=>t.function.name==='browser_click').function.parameters;
-    assert.equal(validToolInput({selector:'#send',sends_application:false},click),true);
+    assert.equal(validToolInput({ref:'a0',sends_application:false},click),true);
     const upload=body.tools.find((t:any)=>t.function.name==='browser_upload').function.parameters;
     assert.match(upload.properties.file_ids.description,/render_approved_cover_letter/);
     const schema=body.tools.find((t:any)=>t.function.name==='render_approved_cover_letter').function.parameters;
