@@ -29,7 +29,7 @@ export interface DiscoveryInput {
   excludedEmails?: readonly string[];
 }
 export type DiscoveryOutcome = 'found' | 'no_contact' | 'company_unverified' | 'access_blocked' | 'temporarily_unavailable' | 'incomplete';
-export type DiscoveryStage = 'revalidation' | 'employer_identity' | 'company_pages' | 'job_source' | 'public_sources';
+export type DiscoveryStage = 'revalidation' | 'employer_identity' | 'company_pages' | 'job_source' | 'public_sources' | 'agent_research';
 export interface DiscoveryDiagnostics {
   stage: DiscoveryStage; searches: number; pagesAttempted: number; pagesRead: number; pagesBlocked: number; pagesFailed: number;
   candidatesRejected: number; unresolvedPriorityPages: number;

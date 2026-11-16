@@ -15,6 +15,7 @@ import { markHrActive } from './activity.js';
 import { loadPublicVacancyEvidence } from './public-evidence.js';
 import { checkHrBounce } from './bounce.js';
 import type { HrDeliveryJob } from './delivery-store.js';
+import { researchHiringContact } from './research.js';
 
 interface Slots { claimStart(userId:string):boolean; releaseStart(userId:string):void; activeCount?():number }
 let wakeWorker:(()=>void)|null=null;
@@ -32,12 +33,14 @@ export interface HrWorkerDependencies {
   verifyContact?: typeof canReuseHiringContact;
   publicEvidence?: typeof loadPublicVacancyEvidence;
   checkBounce?: typeof checkHrBounce;
+  research?: typeof researchHiringContact;
   log?: (event:{jobId:string;stage:HrPhase;code:string})=>void;
 }
 const defaultDependencies: HrWorkerDependencies = {
   store:new HrStore(), discover:discoverHiringContact,compose:composeHrEmail,send:sendHrEmail,reconcile:reconcileHrEmail,
   access:gmailAccess,profile:loadProfile,apiKey:()=>({...readEnv(),...process.env}).OPENROUTER_API_KEY||'',
   verifyContact:canReuseHiringContact,publicEvidence:loadPublicVacancyEvidence,checkBounce:checkHrBounce,
+  research:researchHiringContact,
 };
 function parentEmployerWebsite(contact:HiringContact|null|undefined):string|undefined {
   if(contact?.sourceKind!=='public_page')return;
@@ -49,7 +52,7 @@ function parentEmployerWebsite(contact:HiringContact|null|undefined):string|unde
 export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defaultDependencies): Promise<void> {
   const {store}=deps;
   let sending=false, measuredCost=0, costSaved=false, stage:HrPhase=job.status==='unconfirmed'?'checking':'researching';
-  const signal=AbortSignal.timeout(180_000);
+  const signal=AbortSignal.timeout(480_000);
   try {
     if(!await store.allowed(job))return;
     await store.setPhase?.(job,job.status==='unconfirmed'?'checking':'researching');
@@ -67,7 +70,7 @@ export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defa
     const excluded=new Set(excludedEmails);
     const vacancy={roleTitle:job.title,location:job.location||evidence?.location||undefined,
       jobDescription:evidence?.description,jobDescriptionObservedAt:evidence?.observedAt,excludedEmails};
-    const contextKey=createHash('sha256').update(JSON.stringify([job.url,job.title,vacancy.location??'',vacancy.jobDescription??'',vacancy.jobDescriptionObservedAt??'',[...excludedEmails].sort()])).digest('hex');
+    const contextKey=createHash('sha256').update(JSON.stringify(['agent-research-v1',job.url,job.title,vacancy.location??'',vacancy.jobDescription??'',vacancy.jobDescriptionObservedAt??'',[...excludedEmails].sort()])).digest('hex');
     const cache=await store.cache(job.company_key);
     // A company-wide negative result cannot suppress new vacancy-specific
     // recruitment evidence, even while yesterday's website lookup is cached.
@@ -76,12 +79,19 @@ export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defa
     let contact:HiringContact|null=fresh&&associated?cache!.contact:null;
     if(!fresh||!associated) {
       const previous=associated&&cache?.contact?cache.contact:job.retry_parent_contact??undefined;
-      const found=await deps.discover({company:job.company,jobUrl:job.url,website:parentEmployerWebsite(job.retry_parent_contact),...vacancy,previous,signal},{search:deps===defaultDependencies?hrContactSearch():undefined,maxPages:12});
+      const researchInput={company:job.company,jobUrl:job.url,website:parentEmployerWebsite(job.retry_parent_contact),...vacancy,previous,signal};
+      let found=await deps.discover(researchInput,{search:deps===defaultDependencies?hrContactSearch():undefined,maxPages:12});
+      if(!found.contact&&deps.research){
+        const additional=await deps.research(researchInput,found,{apiKey:deps.apiKey(),search:deps===defaultDependencies?hrContactSearch():undefined});
+        measuredCost+=additional.costUsd;
+        if(store.researchCost){await store.researchCost(job,measuredCost);measuredCost=0;}
+        found=additional;
+      }
       await store.recordLookup?.(job,found);
-      if(found.retryable&&!found.contact){await store.finish(job,'error',found.reason,undefined,0,{retryable:true});return;}
+      if(found.retryable&&!found.contact){await store.finish(job,'error',found.reason,undefined,measuredCost,{retryable:true});return;}
       contact=found.contact;
       await store.saveContact(job.company_key,job.company,contact,found.reason,found,contextKey);
-      if(!contact){await store.finish(job,'skipped',found.reason,undefined,0,{retryable:false});return;}
+      if(!contact){await store.finish(job,'skipped',found.reason,undefined,measuredCost,{retryable:false});return;}
     } else {
       const reused:DiscoveryResult={contact,reason:cache!.reason??'Reused a recently checked public contact.',pagesRead:0,retryable:false,
         outcome:cache!.outcome??(contact?'found':'no_contact'),diagnostics:cache!.diagnostics??{stage:'revalidation',searches:0,pagesAttempted:0,pagesRead:0,pagesBlocked:0,pagesFailed:0,candidatesRejected:0,unresolvedPriorityPages:0,events:[]}};
@@ -95,7 +105,7 @@ export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defa
     const draft=await deps.compose({candidate:{name:profile.fullName,evidence:JSON.stringify({headline:profile.headline,experience:profile.experienceSummary,skills:profile.skills,
       qualification:profile.highestQualification,submittedCoverLetter:job.cover_letter})},job:{title:job.title,company:job.company,url:job.url},contact},
     {apiKey:deps.apiKey(),signal});
-    measuredCost=draft.costUsd;
+    measuredCost+=draft.costUsd;
     const mail:HrMail={id:job.id,to:contact.email,subject:draft.subject,body:draft.body,createdAt:new Date(job.created_at).toISOString()};
     mail.body=hrDeliveredBody(mail);
     await store.draft(job,contact,mail.subject,mail.body,measuredCost);costSaved=true;

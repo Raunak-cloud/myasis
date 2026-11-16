@@ -211,6 +211,11 @@ export class HrStore {
     await this.db.query(`UPDATE hr_outreach SET lookup_outcome=$4,lookup_checked_at=now(),lookup_diagnostics=$5,updated_at=now()
       WHERE id=$1 AND user_id=$2 AND lease=$3`,[job.id,job.user_id,job.lease,lookup.outcome,JSON.stringify(lookup.diagnostics)]);
   }
+  async researchCost(job:HrJob,cost:number):Promise<void> {
+    if(!Number.isFinite(cost)||cost<0)throw Error('Invalid HR research usage.');
+    const result=await this.db.query('UPDATE hr_outreach SET cost_usd=cost_usd+$4,updated_at=now() WHERE id=$1 AND user_id=$2 AND lease=$3 AND lease_until>now() RETURNING id',[job.id,job.user_id,job.lease,cost]);
+    if(!result.rows.length)throw Error('This HR research attempt is no longer active.');
+  }
   async recordFailure(job:HrJob,stage:HrPhase,code:string):Promise<void> {
     await this.db.query(`UPDATE hr_outreach SET lookup_diagnostics=coalesce(lookup_diagnostics,'{}'::jsonb)||jsonb_build_object('failureStage',$4::text,'failureCode',$5::text),updated_at=now()
       WHERE id=$1 AND user_id=$2 AND lease=$3`,[job.id,job.user_id,job.lease,stage,code]);

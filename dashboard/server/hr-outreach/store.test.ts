@@ -52,6 +52,11 @@ try {
   assert.equal((await listHrOutreach('1',db)).filter(r=>r.status==='skipped').length,1);
   const job=await store.claim();assert.ok(job);assert.equal(job.user_id,'1');
   assert.ok(await store.allowed(job));
+  await store.researchCost(job,.012);
+  assert.equal(Number((await client.query('SELECT cost_usd FROM hr_outreach WHERE id=$1',[job.id])).rows[0].cost_usd),.012);
+  await assert.rejects(store.researchCost({...job,lease:'stale'},.01),/no longer active/);
+  await assert.rejects(store.researchCost(job,-1),/Invalid HR research usage/);
+  await client.query('UPDATE hr_outreach SET cost_usd=0 WHERE id=$1',[job.id]);
   await client.query('UPDATE run_starts SET hr_ready_at=NULL WHERE id=11');assert.equal(await store.allowed(job),false);assert.equal(await store.sending(job),false,'not-ready run cannot send even with a retained claim');await client.query('UPDATE run_starts SET hr_ready_at=now() WHERE id=11');
   for(const phase of ['researching','writing','sending','checking'] as const){await store.setPhase(job,phase);const progress=await hrOutreachProgress('1',db);assert.equal(progress.active,true);assert.equal(progress.phase,phase);assert.equal(progress.runId,'11');assert.equal(progress.title,'Data Analyst');}
   assert.equal((await hrOutreachProgress('2',db)).active,false,'progress never crosses accounts');
