@@ -689,7 +689,7 @@ export function RunPanel({
   return (
     <div className="run-layout">
       <div className="run-span run-notes">
-        <BonusRunNotice/>
+        {isAdmin && <BonusRunNotice/>}
         {isAdmin && <LiveHrOutreachActivity enabled />}
         {setup && <SetupChecklist status={setup} expanded={setupExpanded} onExpandedChange={setSetupExpanded} onVerifyingSignInChange={setVerifyingSignIn} />}
         <BoardResumesNote />
