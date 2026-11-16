@@ -251,7 +251,6 @@ export default function App() {
   }, [apps, attention]);
 
   const primaryNav: Array<{ id: Tab; label: string; badge?: number }> = [
-    { id: 'overview', label: 'Overview' },
     { id: 'run', label: 'Apply' },
     { id: 'attention', label: 'Needs attention', badge: stats.blocked },
     { id: 'prepared', label: 'Prepared Applications', badge: preparedCount },
