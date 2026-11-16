@@ -1,4 +1,4 @@
-import type { Frame, Locator } from 'patchright';
+import type { Locator } from 'patchright';
 import { browserDelay, browserOperationOptions } from '../browser-deadline.js';
 import { readComboboxStates } from '../combobox-state.js';
 
@@ -41,49 +41,10 @@ function readDropdown(node: Element) {
 }
 
 const normalize = (value: string) => value.replace(/\s+/g, ' ').trim().toLocaleLowerCase();
-const unresolved = new WeakMap<Frame, Map<string, { query: string; state: string }>>();
-async function fieldKey(target: Locator) {
-  return target.evaluate(node => {
-    if (node.getAttribute('data-field-identity')) return node.getAttribute('data-field-identity')!;
-    const path: string[] = [];
-    for (let element: Element | null = node; element;) {
-      path.unshift(`${element.tagName}:${element.parentElement ? [...element.parentElement.children].indexOf(element) : 0}`);
-      element = element.parentElement || (element.getRootNode() instanceof ShadowRoot ? (element.getRootNode() as ShadowRoot).host : null);
-    }
-    return path.join('/');
-  }, undefined, browserOperationOptions());
-}
-async function ownerFrame(target: Locator) {
-  const handle = await target.elementHandle(browserOperationOptions());
-  try { return await handle?.ownerFrame(); } finally { await handle?.dispose(); }
-}
-
-/** Block only an unchanged unsuccessful search on this exact field. New
- * suggestions or another query unlock it; inspection/selection remain available. */
-export async function repeatedDropdownSearch(target: Locator, requested: string) {
-  const state = await target.evaluate(readDropdown, undefined, browserOperationOptions());
-  if (!state) return undefined;
-  const frame = await ownerFrame(target);
-  const prior = frame && unresolved.get(frame)?.get(await fieldKey(target));
-  return prior && prior.query === normalize(requested) && prior.state === JSON.stringify(state)
-    ? { ...state, selected: false, status: 'repeat-blocked', note: 'The same search already failed on this field and its dropdown evidence is unchanged. No typing or click ran. Choose a different evidence-supported query, inspect the actual options, or investigate free-text/Other support; do not repeat this search.' }
-    : undefined;
-}
-
 /** Typing is not selection. Wait for evidence, and transport only a unique,
  * exact match to the answer already chosen by the agent. No fuzzy fallback. */
 export async function dropdownFeedback(target: Locator, requested: string, timeoutMs = 3000) {
-  const feedback = await collectDropdownFeedback(target, requested, timeoutMs);
-  if (!feedback) return undefined;
-  const key = await fieldKey(target);
-  const frame = await ownerFrame(target);
-  if (key && frame) {
-    let searches = unresolved.get(frame);
-    if (!searches) unresolved.set(frame, searches = new Map());
-    if (feedback.selected) searches.delete(key);
-    else searches.set(key, { query: normalize(requested), state: JSON.stringify(await target.evaluate(readDropdown, undefined, browserOperationOptions())) });
-  }
-  return feedback;
+  return collectDropdownFeedback(target, requested, timeoutMs);
 }
 
 async function collectDropdownFeedback(target: Locator, requested: string, timeoutMs: number) {

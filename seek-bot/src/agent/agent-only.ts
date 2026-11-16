@@ -63,7 +63,8 @@ import { currentApplicationWorker } from '../application-workers.js';
 import { investigationTool, investigateApplicationState } from './investigation.js';
 import {ApplicationHelpers, helperBuilderTool, helperRecipeExample} from './application-helpers.js';
 import { ApplicationBrowserRecovery } from './browser-recovery.js';
-import { dropdownFeedback, repeatedDropdownSearch } from './dropdown-feedback.js';
+import { dropdownFeedback } from './dropdown-feedback.js';
+import { VisualRecovery } from './visual-recovery.js';
 
 const string = { type: 'string' };
 const batchActions = ['click', 'fill', 'type', 'select', 'check', 'press', 'hover', 'wait', 'inspect', 'set_input_files', 'script'];
@@ -323,6 +324,7 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
   let highEffort = false;
   let screenshot = false;
   let visualIssue = false;
+  const visualRecovery = new VisualRecovery();
   let lastNote = 'Read the current page, then complete the application.';
   let terminal: AgentTermination = { status: 'skipped', reason: 'The application spending allowance ended before the agent finished.' };
   let finished = false;
@@ -838,8 +840,6 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       case 'fill': {
         if (['fill', 'type'].includes(String(args.action)) && typeof args.value !== 'string') throw new Error('Provide the complete value to fill.');
         const element = target(ctx, args);
-        const repeated = ['fill', 'type'].includes(String(args.action)) ? await repeatedDropdownSearch(element, value) : undefined;
-        if (repeated) return ok(JSON.stringify({ action: args.action, dropdown: repeated }), 'reobserve');
         assertBrowserOperationActive();browserEffectEpoch++;
         // The locator resolves the current element for each call, including after
         // framework rerenders. No retained node or structural-fingerprint veto.
@@ -924,6 +924,21 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       ctx.observation = observed.observation;
       if (observed.note) lastNote += '\n' + observed.note;
       if (ctx.observation.inspectionError && pauseForRepair()) break;
+      const recovery = visualRecovery.observe(ctx.observation);
+      if (recovery.stop) {
+        terminal = { status: 'error', reason: `${ctx.submissionAttempted ? 'Submission unconfirmed: ' : ''}${recovery.captureUnavailable ? 'Recovery stalled and fresh screenshot capture failed twice.' : 'Recovery stalled after fresh screenshot review.'} ${recovery.cause}`, recoveryId: shared.id, retryable: !ctx.submissionAttempted };
+        recordDiagnostic({ severity: 'warning', category: 'visual_recovery_stalled', stage: 'recovery', step: steps, message: terminal.reason });
+        break;
+      }
+      if (recovery.screenshot && !pendingDialog) {
+        // Always refresh here: an older recovery/regular screenshot is not
+        // evidence of the current stalled state.
+        ctx.observation.screenshot = undefined;
+        await addObservationScreenshot(ctx.page, ctx.observation);
+        visualRecovery.screenshotCaptured(Boolean(ctx.observation.screenshot));
+        lastNote += `\n${recovery.note}\nFresh screenshot captured: ${Boolean(ctx.observation.screenshot)}.`;
+        recordDiagnostic({ severity: 'info', category: 'visual_recovery_screenshot', stage: 'recovery', step: steps, message: `Fresh screenshot captured: ${Boolean(ctx.observation.screenshot)}. ${recovery.cause}` });
+      }
       if (!pendingDialog && !ctx.observation.inspectionError && isExternal(ctx.page.url())) await recordFormPage(ctx.page, ctx.observation);
       ctx.observation.fields = ctx.observation.fields.map(field => field.sensitive || field.inputType === 'password' ? { ...field, currentValue: '[private credential]' } : field);
       if(!pendingDialog&&!ctx.observation.inspectionError&&ctx.observation.fields.some(isAuthenticationPasswordField)){
@@ -1131,6 +1146,8 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         }
         const text = result.kind === 'ok' ? result.message : JSON.stringify(result.outcome);
         const disposition = result.kind === 'ok' ? result.disposition : 'terminal';
+        if (!notExecuted && result.kind !== 'terminal') visualRecovery.record(call.name, operation.args.action, disposition,
+          redactPrivateAuthenticationData(text, rememberedPrivateAuthenticationValues(ctx.page)));
         if(result.kind==='ok'&&failedToolResult(result)&&dispatchStarted&&browserEffectEpoch>effectBefore&&diagnosticError)
           shared.openUncertainty('operation',`${call.name}:${String(operation.args.action??'')}`,`The ${call.name} operation returned an execution error. Its actual effect must be investigated from fresh readback before retrying; an error alone is not proof that nothing happened.`);
         if (operationId) shared.complete(operationId, text, disposition??'completed', recoveryWork(), Boolean(ctx.submissionAttempted), recoveryControls());
