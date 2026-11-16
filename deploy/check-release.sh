@@ -48,7 +48,6 @@ if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(
   while IFS= read -r path; do
     case "$path" in
       seek-bot/src/agent/dropdown-feedback.ts) dropdown_changed=1 ;;
-      seek-bot/src/agent/visual-recovery.ts|seek-bot/src/agent/visual-recovery.test.ts|seek-bot/src/agent/visual-recovery-browser.test.ts) dropdown_changed=1 ;;
       seek-bot/src/agent/dropdown-feedback.test.ts|seek-bot/src/agent/dropdown-agent-browser.test.ts|seek-bot/src/agent/agent-only.ts|seek-bot/src/agent/native-browser.ts|seek-bot/src/agent/application-policy.ts|seek-bot/src/agent/ordinary-field-guidance.ts|recoveryskills.md|deploy/check-release.sh|deploy/deploy.sh) ;;
       *) dropdown_only=0 ;;
     esac
@@ -60,8 +59,6 @@ if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(
       bash -n deploy/check-release.sh
       cd seek-bot
       node --test dist/agent/dropdown-feedback.test.js dist/agent/native-browser.test.js dist/agent/application-policy.test.js
-      node --test dist/agent/visual-recovery.test.js
-      node dist/agent/visual-recovery-browser.test.js
       node dist/agent/dropdown-agent-browser.test.js
       node dist/agent/agent-batch-browser.test.js
     '
@@ -71,4 +68,9 @@ if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(
 fi
 timeout --signal=TERM --kill-after=2s 60s bash deploy/check-application-service.sh
 timeout --signal=TERM --kill-after=2s 180s bash deploy/check-hr-outreach.sh
+timeout --signal=TERM --kill-after=2s 60s bash -e -c '
+  export CHROME_PATH="${CHROME_PATH:-/usr/bin/google-chrome-stable}"
+  cd seek-bot
+  node --test dist/agent/recovery-rollback-browser.test.js dist/agent/browser-tools.test.js dist/agent/browser-tools-browser.test.js dist/agent/browser-snapshot-action.test.js
+'
 bash deploy/smoke-check.sh "${1:-0}"

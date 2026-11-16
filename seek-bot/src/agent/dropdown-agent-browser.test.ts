@@ -24,7 +24,7 @@ globalThis.fetch = (async (_url, init) => {
     assert.equal(JSON.parse(result.results[0].message).dropdown.status, 'no-results');
     call = { name: 'browser_fill', args: { selector: '#institution', value: 'SHIATS' } };
   } else if (turn === 2) {
-    assert.equal(JSON.parse(latest).dropdown.status, 'no-results');
+    assert.equal(JSON.parse(latest).dropdown.status, 'repeat-blocked');
     call = { name: 'browser_fill', args: { selector: '#institution', value: 'Full Institution Name' } };
   } else if (turn === 3) {
     const feedback = JSON.parse(latest).dropdown;
@@ -46,7 +46,7 @@ try {
   assert.equal(result.outcome.status, 'skipped');
   assert.equal(turn, 4);
   assert.equal(await page.locator('#other').inputValue(), 'Untouched');
-  assert.equal(await page.evaluate('window.inputs', undefined, undefined, false), 3, 'normal tools remain available, including an unchanged query');
+  assert.equal(await page.evaluate('window.inputs', undefined, undefined, false), 2, 'unchanged repeat never types again');
   assert.equal(await page.locator('#institution').inputValue(), 'Full Institution Name');
-  console.log('PASS: real agent pauses for no-results, retains normal tools and selects an evidence-supported alternate query. No real applications or external requests.');
+  console.log('PASS: real agent pauses the batch for no-results, blocks unchanged search, and selects an evidence-supported alternate query. No real applications or external requests.');
 } finally { await browser.close(); rmSync(directory, { recursive: true, force: true }); }

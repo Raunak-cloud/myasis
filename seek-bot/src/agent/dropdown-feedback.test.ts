@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { chromium } from 'patchright';
-import { dropdownFeedback } from './dropdown-feedback.js';
+import { dropdownFeedback, repeatedDropdownSearch } from './dropdown-feedback.js';
 import { nativeSelect } from './native-browser.js';
 
-test('autocomplete feedback waits and selects only exact scoped choices', async t => {
+test('autocomplete feedback waits, selects only exact scoped choices and prevents unchanged empty searches', async t => {
   const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
   try {
     const page = await browser.newPage();
@@ -20,15 +20,15 @@ test('autocomplete feedback waits and selects only exact scoped choices', async 
       assert.equal(await page.evaluate('window.picks', undefined, undefined, false), 1);
       assert.equal(await field.inputValue(), 'SHIATS');
     });
-    await t.test('empty results return feedback without locking subsequent searches', async () => {
+    await t.test('empty results return feedback and unchanged retries are blocked', async () => {
       await page.setContent(fixture('<p role="status">No results found</p>'));
       const field = page.getByRole('combobox');
       await field.fill('SHIATS');
       assert.equal((await dropdownFeedback(field, 'SHIATS', 300))?.status, 'no-results');
-      await field.fill('SHIATS');
-      assert.equal((await dropdownFeedback(field, 'SHIATS', 300))?.status, 'no-results');
+      assert.equal((await repeatedDropdownSearch(field, 'SHIATS'))?.status, 'repeat-blocked');
+      assert.equal(await repeatedDropdownSearch(field, 'Full institution name'), undefined);
       await page.locator('#choices').evaluate(node => node.innerHTML = '<div role="option">SHIATS</div>');
-      assert.equal((await dropdownFeedback(field, 'SHIATS', 300))?.selected, true);
+      assert.equal(await repeatedDropdownSearch(field, 'SHIATS'), undefined, 'new options unlock a retry');
     });
     await t.test('loading and silent empty menus are bounded and never selected', async () => {
       await page.setContent(fixture('<span role="progressbar">Loading</span>'));

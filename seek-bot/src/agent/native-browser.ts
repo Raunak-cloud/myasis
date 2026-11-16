@@ -3,7 +3,7 @@ import { browserDeadline, BROWSER_OPERATION_TIMEOUT_MS, browserOperationTimeout,
 import { browserTarget, browserTargetProperties, hasBrowserTarget, observedFrame } from './browser-target.js';
 import { privateAuthenticationValues, redactPrivateAuthenticationData } from '../private-auth-fields.js';
 import { readComboboxStates } from '../combobox-state.js';
-import { dropdownFeedback } from './dropdown-feedback.js';
+import { dropdownFeedback, repeatedDropdownSearch } from './dropdown-feedback.js';
 
 export const MAX_BROWSER_BATCH = 32;
 const waitState = { type: 'string', enum: ['visible', 'hidden', 'attached', 'detached'] };
@@ -96,6 +96,8 @@ export async function nativeSelect(target: Locator, value: string): Promise<void
     return;
   }
   if (await target.getAttribute('role') !== 'combobox') throw Error('select requires a native select or an observed combobox.');
+  const repeated = await repeatedDropdownSearch(target, value);
+  if (repeated) throw Error(JSON.stringify(repeated));
   await target.click(browserOperationOptions());
   if (tag === 'INPUT') {
     await target.fill('', browserOperationOptions());
