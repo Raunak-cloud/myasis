@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHrTransport, hrEmailMessage, hrMessageId, hrDeliveredBody, type HrMail, type HrTransportDependencies } from './transport.js';
+import { hrBrowserStep, hrBrowserFailure } from '../../../seek-bot/src/hr-browser-diagnostics.js';
 
 const mail: HrMail = { id: 'outreach-owner-job', to: 'hiring@example.invalid', subject: 'Developer application', body: 'Hello hiring team,\n\nI applied for the Developer role.\n\nTaylor', createdAt: '2026-11-16T00:00:00Z' };
 function fixture(overrides: Partial<HrTransportDependencies> = {}): HrTransportDependencies {
@@ -70,8 +71,12 @@ test('browser transport uses selected provider without falling through to anothe
 });
 
 test('private browser failures before opening the composer are safely retryable', async () => {
+  const original=new Error('browserType.launchPersistentContext: Profile is in use');
   const transport = createHrTransport(fixture({ access: async () => ({ connected: true, admin: true, account: 'candidate@example.invalid', provider: 'browser' } as any),
-    withBrowser: async () => { throw Error('Profile is in use'); },
+    withBrowser: async () => hrBrowserStep('launch',async()=>{throw original;}),
   }));
-  await assert.rejects(transport.send('owner', mail), (error: any) => error.definitiveRejection === true && error.code !== 'uncertain');
+  await assert.rejects(transport.send('owner', mail), (error: any) => {
+    assert.equal(error.cause,original);assert.equal(hrBrowserFailure(error)?.category,'profile_in_use');
+    return error.definitiveRejection === true && error.code !== 'uncertain';
+  });
 });

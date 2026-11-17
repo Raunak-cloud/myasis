@@ -124,7 +124,11 @@ try {
   const retry=await store.claim();assert.ok(retry);assert.equal(retry.job_id,'212','only a retryable non-exhausted error can be reclaimed');
   await store.recordLookup(retry,{contact:null,reason:'Provider temporarily unavailable.',outcome:'temporarily_unavailable',retryable:true,pagesRead:0,
     diagnostics:{stage:'public_sources',searches:1,pagesAttempted:0,pagesRead:0,pagesBlocked:0,pagesFailed:0,candidatesRejected:0,unresolvedPriorityPages:0,events:[]}});
-  await store.recordFailure(retry,'researching','unexpected_error');
+  const browserFailure={step:'gmail_navigation' as const,elapsedMs:30001,category:'proxy_connection_failed',errorName:'Error',errorCode:'ERR_TUNNEL_CONNECTION_FAILED',message:'page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at [url]'};
+  await store.recordFailure(retry,'researching','unexpected_error',browserFailure);
+  const internal=(await client.query('SELECT lookup_diagnostics FROM hr_outreach WHERE id=$1',[retry.id])).rows[0].lookup_diagnostics;
+  assert.deepEqual(internal.browserFailure,browserFailure,'original safe browser failure survives real PostgreSQL storage');
+  assert.equal(internal.failureStage,'researching');assert.equal(internal.failureCode,'unexpected_error');
   await store.finish(retry,'error','The public search provider is temporarily unavailable.',undefined,0,{retryable:true});
   const pending=(await listHrOutreachPage('1',{jobId:'212',platform:'seek'},db)).items[0];
   assert.ok(pending.lookupCheckedAt);assert.ok(pending.lookupRetryAt);assert.equal(pending.lookupOutcome,'temporarily_unavailable');

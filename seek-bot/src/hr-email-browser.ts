@@ -4,6 +4,7 @@ import { validApplicationEmail } from './application-email-message.js';
 import { GmailServiceError } from './gmail-mcp-service.js';
 import { withGmailBrowser, searchBrowserGmail, readBrowserGmail } from './gmail-browser.js';
 import { assertBrowserOperationActive } from './browser-deadline.js';
+import { hrBrowserStep } from './hr-browser-diagnostics.js';
 export type HrBrowserPage = Page;
 
 export interface BrowserHrMail { id: string; to: string; subject: string; body: string; createdAt: string }
@@ -121,10 +122,10 @@ export async function openHrGmail(page: Page, account: string, fragment = ''): P
   if (!validApplicationEmail(account)) throw new GmailServiceError('reconnect', 'Connect your profile Gmail address.');
   // A hash-only transition can still display the previous mailbox view while
   // Gmail rerenders. This is our own tab, so require a fresh document instead.
-  await page.goto('about:blank', { waitUntil: 'commit', timeout: 30000 });
-  await page.goto(`https://mail.google.com/mail/u/?authuser=${encodeURIComponent(account)}${fragment}`, { waitUntil: 'commit', timeout: 30000 });
-  await page.locator('[role="main"]').waitFor({ timeout: 30000 });
-  const labels = await page.locator('a[aria-label^="Google Account:"], button[aria-label^="Google Account:"]').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label') || '').join('\n'));
+  await hrBrowserStep('mailbox_reset',()=>page.goto('about:blank', { waitUntil: 'commit', timeout: 30000 }));
+  await hrBrowserStep('gmail_navigation',()=>page.goto(`https://mail.google.com/mail/u/?authuser=${encodeURIComponent(account)}${fragment}`, { waitUntil: 'commit', timeout: 30000 }));
+  await hrBrowserStep('mailbox_ready',()=>page.locator('[role="main"]').waitFor({ timeout: 30000 }));
+  const labels = await hrBrowserStep('mailbox_identity',()=>page.locator('a[aria-label^="Google Account:"], button[aria-label^="Google Account:"]').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label') || '').join('\n')));
   const accounts = labels.match(/[^\s()<>]+@[^\s()<>]+/g) || [];
   if (!accounts.some(value => value.toLowerCase() === account.toLowerCase())) throw new GmailServiceError('reconnect', 'Gmail opened a different account. Connect your profile address.');
 }

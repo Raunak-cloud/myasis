@@ -4,6 +4,7 @@ import { adminAddresses, isAdmin } from '../admin-access.js';
 import { assessHiringContact, type HiringContact, type DiscoveryResult } from './discovery.js';
 import { claimDeliveryCheck, deliveryCheckAllowed, deferDeliveryCheck, completeDeliveryCheck, invalidHrAddresses, retryBouncedHrOutreach, type HrDeliveryJob } from './delivery-store.js';
 import type { HrBounce } from './bounce.js';
+import type { HrBrowserFailure } from '../../../seek-bot/src/hr-browser-diagnostics.js';
 
 export interface HrDb { query: (text: string, params?: any[]) => Promise<{ rows: any[] }> }
 const database: HrDb = { query: async (text, params) => ({ rows: await query(text, params) }) };
@@ -216,9 +217,9 @@ export class HrStore {
     const result=await this.db.query('UPDATE hr_outreach SET cost_usd=cost_usd+$4,updated_at=now() WHERE id=$1 AND user_id=$2 AND lease=$3 AND lease_until>now() RETURNING id',[job.id,job.user_id,job.lease,cost]);
     if(!result.rows.length)throw Error('This HR research attempt is no longer active.');
   }
-  async recordFailure(job:HrJob,stage:HrPhase,code:string):Promise<void> {
-    await this.db.query(`UPDATE hr_outreach SET lookup_diagnostics=coalesce(lookup_diagnostics,'{}'::jsonb)||jsonb_build_object('failureStage',$4::text,'failureCode',$5::text),updated_at=now()
-      WHERE id=$1 AND user_id=$2 AND lease=$3`,[job.id,job.user_id,job.lease,stage,code]);
+  async recordFailure(job:HrJob,stage:HrPhase,code:string,browserFailure?:HrBrowserFailure):Promise<void> {
+    await this.db.query(`UPDATE hr_outreach SET lookup_diagnostics=coalesce(lookup_diagnostics,'{}'::jsonb)||jsonb_build_object('failureStage',$4::text,'failureCode',$5::text)||$6::jsonb,updated_at=now()
+      WHERE id=$1 AND user_id=$2 AND lease=$3`,[job.id,job.user_id,job.lease,stage,code,JSON.stringify(browserFailure?{browserFailure}:{})]);
   }
   async auditContacts():Promise<void> {
     const {rows}=await this.db.query(`SELECT id::text,company,title,contact FROM hr_outreach

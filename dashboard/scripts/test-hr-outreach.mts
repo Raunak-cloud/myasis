@@ -7,7 +7,7 @@ const runs=[
   ['--test','server/hr-outreach/discovery.test.ts','server/hr-outreach/research.test.ts','server/hr-outreach/public-crawler.test.ts','server/hr-outreach/verification-browser.test.ts','server/hr-outreach/public-evidence.test.ts','server/hr-outreach/bounce.test.ts','server/hr-outreach/bounce-browser.test.ts','server/hr-outreach/delivery-worker.test.ts','server/hr-outreach/agent.test.ts','server/hr-outreach/transport.test.ts','server/hr-outreach/worker.test.ts','server/hr-outreach/worker-simulation.test.ts','server/hr-outreach/robustness.test.ts','server/hr-outreach/run-completion.test.ts'],
   ['server/hr-outreach/activity.test.ts'],['server/hr-outreach/store.test.ts'],['server/hr-outreach/search.test.ts'],['--test','server/hr-outreach/retry.test.ts','server/hr-outreach/retry-discovery-regression.test.ts','server/hr-outreach/bounce-store-regression.test.ts'],
   ['scripts/test-hr-outreach-access.mts'],['scripts/test-hr-outreach-ui.mts'],
-  ['--test','../seek-bot/src/hr-email-browser.test.ts'],
+  ['--test','../seek-bot/src/hr-email-browser.test.ts','../seek-bot/src/hr-browser-diagnostics.test.ts'],
   ['--test','../seek-bot/src/gmail-source-run.test.ts','server/application-email.test.ts','server/auto-application-email.test.ts'],
 ];
 for(const args of runs){const result=spawnSync(process.execPath,[cli,...args],{cwd:root,stdio:'inherit',timeout:90_000});if(result.error)throw result.error;if(result.status!==0)process.exit(result.status??1);}

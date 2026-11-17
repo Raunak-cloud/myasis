@@ -17,6 +17,7 @@ import { checkHrBounce } from './bounce.js';
 import type { HrDeliveryJob } from './delivery-store.js';
 import { researchHiringContact } from './research.js';
 import { HrPublicCrawler } from './public-crawler.js';
+import { hrBrowserFailure, type HrBrowserFailure } from '../../../seek-bot/src/hr-browser-diagnostics.js';
 
 interface Slots { claimStart(userId:string):boolean; releaseStart(userId:string):void; activeCount?():number }
 let wakeWorker:(()=>void)|null=null;
@@ -35,7 +36,7 @@ export interface HrWorkerDependencies {
   publicEvidence?: typeof loadPublicVacancyEvidence;
   checkBounce?: typeof checkHrBounce;
   research?: typeof researchHiringContact;
-  log?: (event:{jobId:string;stage:HrPhase;code:string})=>void;
+  log?: (event:{jobId:string;stage:HrPhase;code:string;browserFailure?:HrBrowserFailure})=>void;
 }
 const defaultDependencies: HrWorkerDependencies = {
   store:new HrStore(), discover:discoverHiringContact,compose:composeHrEmail,send:sendHrEmail,reconcile:reconcileHrEmail,
@@ -120,11 +121,11 @@ export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defa
     // Never expose provider payloads or diagnostic stacks in the customer history.
     const failure=error as {code?:string;costUsd?:number;definitiveRejection?:boolean};
     const code=['reconnect','unapproved','uncertain','unavailable'].includes(failure.code??'')?failure.code!:(signal.aborted?'deadline_exceeded':'unexpected_error');
-    // IDs and controlled codes are sufficient to correlate failures without
-    // copying Gmail payloads, candidate evidence or provider secrets into logs.
-    const diagnostic={jobId:job.id,stage,code};
+    // Retain the failed browser step and redacted original error for inspection.
+    const browserFailure=hrBrowserFailure(error);
+    const diagnostic={jobId:job.id,stage,code,...(browserFailure?{browserFailure}:{})};
     (deps.log??(event=>console.warn('[hr-outreach]',JSON.stringify(event))))(diagnostic);
-    await store.recordFailure?.(job,stage,code);
+    await store.recordFailure?.(job,stage,code,browserFailure);
     if(!costSaved)measuredCost=Number.isFinite(failure.costUsd)?Math.max(0,failure.costUsd!):measuredCost;
     const ambiguous=job.status==='unconfirmed'||sending&&!failure.definitiveRejection&&!['reconnect','unapproved'].includes(failure.code||'');
     await store.finish(job,ambiguous?'unconfirmed':'error',ambiguous
@@ -133,6 +134,7 @@ export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defa
       :code==='unapproved'?'HR outreach is not available for this account.'
       :stage==='researching'?'The hiring contact search could not finish.'
       :stage==='writing'?'The HR email could not be written.'
+      :browserFailure&&failure.definitiveRejection?'The private browser could not open Gmail. This email was not sent.'
       :'Gmail did not accept this HR email.',undefined,costSaved?0:measuredCost,{retryable:!['reconnect','unapproved'].includes(code)});
   }
 }
@@ -145,8 +147,9 @@ export async function processHrDeliveryCheck(job:HrDeliveryJob,deps:HrWorkerDepe
     const notice=await deps.checkBounce(job.user_id,{id:job.id,to:job.to_email,subject:job.subject,body:job.body,createdAt:new Date(job.created_at).toISOString()},
       {sentAt:new Date(job.sent_at).toISOString(),threadId:job.thread_id??undefined,signal:AbortSignal.timeout(120_000),withBrowser:action=>withHrBrowser(job.user_id,action)});
     await deps.store.recordDeliveryCheck(job,notice);
-  }catch{
-    (deps.log??(event=>console.warn('[hr-outreach]',JSON.stringify(event))))({jobId:job.id,stage:'checking',code:'delivery_check_unavailable'});
+  }catch(error){
+    const browserFailure=hrBrowserFailure(error);
+    (deps.log??(event=>console.warn('[hr-outreach]',JSON.stringify(event))))({jobId:job.id,stage:'checking',code:'delivery_check_unavailable',...(browserFailure?{browserFailure}:{})});
     await deps.store.recordDeliveryCheck(job,null,true);
   }
 }

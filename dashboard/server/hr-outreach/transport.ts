@@ -54,10 +54,10 @@ export function createHrTransport(deps: HrTransportDependencies = defaults) {
         return { messageId: receipt.id, threadId: receipt.threadId };
       } catch (error) {
         if (error instanceof GmailServiceError && ['unapproved', 'reconnect', 'uncertain'].includes(error.code)) throw error;
-        if (connection.provider === 'browser' && deps.withBrowser && !browserSendInvoked) throw Object.assign(new GmailServiceError('unavailable', 'The private Gmail browser was unavailable before sending.'), { definitiveRejection: true });
+        if (connection.provider === 'browser' && deps.withBrowser && !browserSendInvoked) throw Object.assign(new GmailServiceError('unavailable', 'The private Gmail browser was unavailable before sending.'), { definitiveRejection: true, cause: error });
         const status = (error as { providerStatus?: number }).providerStatus;
-        if (status !== undefined && status >= 400 && status < 500) throw Object.assign(new GmailServiceError('unavailable', 'Gmail rejected the HR email. Retry after reconnecting or waiting.'), { definitiveRejection: true });
-        throw new GmailServiceError('uncertain', 'The HR email send could not be confirmed.');
+        if (status !== undefined && status >= 400 && status < 500) throw Object.assign(new GmailServiceError('unavailable', 'Gmail rejected the HR email. Retry after reconnecting or waiting.'), { definitiveRejection: true, cause: error });
+        throw Object.assign(new GmailServiceError('uncertain', 'The HR email send could not be confirmed.'), {cause: error});
       }
     },
     async reconcile(userId: string, mail: HrMail): Promise<HrReceipt | null> {

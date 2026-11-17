@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { processHrJob,type HrWorkerDependencies } from './worker.js';
 import type { HrJob } from './store.js';
 import type { HiringContact, DiscoveryDiagnostics } from './discovery.js';
+import { hrBrowserStep } from '../../../seek-bot/src/hr-browser-diagnostics.js';
 const diagnostics:DiscoveryDiagnostics={stage:'company_pages',searches:0,pagesAttempted:1,pagesRead:1,pagesBlocked:0,pagesFailed:0,candidatesRejected:0,unresolvedPriorityPages:0,events:[]};
 const contact:HiringContact={email:'careers@company.org',kind:'recruitment',companyDomain:'company.org',sourceUrl:'https://company.org/careers',sourceText:'Recruitment email',validatedAt:new Date().toISOString()};
 const job:HrJob={id:'21',user_id:'1',application_id:'4',company_key:'company',dedupe_key:'hash',job_id:'4',platform:'seek',title:'Analyst',company:'Company',url:'https://company.org/jobs/4',cover_letter:'Approved letter',status:'researching',to_email:null,subject:null,body:null,contact:null,created_at:new Date(),lease:'lease',attempts:1,cost_usd:0};
@@ -19,6 +20,18 @@ function fixture(options:{fresh?:boolean;contact?:HiringContact|null;connected?:
   } as unknown as HrWorkerDependencies;
   return {deps,events};
 }
+
+test('pre-send browser failure is stored and logged for inspection but customer history stays plain',async()=>{
+ let original:unknown;try{await hrBrowserStep('mailbox_ready',async()=>{throw Object.assign(new Error('locator.waitFor: Timeout 30000ms exceeded.\nprivate mailbox contents'),{name:'TimeoutError'});});}catch(error){original=error;}
+ const wrapped=Object.assign(new Error('The private Gmail browser was unavailable before sending.'),{cause:original,code:'unavailable',definitiveRejection:true});
+ const {deps,events}=fixture({sendError:wrapped});
+ deps.log=event=>events.push(['log',event]);deps.store.recordFailure=async(...args)=>{events.push(['failure',...args]);};
+ await processHrJob({...job},deps);
+ const logged=events.find(e=>e[0]==='log')[1];assert.equal(logged.browserFailure.step,'mailbox_ready');assert.equal(logged.browserFailure.category,'timeout');assert.match(logged.browserFailure.message,/Timeout 30000ms/);
+ const stored=events.find(e=>e[0]==='failure');assert.deepEqual(stored[4],logged.browserFailure);
+ assert.equal(events.at(-1)[2],'error');assert.equal(events.at(-1)[3],'The private browser could not open Gmail. This email was not sent.');
+ assert.equal(events.filter(e=>e[0]==='send').length,1);assert.equal(events.at(-1)[6].retryable,true);assert.doesNotMatch(JSON.stringify(logged),/private mailbox contents/);
+});
 test('fresh shared contact is reused and exact delivered message saved before one send',async()=>{
   const {deps,events}=fixture();await processHrJob({...job},deps);
   assert.equal(events.filter(e=>e[0]==='discover').length,0);
