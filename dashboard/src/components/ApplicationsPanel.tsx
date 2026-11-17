@@ -1,5 +1,6 @@
 import { EMPLOYER_SOURCES } from '../../../seek-bot/src/employer-source-config';
 import { AdzunaAttribution } from './AdzunaAttribution';
+import {BoardBrand} from './BoardBrand';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { Application, ApplicationAction, Outcome, SiteAccount } from '../types';
 import type { SkippedJob } from './SkippedPanel';
@@ -371,7 +372,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                         rel="noreferrer"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        {boardLabel(a.platform)} ↗
+                        <BoardBrand board={a.platform??'seek'} label={boardLabel(a.platform)} compact/> ↗
                       </a>
                     </td>
                   </tr>

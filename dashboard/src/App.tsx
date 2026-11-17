@@ -1,4 +1,5 @@
 import { Wordmark } from './components/Wordmark';
+import {BoardBrand} from './components/BoardBrand';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Application } from './types';
 import type { AttentionItem } from './components/AttentionPanel';
@@ -448,16 +449,9 @@ export default function App() {
                 >
                   <span className="nav-row-main">
                     <span className="nav-row-title">Job boards</span>
-                    <span className="nav-row-sub">
-                      {visibleJobBoards(boards, entitlements?.joraSignIn === true)
-                        .map((board) => board === 'seek' ? 'SEEK' : board === 'jora' ? 'Jora' : 'Indeed')
-                        .join(' · ')}
+                    <span className="nav-board-brands">
+                      {visibleJobBoards(boards, entitlements?.joraSignIn === true).map(board=><span className="nav-board-brand" key={board}><BoardBrand board={board} compact/><span className={`nav-dot ${boards[board]?.signedIn?'on':'off'}`} aria-hidden="true"/></span>)}
                     </span>
-                  </span>
-                  <span className="nav-dots" aria-hidden="true">
-                    {visibleJobBoards(boards, entitlements?.joraSignIn === true).map((board) => (
-                      <span key={board} className={`nav-dot ${boards[board]?.signedIn ? 'on' : 'off'}`} />
-                    ))}
                   </span>
                   <svg className="nav-row-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
                 </button>

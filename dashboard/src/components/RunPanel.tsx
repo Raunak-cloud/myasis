@@ -1,6 +1,7 @@
 import { EMPLOYER_SOURCES, EMPLOYER_SOURCE_DEFAULTS, isEmployerSource } from '../../../seek-bot/src/employer-source-config';
 import { APPLICATION_MODELS, applicationModelLabel, CUSTOMER_APPLICATION_MODEL } from '../../../seek-bot/src/application-model-catalog';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import {BoardBrand} from './BoardBrand';
 import { useEntitlements } from '../entitlements';
 import { useBillingStatus } from '../billing';
 import { useBoardsStatus } from '../boards';
@@ -1168,7 +1169,7 @@ export function RunPanel({
                           title={usable ? undefined : `Sign in to ${board.label} on the Apply page to use it.`}
                           onClick={() => togglePlatform(board.id)}
                         >
-                          {on ? '✓ ' : ''}{board.label}{usable ? '' : ' · not signed in'}
+                          {on ? '✓ ' : ''}<BoardBrand board={board.id} label={board.label} compact/>{usable ? '' : ' · not signed in'}
                         </button>
                       );
                     })}

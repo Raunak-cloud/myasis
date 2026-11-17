@@ -34,7 +34,7 @@ const server = await createServer({ configFile: false, root, plugins: [react(), 
       '/api/entitlements': { tier, manualRuns: true, firstRunRequired: false, autoRunsPerDay: 1, autoApplyPaused: true, canPauseAutoApply: true,
         autoRunsUsedToday: 0, scheduledMinScore: 60, scheduledJobsPerDay: 40, evaluationsPerRun: 40, maxApplicationsPerRunOverride: null,
         fineTune: tier !== 'standard', advancedFilters: tier !== 'standard', indeedApplications: tier !== 'standard', employerSources: tier !== 'standard', runScopes: false, joraSignIn:tier!=='standard'||paidStandard },
-      '/api/billing/status': { configured: true, totalRemaining: 5, free: { allowance: 5, used: 0, remaining: 5 }, paid: { remaining: 0, hasActivePass: false } },
+      '/api/billing/status': { configured: true, totalRemaining: paidStandard||tier==='intensive'?55:5, free: { allowance: 5, used: 0, remaining: 5 }, paid: { remaining: paidStandard||tier==='intensive'?50:0, hasActivePass: paidStandard||tier==='intensive', hasActiveEssentialPass:paidStandard,hasActiveIntensivePass:tier==='intensive',hasActiveJobSearchPass:false } },
       '/api/setup/status': { ready: true, done: 3, total: 3, checks: ['resume', 'profile', 'looking'].map(id => ({ id, label: id, done: true, required: true })) },
       '/api/run/status': { running: false, hasKey: true, isOwner: true, applied: 0 },
       '/api/signin/session': { supported: true, session: signinSession, seek: { signedIn: true }, indeed: { signedIn: false }, jora: joraConnected ? {signedIn:true,checkedAt:new Date().toISOString()} : null, joraVerified:joraConnected },
@@ -89,7 +89,9 @@ try {
     const start = page.getByRole('button',{name:'Start Auto apply',exact:true});
     await start.waitFor(); assert.equal(await start.isEnabled(), true, 'public Jora search needs no board login');
     const sidebar = page.getByRole('button',{name:'Job boards: which account is signed in, sign out, sign in.',exact:true});
-    assert.match(await sidebar.innerText(), /SEEK.*Indeed.*Jora/);
+    assert.match(await sidebar.innerText(), /SEEK[\s\S]*Indeed[\s\S]*Jora/);
+    for(const board of ['seek','indeed','jora'])assert.equal(await sidebar.locator(`img[src="/platforms/${board}.svg"]`).count(),1);
+    await page.waitForFunction(()=>[...document.querySelectorAll('.nav-board-brands img')].every(n=>(n as HTMLImageElement).complete&&(n as HTMLImageElement).naturalWidth>0));
     await sidebar.click();
     let dialog = page.getByRole('dialog',{name:'Job boards',exact:true});
     let row = dialog.locator('.boards-row').filter({has:page.getByText('Jora',{exact:true})});

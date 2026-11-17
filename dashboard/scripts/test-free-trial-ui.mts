@@ -32,7 +32,10 @@ const output=resolve(import.meta.dirname,'../../output/free-trial-ui');await mkd
 try{
  const page=await browser.newPage({viewport:{width:1200,height:950}}),errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));await page.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
  await page.goto(origin+'/fixture');const start=page.getByRole('button',{name:'Start Auto apply',exact:true});await start.waitFor();await page.waitForFunction(()=>{const b=[...document.querySelectorAll('button')].find(n=>n.textContent==='Start Auto apply');return b&&!b.disabled;});
- assert.match(await page.locator('.free-trial-offer').innerText(),/5 free applications.*No job-board connection needed/);assert.equal(await page.getByRole('button',{name:'Open SEEK',exact:true}).count(),0);
+ assert.match(await page.locator('.free-trial-offer').innerText(),/5 free applications[\s\S]*No job-board connection needed/);assert.equal(await page.getByRole('button',{name:'Open SEEK',exact:true}).count(),0);
+ await page.waitForFunction(()=>[...document.querySelectorAll('.free-trial-offer img')].every(n=>(n as HTMLImageElement).complete&&(n as HTMLImageElement).naturalWidth>0));
+ assert(await page.locator('.free-trial-offer strong').evaluate(el=>parseFloat(getComputedStyle(el).fontSize)>=24),'offer headline is prominent');
+ assert.equal(await page.locator('.free-trial-offer img[src="/platforms/seek.svg"]').count(),1);
  await page.screenshot({path:resolve(output,'desktop-new-user.png'),fullPage:true});
  await start.click();const dialog=page.getByRole('dialog',{name:'Review Auto apply settings'});await dialog.waitFor();assert.match(await dialog.getByRole('button',{name:/Greenhouse/}).getAttribute('class')||'',/\bon\b/);assert.equal(await dialog.getByRole('button',{name:/Workday|PageUp|Jora/}).count(),0);assert.doesNotMatch(await dialog.innerText(),/Sign in on the Apply page first/);
  await dialog.getByRole('button',{name:'Start Auto apply',exact:true}).click();await page.waitForFunction(()=>!document.querySelector('.run-review-overlay'));

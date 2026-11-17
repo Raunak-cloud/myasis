@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import {BoardBrand} from './BoardBrand';
 import { BOARDS_CHANGED, OPEN_BOARD_SIGNIN, visibleJobBoards, type BoardState, type BoardsStatus } from '../boards';
 
 /**
@@ -73,7 +74,7 @@ export function JobBoardsDialog({ boards, joraSignIn = false, onClose, onSignIn 
           return (
             <div className="boards-row" key={board}>
               <div className="boards-row-main">
-                <strong>{NAMES[board]}</strong>
+                <strong><BoardBrand board={board}/></strong>
                 <span className="job-meta">
                   <span className={`nav-dot ${state?.signedIn ? 'on' : 'off'}`} aria-hidden="true" /> {describe(state)}
                 </span>

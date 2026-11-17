@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import {BoardBrand} from './BoardBrand';
 import { BOARDS_CHANGED, OPEN_BOARD_SIGNIN } from '../boards';
 import { SigninViewer, type BrowserSigninSession as Session } from './SigninViewer';
 
@@ -251,7 +252,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, admin
         {notice && <div className={`banner ${/signed out|could not/i.test(notice) ? 'banner-bad' : 'banner-ok'}`}>{notice}</div>}
         {(showConnected || !status.seek?.signedIn) && !status.checking && <div className="seek-connect-row">
           <div>
-            <h3>SEEK</h3>
+            <h3><BoardBrand board="seek"/></h3>
             <p className="job-meta">
               {status.seek?.signedIn
                 ? 'Connected'
@@ -266,7 +267,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, admin
         </div>}
         {(indeedEnabled || (showConnected && status.indeed?.signedIn)) && (showConnected || !status.indeed?.signedIn) && <div className="seek-connect-row">
           <div>
-            <h3>Indeed</h3>
+            <h3><BoardBrand board="indeed"/></h3>
             <p className="job-meta">
               {status.indeed?.signedIn
                 ? 'Connected'
