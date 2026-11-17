@@ -18,6 +18,8 @@ check_dashboard() (
   trap - EXIT
   set -euo pipefail
 cd "$APP/dashboard"
+../seek-bot/node_modules/.bin/tsx --test server/request-limits.test.ts test/dashboard-requests.test.ts
+../seek-bot/node_modules/.bin/tsx scripts/test-dashboard-requests-ui.mts
 ../seek-bot/node_modules/.bin/tsx --test server/signin-sessions.test.ts
 ../seek-bot/node_modules/.bin/tsx scripts/test-jora-beta-ui.mts
 ../seek-bot/node_modules/.bin/tsx --test server/job-index/codex-discovery.test.ts server/job-index/geography.test.ts server/job-index/config.test.ts server/job-index/extract.test.ts server/job-index/network.test.ts server/job-index/review.test.ts server/job-index/store.test.ts

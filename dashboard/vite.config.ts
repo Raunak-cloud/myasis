@@ -30,7 +30,8 @@ import { CUSTOM_MIN_SCORE } from './src/pricing.js';
 import { userRunLimitError, dailyApplicationLimit } from '../seek-bot/src/run-limits.js';
 /** The resume note on Apply, once dismissed: a UI preference, never part of a run's settings. */
 const BOARD_RESUMES_NOTE_DISMISSED = 'BOARD_RESUMES_NOTE_DISMISSED';
-import { allowedOrigin, crossSite, hasSessionCookie, rateLimited, readJsonBody, readRawBodyLimited, requesterAddress, signedInShell, upgradeOriginAllowed, BodyTooLarge, InvalidJsonBody, DEFAULT_BODY_LIMIT, UPLOAD_BODY_LIMIT } from './server/http-guards.js';
+import { allowedOrigin, crossSite, hasSessionCookie, readJsonBody, readRawBodyLimited, requesterAddress, signedInShell, upgradeOriginAllowed, BodyTooLarge, InvalidJsonBody, DEFAULT_BODY_LIMIT, UPLOAD_BODY_LIMIT } from './server/http-guards.js';
+import {createRequestLimiter,requestLimitPolicy} from './server/request-limits.js';
 import { marketScoutProxy } from './server/market-scout.js';
 import { isAdmin as isAdminEmail } from './server/billing.js';
 import { jobSourceSettingsError } from './server/job-sources.js';
@@ -164,6 +165,7 @@ function rowToApplication(a: ApplicationRow) {
  * one installation no matter which account is signed in.
  */
 function dataApi(): Plugin {
+  const limitRequest=createRequestLimiter();
   const research = marketScoutProxy(async (req) => {
     const user = await currentUser(req.headers.cookie);
     return user ? (isAdmin(user.email) ? 'admin' : 'user') : null;
@@ -240,33 +242,21 @@ function dataApi(): Plugin {
       return send({ error: 'Cross-site requests are not accepted.' }, 403);
     }
 
-    /**
-     * Rate limits, per address for what needs no sign-in and per account
-     * for what costs money. A limit that trips answers 429 and does nothing.
-     */
-    const address = requesterAddress(req);
-    const limits: Array<[RegExp, number, number, string]> = [
-      [/^\/api\/auth\//, 30, 10 * 60_000, 'sign-in'],
-      [/^\/api\/visit/, 120, 60_000, 'visits'],
-      [/^\/api\/billing\//, 30, 10 * 60_000, 'billing'],
-      [/^\/api\/search-terms\/generate$/, 10, 60 * 60_000, 'suggestions'],
-      [/^\/api\/assist\/answer$/, 60, 60 * 60_000, 'answers'],
-      [/^\/api\/(resumes|knowledge)$/, 30, 60 * 60_000, 'uploads'],
-      [/^\/api\//, 600, 60_000, 'api'],
-    ];
-    for (const [pattern, limit, windowMs, name] of limits) {
-      if (!pattern.test(route)) continue;
-      if (name === 'uploads' && req.method !== 'POST') continue;
-      if (rateLimited(`${name}:${address}`, limit, windowMs)) {
-        res.setHeader('Retry-After', String(Math.ceil(windowMs / 1000)));
-        return send({ error: 'Too many requests. Try again in a little while.' }, 429);
-      }
-      break;
+    // Resolve the session once here and reuse it within this request.
+    let userPromise:ReturnType<typeof currentUser>|undefined;
+    const getUser=()=>userPromise??=currentUser(req.headers?.cookie);
+    const identity=hasSessionCookie(req)?await getUser():null;
+    const policy=requestLimitPolicy({route,method:req.method??'GET',address:requesterAddress(req),userId:identity?.id});
+    const blocked=limitRequest(policy);
+    if(blocked){
+      res.setHeader('Retry-After',String(blocked.retryAfterSeconds));
+      if(blocked.firstBlocked)console.warn('[request-limit]',JSON.stringify({category:policy?.category,route,method:req.method,userId:identity?.id??null,retryAfterSeconds:blocked.retryAfterSeconds}));
+      return send({error:'Too many requests. Try again in a little while.',retryAfterSeconds:blocked.retryAfterSeconds},429);
     }
 
     /** Every account-scoped route funnels through this — 401 if not signed in. */
     const withUser = (fn: (userId: string) => Promise<void> | void) =>
-      currentUser(req.headers?.cookie).then((user) => {
+      getUser().then((user) => {
         if (!user) return send({ error: 'Sign in required.' }, 401);
         return accountRequest(user.id, () => fn(user.id));
       }).catch((error) => {
@@ -277,7 +267,7 @@ function dataApi(): Plugin {
 
     // The operator's dashboard: every route in it checks for an admin on each request.
     if (route.startsWith('/api/admin/')) return handleAdminRequest(req, res, url, send, readBody);
-    if (route.startsWith('/api/marketing/')) return currentUser(req.headers.cookie).then(user => user
+    if (route.startsWith('/api/marketing/')) return getUser().then(user => user
       ? handleMarketing(req,res,url,user,send,readBody)
       : send({error:'Sign in required.'},401));
 
@@ -288,7 +278,7 @@ function dataApi(): Plugin {
      */
     if (route === '/api/visit' && req.method === 'POST') {
       return readBody().then(async (b) => {
-        const user = await currentUser(req.headers?.cookie).catch(() => null);
+        const user = await getUser().catch(() => null);
         try {
           const id = await recordPageView(req, b, user?.id ?? null);
           return send({ id, ignored: id === null });
@@ -300,7 +290,7 @@ function dataApi(): Plugin {
     }
     if (route === '/api/visit/pulse' && req.method === 'POST') {
       return readBody().then(async (b) => {
-        const user = await currentUser(req.headers?.cookie).catch(() => null);
+        const user = await getUser().catch(() => null);
         await recordPageProgress(req,b,user?.id??null).catch(() => {});
         res.statusCode = 204;
         res.end();
@@ -317,7 +307,7 @@ function dataApi(): Plugin {
     switch (route) {
       case '/api/billing/status': {
         if (req.method !== 'GET') return send({ error: 'GET required' }, 405);
-        return currentUser(req.headers?.cookie).then(async (user) => {
+        return getUser().then(async (user) => {
           if (!user) return send({ error: 'Sign in to view payment details.' }, 401);
           try {
             return send(await billingStatus(user.id, user.email));
@@ -329,7 +319,7 @@ function dataApi(): Plugin {
 
       case '/api/billing/checkout': {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
-        return Promise.all([currentUser(req.headers?.cookie), readBody()]).then(async ([user, body]) => {
+        return Promise.all([getUser(), readBody()]).then(async ([user, body]) => {
           if (!user) return send({ error: 'Sign in before purchasing a pass.' }, 401);
           if (!isPaidPlanKey(body?.planKey)) return send({ error: 'Choose a valid pass.' }, 400);
           try {
@@ -350,7 +340,7 @@ function dataApi(): Plugin {
 
       case '/api/billing/confirm': {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
-        return Promise.all([currentUser(req.headers?.cookie), readBody()]).then(async ([user, body]) => {
+        return Promise.all([getUser(), readBody()]).then(async ([user, body]) => {
           if (!user) return send({ error: 'Sign in to confirm this payment.' }, 401);
           const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : '';
           if (!/^cs_/.test(sessionId)) return send({ error: 'Invalid checkout session.' }, 400);
@@ -387,7 +377,7 @@ function dataApi(): Plugin {
       case '/api/hr-outreach': {
         if (req.method !== 'GET') return send({ error: 'GET required' }, 405);
         return withUser(async userId => {
-          const actor = await currentUser(req.headers?.cookie);
+          const actor = await getUser();
           if (actor?.id !== userId || !isAdminEmail(actor.email)) return send({ error: 'Admins only.' }, 403);
           const cursor = url.searchParams.get('cursor') ?? undefined;
           const jobId = url.searchParams.get('jobId') ?? undefined;
@@ -401,7 +391,7 @@ function dataApi(): Plugin {
       case '/api/hr-outreach/settings': {
         if (req.method !== 'GET' && req.method !== 'POST') return send({ error: 'GET or POST required' }, 405);
         return withUser(async userId => {
-          const actor = await currentUser(req.headers?.cookie);
+          const actor = await getUser();
           if (actor?.id !== userId || !isAdminEmail(actor.email)) return send({ error: 'Admins only.' }, 403);
           if (req.method === 'POST') {
             const body = await readBody();
@@ -414,7 +404,7 @@ function dataApi(): Plugin {
       case '/api/applications/costs': {
         if (req.method !== 'GET') return send({ error: 'GET required' }, 405);
         return withUser(async (userId) => {
-          const actor = await currentUser(req.headers?.cookie);
+          const actor = await getUser();
           if (!isAdminEmail(actor?.email)) return send({ error: 'Admins only.' }, 403);
           return send(await loadApplicationCosts(userId, userDir(userId)));
         });
@@ -488,7 +478,7 @@ function dataApi(): Plugin {
              * to the tiers that drive runs. The form hides them; this is what
              * actually withholds them.
              */
-            const settingsUser = await currentUser(req.headers?.cookie);
+            const settingsUser = await getUser();
             const entitlements = await entitlementsFor(userId, settingsUser?.email);
             const sourceError = jobSourceSettingsError(body?.updates ?? {}, isAdminEmail(settingsUser?.email), entitlements.employerSources, adzunaConfigured({ ...readEnv(), ...process.env }));
             if (sourceError) return send({ error: sourceError.error }, sourceError.status);
@@ -524,7 +514,7 @@ function dataApi(): Plugin {
               MAX_APPS_PER_DAY: String(dailyApplicationLimit(entitlements.tier === 'intensive' && settings[DAILY_APPLICATION_CAP_CHOSEN] !== '1' ? undefined : settings.MAX_APPS_PER_DAY)) } });
           }
           // What the run screen shows is what a run would use, not the raw saved value.
-          const viewer = await currentUser(req.headers?.cookie);
+          const viewer = await getUser();
           const saved = await loadUserSettings(userId);
           const entitlements = await entitlementsFor(userId, viewer?.email);
           return send({ ...saved, APPLICATION_AI_MODEL: applicationModelForAccount(saved.APPLICATION_AI_MODEL, isAdminEmail(viewer?.email), await assignedApplicationModel(userId)), KEYWORDS: limitSearchTerms(saved.KEYWORDS ?? ''), PLATFORMS: effectivePlatforms(saved, entitlements),
@@ -536,7 +526,7 @@ function dataApi(): Plugin {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
         return withUser(async (userId) => {
           // The free plan gets a fixed number of these; checked here, where the model call is made, not only on the page.
-          const user = await currentUser(req.headers?.cookie);
+          const user = await getUser();
           const allowance = (await entitlementsFor(userId, user?.email)).searchTermSuggestionsLeft;
           if (allowance !== null && allowance <= 0) {
             return send({ error: 'You have used your free suggestion. Paid passes include unlimited suggestions.' }, 403);
@@ -603,7 +593,7 @@ function dataApi(): Plugin {
         if (req.method !== 'GET' && req.method !== 'DELETE') return send({ error: 'GET or DELETE required.' }, 405);
         // Authenticate directly: deletion drains withUser requests and must
         // never wait for its own request to finish.
-        return currentUser(req.headers.cookie).then(async (user) => {
+        return getUser().then(async (user) => {
           if (!user) return send({ error: 'Sign in required.' }, 401);
           if (req.method === 'GET') return send({ email: user.email });
           if (!upgradeOriginAllowed(req) || !req.headers['content-type']?.startsWith('application/json')) {
@@ -757,7 +747,7 @@ function dataApi(): Plugin {
               const access = await gmailAccess(userId);
               if (!access.providers.includes('browser')) return send({ error: 'Browser Gmail is unavailable for this account.' }, 403);
               if (body?.consent !== true) return send({ error: 'Confirm Gmail mailbox access before connecting.' }, 400);
-              const owner = await currentUser(req.headers?.cookie);
+              const owner = await getUser();
               const allowance = await billingStatus(userId, owner?.email);
               if (!isAdmin(owner?.email) && !allowance.paid.hasActiveIntensivePass) return send({ error: 'Gmail access requires an Intensive plan.' }, 403);
             }
@@ -803,7 +793,7 @@ function dataApi(): Plugin {
             .split(',')
             .filter((site): site is 'seek' | 'indeed' | 'jora' => site === 'seek' || site === 'indeed' || site === 'jora')
             .filter((site) => site === 'jora' || priorState[site]?.signedIn === true);
-          if(verifySites.includes('jora') && !(await entitlementsFor(userId,(await currentUser(req.headers?.cookie))?.email)).joraSignIn)
+          if(verifySites.includes('jora') && !(await entitlementsFor(userId,(await getUser())?.email)).joraSignIn)
             verifySites=verifySites.filter(site=>site!=='jora');
           /**
            * A green tick must describe the live account, not a cached answer.
@@ -846,7 +836,7 @@ function dataApi(): Plugin {
             return send({ error: 'Stop your current run before opening a job-board sign-in window.' }, 409);
           }
           const target = url.searchParams.get('target') === 'gmail' ? 'gmail' : url.searchParams.get('target') === 'jora' ? 'jora' : url.searchParams.get('target') === 'indeed' ? 'indeed' : 'seek';
-          if(target==='jora' && !(await entitlementsFor(userId,(await currentUser(req.headers?.cookie))?.email)).joraSignIn)
+          if(target==='jora' && !(await entitlementsFor(userId,(await getUser())?.email)).joraSignIn)
             return send({error:'Jora sign-in requires Active Search or Get Owtomated. Employer job discovery does not need Jora sign-in.'},403);
           if (target === 'gmail') {
             if (url.searchParams.get('consent') !== 'true' || !(await gmailAccess(userId)).providers.includes('browser')) return send({ error: 'Confirm available Gmail mailbox access first.' }, 403);
@@ -873,7 +863,7 @@ function dataApi(): Plugin {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
         return withUser(async (userId) => {
           // The browser helper remains an Intensive feature even though customers cannot start runs manually.
-          const assistUser = await currentUser(req.headers?.cookie);
+          const assistUser = await getUser();
           if (!(await entitlementsFor(userId, assistUser?.email)).fineTune) {
             return send({ ok: false, error: 'The browser helper is part of Get Owtomated.' }, 403);
           }
@@ -888,7 +878,7 @@ function dataApi(): Plugin {
 
       // ---- auth ----
       case '/api/auth/me': {
-        return currentUser(req.headers?.cookie).then((u) =>
+        return getUser().then((u) =>
           send({ user: u, googleConfigured: googleConfigured() }),
         );
       }
@@ -905,7 +895,7 @@ function dataApi(): Plugin {
 
       case '/api/auth/callback/google': {
         if (url.searchParams.get('state')?.startsWith('gmail.')) return (async () => {
-          const user = await currentUser(req.headers?.cookie);
+          const user = await getUser();
           let error = '';
           try {
             if (!user) throw new GmailServiceError('unapproved', 'Sign in to Owtomate before connecting Gmail.');
@@ -968,7 +958,7 @@ function dataApi(): Plugin {
       }
 
       case '/api/db/health':
-        return currentUser(req.headers?.cookie).then(async (u) => {
+        return getUser().then(async (u) => {
           if (!u || !isAdminEmail(u.email)) return send({ error: 'Admins only.' }, 403);
           const h = await dbHealth();
           return send({ ok: h.ok }, h.ok ? 200 : 503);
@@ -981,7 +971,7 @@ function dataApi(): Plugin {
          * open, it would let anyone claim the previous owner's resumes.
          */
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
-        return Promise.all([currentUser(req.headers?.cookie), readBody()]).then(async ([actor, b]) => {
+        return Promise.all([getUser(), readBody()]).then(async ([actor, b]) => {
           if (!actor || !isAdminEmail(actor.email)) return send({ error: 'Admins only.' }, 403);
           const m = await dbMigrate();
           if (!m.ok) return send({ error: m.error }, 500);
@@ -1050,7 +1040,7 @@ function dataApi(): Plugin {
       // Skipped jobs and the candidate's call on each (server/skipped.ts). Administrators only while it is tried out.
       case '/api/skipped':
         return withUser(async (userId) => {
-          const user = await currentUser(req.headers?.cookie);
+          const user = await getUser();
           if (!isAdmin(user?.email)) return send({ error: 'Not available on this account yet.' }, 403);
           if (req.method === 'POST') {
             const b = await readBody();
@@ -1066,7 +1056,7 @@ function dataApi(): Plugin {
       case '/api/gmail/connection':
       case '/api/gmail/status':
         return withUser(async (userId) => {
-          const user = await currentUser(req.headers?.cookie);
+          const user = await getUser();
           if (url.pathname === '/api/gmail/connection' && req.method === 'DELETE') {
             if (runner.inUse(userId)) return send({ error: 'Stop your run before changing Gmail access.' }, 409);
             if ((await gmailAccess(userId)).provider === 'browser') await disableBrowserGmail(userId); else await disconnectGmail(userId);
@@ -1119,7 +1109,7 @@ function dataApi(): Plugin {
       case '/api/trace': {
         // The step-by-step record (with screenshots) of an application that needs a person.
         return withUser(async (userId) => {
-          const user=await currentUser(req.headers?.cookie);
+          const user=await getUser();
           if(!isAdmin(user?.email))return send({error:'Not available on this account.'},403);
           const jobId = url.searchParams.get('jobId') ?? '';
           if (!/^[A-Za-z0-9_-]{1,64}$/.test(jobId)) return send({ error: 'jobId required' }, 400);
@@ -1142,7 +1132,7 @@ function dataApi(): Plugin {
 
       case '/api/entitlements': {
         return withUser(async (userId) => {
-          const user = await currentUser(req.headers?.cookie);
+          const user = await getUser();
           return send(await entitlementsFor(userId, user?.email));
         });
       }
@@ -1172,7 +1162,7 @@ function dataApi(): Plugin {
           if (!upgradeOriginAllowed(req) || !req.headers['content-type']?.startsWith('application/json')) {
             return send({ error: 'Use the Apply page on this website to start or pause your schedule.' }, 403);
           }
-          const user = await currentUser(req.headers?.cookie);
+          const user = await getUser();
           const entitlements = await entitlementsFor(userId, user?.email);
           const body = await readBody();
           if (typeof body?.enabled !== 'boolean') return send({ error: 'Choose Start or Pause.' }, 400);
@@ -1213,7 +1203,7 @@ function dataApi(): Plugin {
       case '/api/run/queue': {
         if (req.method !== 'POST') return send({ error: 'POST required' }, 405);
         return withUser(async (userId) => {
-          const queueUser = await currentUser(req.headers?.cookie);
+          const queueUser = await getUser();
           const entitlements = await entitlementsFor(userId, queueUser?.email);
           // Queue scans are manual operations and therefore administrator-only.
           if (entitlements.tier !== 'admin') {
@@ -1257,7 +1247,7 @@ function dataApi(): Plugin {
           if (mode === 'live' && body?.confirm !== true) {
             return send({ error: 'Live runs require confirm: true.' }, 400);
           }
-          const runUser = await currentUser(req.headers?.cookie);
+          const runUser = await getUser();
           if (!runUser) return send({ error: 'Sign in before starting a run.' }, 401);
           const adminRun = isAdmin(runUser.email);
           /**
@@ -1322,7 +1312,7 @@ function dataApi(): Plugin {
         return withUser(async userId => {
           const body = await readBody();
           if (body?.confirm !== true) return send({ error: 'Confirm the selected applications before submitting.' }, 400);
-          const user = await currentUser(req.headers?.cookie);
+          const user = await getUser();
           const result = await startRun({ userId, email: user?.email, mode: 'live', trigger: 'manual',
             approvals: body?.applications ?? [], initiatorDevice: runDeviceFromHeaders(req.headers) });
           return send(result.ok ? { ok: true } : { error: result.error }, result.ok ? 200 : result.status);
@@ -1345,7 +1335,7 @@ function dataApi(): Plugin {
       }
 
       case '/api/run/stream': {
-        return currentUser(req.headers?.cookie).then((user) => {
+        return getUser().then((user) => {
           if (!user) return send({ error: 'Sign in required.' }, 401);
           // The live console can contain an account's real name, suburb and
           // search terms (see main.ts's own startup logging), so the stream

@@ -59,6 +59,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, admin
   const previousSession = useRef<Session | null>(null);
   const reopening = useRef(false);
   const reopenTimes = useRef<number[]>([]);
+  const boardSignature = useRef<string|null>(null);
   useEffect(() => { previousSession.current = status?.session ?? null; }, [status?.session]);
 
   const refresh = useCallback(async (verify = false) => {
@@ -93,7 +94,9 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, admin
         } else setNotice('The sign-in window keeps stopping. Please open it again to retry.');
       } else if (!body.session && reopening.current) return;
       setStatus(body);
-      window.dispatchEvent(new Event(BOARDS_CHANGED));
+      const signature=JSON.stringify(['seek','indeed','jora'].map(site=>[body[site]?.signedIn??null,body[site]?.account??null,body[site]?.signedOutByPerson===true]));
+      if(boardSignature.current!==null&&boardSignature.current!==signature)window.dispatchEvent(new Event(BOARDS_CHANGED));
+      boardSignature.current=signature;
     } catch {
       if (epoch === requestEpoch.current) setStatus(previous => previous ?? { supported: false, session: null });
     } finally {

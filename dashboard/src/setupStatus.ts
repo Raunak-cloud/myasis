@@ -1,3 +1,4 @@
+import {dashboardGet,DASHBOARD_ACCOUNT_CHANGED} from './dashboard-requests.js';
 import { useEffect, useState } from 'react';
 import { BOARDS_CHANGED } from './boards';
 
@@ -23,16 +24,19 @@ export function useSetupStatus(): SetupStatus | null {
   const [status, setStatus] = useState<SetupStatus | null>(null);
   useEffect(() => {
     let cancelled = false;
-    const load = () => fetch('/api/setup/status')
+    const load = () => dashboardGet('/api/setup/status')
       .then((response) => response.ok ? response.json() : null)
       .then((value) => { if (!cancelled && Array.isArray(value?.checks)) setStatus(value); })
       .catch(() => {});
     load();
+    const accountChanged=()=>{setStatus(null);load();};
+    window.addEventListener(DASHBOARD_ACCOUNT_CHANGED,accountChanged);
     const id = setInterval(load, 6000);
     window.addEventListener('setup-status-changed', load);
     window.addEventListener(BOARDS_CHANGED, load);
     return () => {
       cancelled = true;
+      window.removeEventListener(DASHBOARD_ACCOUNT_CHANGED,accountChanged);
       clearInterval(id);
       window.removeEventListener('setup-status-changed', load);
       window.removeEventListener(BOARDS_CHANGED, load);

@@ -1,3 +1,4 @@
+import {dashboardGet,DASHBOARD_ACCOUNT_CHANGED} from './dashboard-requests.js';
 import { useEffect, useState } from 'react';
 
 /**
@@ -41,7 +42,7 @@ export function useBoardsStatus(verifyJora = false): BoardsStatus | null {
   useEffect(() => {
     let cancelled = false;
     const load = (verify = false) => {
-      fetch(verify ? '/api/signin/session?verify=jora' : '/api/signin/session')
+      dashboardGet(verify ? '/api/signin/session?verify=jora' : '/api/signin/session')
         .then((response) => (response.ok ? response.json() : null))
         .then((value) => {
           if (cancelled || !value || typeof value !== 'object') return;
@@ -52,6 +53,8 @@ export function useBoardsStatus(verifyJora = false): BoardsStatus | null {
         .catch(() => {});
     };
     load(verifyJora);
+    const accountChanged=()=>{setStatus(null);load();};
+    window.addEventListener(DASHBOARD_ACCOUNT_CHANGED,accountChanged);
     const onVisible = () => document.visibilityState === 'visible' && load();
     const timer = window.setInterval(() => load(), verifyJora ? 4_000 : 60_000);
     const changed = () => load();
@@ -59,6 +62,7 @@ export function useBoardsStatus(verifyJora = false): BoardsStatus | null {
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       cancelled = true;
+      window.removeEventListener(DASHBOARD_ACCOUNT_CHANGED,accountChanged);
       window.clearInterval(timer);
       window.removeEventListener(BOARDS_CHANGED, changed);
       document.removeEventListener('visibilitychange', onVisible);

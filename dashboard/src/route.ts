@@ -1,3 +1,4 @@
+import {dashboardGet,DASHBOARD_ACCOUNT_CHANGED} from './dashboard-requests.js';
 import { useEffect, useState } from 'react';
 
 /**
@@ -18,7 +19,7 @@ export function useRouteStatus(): RouteStatus | null {
   useEffect(() => {
     let cancelled = false;
     const load = () => {
-      fetch('/api/route')
+      dashboardGet('/api/route')
         .then((response) => (response.ok ? response.json() : null))
         .then((value) => {
           if (!cancelled && value && typeof value.using === 'string') setStatus(value as RouteStatus);
@@ -26,11 +27,14 @@ export function useRouteStatus(): RouteStatus | null {
         .catch(() => {});
     };
     load();
+    const accountChanged=()=>{setStatus(null);load();};
+    window.addEventListener(DASHBOARD_ACCOUNT_CHANGED,accountChanged);
     const onVisible = () => document.visibilityState === 'visible' && load();
     const timer = window.setInterval(load, 30_000);
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       cancelled = true;
+      window.removeEventListener(DASHBOARD_ACCOUNT_CHANGED,accountChanged);
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };

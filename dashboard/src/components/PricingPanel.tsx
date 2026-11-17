@@ -1,3 +1,4 @@
+import {dashboardGet} from '../dashboard-requests.js';
 import { useCallback, useEffect, useState } from 'react';
 import { aud, PAID_PLANS, PLAN_PRESENTATION, type PaidPlanKey, type PassPlanKey } from '../pricing';
 import { BILLING_CHANGED, type BillingStatus } from '../billing';
@@ -45,7 +46,7 @@ export function PricingPanel() {
   const [notice, setNotice] = useState<{ kind: 'ok' | 'warn' | 'bad'; text: string } | null>(null);
 
   const loadStatus = useCallback(async () => {
-    const response = await fetch('/api/billing/status');
+    const response = await dashboardGet('/api/billing/status');
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || 'Could not load your application allowance.');
     setStatus(body);

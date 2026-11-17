@@ -1,3 +1,4 @@
+import {dashboardGet,DASHBOARD_ACCOUNT_CHANGED} from './dashboard-requests.js';
 import { useEffect, useState } from 'react';
 import {BOARDS_CHANGED} from './boards';
 
@@ -54,7 +55,7 @@ export function useEntitlements(): Entitlements | null {
   useEffect(() => {
     let cancelled = false;
     const load = () => {
-      fetch('/api/entitlements')
+      dashboardGet('/api/entitlements')
         .then((response) => (response.ok ? response.json() : null))
         .then((value) => {
           if (!cancelled && value && typeof value.tier === 'string') setEntitlements(value as Entitlements);
@@ -62,10 +63,13 @@ export function useEntitlements(): Entitlements | null {
         .catch(() => {});
     };
     load();
+    const accountChanged=()=>{setEntitlements(null);load();};
+    window.addEventListener(DASHBOARD_ACCOUNT_CHANGED,accountChanged);
     window.addEventListener('entitlements-refresh', load);
     window.addEventListener(BOARDS_CHANGED,load);
     return () => {
       cancelled = true;
+      window.removeEventListener(DASHBOARD_ACCOUNT_CHANGED,accountChanged);
       window.removeEventListener('entitlements-refresh', load);
       window.removeEventListener(BOARDS_CHANGED,load);
     };

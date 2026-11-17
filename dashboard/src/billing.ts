@@ -1,3 +1,4 @@
+import {dashboardGet,DASHBOARD_ACCOUNT_CHANGED} from './dashboard-requests.js';
 import { useEffect, useState } from 'react';
 import type { BillingOffers } from './billing-offers.js';
 import type { FreeTrialOffer } from './free-trial.js';
@@ -35,7 +36,7 @@ export function useBillingStatus(): BillingStatus | null {
   useEffect(() => {
     let cancelled = false;
     const load = () => {
-      fetch('/api/billing/status')
+      dashboardGet('/api/billing/status')
         .then((response) => (response.ok ? response.json() : null))
         .then((value) => {
           if (!cancelled && value && typeof value.totalRemaining === 'number') setStatus(value as BillingStatus);
@@ -43,6 +44,8 @@ export function useBillingStatus(): BillingStatus | null {
         .catch(() => {});
     };
     load();
+    const accountChanged=()=>{setStatus(null);load();};
+    window.addEventListener(DASHBOARD_ACCOUNT_CHANGED,accountChanged);
     // A run submits applications while this sits in the corner; coming back to the tab is when the number is looked at.
     const onFocus = () => document.visibilityState === 'visible' && load();
     window.addEventListener(BILLING_CHANGED, load);
@@ -51,6 +54,7 @@ export function useBillingStatus(): BillingStatus | null {
     document.addEventListener('visibilitychange', onFocus);
     return () => {
       cancelled = true;
+      window.removeEventListener(DASHBOARD_ACCOUNT_CHANGED,accountChanged);
       window.removeEventListener(BILLING_CHANGED, load);
       window.removeEventListener(BOARDS_CHANGED, load);
       window.removeEventListener('entitlements-changed', load);

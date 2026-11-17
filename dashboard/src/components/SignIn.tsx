@@ -1,3 +1,4 @@
+import {dashboardGet,setDashboardAccount} from '../dashboard-requests.js';
 import { useEffect, useState } from 'react';
 
 interface SessionUser {
@@ -37,9 +38,10 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   const refresh = () =>
-    fetch('/api/auth/me')
-      .then((r) => r.json())
+    dashboardGet('/api/auth/me')
+      .then((r) => {if(!r.ok)throw new Error('Account check unavailable');return r.json();})
       .then((j) => {
+        setDashboardAccount(j.user?.id??null);
         setUser(j.user ?? null);
         rememberSignedIn(Boolean(j.user));
         setGoogleConfigured(Boolean(j.googleConfigured));
@@ -53,6 +55,7 @@ export function useAuth() {
 
   const signOut = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
+    setDashboardAccount(null);
     rememberSignedIn(false);
     setUser(null);
   };
