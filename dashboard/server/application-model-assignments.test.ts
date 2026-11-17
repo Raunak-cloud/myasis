@@ -10,6 +10,7 @@ const keys = ['ADMIN_EMAILS','CELERIS_API_KEY','OPENROUTER_API_KEY'] as const;
 const old = Object.fromEntries(keys.map(key => [key,process.env[key]]));
 Object.assign(process.env,{ADMIN_EMAILS:'admin@fixture.invalid',CELERIS_API_KEY:'fixture-celeris',OPENROUTER_API_KEY:'fixture-minimax'});
 try {
+  await query('CREATE TEMP TABLE settings(user_id BIGINT,key TEXT,value TEXT)');
   await query('CREATE TEMP TABLE users(id BIGINT PRIMARY KEY,email TEXT,blocked_at TIMESTAMPTZ)');
   await query("INSERT INTO users VALUES(1,'admin@fixture.invalid',NULL),(2,'candidate@fixture.invalid',NULL),(3,'other@fixture.invalid',NULL),(4,'admin@fixture.invalid',now()),(99,'rollback@fixture.invalid',NULL)");
   const ddl = readFileSync(new URL('./db/schema.sql',import.meta.url),'utf8').match(/CREATE TABLE IF NOT EXISTS application_model_assignments \([\s\S]*?\n\);/)![0];

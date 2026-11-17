@@ -11,6 +11,7 @@ test('one-time application spending requires the exact recorded unfinished owner
   Object.assign(process.env,{ADMIN_EMAILS:'admin@fixture.invalid',CELERIS_API_KEY:'fixture-only'});
   let actor='admin@fixture.invalid',recorded:unknown={baseUsd:2,maximumUsd:4};
   pool.query=(async(sql:string,params:unknown[])=>{
+    if(sql.includes('SELECT key, value FROM settings'))return {rows:[]};
     if(sql.includes('application_model_assignments'))return{rows:[]};
     if(sql.includes('FROM run_starts')){
       assert.match(sql,/run.user_id=\$2/);assert.match(sql,/run.finished_at IS NULL/);assert.match(sql,/run.mode='live'/);assert.match(sql,/run.trigger='admin'/);
