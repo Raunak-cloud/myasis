@@ -952,7 +952,7 @@ a:focus-visible,
   display: inline-block; width: .92em; height: 1.1em; margin-right: -.06em; vertical-align: -.16em;
   color: var(--wordmark-accent, var(--accent)); transform: rotate(6deg); transform-origin: 50% 60%;
 }
-/* The list fills the sidebar so its foot sits at the bottom, not under the last link. */
+/* Links and account controls share one scroll area; the foot rests at the bottom when space allows. */
 .side-nav { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
 .nav-links { flex: none; display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow: visible; }
 

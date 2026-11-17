@@ -81,8 +81,10 @@ if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(
       export CHROME_PATH="${CHROME_PATH:-/usr/bin/google-chrome-stable}"
       bash -n deploy/check-release.sh
       cd dashboard
-      ../seek-bot/node_modules/.bin/tsx scripts/test-hr-outreach-ui.mts
-      ../seek-bot/node_modules/.bin/tsx scripts/test-jora-beta-ui.mts
+      ../seek-bot/node_modules/.bin/tsx scripts/test-hr-outreach-ui.mts & hr_pid=$!
+      ../seek-bot/node_modules/.bin/tsx scripts/test-jora-beta-ui.mts & jora_pid=$!
+      wait "$hr_pid"
+      wait "$jora_pid"
     '
     echo 'Targeted email preference UI checks passed (60-second maximum)'
     exit 0
