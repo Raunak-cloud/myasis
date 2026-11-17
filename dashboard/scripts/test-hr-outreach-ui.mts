@@ -204,6 +204,8 @@ try {
   assert.ok(await shell.evaluate(()=>Math.abs(document.querySelector('.page-content')!.getBoundingClientRect().width/document.querySelector('main')!.getBoundingClientRect().width-.98)<.001),'Apply uses 98% of the width beside the sidebar');
   await shell.screenshot({path:resolve(screenshotDir,'apply-sidebar-desktop.png'),fullPage:true});
   await shell.setViewportSize({width:390,height:844});await shell.getByRole('button',{name:'Menu',exact:true}).click();
+  const menuScroll=await shell.evaluate(()=>{const nav=document.querySelector('.side-nav')!,links=document.querySelector('.nav-links')!;return {container:getComputedStyle(nav).overflowY,links:getComputedStyle(links).overflowY,linksFit:links.scrollHeight===links.clientHeight};});
+  assert.deepEqual(menuScroll,{container:'auto',links:'visible',linksFit:true},'the entire menu scrolls together without a separate Workspace scroll');
   assert.equal(await shell.getByRole('button',{name:'Overview',exact:true}).count(),0,'Overview is absent from the mobile menu');
   await shell.getByRole('button',{name:'Apply',exact:true}).click();await shell.locator('.run-controls-card').waitFor();
   assert.equal(await shell.getByRole('region',{name:'Application summary'}).count(),0,'Mobile Apply excludes Overview');

@@ -953,8 +953,8 @@ a:focus-visible,
   color: var(--wordmark-accent, var(--accent)); transform: rotate(6deg); transform-origin: 50% 60%;
 }
 /* The list fills the sidebar so its foot sits at the bottom, not under the last link. */
-.side-nav { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
-.nav-links { flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+.side-nav { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+.nav-links { flex: none; display: flex; flex-direction: column; gap: 2px; overflow: visible; }
 
 /* ---------- the foot of the menu: the account, as one panel ----------
    Who is signed in at the top, then the plan and the job boards as rows that
@@ -1312,7 +1312,8 @@ button.metric-tile:hover strong { color: var(--accent); }
     width: min(290px, 84vw);
     padding: 14px 12px calc(14px + env(safe-area-inset-bottom));
     gap: 2px;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
     overscroll-behavior: contain;
     border-left: 1px solid var(--border);
     background: var(--surface);
@@ -1461,11 +1462,6 @@ button.metric-tile:hover strong { color: var(--accent); }
    * all — landed on the whole page and ran the log off the screen.
    */
   body:has(.run-dashboard .console-card.open) { overflow: hidden; }
-}
-
-@media (max-height: 640px) {
-  .side-nav { overflow-y: auto; scrollbar-width: thin; }
-  .nav-links { flex: none; overflow: visible; }
 }
 
 @media (min-width: 901px) and (max-height: 850px) {
