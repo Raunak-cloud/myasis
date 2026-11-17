@@ -15,6 +15,7 @@ import { waitForChallengeToClear } from './browser.js';
 import { browserDeadline, browserOperationTimeout, assertBrowserOperationActive } from './browser-deadline.js';
 import type { DiscoverySearch } from './discovery-search.js';
 import { joraSearchUrl, joraPosting, parseJoraSearch, parseJoraDetail } from './jora.js';
+import {applicationModelEnvironment} from './application-model.js';
 
 async function openJora(page: Page, url: string, ready: string, allowEmpty = false): Promise<void> {
   await browserDeadline('Open Jora page', 30_000, async () => {
@@ -108,6 +109,8 @@ export async function applyToJoraJob(page: Page, job: JobListing, profile: Candi
   // The coordinator checks original posting identities after discovery and
   // keeps its existing per-vacancy duplicate lock and application allowance.
   const board = jobBoardForUrl(job.url);
+  if((board || jobBoardForUrl(job.applicationUrl??job.url)) && applicationModelEnvironment().FREE_EMPLOYER_GUEST_ONLY==='true')
+    return {status:'skipped',jobId:job.id,reason:'Free Jora discovery supports direct employer applications only. This listing leads to a job board.'};
   if (board === 'seek') return applyToJobWithAgent(page, job, profile, deps);
   if (board === 'indeed') return applyToIndeedJob(page, job, profile, deps);
   if (!config.allowExternalApply) return { status: 'off-platform', jobId: job.id, redirectedTo: job.applicationUrl ?? job.url };

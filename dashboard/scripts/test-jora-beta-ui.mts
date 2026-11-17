@@ -12,6 +12,7 @@ const writes: Array<{ path: string; body: any }> = [];
 let joraConnected = false;
 let signinSession: any = null;
 let tier: 'standard' | 'intensive' | 'admin' = 'standard';
+let paidStandard=false;
 const html = `<!doctype html><html><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/></head><body><div id="root"></div><script type="module">
 import React from 'react';import{createRoot}from'react-dom/client';import App from '/src/App.tsx';import'/src/index.css';
 createRoot(document.getElementById('root')).render(React.createElement(App));</script></body></html>`;
@@ -32,7 +33,7 @@ const server = await createServer({ configFile: false, root, plugins: [react(), 
       '/api/settings': req.method === 'POST' ? { ok: true, settings } : settings,
       '/api/entitlements': { tier, manualRuns: true, firstRunRequired: false, autoRunsPerDay: 1, autoApplyPaused: true, canPauseAutoApply: true,
         autoRunsUsedToday: 0, scheduledMinScore: 60, scheduledJobsPerDay: 40, evaluationsPerRun: 40, maxApplicationsPerRunOverride: null,
-        fineTune: tier !== 'standard', advancedFilters: tier !== 'standard', indeedApplications: tier !== 'standard', employerSources: tier !== 'standard', runScopes: false },
+        fineTune: tier !== 'standard', advancedFilters: tier !== 'standard', indeedApplications: tier !== 'standard', employerSources: tier !== 'standard', runScopes: false, joraSignIn:tier!=='standard'||paidStandard },
       '/api/billing/status': { configured: true, totalRemaining: 5, free: { allowance: 5, used: 0, remaining: 5 }, paid: { remaining: 0, hasActivePass: false } },
       '/api/setup/status': { ready: true, done: 3, total: 3, checks: ['resume', 'profile', 'looking'].map(id => ({ id, label: id, done: true, required: true })) },
       '/api/run/status': { running: false, hasKey: true, isOwner: true, applied: 0 },
@@ -54,7 +55,8 @@ try {
   const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } }); page.setDefaultTimeout(8000);
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
-  for (tier of ['standard', 'intensive', 'admin'] as const) {
+  for (const plan of ['free','essential','intensive','admin'] as const) {
+    tier=plan==='free'||plan==='essential'?'standard':plan;paidStandard=plan==='essential';
     settings.JORA_BETA_ENABLED = 'false'; settings.PLATFORMS = 'seek'; writes.length = 0; joraConnected = false;
     await page.goto(origin);
     await page.getByText('data analyst',{exact:true}).waitFor();
@@ -63,6 +65,20 @@ try {
     assert.equal(await page.getByRole('button', {name:'Sign in to Jora (optional)',exact:true}).count(), 0, 'sign-in moved off the run panel');
     await page.getByRole('button',{name:'Start Auto apply',exact:true}).click();
     const review=page.getByRole('dialog',{name:'Review Auto apply settings',exact:true});
+    if(plan==='free') {
+      assert.equal(await review.getByRole('button',{name:'Jora (Beta)',exact:true}).count(),0,'free accounts have no Jora control');
+      await review.getByRole('button',{name:'Cancel',exact:true}).click();
+      const sidebar=page.getByRole('button',{name:'Job boards: which account is signed in, sign out, sign in.',exact:true});
+      assert.doesNotMatch(await sidebar.innerText(),/Jora/);
+      await sidebar.click();
+      const dialog=page.getByRole('dialog',{name:'Job boards',exact:true});
+      assert.equal(await dialog.getByText('Jora',{exact:true}).count(),0,'Jora connection stays hidden even with a saved session');
+      await dialog.getByRole('button',{name:'Close',exact:true}).click();
+      joraConnected=true;await page.reload();await page.getByText('data analyst',{exact:true}).waitFor();
+      await sidebar.click();assert.equal(await page.getByRole('dialog',{name:'Job boards',exact:true}).getByText('Jora',{exact:true}).count(),0);
+      assert.equal(writes.some(w=>w.path==='/api/signin/session'),false);
+      continue;
+    }
     await review.getByRole('button',{name:'Jora (Beta)',exact:true}).click();
     await review.getByRole('button',{name:'Cancel',exact:true}).click();
     await page.getByRole('button', {name:'Save changes',exact:true}).click();
@@ -84,7 +100,7 @@ try {
     await sidebar.click(); dialog=page.getByRole('dialog',{name:'Job boards',exact:true});
     row=dialog.locator('.boards-row').filter({has:page.getByText('Jora',{exact:true})});
     await row.getByRole('button',{name:'Manage sign-in',exact:true}).waitFor();
-    if(tier==='standard') {
+    if(plan==='essential') {
       await page.screenshot({path:resolve(output,'desktop.png'),fullPage:true,animations:'disabled'});
       await page.setViewportSize({width:390,height:844});
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
@@ -101,5 +117,5 @@ try {
     assert.equal(writes.some(write=>['/api/run','/api/auto-apply'].includes(write.path)),false,'fixture never starts a real run');
   }
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, checks: ['all customer plans and admins can opt in', 'preferences preserved', 'Jora source selection stays in run review', 'removed explanatory text', 'sidebar Jora sign-in and connection state', 'Done and reload preserve connection', 'desktop/mobile layout'], output }));
+  console.log(JSON.stringify({ passed: true, checks: ['free Jora connection hidden, paid and admin access preserved', 'preferences preserved', 'Jora source selection stays in run review', 'removed explanatory text', 'sidebar Jora sign-in and connection state', 'Done and reload preserve connection', 'desktop/mobile layout'], output }));
 } finally { await browser.close(); await server.close(); }

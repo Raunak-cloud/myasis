@@ -32,6 +32,7 @@ export interface Entitlements {
   employerTrial?: boolean;
   seekTrialConnected?: boolean;
   employerGuestOnly?: boolean;
+  joraSignIn?: boolean;
   /** Suggestions from resumes left; null means no limit. */
   searchTermSuggestionsLeft: number | null;
   timeZone: string;

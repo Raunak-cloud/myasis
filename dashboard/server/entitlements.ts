@@ -169,7 +169,7 @@ export function effectivePlatforms(
   entitlement: Pick<Entitlements, 'indeedApplications'> & Partial<Pick<Entitlements, 'employerSources' | 'tier' | 'employerTrial' | 'seekTrialConnected' | 'employerGuestOnly'>>,
 ): string {
   if(entitlement.employerTrial && entitlement.employerSources && saved[PLATFORMS_CHOSEN_KEY]!=='1')return [
-    ...(entitlement.employerGuestOnly?GUEST_EMPLOYER_SOURCES:EMPLOYER_SOURCES.map(source=>source.id)),...(entitlement.seekTrialConnected?['seek']:[]),...(entitlement.indeedApplications?['indeed']:[]),
+    ...(entitlement.employerGuestOnly?[...GUEST_EMPLOYER_SOURCES,'jora']:EMPLOYER_SOURCES.map(source=>source.id)),...(entitlement.seekTrialConnected?['seek']:[]),...(entitlement.indeedApplications?['indeed']:[]),
   ].join(',');
   const value = (saved.PLATFORMS ?? RUN_SETTING_DEFAULTS.PLATFORMS).trim() || RUN_SETTING_DEFAULTS.PLATFORMS;
   const base = saved[PLATFORMS_CHOSEN_KEY] !== '1' && entitlement.indeedApplications && value === RUN_SETTING_DEFAULTS.PLATFORMS ? 'seek,indeed' : value;
@@ -178,6 +178,8 @@ export function effectivePlatforms(
     && (!entitlement.employerGuestOnly||!isEmployerSource(id)||(GUEST_EMPLOYER_SOURCES as readonly string[]).includes(id))
     && (id !== 'jora' || saved.JORA_BETA_ENABLED !== 'false'));
   if (saved.JORA_BETA_ENABLED === 'true') selected.push('jora');
+  // Free accounts use public Jora discovery in the background, without a Jora account.
+  if(entitlement.employerGuestOnly && entitlement.employerSources) selected.push('jora');
   if (entitlement.employerSources && entitlement.tier === 'intensive' && saved[EMPLOYER_SOURCES_CHOSEN_KEY] !== '1') {
     selected.push(...EMPLOYER_SOURCES.map(source => source.id));
   }
@@ -274,6 +276,7 @@ export interface Entitlements {
   employerTrial?: boolean;
   seekTrialConnected?: boolean;
   employerGuestOnly?: boolean;
+  joraSignIn?: boolean;
   /**
    * Search-term suggestions from resumes left. Null means no limit. The free
    * plan gets one: enough to see what it does, and the reason to buy a pass
@@ -468,6 +471,7 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
     indeedApplications: billing.paid.hasActiveJobSearchPass || billing.paid.hasActiveIntensivePass,
     employerSources: tier === 'admin' || tier === 'intensive',
     employerGuestOnly:!facts.admin&&!billing.paid.hasActivePass,
+    joraSignIn:facts.admin||billing.paid.hasActivePass,
     ...(billing.free?.trial?{employerSources:tier==='admin'||tier==='intensive'||billing.free.remaining>0,employerTrial:true,seekTrialConnected:billing.free.trial.seekBonusAwarded}:{}),
     searchTermSuggestionsLeft: facts.searchTermSuggestionsLeft,
     timeZone: RUN_TIME_ZONE,

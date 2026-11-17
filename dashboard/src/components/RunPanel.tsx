@@ -183,6 +183,7 @@ export function RunPanel({
   const adminMode = isAdmin && adminModeEnabled;
   const useScheduledRuns = Boolean(entitlements?.canPauseAutoApply) && !adminMode;
   const jobBoards = [...(employerSourcesEnabled ? ALL_JOB_SOURCES : JOB_BOARDS), ...(boards?.adzunaAvailable ? [{ id: 'adzuna', label: 'Adzuna' }] : [])]
+    .filter(source=>source.id!=='jora'||entitlements?.joraSignIn===true)
     .filter(source=>!entitlements?.employerGuestOnly||!isEmployerSource(source.id)||(GUEST_EMPLOYER_SOURCES as readonly string[]).includes(source.id));
   const outOfAllowance = Boolean(entitlements && !isAdmin && billing && billing.totalRemaining < 1);
   const [settings, setSettings] = useState<Record<string, string>>({});

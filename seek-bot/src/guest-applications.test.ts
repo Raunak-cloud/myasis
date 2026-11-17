@@ -4,6 +4,7 @@ import {guestEmployerAccountRequired,GUEST_EMPLOYER_SOURCES} from './guest-appli
 import {buildApplicationSystemPrompt} from './agent/application-policy.js';
 import {withApplicationModel} from './application-model.js';
 import {doCompleteAuthentication} from './agent/authentication.js';
+import {applyToJoraJob} from './jora-browser.js';
 
 test('free guest policy distinguishes employer pages from connected native boards and leaves paid prompts unchanged',()=>{
  assert.deepEqual([...GUEST_EMPLOYER_SOURCES],['smartrecruiters','greenhouse']);
@@ -11,6 +12,13 @@ test('free guest policy distinguishes employer pages from connected native board
  for(const url of ['https://www.seek.com.au/job/123','https://secure.indeed.com/login'])assert.equal(guestEmployerAccountRequired(url,true),false);
  assert.equal(guestEmployerAccountRequired('https://employer.org/signup',false),false);
  assert.doesNotMatch(buildApplicationSystemPrompt(''),/FREE EMPLOYER APPLICATIONS/);assert.match(buildApplicationSystemPrompt('',true),/Never create or recover an employer account/);assert.match(buildApplicationSystemPrompt('',true),/Ordinary verification of an application email is allowed/);
+});
+
+test('free Jora discovery cannot start a SEEK or Indeed application through an aggregator',async()=>{
+ for(const url of ['https://www.seek.com.au/job/123','https://au.indeed.com/viewjob?jk=1234567890abcdef']){
+  const result=await withApplicationModel({FREE_EMPLOYER_GUEST_ONLY:'true'},()=>applyToJoraJob({} as any,{id:'jora-fixture',url} as any,{} as any,{} as any));
+  assert.equal(result.status,'skipped');assert.match('reason' in result?result.reason||'':'',/direct employer applications only/);
+ }
 });
 
 test('free employer authentication cannot fill or generate credentials; an incorrect tool choice can recover to a guest form',async()=>{

@@ -800,6 +800,8 @@ function dataApi(): Plugin {
             .split(',')
             .filter((site): site is 'seek' | 'indeed' | 'jora' => site === 'seek' || site === 'indeed' || site === 'jora')
             .filter((site) => site === 'jora' || priorState[site]?.signedIn === true);
+          if(verifySites.includes('jora') && !(await entitlementsFor(userId,(await currentUser(req.headers?.cookie))?.email)).joraSignIn)
+            verifySites.splice(verifySites.indexOf('jora'),1);
           /**
            * A green tick must describe the live account, not a cached answer.
            * When the Apply page mounts it requests verification for the boards
@@ -840,6 +842,8 @@ function dataApi(): Plugin {
             return send({ error: 'Stop your current run before opening a job-board sign-in window.' }, 409);
           }
           const target = url.searchParams.get('target') === 'gmail' ? 'gmail' : url.searchParams.get('target') === 'jora' ? 'jora' : url.searchParams.get('target') === 'indeed' ? 'indeed' : 'seek';
+          if(target==='jora' && !(await entitlementsFor(userId,(await currentUser(req.headers?.cookie))?.email)).joraSignIn)
+            return send({error:'Jora sign-in is available on paid plans. Employer job discovery does not need Jora sign-in.'},403);
           if (target === 'gmail') {
             if (url.searchParams.get('consent') !== 'true' || !(await gmailAccess(userId)).providers.includes('browser')) return send({ error: 'Confirm available Gmail mailbox access first.' }, 403);
           }

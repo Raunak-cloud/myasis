@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BOARDS_CHANGED, OPEN_BOARD_SIGNIN, type BoardState, type BoardsStatus } from '../boards';
+import { BOARDS_CHANGED, OPEN_BOARD_SIGNIN, visibleJobBoards, type BoardState, type BoardsStatus } from '../boards';
 
 /**
  * Who each job board thinks this account is, and the two things a person may
@@ -21,8 +21,9 @@ function describe(state: BoardState | null): string {
   return state.signedOutByPerson ? 'Signed out by you' : 'Signed out';
 }
 
-export function JobBoardsDialog({ boards, onClose, onSignIn }: {
+export function JobBoardsDialog({ boards, joraSignIn = false, onClose, onSignIn }: {
   boards: BoardsStatus;
+  joraSignIn?: boolean;
   onClose: () => void;
   /** Takes the person to the Apply page, where the sign-in window opens. */
   onSignIn: () => void;
@@ -58,8 +59,7 @@ export function JobBoardsDialog({ boards, onClose, onSignIn }: {
     onClose();
   }
 
-  // SEEK and optional Jora sign-in are available to every account.
-  const shown = (Object.keys(NAMES) as Board[]).filter((board) => board === 'seek' || board === 'jora' || boards[board] != null);
+  const shown = visibleJobBoards(boards, joraSignIn);
 
   return (
     <div className="overlay center" onClick={onClose}>

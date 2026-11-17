@@ -25,7 +25,7 @@ import { applyTheme, loadThemePref, resolvedTheme, saveThemePref, type ThemePref
 import { useEntitlements } from './entitlements';
 import { planName, shortDate, useBillingStatus } from './billing';
 import { stopSimulation, useSimulation } from './simulation';
-import { useBoardsStatus } from './boards';
+import { useBoardsStatus, visibleJobBoards } from './boards';
 import { useRouteStatus } from './route';
 import { JobBoardsDialog } from './components/JobBoardsDialog';
 import { trackPage } from './analytics';
@@ -449,14 +449,13 @@ export default function App() {
                   <span className="nav-row-main">
                     <span className="nav-row-title">Job boards</span>
                     <span className="nav-row-sub">
-                      {(['seek', 'indeed', 'jora'] as const)
-                        .filter((board) => board === 'jora' || boards[board])
+                      {visibleJobBoards(boards, entitlements?.joraSignIn === true)
                         .map((board) => board === 'seek' ? 'SEEK' : board === 'jora' ? 'Jora' : 'Indeed')
                         .join(' · ')}
                     </span>
                   </span>
                   <span className="nav-dots" aria-hidden="true">
-                    {(['seek', 'indeed', 'jora'] as const).filter((board) => board === 'jora' || boards[board]).map((board) => (
+                    {visibleJobBoards(boards, entitlements?.joraSignIn === true).map((board) => (
                       <span key={board} className={`nav-dot ${boards[board]?.signedIn ? 'on' : 'off'}`} />
                     ))}
                   </span>
@@ -572,7 +571,7 @@ export default function App() {
         </div>
       </main>
 
-      {boardsOpen && boards && <JobBoardsDialog boards={boards} onClose={() => setBoardsOpen(false)} onSignIn={() => go('run')} />}
+      {boardsOpen && boards && <JobBoardsDialog boards={boards} joraSignIn={entitlements?.joraSignIn === true} onClose={() => setBoardsOpen(false)} onSignIn={() => go('run')} />}
 
       {confirmSignOut && (
         <div className="overlay center" onClick={() => setConfirmSignOut(false)}>
