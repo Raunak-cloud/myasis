@@ -10,6 +10,8 @@ const { chromium } = createRequire(import.meta.url)('../../seek-bot/node_modules
 
 const dashboard = resolve(import.meta.dirname, '..');
 const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pricing fixture</title></head><body><main id="root"></main><script type="module">import React from 'react';import{createRoot}from'react-dom/client';import{PricingPanel}from'/src/components/PricingPanel.tsx';import'/src/index.css';createRoot(document.getElementById('root')).render(React.createElement(PricingPanel));</script><style>body{margin:0}#root{padding:16px}</style></body></html>`;
+const pricingHtml=html.replace('<main id="root"></main>','<div class="fixture-app"><aside aria-hidden="true"></aside><main class="main-shell pricing-dashboard"><header class="page-header"><div><h1>Plans &amp; pricing</h1><p>One payment. No subscription.</p></div></header><div id="root" class="page-content"></div></main></div>')
+  .replace('body{margin:0}#root{padding:16px}','body{margin:0}.fixture-app{display:grid;grid-template-columns:264px minmax(0,1fr);min-height:100vh}.fixture-app>aside{background:var(--surface);border-right:1px solid var(--border)}.fixture-app #root{padding:0;height:auto}@media(max-width:900px){.fixture-app{grid-template-columns:1fr}.fixture-app>aside{display:none}}');
 const server = await createServer({ configFile: false, root: dashboard, plugins: [react(), {
   name: 'pricing-fixture', configureServer(server) {
     server.middlewares.use(async (req, res, next) => {
@@ -20,7 +22,7 @@ const server = await createServer({ configFile: false, root: dashboard, plugins:
       }
       if (path !== '/pricing-fixture.html') return next();
       res.setHeader('content-type', 'text/html');
-      res.end(await server.transformIndexHtml('/pricing-fixture.html', html));
+      res.end(await server.transformIndexHtml('/pricing-fixture.html', pricingHtml));
     });
   },
 }], server: { host: '127.0.0.1', port: 0 }, logLevel: 'error' });
@@ -29,8 +31,8 @@ const origin = `http://127.0.0.1:${(server.httpServer!.address() as { port: numb
 const browser = await chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : { executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome-stable' }) });
 try {
   mkdirSync(resolve(dashboard, '../output'), { recursive: true });
-  for (const width of [1440, 900, 390]) {
-    const context = await browser.newContext({ viewport: { width, height: 1000 } });
+  for (const {width,height} of [{width:1440,height:900},{width:1366,height:768},{width:1280,height:800},{width:900,height:1000},{width:390,height:844}]) {
+    const context = await browser.newContext({ viewport: { width, height } });
     const page = await context.newPage();
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
@@ -64,7 +66,7 @@ try {
     await page.goto(origin + '/pricing-fixture.html');
     const card = (name: string) => page.locator('article.pricing-card').filter({ has: page.getByRole('heading', { name, exact: true }) });
     await card('Essential Pass').getByRole('button', { name: 'Your pass is active' }).waitFor();
-    const free=card('Free');assert.match(await free.innerText(),/5 free employer-site applications/);assert.match(await free.innerText(),/6 extra free applications \(11 total\)/);assert.match(await free.innerText(),/do not require an account/);
+    const free=card('Free');assert.match(await free.innerText(),/5 free employer-site applications/);assert.match(await free.innerText(),/6 extra with SEEK \(11 total\)/);assert.match(await free.innerText(),/Forms without an account/);
     assert.equal(await free.locator('img[src="/platforms/jora.svg"]').count(),0);assert.equal(await free.locator('img[src="/platforms/indeed.svg"]').count(),0);
     assert.equal(await card('Essential Pass').locator('img[src="/platforms/jora.svg"]').count(),0);assert.equal(await card('Active Search').locator('img[src="/platforms/indeed.svg"]').count(),1);
     for(const name of ['SEEK','Indeed','Jora']) {
@@ -80,8 +82,14 @@ try {
     assert.equal(await page.locator('.pricing-plan-details:visible').count(),4,'every plan shows its details immediately');
     assert.ok(await page.locator('.pricing-source-brands img[src="/platforms/seek.svg"]').first().evaluate(el=>el.getBoundingClientRect().width<=48),'pricing logos stay compact');
     const ctaTops=await page.locator('.pricing-card .pricing-cta').evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().top));
-    if(width===1440)assert.ok(Math.max(...ctaTops)-Math.min(...ctaTops)<1,'desktop plan actions align for comparison');
-    assert.match(await card('Essential Pass').innerText(),/30 days of access/);
+    if(width>=1280) {
+      assert.ok(Math.max(...ctaTops)-Math.min(...ctaTops)<1,'desktop plan actions align for comparison');
+      const fit=await page.evaluate(()=>({height:document.documentElement.scrollHeight,width:document.documentElement.scrollWidth,viewportHeight:innerHeight,viewportWidth:innerWidth}));
+      await page.screenshot({path:resolve(dashboard,`../output/pricing-screen-fit-${width}.png`),fullPage:true});
+      assert.ok(fit.height<=fit.viewportHeight&&fit.width<=fit.viewportWidth,`${width}x${height}: all plan details fit beside the sidebar: ${JSON.stringify(fit)}`);
+    }
+    assert.match(await card('Essential Pass').locator('.pricing-price').innerText(),/30 days/);
+    assert.match(await page.locator('.pricing-shared').innerText(),/personalised cover letters, application tracking, and Auto apply or Semi auto/);
     assert.equal(await page.getByRole('region',{name:'Free application offer'}).count(),0,'Plans and pricing omits the promotional banner');
     assert.equal(await card('Essential Pass').getByRole('button').isDisabled(), true);
     assert.match(await card('Active Search').innerText(), /A\$10\.05/);

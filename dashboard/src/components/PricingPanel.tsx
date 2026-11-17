@@ -208,12 +208,21 @@ export function PricingPanel() {
             if (card.key !== 'intensive-pass' && /application credits$/.test(feature)) return `${upgrade.additionalApplications} additional application credits`;
             return feature;
           });
-          const primary = features.filter(feature => /application credits$|^Unlimited applications$|^Daily limit:|scheduled run|^AI reviews|^Web search|^\d+ free employer-site applications|^Connect SEEK|^Only employer forms/.test(feature));
-          const details = features.filter(feature => !primary.includes(feature));
+          // Access dates sit beside the price; source names sit in the logo row.
+          // Shared features are stated once below the comparison.
+          const details = features.filter(feature => !/^\d+ days of access$|^Access until |^SEEK.* applications$|^SmartRecruiters, Greenhouse|^Personalised cover letters/.test(feature));
           const featureItem = (feature: string) => (
             <li key={feature}>
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
-              {feature.replace(/ · Auto apply or Semi auto$/, '').replace(/^Up to /, '')}
+              {feature.replace(/ · Auto apply or Semi auto$/, '').replace(/^Up to /, '')
+                .replace(/ scheduled (runs?) each day$/, ' scheduled $1/day')
+                .replace(/^AI reviews up to (\d+) jobs each run$/, 'Reviews up to $1 jobs/run')
+                .replace(/^Connect SEEK for (\d+) extra free applications \((\d+) total\)$/, '$1 extra with SEEK ($2 total)')
+                .replace(/^Jobs that match your resume by at least (\d+)%$/, 'Minimum match: $1%')
+                .replace(/^Choose your minimum match score: (\d+)% to (\d+)%$/, 'Adjustable match: $1–$2%')
+                .replace('Only employer forms that do not require an account', 'Forms without an account')
+                .replace('Advanced match and listing-age filters', 'Match & listing-age filters')
+                .replace('Supported employer-site applications', 'Employer-site applications')}
             </li>
           );
           return (
@@ -231,18 +240,14 @@ export function PricingPanel() {
                   <strong>{upgrade ? aud(upgrade.amountCents!) : card.price}</strong>
                   <span>{upgrade ? `upgrade · ends ${dateLabel(upgrade.expiresAt!)}` : card.term}</span>
                 </p>
-                <p className="pricing-plan-copy">{upgrade ? card.presentation.description.replace(/for \d+ days/, `until ${dateLabel(upgrade.expiresAt!)}`) : card.presentation.description}</p>
               </div>
               <div className="pricing-plan-sources">
                 <span className="pricing-section-label">Job sources</span>
                 <PricingSources plan={card.key}/>
               </div>
-              <ul className="pricing-features">
-                {primary.map(featureItem)}
-              </ul>
               <section className="pricing-plan-details" aria-label={`${card.name} plan details`}>
                 <h4>Plan details</h4>
-                <ul className="pricing-features">{details.map(featureItem)}{!details.some(feature=>feature.includes('Auto apply'))&&<li>Auto apply or Semi auto</li>}</ul>
+                <ul className="pricing-features">{details.map(featureItem)}</ul>
               </section>
               <button
                 className={`btn pricing-cta ${card.recommended && !isCurrent ? 'primary' : ''}`}
@@ -257,11 +262,11 @@ export function PricingPanel() {
         })}
       </div>
 
+      <p className="pricing-shared">Every plan includes personalised cover letters, application tracking, and Auto apply or Semi auto.</p>
       <ul className="pricing-trust" aria-label="Payment terms">
         <li>Secure checkout by Stripe</li>
         <li>One payment, no renewal</li>
         <li>Prices in Australian dollars</li>
-        <li>Clear pass end date before payment</li>
       </ul>
 
     </div>
