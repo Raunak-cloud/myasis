@@ -1,6 +1,6 @@
 import { EMPLOYER_SOURCES } from '../../../seek-bot/src/employer-source-config';
 import { AdzunaAttribution } from './AdzunaAttribution';
-import {BoardBrand} from './BoardBrand';
+import {BoardBrand,EmployerSitesLabel} from './BoardBrand';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { Application, ApplicationAction, Outcome, SiteAccount } from '../types';
 import type { SkippedJob } from './SkippedPanel';
@@ -25,9 +25,35 @@ interface Props {
 const SkippedPanel = lazy(() => import('./SkippedPanel').then((m) => ({ default: m.SkippedPanel })));
 
 /** The job board an application went through, named the way the board names itself. */
-const BOARD_LABELS: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed', adzuna: 'Adzuna', jora: 'Jora', ...Object.fromEntries(EMPLOYER_SOURCES.map(source => [source.id, source.label])) };
+const BOARD_LABELS: Record<string, string> = { seek: 'SEEK', indeed: 'Indeed', adzuna: 'Adzuna', jora: 'Jora', external:'Employer site', ...Object.fromEntries(EMPLOYER_SOURCES.map(source => [source.id, source.label])) };
 const boardLabel = (platform: string | undefined): string =>
   BOARD_LABELS[(platform ?? 'seek').toLowerCase()] ?? (platform ? platform[0].toUpperCase() + platform.slice(1) : 'SEEK');
+
+const SOURCE_DOMAINS: Record<string, readonly string[]> = {
+  seek:['seek.com.au','seek.co.nz'],indeed:['indeed.com','indeed.com.au'],jora:['jora.com'],
+  pageup:['pageuppeople.com'],workday:['myworkdayjobs.com','myworkdaysite.com'],
+  greenhouse:['greenhouse.io'],smartrecruiters:['smartrecruiters.com'],
+};
+/** Legacy direct applications saved "external" instead of the provider. Resolve
+ * only exact domains and their subdomains, without changing the stored record. */
+function applicationPlatform(application: Application): string {
+  const platform=application.platform?.trim().toLowerCase();
+  if(platform&&platform!=='external')return platform;
+  try {
+    const url=new URL(application.url);
+    if(url.protocol==='https:'||url.protocol==='http:') {
+      const host=url.hostname.toLowerCase().replace(/\.$/,'');
+      for(const [source,domains] of Object.entries(SOURCE_DOMAINS)) {
+        if(domains.some(domain=>host===domain||host.endsWith(`.${domain}`)))return source;
+      }
+    }
+  } catch { /* A historical URL without a recognised host keeps the employer-site label. */ }
+  return 'external';
+}
+function ApplicationSource({application}:{application:Application}) {
+  const platform=applicationPlatform(application);
+  return platform==='external'?<EmployerSitesLabel/>:<BoardBrand board={platform} label={boardLabel(platform)} compact/>;
+}
 
 const ACCOUNT_KINDS: ApplicationAction['kind'][] = ['account-created', 'signed-in', 'password-reset'];
 const mergeHrEmails = (current: HrOutreachEmail[], incoming: HrOutreachEmail[]): HrOutreachEmail[] => {
@@ -370,9 +396,10 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                         href={a.url}
                         target="_blank"
                         rel="noreferrer"
+                        aria-label={`Open ${boardLabel(applicationPlatform(a))} listing`}
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <BoardBrand board={a.platform??'seek'} label={boardLabel(a.platform)} compact/> ↗
+                        <ApplicationSource application={a}/> <span aria-hidden="true">↗</span>
                       </a>
                     </td>
                   </tr>
@@ -417,8 +444,8 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                 {open.confirmationStatus && <p>No employer receipt was recorded. Automatic retries are held to avoid a duplicate.</p>}
                 <p className="app-submitted">
                   {open.external
-                    ? <>On the employer's own site{open.site ? <> · <strong>{open.site}</strong></> : null}. Found on {boardLabel(open.platform)}.</>
-                    : <>Through {boardLabel(open.platform)}.</>}
+                    ? <>On the employer's own site{open.site ? <> · <strong>{open.site}</strong></> : null}.{applicationPlatform(open)!=='external'&&<> Found on {boardLabel(applicationPlatform(open))}.</>}</>
+                    : <>Through {boardLabel(applicationPlatform(open))}.</>}
                 </p>
               </div>
 
@@ -513,8 +540,8 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
 
               <div className="section">
                 <h3>Listing</h3>
-                <a href={open.url} target="_blank" rel="noreferrer">
-                  Open on {boardLabel(open.platform)} ↗
+                <a className="application-source-link" href={open.url} target="_blank" rel="noreferrer" aria-label={`Open ${boardLabel(applicationPlatform(open))} listing`}>
+                  <ApplicationSource application={open}/> <span aria-hidden="true">↗</span>
                 </a>
               </div>
             </div>

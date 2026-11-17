@@ -7,9 +7,18 @@ import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 const { chromium } = createRequire(import.meta.url)('../../seek-bot/node_modules/patchright') as typeof import('../../seek-bot/node_modules/patchright/index.js');
 const now = new Date().toISOString();
+const sourceFixtures=[
+  {source:'pageup',name:'PageUp',url:'https://careers.pageuppeople.com/841/cw/en/job/123/fixture'},
+  {source:'workday',name:'Workday',url:'https://fixture.wd3.myworkdayjobs.com/en-US/Careers/job/123'},
+  {source:'greenhouse',name:'Greenhouse',url:'https://job-boards.greenhouse.io/fixture/jobs/123'},
+  {source:'smartrecruiters',name:'SmartRecruiters',url:'https://jobs.smartrecruiters.com/Fixture/123'},
+  {source:'jora',name:'Jora',url:'https://au.jora.com/job/fixture'},
+];
 const apps = [{ jobId: 'one', platform: 'seek', title: 'Data Analyst', company: 'Fixture Employer', location: 'Sydney', url: 'https://fixture.invalid/job', appliedAt: now, score: 90 },
   { jobId: 'one', platform: 'indeed', title: 'Different employer role', company: 'Another Employer', location: 'Sydney', url: 'https://fixture.invalid/another', appliedAt: now, score: 80 },
-  { jobId: 'archived', platform: 'external', title: 'Archived application', company: 'Historical Employer', location: 'Sydney', url: 'https://fixture.invalid/old', appliedAt: now, score: 85 }];
+  { jobId: 'archived', platform: 'external', title: 'Archived application', company: 'Historical Employer', location: 'Sydney', url: 'https://fixture.invalid/old', appliedAt: now, score: 85 },
+  ...sourceFixtures.map(item=>({jobId:item.source,platform:'external',title:`${item.name} application`,company:'Fixture Employer',location:'Sydney',url:item.url,appliedAt:now,score:85,external:true})),
+  {jobId:'unrecognised',platform:'external',title:'Direct employer application',company:'Fixture Employer',location:'Sydney',url:'https://myworkdayjobs.com.fixture.invalid/job',appliedAt:now,score:85}];
 const literal = '<img src=x onerror="window.fixtureInjected=true">\nThanks for considering my application.\n' + 'Long factual candidate message. '.repeat(25);
 const items = ['sent', 'queued', 'researching', 'sending', 'skipped', 'error', 'unconfirmed'].map((status, i) => ({ id: String(100 - i), jobId: i ? 'other' : 'one', platform: 'seek', title: i ? `Fixture role ${i}` : 'Data Analyst', company: 'Fixture Employer', status,
   toEmail: i ? null : 'hiring@example.test', subject: i ? null : 'My Data Analyst application', body: i ? null : literal, createdAt: now, sentAt: i ? null : now, contactName: i ? null : 'Hiring team',
@@ -100,7 +109,16 @@ try {
   await page.locator('.applications-list').waitFor();
   assert.equal(await page.getByRole('checkbox',{name:'Email hiring teams',exact:true}).count(),0,'Email preference has moved out of Submitted Applications');
   assert.equal(await page.getByRole('tab',{name:/^HR emails/}).count(),0,'No separate HR tab');
-  assert.equal(await page.locator('.hr-role-link').count(),3,'Every applied role offers its own HR details');
+  assert.equal(await page.locator('.hr-role-link').count(),apps.length,'Every applied role offers its own HR details');
+  for(const fixture of sourceFixtures) {
+    const link=page.locator(`.application-link a[href="${fixture.url}"]`);
+    assert.equal(await link.getByRole('img',{name:fixture.name,exact:true}).count(),1,'Legacy external links use the actual provider logo');
+    assert.equal(await link.getAttribute('aria-label'),`Open ${fixture.name} listing`);
+  }
+  assert.equal(await page.locator('.application-link .employer-sites-label').count(),2,'Direct employer and lookalike hosts keep the employer-site icon');
+  assert.doesNotMatch((await page.locator('.application-link').allTextContents()).join(' '),/External/);
+  await page.waitForFunction(()=>[...document.querySelectorAll('.application-link img')].every(n=>(n as HTMLImageElement).complete&&(n as HTMLImageElement).naturalWidth>0));
+  await page.screenshot({path:resolve(screenshotDir,'application-source-logos.png'),fullPage:true});
   await page.getByRole('button',{name:'HR email for Data Analyst at Fixture Employer'}).click();
   await page.locator('.drawer .hr-email').waitFor();await page.locator('.drawer').getByText('View sent email',{exact:true}).click();
   assert.equal(await page.locator('.drawer .hr-email .letter').innerText(),literal);assert.equal(await page.locator('.drawer .hr-email img').count(),0);
@@ -123,8 +141,11 @@ try {
   assert.match(await report('Saved advertisement contact role').innerText(),/Saved job advertisement/);assert.match(await report('Indexed contact role').innerText(),/Public search result/);
   const bounced=page.locator('.drawer .hr-email').filter({hasText:'invalid-recruiter@hcl.example.test'}),alternative=page.locator('.drawer .hr-email').filter({hasText:'verified-recruitment@hcl.example.test'});
   assert.match(await bounced.innerText(),/Delivery failed/);assert.match(await alternative.innerText(),/Retry attempt 2/);assert.match(await alternative.innerText(),/Sent/);
-  assert.doesNotMatch(await page.locator('.drawer').innerText(),/selector:secret|model:private|stack:internal|Delivered/);assert.equal(await page.locator('.drawer img').count(),0);
+  assert.doesNotMatch(await page.locator('.drawer').innerText(),/selector:secret|model:private|stack:internal|Delivered/);assert.equal(await page.locator('.drawer .hr-email img').count(),0);
   await page.setViewportSize({width:390,height:950});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);await page.screenshot({path:resolve(screenshotDir,'role-email-mobile.png'),fullPage:true});
+  await page.locator('.drawer').getByRole('button',{name:'Close',exact:true}).click();
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true,'provider logos fit the mobile application cards');
+  await page.screenshot({path:resolve(screenshotDir,'application-source-logos-mobile.png'),fullPage:true});
   const live=await browser.newPage({viewport:{width:1150,height:950}});await live.addInitScript(()=>{const interval=window.setInterval.bind(window);window.setInterval=((handler:TimerHandler,delay?:number,...args:unknown[])=>interval(handler,[5000,30000].includes(delay??0)?150:delay,...args)) as typeof window.setInterval;});
   await live.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());await live.goto(origin+'/hr-live-preview.html');
   const checkbox=live.getByRole('checkbox',{name:'Email hiring teams',exact:true});await checkbox.waitFor({timeout:10000}).catch(async error=>{console.error('Apply fixture state:',await live.locator('body').innerText());throw error;});
@@ -176,7 +197,7 @@ try {
   await shell.goto(origin+'/hr-shell-preview.html?tab=overview');
   await shell.getByRole('region',{name:'Application summary'}).waitFor();
   assert.equal(await shell.getByRole('button',{name:'Overview',exact:true}).count(),0,'Overview is absent from the desktop sidebar');
-  await shell.getByRole('button',{name:'3 Applied this week',exact:true}).click();await shell.getByRole('heading',{name:'Submitted Applications',exact:true}).waitFor();
+  await shell.getByRole('button',{name:`${apps.length} Applied this week`,exact:true}).click();await shell.getByRole('heading',{name:'Submitted Applications',exact:true}).waitFor();
   await shell.getByRole('button',{name:'Apply',exact:true}).click();await shell.locator('.run-controls-card').waitFor();
   assert.equal(await shell.getByRole('region',{name:'Application summary'}).count(),0,'Real Apply shell excludes Overview');
   assert.ok(await shell.evaluate(()=>{const main=document.querySelector('main')!.getBoundingClientRect();return Math.abs((document.querySelector('.run-controls-card')!.getBoundingClientRect().left-main.left)/main.width-.01)<.001;}),'Apply keeps a 1% left gutter');

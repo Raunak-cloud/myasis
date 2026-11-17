@@ -398,6 +398,9 @@ tbody tr.clickable { cursor: pointer; }
 .board-brand-logo { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 72px; height: 28px; padding: 0; border-radius: 5px; background: #fff; border: 0; }
 .board-brand-logo img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .board-brand-compact .board-brand-logo { width: 64px; height: 28px; }
+.board-brand-compact .board-brand-logo-greenhouse, .board-brand-compact .board-brand-logo-smartrecruiters { width: 104px; }
+.application-link a, .application-source-link { display: inline-flex; align-items: center; gap: 7px; }
+.application-link .board-brand-logo img, .application-source-link .board-brand-logo img { object-position: left center; }
 .nav-sources { position: relative; }
 .nav-sources .nav-row-title { padding-right: 20px; }
 .nav-sources .nav-row-chevron { position: absolute; top: 11px; right: 10px; }
