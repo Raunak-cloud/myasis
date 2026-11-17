@@ -450,7 +450,7 @@ export default function App() {
                   <span className="nav-row-main">
                     <span className="nav-row-title">Job boards</span>
                     <span className="nav-board-brands">
-                      {visibleJobBoards(boards, entitlements?.joraSignIn === true).map(board=><span className="nav-board-brand" key={board}><BoardBrand board={board} compact logoOnly/><span className={`nav-dot ${boards[board]?.signedIn?'on':'off'}`} aria-hidden="true"/></span>)}
+                      {visibleJobBoards(boards, entitlements?.joraSignIn === true).map(board=><span className="nav-board-brand" key={board}><BoardBrand board={board} compact/><span className={`nav-dot ${boards[board]?.signedIn?'on':'off'}`} aria-hidden="true"/></span>)}
                     </span>
                   </span>
                   <svg className="nav-row-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>

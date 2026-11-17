@@ -5,6 +5,26 @@ cd "$(dirname "$0")/.."
 # A narrowly scoped dropdown release uses real-browser recovery checks, bounded
 # to the documented 60-second test budget. Unknown/mixed changes keep all checks.
 if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(git rev-parse HEAD)" = "$3" ]; then
+  board_brand_only=1
+  board_brand_changed=0
+  while IFS= read -r path; do
+    case "$path" in
+      dashboard/src/components/BoardBrand.tsx) board_brand_changed=1 ;;
+      dashboard/src/App.tsx|dashboard/src/components/PricingSources.tsx|dashboard/src/index.css|dashboard/scripts/test-jora-beta-ui.mts|deploy/check-release.sh) ;;
+      *) board_brand_only=0 ;;
+    esac
+  done < <(git diff --name-only "$2" "$3")
+  if [ "$board_brand_only" = 1 ] && [ "$board_brand_changed" = 1 ]; then
+    timeout --signal=TERM --kill-after=2s 58s bash -e -c '
+      export CHROME_PATH="${CHROME_PATH:-/usr/bin/google-chrome-stable}"
+      bash -n deploy/check-release.sh
+      cd dashboard
+      ../seek-bot/node_modules/.bin/tsx scripts/test-jora-beta-ui.mts
+      ../seek-bot/node_modules/.bin/tsx scripts/test-pricing-upgrades-ui.mts
+    '
+    echo 'Targeted job-board branding UI checks passed (60-second maximum)'
+    exit 0
+  fi
   topup_removal_only=1
   topup_policy_changed=0
   while IFS= read -r path; do

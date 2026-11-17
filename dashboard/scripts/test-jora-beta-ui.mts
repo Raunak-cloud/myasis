@@ -74,11 +74,11 @@ try {
       assert.equal(await sidebar.getByRole('img',{name:'Jora',exact:true}).count(),0);
       await sidebar.click();
       const dialog=page.getByRole('dialog',{name:'Job boards',exact:true});
-      assert.equal(await dialog.getByText('Jora',{exact:true}).count(),0,'Jora connection stays hidden even with a saved session');
+      assert.equal(await dialog.getByRole('img',{name:'Jora',exact:true}).count(),0,'Jora connection stays hidden even with a saved session');
       await dialog.getByRole('button',{name:'Close',exact:true}).click();
       joraConnected=true;settings.JORA_BETA_ENABLED='true';seekConnected=plan!=='essential';await page.reload();await page.getByText('data analyst',{exact:true}).waitFor();
       if(plan==='essential')assert.equal(await page.getByRole('button',{name:'Start Auto apply',exact:true}).isDisabled(),true,'a stale Jora choice cannot make an Essential run ready without SEEK');
-      await sidebar.click();assert.equal(await page.getByRole('dialog',{name:'Job boards',exact:true}).getByText('Jora',{exact:true}).count(),0);
+      await sidebar.click();assert.equal(await page.getByRole('dialog',{name:'Job boards',exact:true}).getByRole('img',{name:'Jora',exact:true}).count(),0);
       assert.equal(writes.some(w=>w.path==='/api/signin/session'),false);
       continue;
     }
@@ -99,13 +99,13 @@ try {
     assert.ok(await sidebar.locator('img[src="/platforms/seek.svg"]').evaluate(el=>el.getBoundingClientRect().width>=70),'SEEK logo is legible in the sidebar');
     await sidebar.click();
     let dialog = page.getByRole('dialog',{name:'Job boards',exact:true});
-    let row = dialog.locator('.boards-row').filter({has:page.getByText('Jora',{exact:true})});
+    let row = dialog.locator('.boards-row').filter({has:page.getByRole('img',{name:'Jora',exact:true})});
     await row.getByRole('button',{name:'Sign in',exact:true}).click();
     const signIn = page.getByRole('dialog',{name:'Browser sign-in',exact:true}); await signIn.waitFor();
     assert.deepEqual(writes.find(write=>write.path==='/api/signin/session')!.body,{target:'jora',manual:true});
     await signIn.getByRole('button',{name:'Done',exact:true}).click();
     await sidebar.click(); dialog=page.getByRole('dialog',{name:'Job boards',exact:true});
-    row=dialog.locator('.boards-row').filter({has:page.getByText('Jora',{exact:true})});
+    row=dialog.locator('.boards-row').filter({has:page.getByRole('img',{name:'Jora',exact:true})});
     await row.getByRole('button',{name:'Manage sign-in',exact:true}).waitFor();
     if(plan==='active') {
       await page.screenshot({path:resolve(output,'desktop.png'),fullPage:true,animations:'disabled'});
@@ -119,7 +119,7 @@ try {
     assert.equal(settings.JORA_BETA_ENABLED,'true');
     assert.equal(await page.getByRole('checkbox',{name:'Include Jora Beta'}).count(),0);
     await sidebar.click(); dialog=page.getByRole('dialog',{name:'Job boards',exact:true});
-    await dialog.locator('.boards-row').filter({has:page.getByText('Jora',{exact:true})}).getByRole('button',{name:'Manage sign-in',exact:true}).waitFor();
+    await dialog.locator('.boards-row').filter({has:page.getByRole('img',{name:'Jora',exact:true})}).getByRole('button',{name:'Manage sign-in',exact:true}).waitFor();
     await dialog.getByRole('button',{name:'Close',exact:true}).click();
     assert.equal(writes.some(write=>['/api/run','/api/auto-apply'].includes(write.path)),false,'fixture never starts a real run');
   }
