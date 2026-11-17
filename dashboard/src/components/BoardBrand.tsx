@@ -6,6 +6,7 @@ export function BoardLogo({board}:{board:string}) {
  return <span className={`board-brand-logo board-brand-logo-${board}`} aria-hidden="true"><img src={`/platforms/${board}.svg`} alt="" width="56" height="26" /></span>;
 }
 
-export function BoardBrand({board,label,compact=false}:{board:string;label?:string;compact?:boolean}) {
- return <span className={`board-brand${compact?' board-brand-compact':''}`}><BoardLogo board={board}/><span>{label??NAMES[board]??board}</span></span>;
+export function BoardBrand({board,label,compact=false,logoOnly=false}:{board:string;label?:string;compact?:boolean;logoOnly?:boolean}) {
+ const name=label??NAMES[board]??board;
+ return <span className={`board-brand${compact?' board-brand-compact':''}`} role={logoOnly?'img':undefined} aria-label={logoOnly?name:undefined}><BoardLogo board={board}/>{!logoOnly&&<span>{name}</span>}</span>;
 }

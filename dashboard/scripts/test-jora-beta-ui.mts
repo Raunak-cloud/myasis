@@ -69,7 +69,7 @@ try {
       assert.equal(await review.getByRole('button',{name:'Jora (Beta)',exact:true}).count(),0,'free accounts have no Jora control');
       await review.getByRole('button',{name:'Cancel',exact:true}).click();
       const sidebar=page.getByRole('button',{name:'Job boards: which account is signed in, sign out, sign in.',exact:true});
-      assert.doesNotMatch(await sidebar.innerText(),/Jora/);
+      assert.equal(await sidebar.getByRole('img',{name:'Jora',exact:true}).count(),0);
       await sidebar.click();
       const dialog=page.getByRole('dialog',{name:'Job boards',exact:true});
       assert.equal(await dialog.getByText('Jora',{exact:true}).count(),0,'Jora connection stays hidden even with a saved session');
@@ -89,9 +89,11 @@ try {
     const start = page.getByRole('button',{name:'Start Auto apply',exact:true});
     await start.waitFor(); assert.equal(await start.isEnabled(), true, 'public Jora search needs no board login');
     const sidebar = page.getByRole('button',{name:'Job boards: which account is signed in, sign out, sign in.',exact:true});
-    assert.match(await sidebar.innerText(), /SEEK[\s\S]*Indeed[\s\S]*Jora/);
+    assert.equal((await sidebar.locator('.nav-board-brands').innerText()).trim(),'','Sidebar uses logos without repeating board names');
+    for(const name of ['SEEK','Indeed','Jora'])assert.equal(await sidebar.getByRole('img',{name,exact:true}).count(),1,'Logo retains its accessible name');
     for(const board of ['seek','indeed','jora'])assert.equal(await sidebar.locator(`img[src="/platforms/${board}.svg"]`).count(),1);
     await page.waitForFunction(()=>[...document.querySelectorAll('.nav-board-brands img')].every(n=>(n as HTMLImageElement).complete&&(n as HTMLImageElement).naturalWidth>0));
+    assert.ok(await sidebar.locator('img[src="/platforms/seek.svg"]').evaluate(el=>el.getBoundingClientRect().width>=70),'SEEK logo is legible in the sidebar');
     await sidebar.click();
     let dialog = page.getByRole('dialog',{name:'Job boards',exact:true});
     let row = dialog.locator('.boards-row').filter({has:page.getByText('Jora',{exact:true})});

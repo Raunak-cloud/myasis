@@ -30,8 +30,8 @@ if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(
   email_preference_changed=0
   while IFS= read -r path; do
     case "$path" in
-      dashboard/src/components/ApplicationsPanel.tsx|dashboard/src/components/RunPanel.tsx|dashboard/src/components/HrOutreachPanel.tsx|dashboard/src/components/ApplicationOverview.tsx|dashboard/src/App.tsx|dashboard/src/index.css) email_preference_changed=1 ;;
-      dashboard/scripts/test-hr-outreach-ui.mts|deploy/check-release.sh) ;;
+      dashboard/src/components/ApplicationsPanel.tsx|dashboard/src/components/RunPanel.tsx|dashboard/src/components/HrOutreachPanel.tsx|dashboard/src/components/ApplicationOverview.tsx|dashboard/src/components/BoardBrand.tsx|dashboard/src/App.tsx|dashboard/src/index.css) email_preference_changed=1 ;;
+      dashboard/scripts/test-hr-outreach-ui.mts|dashboard/scripts/test-jora-beta-ui.mts|deploy/check-release.sh) ;;
       *) email_preference_only=0 ;;
     esac
   done < <(git diff --name-only "$2" "$3")
@@ -41,6 +41,7 @@ if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(
       bash -n deploy/check-release.sh
       cd dashboard
       ../seek-bot/node_modules/.bin/tsx scripts/test-hr-outreach-ui.mts
+      ../seek-bot/node_modules/.bin/tsx scripts/test-jora-beta-ui.mts
     '
     echo 'Targeted email preference UI checks passed (60-second maximum)'
     exit 0

@@ -400,6 +400,7 @@ tbody tr.clickable { cursor: pointer; }
 .board-brand-compact .board-brand-logo { width: 44px; height: 24px; padding: 3px; }
 .nav-board-brands { display: grid; gap: 6px; margin-top: 7px; }
 .nav-board-brand { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; }
+.nav-board-brand .board-brand-logo { width: 72px; height: 28px; padding: 0; border: 0; }
 .nav-board-brand .nav-dot { flex: none; width: 6px; height: 6px; }
 .pricing-free-start { display: flex; flex-wrap: wrap; align-items: center; gap: 22px 36px; padding: 24px 28px; margin: 0 0 24px; border: 2px solid var(--accent); border-left-width: 6px; border-radius: 12px; background: var(--accent-soft); color: var(--text); }
 .pricing-free-start > div { flex: 1 1 280px; min-width: 0; display: grid; gap: 7px; }
