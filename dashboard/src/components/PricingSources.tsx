@@ -1,6 +1,7 @@
 import {FREE_APPLICATIONS,type PassPlanKey} from '../pricing';
 import {SEEK_CONNECTION_APPLICATIONS} from '../free-trial';
 import {BoardBrand} from './BoardBrand';
+import {EMPLOYER_SOURCES} from '../../../seek-bot/src/employer-source-config';
 
 export function PricingFreeOffer() {
  return <section className="pricing-free-start" aria-label="Free application offer">
@@ -10,8 +11,8 @@ export function PricingFreeOffer() {
 }
 
 export function PricingSources({plan}:{plan:'free'|PassPlanKey}) {
- const boards=plan==='free'||plan==='essential-pass'?['seek']:['seek','indeed','jora'];
- return <div className="pricing-source-brands" aria-label="Job-board connections">
+ const boards=plan==='free'||plan==='essential-pass'?['seek']:['seek','indeed','jora',...(plan==='intensive-pass'?EMPLOYER_SOURCES.map(source=>source.id):[])];
+ return <div className="pricing-source-brands" role="group" aria-label="Supported job sources">
   {boards.map(board=><BoardBrand key={board} board={board} compact/>)}
   {plan==='free'&&<span className="pricing-source-note">Optional connection</span>}
  </div>;

@@ -14,7 +14,7 @@ export const PAID_PLANS = {
   'job-search-pass': {
     key: 'job-search-pass', kind: 'pass', name: 'Active Search', priceCents: 2999,
     applications: 200, durationDays: 30, employerSiteApplications: 0,
-    description: 'A broader automatic search across SEEK and Indeed.',
+    description: 'A broader automatic search across SEEK, Indeed and Jora.',
   },
   // Legacy ledger units remain for historical purchases. unlimitedApplications controls usage.
   'intensive-pass': {
@@ -96,7 +96,7 @@ export const PLAN_PRESENTATION = {
       `Up to ${plural(ACTIVE.autoRunsPerDay, 'scheduled run', 'scheduled runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${ACTIVE.evaluationsPerRun} jobs each run`,
       `Choose your minimum match score: ${CUSTOM_MIN_SCORE}% to ${MAX_MATCH_SCORE}%`,
-      'SEEK and Indeed applications',
+      'SEEK, Indeed and Jora applications',
       'Optional Jora connection',
       'Advanced match and listing-age filters',
     ],
@@ -111,7 +111,7 @@ export const PLAN_PRESENTATION = {
       `Up to ${plural(INTENSIVE.autoRunsPerDay, 'scheduled run', 'scheduled runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${INTENSIVE.evaluationsPerRun} jobs each run`,
       `Choose your minimum match score: ${CUSTOM_MIN_SCORE}% to ${MAX_MATCH_SCORE}%`,
-      'SEEK and Indeed applications',
+      'SEEK, Indeed and Jora applications',
       'Optional Jora connection',
       'Advanced match and listing-age filters',
       'Supported employer-site applications',
