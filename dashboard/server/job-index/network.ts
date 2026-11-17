@@ -57,7 +57,7 @@ export function accessChallenge(page:PageResponse):'verification'|'denied'|false
 }
 
 /** Resolve, validate and pin each redirect's DNS target; never forward cookies or credentials. */
-export async function publicRequest(raw: string, init: { body?: string; signal?: AbortSignal } = {}): Promise<PageResponse> {
+export async function publicRequest(raw: string, init: { body?: string; signal?: AbortSignal; preferHtml?:boolean } = {}): Promise<PageResponse> {
   const u = crawlUrl(raw); const signal = AbortSignal.any([AbortSignal.timeout(15_000), ...(init.signal ? [init.signal] : [])]);
   signal.throwIfAborted();
   const addresses = await lookup(u.hostname, { all: true, family: 4 });
@@ -66,7 +66,7 @@ export async function publicRequest(raw: string, init: { body?: string; signal?:
   if (init.body && !/^[a-z0-9-]+\.wd\d+\.myworkdayjobs\.com$/.test(u.hostname)) throw new CrawlBlocked('Only a public Workday listing search can receive a query body.');
   if (init.body && !/^\/wday\/cxs\/[\w-]+\/[\w-]+\/jobs$/.test(u.pathname)) throw new CrawlBlocked('Only the public listing search endpoint is accepted.');
   return new Promise<PageResponse>((resolve, reject) => {
-    const req = request(u, { method: init.body ? 'POST' : 'GET', family: 4, signal, headers: { 'User-Agent': AGENT, Accept: 'text/html,application/json,application/xml,text/plain', ...(init.body ? { 'Content-Type': 'application/json' } : {}) }, lookup: pinnedLookup(addresses[0].address) }, res => {
+    const req = request(u, { method: init.body ? 'POST' : 'GET', family: 4, signal, headers: { 'User-Agent': AGENT, Accept: init.preferHtml?'text/html,application/xhtml+xml;q=0.9,text/plain;q=0.8':'text/html,application/json,application/xml,text/plain', ...(init.body ? { 'Content-Type': 'application/json' } : {}) }, lookup: pinnedLookup(addresses[0].address) }, res => {
       const status = res.statusCode ?? 0;
       if ([301,302,303,307,308].includes(status)) {
         res.resume();

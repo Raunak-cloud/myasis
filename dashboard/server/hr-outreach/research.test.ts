@@ -56,6 +56,40 @@ test('a genuine negative conclusion differs from blocked or unfinished research'
   const incomplete=await researchHiringContact(input,first,{...blocked,apiKey:'fixture'});assert.equal(incomplete.outcome,'incomplete');assert.equal(incomplete.retryable,true);
 });
 
+test('a negative finish does not require or validate an unused contact object',async()=>{
+ for(const outcome of ['no_contact','incomplete']){
+  const f=fixture([['read_public_page',{url:input.website}],['finish_research',{outcome,sourceUrls:[input.website],contact:{email:'',sourceUrl:'',quotes:[]}}]]);
+  const result=await researchHiringContact(input,first,{...f,apiKey:'fixture'});
+  assert.equal(result.contact,null);assert.equal(result.outcome,outcome);assert.equal(result.diagnostics.research?.turns,2);assert.equal(result.diagnostics.research?.failures.invalid_tool_arguments,undefined);
+ }
+});
+
+test('an incidental failed page does not override a completed negative decision after useful research',async()=>{
+ const f=fixture([['read_public_page',{url:'https://acme.org/missing'}],['read_public_page',{url:input.website}],['finish_research',{outcome:'no_contact',sourceUrls:[input.website]}]]);
+ const result=await researchHiringContact(input,first,{...f,apiKey:'fixture',crawler:{get:async url=>url.endsWith('/missing')?{url,status:404,type:'text/html',text:'Not found',retryAfter:null}:f.crawler.get(url)}});
+ assert.equal(result.outcome,'no_contact');assert.equal(result.contact,null);assert.equal(result.retryable,false);assert.equal(result.diagnostics.research?.failures.http_not_found,1);
+});
+
+test('agent-selected public addresses do not require quote copying or exact legal-name heuristics',async()=>{
+ const url='https://acme.org/join',page='<h1>Acme Talent</h1><p>Retail candidates can send their CV to hello@acme.org.</p>';
+ const action={outcome:'found',website:input.website,sourceUrls:[url],contact:{email:'hello@acme.org',sourceUrl:url}};
+ const f=fixture([['read_public_page',{url}],['finish_research',action]],{[url]:page});
+ const result=await researchHiringContact({...input,company:'Acme Talent & HR Pty Limited',roleTitle:'Retail Assistant'},first,{...f,apiKey:'fixture'});
+ assert.equal(result.contact?.email,'hello@acme.org');assert.match(result.contact?.evidenceQuotes?.[0]??'',/send their CV/);assert.equal(result.diagnostics.research?.turns,2);
+ for(const email of ['invented@acme.org','hello@acme.org']){
+  const reject=fixture([['read_public_page',{url}],['finish_research',{...action,contact:{email,sourceUrl:url}}],['finish_research',{outcome:'incomplete',sourceUrls:[url]}]],{[url]:page});
+  const actual=await researchHiringContact({...input,excludedEmails:email==='hello@acme.org'?[email]:[]},first,{...reject,apiKey:'fixture'});
+  assert.equal(actual.contact,null);assert.equal(actual.outcome,'incomplete');
+ }
+});
+
+test('a contact suggested by the first lookup is checked against its real public source before use',async()=>{
+ const url='https://acme.org/careers';
+ const f=fixture([['finish_research',{outcome:'found',sourceUrls:[url],contact:{email:'talent@acme.org',sourceUrl:url}}]],{[url]:contactPage});
+ const initial={...first,diagnostics:{...first.diagnostics,events:[{stage:'company_pages' as const,kind:'page_read',url,detail:'Public source read.'}]}};
+ const result=await researchHiringContact(input,initial,{...f,apiKey:'fixture'});assert.equal(result.contact?.email,'talent@acme.org');assert.deepEqual(f.reads,[url]);
+});
+
 test('code does not override the agent negative or unfinished decision with a regex-selected address',async()=>{
  const url='https://acme.org/careers',page=root+'<p>For accessibility adjustments only, email talent@acme.org.</p>';
  for(const outcome of ['no_contact','incomplete']){
@@ -140,6 +174,16 @@ test('a guessed missing URL reports its actual HTTP status without falsely claim
  const result=await researchHiringContact(input,first,{...f,apiKey:'fixture',crawler:{get:async url=>({url,status:404,type:'text/html',text:'Not found',retryAfter:null})}});
  assert.equal(result.diagnostics.research?.failures.http_not_found,1);assert.match(result.reason,/no longer exist/);
  const response=f.requests[1].messages.find((message:any)=>message.role==='tool');assert.match(response.content,/404/);assert.doesNotMatch(response.content,/blocks automated/);
+});
+
+test('a selected source access failure is explained to the agent before it chooses its next action',async()=>{
+ const source=input.jobUrl!;
+ const f=fixture([['finish_research',{outcome:'found',sourceUrls:[source],contact:{email:'talent@acme.org',sourceUrl:source}}],['finish_research',{outcome:'incomplete',sourceUrls:[source]}]]);
+ const result=await researchHiringContact(input,first,{...f,apiKey:'fixture',crawler:{get:async()=>{throw new CrawlBlocked('Robots policy excludes this address.');}}});
+ assert.equal(result.outcome,'incomplete');assert.equal(result.contact,null);
+ const feedback=JSON.parse(f.requests[1].messages.filter((message:any)=>message.role==='tool').at(-1).content);
+ assert.equal(feedback.recorded,false);assert.match(feedback.reason,/selected public source could not be checked/);assert.match(feedback.reason,/robots policy/);
+ assert.equal(result.diagnostics.research?.failures.robots_denied,1);
 });
 
 test('unconfirmed contact evidence is returned to the agent for recovery instead of ending research',async()=>{

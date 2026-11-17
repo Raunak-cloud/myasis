@@ -1,4 +1,4 @@
-import { PublicCrawler, PublicVerificationRequired, CrawlBlocked, crawlUrl, type PageResponse } from '../job-index/network.js';
+import { PublicCrawler, publicRequest, PublicVerificationRequired, CrawlBlocked, crawlUrl, type PageResponse } from '../job-index/network.js';
 import { readVerifiedHrPage } from './verification-browser.js';
 import type { DiscoveryDiagnostics } from './discovery.js';
 import { publicResearchFailure, researchSourceUrl } from './research-failure.js';
@@ -9,7 +9,7 @@ export class HrPublicCrawler {
   private pending=new Map<string,Promise<PageResponse>>();
   private primary:Pick<PublicCrawler,'get'>;
   private render:typeof readVerifiedHrPage;
-  constructor(primary:Pick<PublicCrawler,'get'>=new PublicCrawler(undefined,100,{allowLoginWidgets:true}),render=readVerifiedHrPage){this.primary=primary;this.render=render;}
+  constructor(primary:Pick<PublicCrawler,'get'>=new PublicCrawler((url,init)=>publicRequest(url,{...init,preferHtml:true}),100,{allowLoginWidgets:true}),render=readVerifiedHrPage){this.primary=primary;this.render=render;}
   get(raw:string,init?:ReadOptions):Promise<PageResponse>{
     const key=crawlUrl(raw).href;
     if(!this.pending.has(key))this.pending.set(key,this.read(key,init).then(page=>{if(!this.pending.has(page.url))this.pending.set(page.url,Promise.resolve(page));return page;}).catch(error=>{if(!(error instanceof HrVerificationFailed))this.pending.delete(key);throw error;}));

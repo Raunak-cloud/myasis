@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {researchPageView} from './research-page.js';
 import {PublicSourceResponseError,publicResearchFailure} from './research-failure.js';
+import {nominatedPublishedContact} from './discovery.js';
 
 test('long public pages expose later text and footer links without inventing or guessing contacts',()=>{
   const text='<html><head><title>Example</title></head><body>'+Array.from({length:130},(_,i)=>`<a href="/products/${i}">Product ${i}</a>`).join('')+'<p>'+('Public content '.repeat(1200))+'</p><footer><p>For recruitment enquiries email talent@example.org</p><a href="mailto:talent@example.org">Email hiring team</a><a href="/careers">Careers</a></footer><script>PRIVATE_SCRIPT</script><p hidden>PRIVATE_HIDDEN</p></body></html>';
@@ -29,4 +30,12 @@ test('HTTP failures identify missing pages rather than claiming CAPTCHA or expos
   assert.match(publicResearchFailure(new PublicSourceResponseError(404,'text/html')).detail,/404/);
   assert.equal(publicResearchFailure(new PublicSourceResponseError(200,'application/pdf')).code,'unsupported_source_type');
   const response=new PublicSourceResponseError(503,'text/html; secret=PRIVATE');assert.doesNotMatch(JSON.stringify(response),/PRIVATE/);
+});
+
+test('a quote copied from the agent view is validated identically across adjacent HTML blocks',()=>{
+ const page={url:'https://acme.org/careers',status:200,type:'text/html',text:'<html><body><h1>Acme careers</h1><p>Jane recruits software engineers in Sydney.</p><p>Email: jane@acme.org</p><p style="display:none">HIDDEN_ADDRESS</p></body></html>',retryAfter:null};
+ const view=researchPageView(page);assert.ok('text' in view);assert.match(view.text??'',/careers Jane/);assert.doesNotMatch(view.text??'',/HIDDEN_ADDRESS/);
+ const evidence={email:'jane@acme.org',sourceUrl:page.url,quotes:[view.text!]};
+ assert.equal(nominatedPublishedContact(page,evidence,'acme.org')?.email,'jane@acme.org');
+ assert.equal(nominatedPublishedContact(page,{...evidence,quotes:['Jane recruits lawyers in London.']},'acme.org'),null);
 });

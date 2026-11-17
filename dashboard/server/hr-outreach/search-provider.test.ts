@@ -45,3 +45,10 @@ test('search request rejection, account access and provider outage are reported 
  assert.equal(publicResearchFailure(new PublicSearchResponseError(503)).code,'search_service_unavailable');
  assert.doesNotMatch(publicResearchFailure(new PublicSearchResponseError(400)).detail,/temporarily unavailable|no contacts/);
 });
+
+test('provider plan restrictions give actionable query feedback without exposing provider payloads',async()=>{
+ const search=createHiringContactSearch({provider:'serper',key:'PRIVATE_KEY',reserveSearch:async()=>true,network:async()=>Response.json({message:'Query pattern not allowed for free accounts.',debug:'PRIVATE_KEY PRIVATE_PAYLOAD'},{status:400})});
+ await assert.rejects(search('Example recruitment contact'),(error:unknown)=>{
+  const report=publicResearchFailure(error);assert.equal(report.code,'search_query_restricted');assert.match(report.detail,/allowed plain-language query/);assert.doesNotMatch(JSON.stringify(error)+JSON.stringify(report),/PRIVATE_/);return true;
+ });
+});

@@ -3,11 +3,18 @@ import {crawlUrl,type PageResponse} from '../job-index/network.js';
 
 const clean=(value:string)=>value.replace(/\s+/g,' ').trim();
 export interface PublicPageSlice {offset?:number;linkOffset?:number;query?:string}
+/** Agent views and contact evidence use the same public text boundaries. */
+export function publicResearchDocument(html:string){
+  const {document}=parseHTML(`<html><body>${html.slice(0,3_000_000)}</body></html>`);
+  document.querySelectorAll('script,style,noscript,template,[hidden],[aria-hidden="true"]').forEach(node=>node.remove());
+  document.querySelectorAll('[style]').forEach(node=>{if(/display\s*:\s*none|visibility\s*:\s*hidden/i.test(node.getAttribute('style')??''))node.remove();});
+  document.querySelectorAll('title,br,p,li,div,h1,h2,h3,section').forEach(node=>node.appendChild(document.createTextNode('\n')));
+  return document;
+}
 /** Complete, paginated evidence. Navigation-heavy pages cannot silently hide
  * a contact/footer after the first text or link chunk. No recipient selection. */
 export function researchPageView(page:PageResponse,options:PublicPageSlice={}) {
-  const document=parseHTML(/<html[\s>]/i.test(page.text)?page.text:`<html><body>${page.text}</body></html>`).document;
-  document.querySelectorAll('script,style,noscript,template,[hidden],[aria-hidden="true"]').forEach(node=>node.remove());
+  const document=publicResearchDocument(page.text);
   const text=clean(/text\/plain/i.test(page.type)?page.text:document.body?.textContent??document.textContent??'');
   const links=[...document.querySelectorAll('a[href]')].flatMap(anchor=>{
     try{

@@ -2,6 +2,7 @@ import { parseHTML } from 'linkedom';
 import { PublicCrawler, CrawlBlocked, CrawlDeferred, crawlUrl, type PageResponse } from '../job-index/network.js';
 import { canonicalUrl } from '../job-index/extract.js';
 import { PublicSearchPayloadError, PublicSearchResponseError, publicResearchFailure } from './research-failure.js';
+import { publicResearchDocument } from './research-page.js';
 
 export interface HiringContact {
   email: string;
@@ -23,7 +24,7 @@ export interface DiscoveryInput {
   /** Public sources selected by the researching agent, not company exceptions. */
   sourceUrls?:readonly string[];
   /** Agent-selected public evidence, verified against the actual employer page. */
-  contactEvidence?: {email:string;sourceUrl:string;quotes:readonly string[]};
+  contactEvidence?: {email:string;sourceUrl:string;quotes?:readonly string[]};
   jobUrl?: string;
   previous?: HiringContact;
   signal?: AbortSignal;
@@ -139,11 +140,7 @@ function companyDomainMatches(company: string, host: string): boolean {
   });
 }
 function documentFor(html: string) {
-  const { document } = parseHTML(`<html><body>${html.slice(0, 3_000_000)}</body></html>`);
-  document.querySelectorAll('script,style,noscript,template,[hidden],[aria-hidden="true"]').forEach(n => n.remove());
-  document.querySelectorAll('[style]').forEach(n => { if (/display\s*:\s*none|visibility\s*:\s*hidden/i.test(n.getAttribute('style') ?? '')) n.remove(); });
-  document.querySelectorAll('title,br,p,li,div,h1,h2,h3,section').forEach(n => n.appendChild(document.createTextNode('\n')));
-  return document;
+  return publicResearchDocument(html);
 }
 function structuredNodes(html: string): Record<string, unknown>[] {
   const { document } = parseHTML(`<html><body>${html.slice(0, 3_000_000)}</body></html>`);
@@ -342,16 +339,17 @@ export function nominatedPublishedContact(page:PageResponse,evidence:NonNullable
   if(matches?.length!==1||matches[0]!==email||/[*•●]/.test(email.split('@')[0])||FORBIDDEN.test(email.split('@')[0]))return null;
   const doc=documentFor(page.text),text=clean(doc.body?.textContent??doc.textContent??'');
   const at=[...text.matchAll(EMAIL)].find(match=>match[0].toLowerCase()===email)?.index??-1;
-  const linked=[...doc.querySelectorAll('a[href^="mailto:"]')].some(node=>{
+  const mailto=[...doc.querySelectorAll('a[href^="mailto:"]')].find(node=>{
     try{return decodeURIComponent((node.getAttribute('href')??'').slice(7).split('?')[0]).toLowerCase()===email;}catch{return false;}
   });
-  if(at<0&&!linked)return null;
-  if(!evidence.quotes.length||evidence.quotes.length>4)return null;
-  const quotes=evidence.quotes.map(clean);
+  if(at<0&&!mailto)return null;
+  if(evidence.quotes&&(!evidence.quotes.length||evidence.quotes.length>4))return null;
+  const excerpt=at<0?clean(mailto?.parentElement?.textContent??''):text.slice(Math.max(0,at-200),at+email.length+300);
+  const quotes=evidence.quotes?.map(clean)??(excerpt?[excerpt]:[]);
   if(quotes.some(quote=>!quote||quote.length>1200||!text.includes(quote)))return null;
   const context=quotes.join(' '),local=at<0?'':text.slice(Math.max(0,at-180),at+email.length+180);
   if(NO_EMAIL.test(context)||NO_EMAIL.test(local))return null;
-  return{email,kind:/\bhiring manager\b/i.test(context)?'hiring_manager':'recruitment',companyDomain,sourceUrl:page.url,sourceText:context.slice(0,600),evidenceQuotes:quotes,validatedAt:now.toISOString(),sourceKind:'public_page'};
+  return{email,kind:/\bhiring manager\b/i.test(context)?'hiring_manager':'recruitment',companyDomain,sourceUrl:page.url,sourceText:context.slice(0,600),...(quotes.length?{evidenceQuotes:quotes}:{}),validatedAt:now.toISOString(),sourceKind:'public_page'};
 }
 
 /** The caller supplies the existing globally budgeted search reservation. */
@@ -364,7 +362,11 @@ export function createHiringContactSearch(options: { key: string; provider?:'bra
     const response = await (options.network ?? fetch)(url, { redirect: 'error',
       ...(serper?{method:'POST',headers:{Accept:'application/json','Content-Type':'application/json','X-API-KEY':options.key},body:JSON.stringify({q:query.slice(0,500),gl:'au',hl:'en',num:6})}:{headers:{Accept:'application/json','X-Subscription-Token':options.key}}),
       signal: AbortSignal.any([AbortSignal.timeout(12_000), ...(signal ? [signal] : [])]) });
-    if (!response.ok) throw new PublicSearchResponseError(response.status);
+    if (!response.ok) {
+      const error=await response.json().catch(()=>null) as {message?:unknown}|null;
+      const queryPolicy=response.status===400&&typeof error?.message==='string'&&/query pattern.*not allowed|not allowed.*(?:free|account|plan)/i.test(error.message);
+      throw new PublicSearchResponseError(response.status,queryPolicy?'query_policy':undefined);
+    }
     const body = await response.json() as { web?: { results?: ContactSearchResult[] };organic?:Array<{link?:string;title?:string;snippet?:string}> };
     if(serper&&!Array.isArray(body.organic))throw new PublicSearchPayloadError();
     if(serper)return body.organic!.slice(0,6).flatMap(row=>{

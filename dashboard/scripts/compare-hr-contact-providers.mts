@@ -13,6 +13,7 @@ if(!process.argv.includes('--live'))throw Error('Use --live to authorize metered
 const inputPath=arg('cases'),output=arg('output');
 if(!inputPath||!output)throw Error('Supply --cases=/path/cases.json and --output=/path/results.jsonl.');
 const outputPath=output;
+const tracePath=arg('trace');
 const raw:unknown=JSON.parse(readFileSync(inputPath,'utf8'));
 if(!Array.isArray(raw)||raw.some(row=>!row||typeof row.company!=='string'||!row.company.trim()))throw Error('Cases must be a JSON array with a company name on each row.');
 const cases:AuditCompany[]=raw.slice(0,Math.max(1,Math.min(30,Number(arg('limit')??16)||16)));
@@ -23,6 +24,13 @@ const hunterDepartmentValue=arg('hunter-department')??'hr';
 if(hunterDepartmentValue!=='hr'&&hunterDepartmentValue!=='all')throw Error('Hunter department must be hr or all.');
 const hunterDepartment:'hr'|'all'=hunterDepartmentValue;
 mkdirSync(dirname(output),{recursive:true});
+if(tracePath)mkdirSync(dirname(tracePath),{recursive:true});
+const writeTrace=(company:string,event:Record<string,unknown>)=>{
+ if(!tracePath)return;
+ let line=JSON.stringify({company,at:new Date().toISOString(),...event});
+ for(const key of [env.SERPER_API_KEY,env.OPENROUTER_API_KEY,env.HUNTER_API_KEY,env.APOLLO_API_KEY])if(key)line=line.split(key).join('[redacted]');
+ appendFileSync(tracePath,line+'\n');
+};
 const completed=new Set<string>();
 try{for(const line of readFileSync(output,'utf8').split('\n').filter(Boolean)){const row=JSON.parse(line);if(row.outcome!=='not_configured')completed.add(`${row.company}\n${row.provider}`);}}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
 const concurrency=Math.max(1,Math.min(2,Number(arg('concurrency')??1)||1));
@@ -36,12 +44,26 @@ async function compareCompany(item:AuditCompany){for(const provider of providerN
   result={provider,company:item.company,outcome:'not_configured',contacts:[],calls:0,reason:!env.SERPER_API_KEY?'Serper key is not configured.':'The HR research model key is not configured.'};
  }else{
   const started=Date.now(),crawler=new HrPublicCrawler(),signal=AbortSignal.timeout(300_000);let calls=0;
-  const search=createHiringContactSearch({provider:'serper',key:env.SERPER_API_KEY,reserveSearch:async()=>{calls++;return true;}});
+  const toolMessages=new Set<string>();
+  const network:typeof fetch=async(url,init)=>{
+   const began=Date.now();const response=await fetch(url,init);
+   if(tracePath)try{const body=await response.clone().json();writeTrace(item.company,{kind:'search_response',request:JSON.parse(String(init?.body??'{}')),status:response.status,elapsedMs:Date.now()-began,credits:body.credits,results:body.organic,error:response.ok?undefined:{message:body.message??body.error}});}catch{/* Trace capture cannot change a provider outcome. */}
+   return response;
+  };
+  const fetcher:typeof fetch=async(url,init)=>{
+   if(tracePath)try{for(const message of JSON.parse(String(init?.body??'{}')).messages??[])if(message.role==='tool'&&!toolMessages.has(message.tool_call_id)){toolMessages.add(message.tool_call_id);writeTrace(item.company,{kind:'tool_result',id:message.tool_call_id,result:JSON.parse(message.content)});}}catch{/* Read-only audit observation. */}
+   const response=await fetch(url,init);
+   if(tracePath)try{const body=await response.clone().json();writeTrace(item.company,{kind:'model_response',status:response.status,costUsd:body.usage?.cost,finishReason:body.choices?.[0]?.finish_reason,calls:body.choices?.[0]?.message?.tool_calls});}catch{/* Never persist headers, credentials or model reasoning. */}
+   return response;
+  };
+  const search=createHiringContactSearch({provider:'serper',key:env.SERPER_API_KEY,reserveSearch:async()=>{calls++;return true;},network});
   try{
-   const input={company:item.company,website:item.domain?`https://${item.domain}/`:undefined,jobUrl:item.url,roleTitle:item.title,location:item.location,signal};
+   const input={company:item.company,website:item.domain?`https://${item.domain}/`:undefined,jobUrl:item.url,roleTitle:item.title,location:item.location,jobDescription:item.description,jobDescriptionObservedAt:item.descriptionObservedAt,signal};
+   writeTrace(item.company,{kind:'started',input:{company:item.company,role:item.title,location:item.location,jobUrl:item.url}});
    const first=await discoverHiringContact(input,{search,crawler,maxPages:12});
-   const found=await researchHiringContact(input,first,{search,crawler,apiKey:env.OPENROUTER_API_KEY});
-   result={provider,company:item.company,outcome:found.outcome,contacts:found.contact?[found.contact]:[],calls,elapsedMs:Date.now()-started,modelCostUsd:found.costUsd,reason:found.reason,research:found.diagnostics.research,events:found.diagnostics.events};
+   writeTrace(item.company,{kind:'first_lookup',result:first});
+   const found=await researchHiringContact(input,first,{search,crawler,apiKey:env.OPENROUTER_API_KEY,fetcher});
+   result={provider,company:item.company,outcome:found.outcome,contacts:found.contact?[found.contact]:[],calls,elapsedMs:Date.now()-started,modelCostUsd:found.costUsd,reason:found.reason,research:found.diagnostics.research,events:found.diagnostics.events,publicDescriptionProvided:!!item.description};
   }catch{result={provider,company:item.company,outcome:'error',contacts:[],calls,elapsedMs:Date.now()-started,error:{code:signal.aborted?'cancelled_or_timeout':'request_or_response_failed'}};}
  }
  const row:Record<string,unknown>={...result,checkedAt:new Date().toISOString(),suitabilityRequiresReview:true};appendFileSync(outputPath,JSON.stringify(row)+'\n');

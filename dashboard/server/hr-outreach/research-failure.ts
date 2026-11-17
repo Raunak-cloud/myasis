@@ -2,7 +2,8 @@ import { CrawlBlocked, CrawlDeferred, crawlUrl } from '../job-index/network.js';
 
 export class PublicSearchResponseError extends Error {
   readonly status:number;
-  constructor(status:number){super('Public contact search is temporarily unavailable.');this.status=status;}
+  readonly reason?:'query_policy';
+  constructor(status:number,reason?:'query_policy'){super(status>=500?'Public contact search is temporarily unavailable.':'Public contact search request did not complete.');this.status=status;this.reason=reason;}
 }
 export class PublicSearchPayloadError extends Error {constructor(){super('The search provider did not return a usable result list.');}}
 
@@ -25,7 +26,9 @@ export function publicResearchFailure(error:unknown, signal?:AbortSignal):{code:
   const message=error instanceof Error?error.message:'';
   if(signal?.aborted)return{code:'deadline_exceeded',detail:'Public research was cancelled or reached its deadline.'};
   if(error instanceof PublicSearchPayloadError)return{code:'search_response_invalid',detail:'The public search service did not return a usable result list. This is not proof that no hiring contacts exist.'};
-  if(error instanceof PublicSearchResponseError)return error.status===400||error.status===422
+  if(error instanceof PublicSearchResponseError)return error.reason==='query_policy'
+    ?{code:'search_query_restricted',detail:'The search provider does not allow this query pattern on the current account plan. Choose another allowed plain-language query instead of repeating the rejected pattern. This does not establish that no hiring contact exists.'}
+    :error.status===400||error.status===422
     ?{code:'search_request_rejected',detail:`The public search service rejected this request with HTTP ${error.status}. Check the query or request inputs; this is not a company website failure.`}
     :error.status===401||error.status===403?{code:'search_access_denied',detail:`The public search service refused API access with HTTP ${error.status}. Check its account credentials or permissions; this is not proof that no hiring contacts exist.`}
     :error.status===402

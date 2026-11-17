@@ -1,6 +1,6 @@
 /** Read-only comparison helpers. These results are not production recipients:
  * provider coverage and verification labels do not establish hiring suitability. */
-export interface AuditCompany {company:string;domain?:string;title?:string;location?:string;url?:string}
+export interface AuditCompany {company:string;domain?:string;title?:string;location?:string;url?:string;description?:string;descriptionObservedAt?:string}
 export interface AuditContact {
  email:string;name?:string;title?:string;department?:string;organization?:string;
  location?:string;verification?:string;verifiedAt?:string;provenance?:string;sources:string[];
