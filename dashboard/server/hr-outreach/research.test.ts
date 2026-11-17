@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { researchHiringContact } from './research.js';
+import { discoverHiringContact } from './discovery.js';
 import type { DiscoveryResult } from './discovery.js';
 import { processHrJob, type HrWorkerDependencies } from './worker.js';
 import { CrawlBlocked } from '../job-index/network.js';
@@ -88,6 +89,27 @@ test('a contact suggested by the first lookup is checked against its real public
  const f=fixture([['finish_research',{outcome:'found',sourceUrls:[url],contact:{email:'talent@acme.org',sourceUrl:url}}]],{[url]:contactPage});
  const initial={...first,diagnostics:{...first.diagnostics,events:[{stage:'company_pages' as const,kind:'page_read',url,detail:'Public source read.'}]}};
  const result=await researchHiringContact(input,initial,{...f,apiKey:'fixture'});assert.equal(result.contact?.email,'talent@acme.org');assert.deepEqual(f.reads,[url]);
+});
+
+test('agent-selected company fallback is published, labelled accurately and revalidated across runs',async()=>{
+ const url='https://acme.org/contact',page=root+'<p>General company enquiries: info@acme.org</p>';
+ const f=fixture([['read_public_page',{url}],['finish_research',{outcome:'found',website:input.website,sourceUrls:[url],contact:{email:'info@acme.org',sourceUrl:url,kind:'company'}}]],{[url]:page});
+ const result=await researchHiringContact(input,first,{...f,apiKey:'fixture'});
+ assert.equal(result.contact?.email,'info@acme.org');assert.equal(result.contact?.kind,'company');assert.match(result.reason,/general company email/);
+ const next=await discoverHiringContact({...input,previous:result.contact!},{crawler:f.crawler,search:async()=>[],maxPages:4});
+ assert.equal(next.contact?.email,'info@acme.org');assert.equal(next.contact?.kind,'company');
+});
+
+test('general company fallback supports public structured company data without guessing an inbox',async()=>{
+ const url='https://acme.org/contact',page=root+'<script type="application/ld+json">'+JSON.stringify({'@type':'Organization',name:'Acme',url:input.website,email:'info@acme.org'})+'</script>';
+ for(const email of ['info@acme.org','invented@acme.org']){
+  const f=fixture([['read_public_page',{url}],['finish_research',{outcome:'found',website:input.website,sourceUrls:[url],contact:{email,sourceUrl:url,kind:'company'}}],['finish_research',{outcome:'incomplete',sourceUrls:[url]}]],{[url]:page});
+  const result=await researchHiringContact(input,first,{...f,apiKey:'fixture'});
+  assert.equal(result.contact?.email,email==='info@acme.org'?email:undefined);
+  if(result.contact){assert.equal(result.contact.kind,'company');assert.match(result.contact.sourceText,/Published structured contact/);}
+ }
+ const f=fixture([['read_public_page',{url}],['finish_research',{outcome:'found',sourceUrls:[url],contact:{email:'info@acme.org',sourceUrl:url,kind:'company'}}],['finish_research',{outcome:'incomplete',sourceUrls:[url]}]],{[url]:page});
+ assert.equal((await researchHiringContact({...input,excludedEmails:['info@acme.org']},first,{...f,apiKey:'fixture'})).contact,null);
 });
 
 test('code does not override the agent negative or unfinished decision with a regex-selected address',async()=>{

@@ -25,6 +25,14 @@ test('plain text contacts and HTML fragments remain readable',()=>{
   }
 });
 
+test('structured contacts retain publisher context while ordinary scripts and malformed data stay hidden',()=>{
+ const schema={'@graph':[{'@type':['FinancialService','Organization'],name:'Acme',url:'https://acme.org',email:'info@acme.org',contactPoint:{'@type':'ContactPoint',contactType:'recruitment',email:'talent@acme.org'}}]};
+ const page={url:'https://acme.org/contact',status:200,type:'text/html',text:'<h1>Acme</h1><script>const email="PRIVATE_SCRIPT@acme.org";</script><script type="application/ld+json">'+JSON.stringify(schema)+'</script><script type="application/ld+json">INVALID_JSON</script>',retryAfter:null};
+ const view=researchPageView(page);assert.ok('text'in view);assert.match(view.text!,/Published structured contact/);assert.match(view.text!,/FinancialService/);assert.match(view.text!,/info@acme.org/);assert.match(view.text!,/recruitment/);assert.match(view.text!,/talent@acme.org/);assert.doesNotMatch(view.text!,/PRIVATE_SCRIPT|INVALID_JSON/);
+ assert.equal(nominatedPublishedContact(page,{email:'info@acme.org',sourceUrl:page.url,kind:'company'},'acme.org')?.kind,'company');
+ const matches=researchPageView(page,{query:'info@acme.org'});assert.ok('matches'in matches);assert.equal(matches.matches.length,1);
+});
+
 test('HTTP failures identify missing pages rather than claiming CAPTCHA or exposing response payloads',()=>{
   assert.equal(publicResearchFailure(new PublicSourceResponseError(404,'text/html')).code,'http_not_found');
   assert.match(publicResearchFailure(new PublicSourceResponseError(404,'text/html')).detail,/404/);

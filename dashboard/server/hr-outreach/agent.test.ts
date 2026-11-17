@@ -22,6 +22,15 @@ test('HR agent has a separate grounded prompt, no tools, bounded generation and 
   assert.deepEqual(result, { ...output, costUsd: .001 });
 });
 
+test('company fallback drafting receives the contact purpose and requests forwarding without assuming HR',async()=>{
+ const body='Hello team,\n\nI applied for the Data Analyst role. Could you please forward my introduction to the relevant hiring team? My SQL reporting experience is relevant to the role.\n\nTaylor Example';
+ const result=await composeHrEmail({...input,contact:{email:'info@example.invalid',kind:'company'}},{apiKey:'fixture-key',fetcher:async(_url,init)=>{
+  const request=JSON.parse(String(init?.body)),context=JSON.parse(request.messages[1].content);
+  assert.equal(context.contact.kind,'company');assert.match(request.messages[0].content,/Hello team/);assert.match(request.messages[0].content,/forward the introduction/);assert.doesNotMatch(JSON.stringify(context),/info@example.invalid/);
+  return response({...output,body});
+ }});assert.equal(result.body,body);
+});
+
 test('malformed, truncated, unmeasured and extra-recipient responses never produce sendable drafts', async () => {
   for (const value of [{ ...output, to: 'other@example.invalid' }, { ...output, subject: 'Role\r\nBcc: x@y.com' }, { ...output, body: '' }, { ...output, body: 'a'.repeat(6001) }, null]) {
     await assert.rejects(composeHrEmail(input, { apiKey: 'key', fetcher: async () => response(value) }), (error: any) => error.costUsd === .001 && /invalid email/.test(error.message));

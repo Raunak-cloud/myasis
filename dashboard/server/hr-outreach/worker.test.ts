@@ -39,6 +39,18 @@ test('expired contacts must revalidate before compose and sending',async()=>{
   const {deps,events}=fixture({fresh:false});await processHrJob({...job},deps);
   assert.ok(events.findIndex(e=>e[0]==='discover')<events.findIndex(e=>e[0]==='compose'));assert.equal(events.at(-1)[2],'sent');
 });
+
+test('agent-selected company fallback reaches drafting and the mock transport once and can be reused',async()=>{
+ const selected:HiringContact={...contact,email:'info@company.org',kind:'company',sourceUrl:'https://company.org/contact',sourceText:'General company enquiries: info@company.org',evidenceQuotes:['General company enquiries: info@company.org']};
+ const {deps,events}=fixture({fresh:false});
+ deps.discover=async()=>({contact:null,reason:'No hiring inbox found.',pagesRead:1,retryable:false,outcome:'no_contact',diagnostics});
+ deps.research=async()=>({contact:selected,reason:'Published general company email selected.',pagesRead:1,retryable:false,outcome:'found',diagnostics,costUsd:.001});
+ await processHrJob({...job},deps);
+ assert.equal(events.find(e=>e[0]==='compose')[1].contact.kind,'company');assert.equal(events.find(e=>e[0]==='send')[1].to,'info@company.org');assert.equal(events.filter(e=>e[0]==='send').length,1);assert.equal(events.at(-1)[2],'sent');
+ const reused=fixture();reused.deps.store.cache=async()=>({contact:selected,fresh:true,reason:'Published general company email selected.',outcome:'found',diagnostics});
+ reused.deps.research=async()=>{throw Error('Fresh company fallback should reuse its source-backed cache.');};
+ await processHrJob({...job},reused.deps);assert.equal(reused.events.find(e=>e[0]==='compose')[1].contact.kind,'company');assert.equal(reused.events.filter(e=>e[0]==='send').length,1);
+});
 test('no public contact does not invent a recipient or send',async()=>{
   const {deps,events}=fixture({fresh:false,contact:null});await processHrJob({...job},deps);
   assert.equal(events.some(e=>e[0]==='send'||e[0]==='compose'),false);assert.equal(events.at(-1)[2],'skipped');

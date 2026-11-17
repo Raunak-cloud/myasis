@@ -7,7 +7,7 @@ import {HrPublicCrawler} from './public-crawler.js';
 
 export const HR_RESEARCH_PROMPT = `Find a public hiring contact for a short introduction after the candidate has applied. Investigate the actual employer, role and region, including legal and trading-name differences. Verify that the contact represents the original advertiser or identified direct employer. Similar vacancies, shared clients or the same industry do not establish affiliation with another agency.
 
-Choose a published full email only when the evidence shows that the person or team handles recruitment or invites relevant candidate enquiries or CVs. Respect its stated purpose. Application helpdesks, technical support, accessibility adjustments, privacy, complaints, sales and customer service are not introduction contacts. A senior title, an HR label or a generic company inbox alone is insufficient. Do not choose the nearest available address just to return an email; no_contact is a valid result.
+Prefer a published hiring contact who handles recruitment or invites relevant candidate enquiries or CVs. If no suitable hiring contact can be found, use a published general company inbox such as info, hello, contact or enquiries, including one in the site's structured company details. Mark this fallback contact.kind as company. Establish that it belongs to the actual employer; do not substitute an unrelated business or employee. Respect each address's stated purpose: privacy, legal, complaints, sales, technical support and accessibility-only addresses are not general company inboxes. Never guess an address. If neither contact is available, no_contact is a valid result.
 
 Use the vacancy, employer careers/contact/team pages and attributable recruiter publications. Follow published links and vary searches when unhelpful. Read rendered pages when JavaScript is needed. Use find and offsets for long pages. An optional login widget does not make public content private. You may read contact details revealed by the publisher's public JavaScript; never guess masked addresses.
 
@@ -20,7 +20,7 @@ export const HR_RESEARCH_TOOLS=[
   tool('read_public_page','Read a public HTTPS page and its links. Follow nextOffset and nextLinkOffset for remaining content; cached pages do not consume another page read. No login.',{url:{type:'string'},offset:{type:'integer',minimum:0},linkOffset:{type:'integer',minimum:0}},['url']),
   tool('read_rendered_page','Read a public page after its JavaScript runs, including published contact details. Uses an isolated browser without accounts or form submissions. Verification uses the configured solver when supported.',{url:{type:'string'},offset:{type:'integer',minimum:0},linkOffset:{type:'integer',minimum:0}},['url']),
   tool('find_in_public_page','Find text in a public page, including passages beyond its first text chunk. Use the exact query to inspect hiring context or @ to locate published email text.',{url:{type:'string'},query:{type:'string'},offset:{type:'integer',minimum:0}},['url','query']),
-  tool('finish_research','Finish research. Choose found only after checking the actual employer and hiring purpose. For found, supply contact.email and contact.sourceUrl. Omit contact for no_contact or incomplete. No page quotes needed.',{outcome:{type:'string',enum:['found','no_contact','incomplete']},website:{type:'string'},sourceUrls:{type:'array',items:{type:'string'},maxItems:8},contact:{type:'object',additionalProperties:false,properties:{email:{type:'string'},sourceUrl:{type:'string'}},required:['email','sourceUrl']}},['outcome','sourceUrls']),
+  tool('finish_research','Finish with a published hiring contact, or a general company inbox if no suitable hiring contact was found. Supply contact.email and contact.sourceUrl; set kind to company for the fallback. Omit contact for no_contact or incomplete. No page quotes needed.',{outcome:{type:'string',enum:['found','no_contact','incomplete']},website:{type:'string'},sourceUrls:{type:'array',items:{type:'string'},maxItems:8},contact:{type:'object',additionalProperties:false,properties:{email:{type:'string'},sourceUrl:{type:'string'},kind:{type:'string',enum:['hiring_manager','recruitment','company']}},required:['email','sourceUrl']}},['outcome','sourceUrls']),
 ];
 export interface ResearchOptions extends DiscoveryOptions { apiKey:string; fetcher?:typeof fetch; model?:string; maxTurns?:number }
 export interface ResearchResult extends DiscoveryResult {costUsd:number}
@@ -136,7 +136,8 @@ export async function researchHiringContact(input:DiscoveryInput,first:Discovery
                 const source=publicUrl(args.contact.sourceUrl);
                 if(typeof args.contact.email!=='string'||!source||!known.has(source))throw Error('Supply the selected published email and its observed source URL.');
                 if(args.contact.quotes!==undefined&&(!Array.isArray(args.contact.quotes)||!args.contact.quotes.length||args.contact.quotes.length>4||args.contact.quotes.some((quote:unknown)=>typeof quote!=='string'||!quote.trim()||quote.length>1200)))throw Error('Supply valid page passages, or omit quotes.');
-                contactEvidence={email:args.contact.email,sourceUrl:source,...args.contact.quotes?{quotes:args.contact.quotes}:{}};
+                if(args.contact.kind!==undefined&&!['hiring_manager','recruitment','company'].includes(args.contact.kind))throw Error('Supply a listed contact kind, or omit it.');
+                contactEvidence={email:args.contact.email,sourceUrl:source,...args.contact.quotes?{quotes:args.contact.quotes}:{},...args.contact.kind?{kind:args.contact.kind}:{}};
               }
               conclusion=args.outcome;
               if(conclusion==='found'){
@@ -201,5 +202,5 @@ export async function researchHiringContact(input:DiscoveryInput,first:Discovery
   if(allCodes.has('dns_failure')||allCodes.has('request_failed'))issues.push('some public pages could not be reached');
   const incompleteReason=issues.length?`Contact research is incomplete: ${issues.join('; ')}. No suitable hiring email was verified.`:'Additional contact research could not finish. No suitable hiring email was verified.';
   return {contact:found,outcome,retryable:outcome==='incomplete',costUsd,pagesRead:first.pagesRead+reads+(verified?.pagesRead??0),diagnostics,
-    reason:found?'A suitable public recruitment contact was found through additional research.':incomplete?incompleteReason:'No suitable recruitment contact was found in the public sources checked, including additional research.'};
+    reason:found?found.kind==='company'?'A published general company email was selected because no suitable hiring contact was found.':'A suitable public recruitment contact was found through additional research.':incomplete?incompleteReason:'No suitable hiring contact or general company email was found in the public sources checked.'};
 }

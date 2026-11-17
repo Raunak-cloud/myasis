@@ -72,7 +72,7 @@ export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defa
     const crawler=deps===defaultDependencies?new HrPublicCrawler():undefined;
     const vacancy={roleTitle:job.title,location:job.location||evidence?.location||undefined,
       jobDescription:evidence?.description,jobDescriptionObservedAt:evidence?.observedAt,excludedEmails};
-    const contextKey=createHash('sha256').update(JSON.stringify(['agent-public-contact-selection-v2',job.url,job.title,vacancy.location??'',vacancy.jobDescription??'',vacancy.jobDescriptionObservedAt??'',[...excludedEmails].sort()])).digest('hex');
+    const contextKey=createHash('sha256').update(JSON.stringify(['agent-public-contact-selection-v3-company-fallback',job.url,job.title,vacancy.location??'',vacancy.jobDescription??'',vacancy.jobDescriptionObservedAt??'',[...excludedEmails].sort()])).digest('hex');
     const cache=await store.cache(job.company_key);
     // A company-wide negative result cannot suppress new vacancy-specific
     // recruitment evidence, even while yesterday's website lookup is cached.

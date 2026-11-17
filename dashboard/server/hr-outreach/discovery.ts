@@ -7,7 +7,7 @@ import { publicResearchDocument } from './research-page.js';
 export interface HiringContact {
   email: string;
   name?: string;
-  kind: 'hiring_manager' | 'recruitment';
+  kind: 'hiring_manager' | 'recruitment' | 'company';
   companyDomain: string;
   sourceUrl: string;
   sourceText: string;
@@ -24,7 +24,7 @@ export interface DiscoveryInput {
   /** Public sources selected by the researching agent, not company exceptions. */
   sourceUrls?:readonly string[];
   /** Agent-selected public evidence, verified against the actual employer page. */
-  contactEvidence?: {email:string;sourceUrl:string;quotes?:readonly string[]};
+  contactEvidence?: {email:string;sourceUrl:string;quotes?:readonly string[];kind?:HiringContact['kind']};
   jobUrl?: string;
   previous?: HiringContact;
   signal?: AbortSignal;
@@ -349,7 +349,7 @@ export function nominatedPublishedContact(page:PageResponse,evidence:NonNullable
   if(quotes.some(quote=>!quote||quote.length>1200||!text.includes(quote)))return null;
   const context=quotes.join(' '),local=at<0?'':text.slice(Math.max(0,at-180),at+email.length+180);
   if(NO_EMAIL.test(context)||NO_EMAIL.test(local))return null;
-  return{email,kind:/\bhiring manager\b/i.test(context)?'hiring_manager':'recruitment',companyDomain,sourceUrl:page.url,sourceText:context.slice(0,600),...(quotes.length?{evidenceQuotes:quotes}:{}),validatedAt:now.toISOString(),sourceKind:'public_page'};
+  return{email,kind:evidence.kind??(/\bhiring manager\b/i.test(context)?'hiring_manager':'recruitment'),companyDomain,sourceUrl:page.url,sourceText:context.slice(0,600),...(quotes.length?{evidenceQuotes:quotes}:{}),validatedAt:now.toISOString(),sourceKind:'public_page'};
 }
 
 /** The caller supplies the existing globally budgeted search reservation. */
@@ -487,17 +487,17 @@ export async function discoverHiringContact(input: DiscoveryInput, options: Disc
     root = domain(previous.companyDomain);
     let currentPublisherEstablished=false;
     let page = await read(previous.sourceUrl);
-    if(page&&previous.evidenceQuotes&&!nominatedPublishedContact(page,{email:previous.email,sourceUrl:previous.sourceUrl,quotes:previous.evidenceQuotes},root,now)){
+    if(page&&previous.evidenceQuotes&&!nominatedPublishedContact(page,{email:previous.email,sourceUrl:previous.sourceUrl,quotes:previous.evidenceQuotes,kind:previous.kind},root,now)){
       try{
         if('renderPublicPage' in crawler&&typeof crawler.renderPublicPage==='function'){const rendered=await crawler.renderPublicPage(previous.sourceUrl,{signal});if(!publicUrl(rendered.url))throw new CrawlBlocked('The rendered source left public internet destinations.');page=rendered;event('page_rendered','The previously cited contact source was read after its public JavaScript ran.',rendered.url,rendered.status);}
       }catch(error){if(input.signal?.aborted)throw error;const failure=publicResearchFailure(error,signal);event('source_failure',failure.detail,previous.sourceUrl,undefined,{code:failure.code,action:'read_rendered_page'});}
-      if(!page||page.status<200||page.status>=300||!nominatedPublishedContact(page,{email:previous.email,sourceUrl:previous.sourceUrl,quotes:previous.evidenceQuotes},root,now)){
+      if(!page||page.status<200||page.status>=300||!nominatedPublishedContact(page,{email:previous.email,sourceUrl:previous.sourceUrl,quotes:previous.evidenceQuotes,kind:previous.kind},root,now)){
         return{...finish(null),outcome:'incomplete',retryable:true,reason:'The previously cited public hiring-contact evidence changed or could not be read. Fresh agent research is needed.'};
       }
     }
     if (page) {
       const official = sameCompanyHost(new URL(page.url).hostname, root);
-      const quoted=previous.evidenceQuotes?nominatedPublishedContact(page,{email:previous.email,sourceUrl:previous.sourceUrl,quotes:previous.evidenceQuotes},root,now):null;
+      const quoted=previous.evidenceQuotes?nominatedPublishedContact(page,{email:previous.email,sourceUrl:previous.sourceUrl,quotes:previous.evidenceQuotes,kind:previous.kind},root,now):null;
       const contacts = quoted?[quoted]:publishedHiringContacts(page.text, page.url, root, official, now,input.company);
       const contact = relevantContact(contacts.filter(c => c.email.toLowerCase() === previous.email.toLowerCase()));
       let publisherConfirmed = official;
