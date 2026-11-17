@@ -1,6 +1,6 @@
 import './Landing.css';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { FREE_APPLICATIONS, PAID_PLANS, PLAN_PRESENTATION, SCHEDULED_MIN_SCORE, CUSTOM_MIN_SCORE, MAX_MATCH_SCORE, aud } from '../pricing';
+import { FREE_APPLICATIONS, PAID_PLANS, PLAN_PRESENTATION, SCHEDULED_MIN_SCORE, CUSTOM_MIN_SCORE, MAX_MATCH_SCORE } from '../pricing';
 import { LIVE_DEMO } from '../liveDemo';
 import { MascotLogo } from './MascotLogo';
 import { Wordmark } from './Wordmark';
@@ -243,9 +243,6 @@ export function Landing({ googleConfigured, initialImprovements, initialAuthErro
                 <PriceRow key={row.name} row={row} cta={start(row.cta, row.variant)} />
               ))}
             </ol>
-            <p className="home-price-foot">
-              Need more credits? A top-up is {aud(PAID_PLANS['application-top-up'].priceCents)} for {PAID_PLANS['application-top-up'].applications} applications on an active credit plan. Get Owtomated already includes unlimited applications.
-            </p>
           </div>
         </section>
 

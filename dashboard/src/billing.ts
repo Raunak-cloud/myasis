@@ -66,7 +66,7 @@ export function planName(status: BillingStatus, admin: boolean): string {
   if (status.paid.hasActiveIntensivePass) return 'Get Owtomated';
   if (status.paid.hasActiveJobSearchPass) return 'Active Search';
   if (status.paid.hasActiveEssentialPass) return 'Essential Pass';
-  if (status.paid.hasActivePass) return 'Free plan + top-up';
+  if (status.paid.hasActivePass) return 'Free plan + credits';
   return 'Free plan';
 }
 

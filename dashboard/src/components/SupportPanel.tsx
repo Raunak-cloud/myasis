@@ -75,7 +75,7 @@ export function SupportPanel() {
           </details>
           <details>
             <summary>Do paid passes renew automatically?</summary>
-            <p>No. Paid passes are one-off purchases and do not auto-renew. You can buy another pass or a top-up from Plans &amp; pricing when needed.</p>
+            <p>No. Paid passes are one-off purchases and do not auto-renew. You can buy another pass from Plans &amp; pricing when needed.</p>
           </details>
           <details>
             <summary>Where can I see what was submitted?</summary>

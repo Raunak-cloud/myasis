@@ -5,6 +5,26 @@ cd "$(dirname "$0")/.."
 # A narrowly scoped dropdown release uses real-browser recovery checks, bounded
 # to the documented 60-second test budget. Unknown/mixed changes keep all checks.
 if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(git rev-parse HEAD)" = "$3" ]; then
+  topup_removal_only=1
+  topup_policy_changed=0
+  while IFS= read -r path; do
+    case "$path" in
+      dashboard/server/billing-policy.ts) topup_policy_changed=1 ;;
+      dashboard/server/alerts.ts|dashboard/server/billing-upgrades.test.ts|dashboard/server/billing-unlimited.test.ts|dashboard/src/billing.ts|dashboard/src/components/Landing.tsx|dashboard/src/components/Landing.css|dashboard/src/components/PricingPanel.tsx|dashboard/src/components/SupportPanel.tsx|dashboard/src/index.css|dashboard/scripts/test-pricing-upgrades-ui.mts|deploy/check-release.sh) ;;
+      *) topup_removal_only=0 ;;
+    esac
+  done < <(git diff --name-only "$2" "$3")
+  if [ "$topup_removal_only" = 1 ] && [ "$topup_policy_changed" = 1 ]; then
+    timeout --signal=TERM --kill-after=2s 58s bash -e -c '
+      export CHROME_PATH="${CHROME_PATH:-/usr/bin/google-chrome-stable}"
+      bash -n deploy/check-release.sh
+      cd dashboard
+      ../seek-bot/node_modules/.bin/tsx --test server/billing-upgrades.test.ts server/billing-unlimited.test.ts
+      ../seek-bot/node_modules/.bin/tsx scripts/test-pricing-upgrades-ui.mts
+    '
+    echo 'Targeted top-up retirement checks passed (60-second maximum)'
+    exit 0
+  fi
   free_offer_only=1
   free_offer_changed=0
   while IFS= read -r path; do

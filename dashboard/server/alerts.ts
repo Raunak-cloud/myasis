@@ -8,7 +8,6 @@ import { entitlementsFor } from './entitlements.js';
 import { readEnv } from './runner.js';
 import { readSiteState } from './seek-state.js';
 import { accountSetupChecks } from './setup.js';
-import { PAID_PLANS } from '../src/pricing.js';
 import { accountUnavailable } from './account-lifecycle.js';
 
 /**
@@ -65,7 +64,6 @@ interface AlertKind {
 }
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-const TOP_UP = PAID_PLANS['application-top-up'];
 
 /** "Super low": a tenth of what the account was given, and never so early that it is just noise. */
 function lowThreshold(facts: Facts): number {
@@ -96,10 +94,10 @@ const ALERTS: AlertKind[] = [
       paragraphs: [
         `You have ${plural(facts.billing.totalRemaining, 'application')} left. When they are used, Owtomate stops applying until you add more.`,
         facts.billing.paid.hasActivePass
-          ? `A top-up adds ${TOP_UP.applications} more until your active pass ends.`
+          ? 'You can upgrade your pass for more applications or choose a new pass after it expires.'
           : 'A paid pass adds more applications and stronger automation without automatic renewal.',
       ],
-      action: { label: facts.billing.paid.hasActivePass ? 'Add applications' : 'See plans', tab: 'pricing' },
+      action: { label: 'See plans', tab: 'pricing' },
     }),
   },
   {

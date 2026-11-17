@@ -404,11 +404,6 @@
 .home-price-more { display: none; }
 .home-price-cta { align-self: center; justify-self: end; }
 .home-price-cta .home-button { min-height: 44px; padding-inline: 22px; }
-.home-price-foot {
-  margin: 32px 0 0; max-width: 64ch;
-  font-size: 13px; color: var(--muted); line-height: 1.6;
-  font-family: var(--mono); letter-spacing: .02em;
-}
 
 /* ============================================================ questions (annotated) */
 
@@ -639,7 +634,6 @@
      buy, and both are said again in-app. On a phone it is four mono lines
      between the last price and the questions, so it stays in the markup for
      wide screens and search engines and is dropped from the phone layout. */
-  .home-price-foot { display: none; }
 
   .home-faq-list details summary { grid-template-columns: 48px 1fr auto; gap: 12px; padding: 18px 0; }
   .home-faq-list details p { padding: 0 0 22px 60px; }

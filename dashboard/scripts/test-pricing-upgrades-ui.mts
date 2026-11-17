@@ -37,7 +37,10 @@ try {
     const now = Date.now();
     const active: ActivePass = { grantId: '123', planKey: 'essential-pass', expiresAt: new Date(now + 15 * DAY_MS).toISOString(),
       periodStartedAt: new Date(now - 15 * DAY_MS).toISOString(), priceCents: 990, durationMs: 30 * DAY_MS, applications: 50 };
-    const status = (): BillingStatus => ({ configured: true, free: { allowance: 5, used: 5, remaining: 0 },
+    let freePlan = false;
+    const status = (): BillingStatus => freePlan ? { configured:true,free:{allowance:5,used:0,remaining:5},
+      paid:{remaining:0,employerSiteRemaining:0,expiresAt:null,hasActivePass:false,hasActiveEssentialPass:false,hasActiveJobSearchPass:false,hasActiveIntensivePass:false,unlimitedApplications:false},
+      totalRemaining:5,offers:billingOffers(null,false,now) } : ({ configured: true, free: { allowance: 5, used: 5, remaining: 0 },
       paid: { remaining: 30, employerSiteRemaining: 0, expiresAt: active.expiresAt, hasActivePass: true,
         hasActiveEssentialPass: active.planKey === 'essential-pass', hasActiveJobSearchPass: active.planKey === 'job-search-pass',
         hasActiveIntensivePass: active.planKey === 'intensive-pass', unlimitedApplications: active.planKey === 'intensive-pass' },
@@ -70,7 +73,8 @@ try {
     assert.match(await card('Active Search').innerText(), /75 additional application credits/);
     assert.doesNotMatch(await card('Active Search').innerText(), /30 days of access/);
     assert.match(await card('Get Owtomated').innerText(), /upgrade/);
-    assert.equal(await page.getByRole('button', { name: 'Add 50 applications' }).isEnabled(), true);
+    assert.equal(await page.locator('.pricing-topup').count(),0);
+    assert.doesNotMatch(await page.locator('body').innerText(),/top-up|50 more applications|Needs a pass/i);
     await card('Active Search').getByRole('button', { name: 'Upgrade to Active Search' }).click();
     await page.getByRole('status').waitFor();
     const offer = status().offers!['job-search-pass'];
@@ -84,6 +88,7 @@ try {
     assert.equal(await card('Essential Pass').getByRole('button').isDisabled(), true);
     assert.equal(await card('Active Search').getByRole('button').isDisabled(), true);
     assert.equal(await card('Get Owtomated').getByRole('button', { name: 'Upgrade to Get Owtomated' }).isEnabled(), true);
+    assert.equal(await page.locator('.pricing-topup').count(),0);
     await page.goto(origin + '/pricing-fixture.html?payment=success&session_id=fixture');
     await page.getByRole('status').filter({ hasText: 'Upgraded to Active Search. Access ends' }).waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'pricing fits mobile');
@@ -93,9 +98,14 @@ try {
     await card('Get Owtomated').getByRole('button', { name: 'Your pass is active' }).waitFor();
     assert.equal(await page.locator('.pricing-card button:not(:disabled)').count(), 0);
     assert.equal(await page.locator('.pricing-topup').count(), 0);
+    freePlan = true;
+    await page.reload();
+    await card('Essential Pass').getByRole('button',{name:'Choose Essential Pass'}).waitFor();
+    assert.doesNotMatch(await page.locator('body').innerText(),/top-up|50 more applications|Needs a pass/i);
     await page.goto(origin+'/landing-pricing-fixture.html');
     const publicPricing=page.locator('#pricing');await publicPricing.waitFor();
     assert.match(await publicPricing.innerText(),/5 free applications/);assert.match(await publicPricing.innerText(),/11 free applications in total/);
+    assert.doesNotMatch(await publicPricing.innerText(),/top-up|A\$6\.90/i);
     assert.equal(await publicPricing.locator('.home-price-row').nth(0).locator('img[src="/platforms/jora.svg"]').count(),0);
     assert.equal(await publicPricing.locator('.home-price-row').nth(1).locator('img[src="/platforms/jora.svg"]').count(),0);
     await page.waitForFunction(()=>[...document.querySelectorAll('#pricing img')].every(n=>(n as HTMLImageElement).complete&&(n as HTMLImageElement).naturalWidth>0));

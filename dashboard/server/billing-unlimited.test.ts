@@ -125,7 +125,7 @@ test('real DB: unlimited includes preparation and employer forms, preserves fini
     assert.equal((await pool.query('SELECT credit_consumed FROM application_reviews WHERE user_id=1')).rows[0].credit_consumed, true);
     assert.equal((await pool.query('SELECT credits_used FROM application_credit_grants WHERE user_id=1')).rows[0].credits_used, 400);
     assert.equal((await pool.query('SELECT count(*)::int AS n FROM monthly_application_usage WHERE user_id=1')).rows[0].n, 0);
-    await assert.rejects(createCheckout({ id: '1', email: 'unlimited@fixture.invalid' } as Parameters<typeof createCheckout>[0], 'application-top-up'), /already includes unlimited/);
+    await assert.rejects(createCheckout({ id: '1', email: 'unlimited@fixture.invalid' } as Parameters<typeof createCheckout>[0], 'application-top-up'), /no longer available/);
     await pool.query("UPDATE application_credit_grants SET expires_at=now()-interval '1 second' WHERE user_id=1");
     assert.equal((await billingStatus('1')).paid.unlimitedApplications, false);
     await client.query('BEGIN'); await consumeApplicationCredit(client, '1'); await client.query('COMMIT');

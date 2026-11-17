@@ -189,7 +189,7 @@ test('a paid upgrade invalidated by another grant is refunded once and never gra
   assert.equal((await billingStatus('6')).paid.unlimitedApplications,true);
 });
 
-test('zero-cost remainder, discounted purchases and top-ups do not create recurring or extra charges', async () => {
+test('zero-cost remainder and discounted purchases do not create recurring or extra charges', async () => {
   const source = await seed(7,'essential-pass',0.5);
   const upgrade = await checkout(7,'job-search-pass');
   assert.equal(sessions.get(upgrade.id)!.amount_total,0); paid(upgrade.id);
@@ -201,9 +201,34 @@ test('zero-cost remainder, discounted purchases and top-ups do not create recurr
   const discountedPass = (await activeBillingPass(pool,'8'))!;
   assert.equal(discountedPass.priceCents,790,'retain the actual payment for audit');
   assert.equal(quoteCheckout('job-search-pass',discountedPass,false).amountCents,2009,'upgrade credits the full existing tier rather than the discounted payment');
-  const topup = await managedCheckout(pool,fake,user(8),'application-top-up',false,env);
-  paid(topup.id); const expiry = (await activeBillingPass(pool,'8'))!.expiresAt;
-  assert.equal((await fulfillPayment(pool,fake,topup.id,'8')).expiresAt,expiry);
+});
+
+test('retired top-ups reject new checkout before contacting Stripe but honor an existing paid checkout once', async () => {
+  await seed(13,'essential-pass');
+  const active = (await activeBillingPass(pool,'13'))!;
+  const count = requests.length;
+  for (const account of [user(13),user(14)]) {
+    await assert.rejects(managedCheckout(pool,fake,account,'application-top-up',false,env),
+      (error: unknown) => error instanceof Error && 'status' in error && error.status === 410);
+  }
+  assert.equal(requests.length,count,'retired purchases cannot create a payment session');
+  assert.equal(billingOffers(active,false)['application-top-up'].kind,'blocked');
+  assert.equal(billingOffers(null,false)['application-top-up'].kind,'blocked');
+  const id = `cs_retired_${randomUUID()}`, intentId = randomUUID();
+  const quote = { version:1,planKey:'application-top-up',kind:'topup',quotedAt:now,sourceGrantId:active.grantId,
+    target:{priceCents:690,durationDays:0,applications:50,employerSiteApplications:0},
+    amountCents:690,expiresAt:active.expiresAt,additionalApplications:50,periodStartedAt:active.periodStartedAt };
+  sessions.set(id,{id,mode:'payment',livemode:false,status:'complete',payment_status:'paid',subscription:null,
+    metadata:{userId:'13',planKey:'application-top-up',checkoutIntentId:intentId,durationDays:'0'},
+    amount_total:690,amount_subtotal:690,currency:'aud',payment_intent:`pi_${id}`,created:Math.floor(now/1000)} as unknown as Stripe.Checkout.Session);
+  await pool.query(`INSERT INTO billing_checkout_intents(id,user_id,plan_key,stripe_mode,state,stripe_checkout_session_id,quote,stripe_params,expires_at)
+    VALUES($1,13,'application-top-up','test','open',$2,$3,'{}',now()+interval '30 minutes')`,[intentId,id,JSON.stringify(quote)]);
+  const before = (await billingStatus('13')).paid.remaining;
+  const result = await fulfillPayment(pool,fake,id,'13');
+  assert.equal(result.fulfilled,true);assert.equal(result.expiresAt,active.expiresAt);
+  assert.equal((await billingStatus('13')).paid.remaining,before+50);
+  assert.equal((await fulfillPayment(pool,fake,id,'13')).fulfilled,false);
+  assert.equal((await billingStatus('13')).paid.remaining,before+50,'duplicate callbacks cannot duplicate credits');
 });
 
 test('zero-paid active passes receive the tier price credit and outdated unpaid upgrade links are replaced', async () => {

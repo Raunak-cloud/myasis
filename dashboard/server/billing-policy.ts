@@ -40,13 +40,8 @@ export function quoteCheckout(planKey: PaidPlanKey, active: ActivePass | null, a
   const base = { version: 1 as const, planKey, quotedAt: now, sourceGrantId: active?.grantId ?? null,
     target: { priceCents: plan.priceCents, durationDays: plan.durationDays, applications: plan.applications, employerSiteApplications: plan.employerSiteApplications } };
   if (!isPassPlanKey(planKey)) {
-    if (active?.planKey === 'intensive-pass') throw new BillingPolicyError('Get Owtomated already includes unlimited applications. No top-up is needed.');
-    if (!active) throw new BillingPolicyError('Application top-ups require an active paid pass. Choose a pass first.');
-    if (active.expiresAt && Date.parse(active.expiresAt) - now <= (CHECKOUT_LIFETIME_SECONDS + 4 * 60) * 1000) {
-      throw new BillingPolicyError('This pass ends too soon for a top-up checkout. Choose a new pass after it expires.');
-    }
-    return { ...base, kind: 'topup', amountCents: plan.priceCents, expiresAt: active.expiresAt,
-      additionalApplications: plan.applications, periodStartedAt: active.periodStartedAt };
+    // Keep the legacy SKU for receipts and payment fulfillment, but never sell it again.
+    throw new BillingPolicyError('Application top-ups are no longer available.', 410);
   }
   if (!active) return { ...base, kind: 'purchase', amountCents: plan.priceCents, expiresAt: null,
     additionalApplications: plan.applications, periodStartedAt: null };

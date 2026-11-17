@@ -1885,20 +1885,6 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 .pricing-trust li { display: flex; align-items: center; gap: 6px; }
 .pricing-trust li::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: var(--ok); }
 
-.pricing-topup {
-  display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 20px 22px;
-  border: 1px solid var(--border); border-radius: 14px; background: var(--surface-2);
-}
-.pricing-topup-copy { min-width: 0; }
-.pricing-topup.unavailable { background: var(--surface); }
-.pricing-topup.unavailable .pricing-price strong { color: var(--text-dim); }
-.pricing-topup h3 { margin: 6px 0 4px; font-size: 18px; letter-spacing: -.02em; }
-.pricing-topup p { margin: 0; color: var(--text-dim); font-size: 13.5px; }
-.pricing-topup-action { display: flex; align-items: center; gap: 18px; flex: none; }
-.pricing-topup-action .pricing-price { margin: 0; }
-.pricing-topup-action .pricing-price strong { font-size: 26px; }
-.pricing-topup-action .pricing-cta { width: auto; min-width: 190px; margin: 0; }
-
 @media (max-width: 1180px) {
   .pricing-grid { grid-template-columns: 1fr 1fr; }
   .pricing-status { grid-template-columns: 1fr 1fr; }
@@ -1909,16 +1895,13 @@ details.step[open] .step-chevron { transform: rotate(45deg); color: var(--text);
 @media (max-width: 700px) {
   .pricing-grid { grid-template-columns: 1fr; }
   .pricing-plan-copy { min-height: 0; }
-  .pricing-topup, .pricing-topup-action { align-items: stretch; flex-direction: column; }
-  .pricing-topup-action { gap: 12px; }
-  .pricing-topup-action .pricing-cta { width: 100%; }
   .pricing-trust { justify-content: flex-start; }
 }
 
 @media (max-width: 460px) {
   .pricing-status { grid-template-columns: 1fr; }
   .pricing-status > div + div { border-left: 0; border-top: 1px solid var(--border); }
-  .pricing-card, .pricing-topup { padding: 18px; }
+  .pricing-card { padding: 18px; }
 }
 
 @media (max-width: 520px) {
