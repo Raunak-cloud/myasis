@@ -33,15 +33,9 @@
 .pricing-page .pricing-features { display: grid; grid-template-columns: 1fr; align-content: start; flex: none; gap: 12px; margin: 0; padding: 0; border: 0; color: var(--text); font-size: 12px; line-height: 1.6; }
 .pricing-page .pricing-features li { gap: 7px; min-width: 0; }
 .pricing-page .pricing-card .pricing-features svg { width: 12px; height: 12px; margin-top: 4px; color: var(--text-dim); }
-.pricing-plan-details { margin-top: auto; padding-top: 4px; font-size: 12px; }
-.pricing-plan-details summary { display: flex; align-items: center; justify-content: space-between; min-height: 36px; color: var(--text-dim); cursor: pointer; list-style: none; }
-.pricing-plan-details summary::-webkit-details-marker { display: none; }
-.pricing-plan-details summary::after { content: '+'; font-size: 16px; font-weight: 400; }
-.pricing-plan-details[open] summary::after { content: '\2212'; }
-.pricing-plan-details[open] .pricing-features { padding-top: 10px; }
-.pricing-plan-details summary:hover { color: var(--text); }
-.pricing-plan-details summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
-.pricing-page .pricing-card .pricing-cta { width: 100%; min-height: 44px; margin: 0; padding: 9px 12px; border-radius: 8px; box-shadow: none; font-size: 12px; font-weight: 600; }
+.pricing-plan-details { display: grid; gap: 12px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 12px; }
+.pricing-plan-details h4 { margin: 0; color: var(--text-dim); font-size: 11px; font-weight: 600; }
+.pricing-page .pricing-card .pricing-cta { width: 100%; min-height: 44px; margin: auto 0 0; padding: 9px 12px; border-radius: 8px; box-shadow: none; font-size: 12px; font-weight: 600; }
 .pricing-page .pricing-cta:disabled { opacity: 1; background: var(--surface-2); border-color: var(--border); color: var(--text-dim); }
 .pricing-page .pricing-card.premium::before { content: none; animation: none; }
 .pricing-page .pricing-trust { gap: 8px 20px; margin: 0; justify-content: center; color: var(--text-dim); font-size: 11px; line-height: 1.5; }
@@ -62,7 +56,6 @@
   .pricing-plan-sources { min-height: 0; padding-top: 14px; }
   .pricing-page .pricing-status { gap: 6px 20px; padding: 12px 14px; }
   .pricing-page .pricing-status-label, .pricing-page .pricing-status-stat span, .pricing-page .pricing-status strong { font-size: 11px; }
-  .pricing-plan-details { padding-top: 0; }
-  .pricing-page .pricing-card .pricing-cta, .pricing-plan-details summary { min-height: 44px; }
+  .pricing-page .pricing-card .pricing-cta { min-height: 44px; }
   .pricing-page .pricing-trust { justify-content: flex-start; gap: 6px 16px; }
 }

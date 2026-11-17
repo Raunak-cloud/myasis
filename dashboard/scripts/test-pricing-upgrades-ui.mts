@@ -76,13 +76,12 @@ try {
     assert.equal(await card('Active Search').locator('img[src="/platforms/workday.svg"]').count(),0,'employer sources remain exclusive to Get Owtomated');
     assert.match(await card('Get Owtomated').innerText(),/Web search for employer-site jobs/);
     assert.doesNotMatch(await card('Active Search').innerText(),/Web search/);
-    assert.equal(await page.locator('.pricing-plan-details[open]').count(),0,'secondary plan details start collapsed');
+    assert.equal(await page.locator('.pricing-card details, .pricing-card summary').count(),0,'plan details have no accordion controls');
+    assert.equal(await page.locator('.pricing-plan-details:visible').count(),4,'every plan shows its details immediately');
     assert.ok(await page.locator('.pricing-source-brands img[src="/platforms/seek.svg"]').first().evaluate(el=>el.getBoundingClientRect().width<=48),'pricing logos stay compact');
     const ctaTops=await page.locator('.pricing-card .pricing-cta').evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().top));
     if(width===1440)assert.ok(Math.max(...ctaTops)-Math.min(...ctaTops)<1,'desktop plan actions align for comparison');
-    await card('Essential Pass').locator('.pricing-plan-details summary').click();
     assert.match(await card('Essential Pass').innerText(),/30 days of access/);
-    await card('Essential Pass').locator('.pricing-plan-details summary').click();
     assert.equal(await page.getByRole('region',{name:'Free application offer'}).count(),0,'Plans and pricing omits the promotional banner');
     assert.equal(await card('Essential Pass').getByRole('button').isDisabled(), true);
     assert.match(await card('Active Search').innerText(), /A\$10\.05/);

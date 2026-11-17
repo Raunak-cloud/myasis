@@ -239,10 +239,10 @@ export function PricingPanel() {
               <ul className="pricing-features">
                 {primary.map(featureItem)}
               </ul>
-              <details className="pricing-plan-details">
-                <summary>Plan details</summary>
+              <section className="pricing-plan-details" aria-label={`${card.name} plan details`}>
+                <h4>Plan details</h4>
                 <ul className="pricing-features">{details.map(featureItem)}{!details.some(feature=>feature.includes('Auto apply'))&&<li>Auto apply or Semi auto</li>}</ul>
-              </details>
+              </section>
               <button
                 className={`btn pricing-cta ${card.recommended && !isCurrent ? 'primary' : ''}`}
                 disabled={!paid || checkoutDisabled || unavailable}
