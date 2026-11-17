@@ -218,6 +218,7 @@ export function RunPanel({
   const [outOfApplications, setOutOfApplications] = useState(false);
   const [clock, setClock] = useState(() => Date.now());
   const [setupExpanded, setSetupExpanded] = useState(false);
+  const setupRef = useRef<HTMLDivElement>(null);
   const setup = useSetupStatus();
   /** The steps only the account holder can do; an account without them is not on the schedule yet. */
   const accountSetupIncomplete = Boolean(
@@ -689,7 +690,7 @@ export function RunPanel({
 
   return (
     <div className="run-layout">
-      <div className="run-span run-notes">
+      <div className="run-span run-notes" ref={setupRef} tabIndex={-1}>
         {setup && <SetupChecklist status={setup} expanded={setupExpanded} onExpandedChange={setSetupExpanded} onVerifyingSignInChange={setVerifyingSignIn} />}
         <BoardResumesNote />
       </div>
@@ -743,14 +744,14 @@ export function RunPanel({
             <p className="job-meta">{modelSaving ? 'Saving…' : 'Used for the whole next run.'}</p>
             {modelError && <p className="field-error" role="alert">{modelError}</p>}
           </div>}
-          <p className="job-meta">{applicationMode === 'auto' ? 'Owtomate finds suitable jobs, fills their forms and submits applications.' : 'Owtomate finds matching jobs, prepares cover letters and checks application access. You choose which jobs to apply to, then Owtomate fills their forms.'} {adminMode ? 'Start a single run now.' : 'Press Start to enable scheduled runs. Pause anytime to stop the current run and all future runs.'}</p>
-          {applicationMode === 'semi-auto' && <p className="job-meta">Review and confirm jobs in <a href="/?tab=prepared">Prepared Applications</a>.</p>}
-          {entitlements && !isAdmin && <p className="job-meta">{entitlements.autoRunsUsedToday} of {entitlements.autoRunsPerDay} runs started in the last 24 hours. You can confirm prepared applications while the schedule is paused.</p>}
+          <p className="job-meta run-mode-description">{applicationMode === 'auto'
+            ? adminMode || !entitlements?.autoRunsPerDay ? 'Find and apply to matching jobs in a single run.' : 'Find and apply to matching jobs on your daily schedule.'
+            : <>Review jobs in <a href="/?tab=prepared">Prepared Applications</a> before we apply.</>}</p>
         </div>}
         {isAdmin && <HrOutreachSettings />}
         <div className="run-actions" ref={runBar}>
           {/* Beside the run button on a phone; the desktop layout hides it. */}
-          <button
+          {(!accountSetupIncomplete || running || lines.length > 0) && <button
             type="button"
             className={`btn activity-open${running ? ' live' : ''}`}
             aria-haspopup="dialog"
@@ -758,7 +759,7 @@ export function RunPanel({
           >
             {running && <span className="activity-open-dot" aria-hidden="true" />}
             Activity
-          </button>
+          </button>}
           {autoSchedule?.enabled && !adminMode ? (
             <button className="btn btn-danger lg" disabled={autoToggling} onClick={() => void setAutoApply(false)}>
               {autoToggling ? 'Pausing…' : `Pause ${autoSchedule.applicationMode === 'semi-auto' ? 'Semi auto' : 'Auto apply'}`}
@@ -771,7 +772,13 @@ export function RunPanel({
             <button className="btn btn-danger lg" onClick={() => setStopConfirming(true)}>
               ⏹ Stop run
             </button>
-          ) : !driving ? null : (
+          ) : !driving ? null : accountSetupIncomplete ? (
+            <button className="btn primary lg" onClick={() => {
+              setSetupExpanded(true);
+              setupRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              setupRef.current?.focus({ preventScroll: true });
+            }}>Finish setup</button>
+          ) : (
             <>
               {/*
                 A run without a resume, a profile, search terms or a location
@@ -787,16 +794,13 @@ export function RunPanel({
               >
                 {applicationMode === 'semi-auto' ? 'Start Semi auto' : 'Start Auto apply'}
               </button>
-              {accountSetupIncomplete && (
-                <span className="job-meta">Finish the setup steps above to start a run.</span>
-              )}
               {!accountSetupIncomplete && signedOutEverywhere && !sessionFreeSourceSelected && (
                 <span className="job-meta">{employerSourcesEnabled ? 'You can search employer sites, or sign in to SEEK or Indeed below.' : 'Sign in to SEEK below before starting your first run.'}</span>
               )}
             </>
           )}
         </div>
-        {!running && driving && !(autoSchedule?.enabled && !adminMode) && entitlements?.runScopes && (
+        {!running && !accountSetupIncomplete && driving && !(autoSchedule?.enabled && !adminMode) && entitlements?.runScopes && (
           <div className="run-scope-actions">
             <button type="button" className="run-scope-link" disabled={accountSetupIncomplete || verifyingSignIn}
               title="Skips employer websites and applies only through SEEK or Indeed."
@@ -810,7 +814,7 @@ export function RunPanel({
             </button>
           </div>
         )}
-        {showAutoApply && (
+        {showAutoApply && (!accountSetupIncomplete || autoSchedule?.enabled || running) && (
           <div className={`run-auto-row${!autoSchedule?.enabled ? ' paused' : ''}`} aria-live="polite">
             <span className="run-auto-label">{entitlements.autoRunsPerDay} {entitlements.autoRunsPerDay === 1 ? 'run' : 'runs'} daily</span>
             <span className="job-meta run-auto-status">
@@ -829,7 +833,7 @@ export function RunPanel({
 
         {/* Keep sign-in available here as well as in Setup so a lapsed session
             can be repaired immediately before starting a run. */}
-        {!running && (
+        {!running && !accountSetupIncomplete && (
           <>
             {/* Same rule the run applies: an account that cannot fine-tune gets Indeed from its pass, not from the setting. */}
             {!setupExpanded && <SeekSignIn onVerifyingChange={setVerifyingSignIn} indeedEnabled={platforms.includes('indeed')} />}

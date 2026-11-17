@@ -44,7 +44,7 @@ const reportingItems: Array<typeof items[number] & { lookupOutcome?: string; loo
   { ...items[0], id: '196', title: 'HCL Software Engineer', company: 'HCLTech', contactName: null, toEmail: 'verified-recruitment@hcl.example.test', subject: 'Alternative contact subject', body: 'Exact alternative-contact email.', deliveryStatus: 'unknown', deliveryCheckedAt: checkedAt, outreachAttempt: 2, retryOfId: '197' },
   { ...items[0], id: '195', title: 'Temporarily delayed contact role', deliveryStatus: 'unknown', deliveryReason: 'The receiving mail service temporarily delayed this email.', deliveryCheckedAt: checkedAt },
 ];
-let runAdmin = true;
+let runAdmin = true, setupReady = true;
 const writes: unknown[] = [];
 const html = `<!doctype html><html><body><div id="root"></div><script type="module">import React from'react';import{createRoot}from'react-dom/client';import{ApplicationsPanel}from'/src/components/ApplicationsPanel.tsx';import'/src/index.css';const mode=new URLSearchParams(location.search).get('hr');createRoot(document.getElementById('root')).render(React.createElement(ApplicationsPanel,{apps:${JSON.stringify(apps)},onChange:()=>{},followUpDays:10,...(mode==='default'?{}:{showHrOutreach:mode!=='off'})}));</script></body></html>`;
 const liveHtml = `<!doctype html><html><body><main class="main-shell run-dashboard"><header class="page-header"><h1>Apply for jobs</h1></header><div id="root" class="page-content"></div></main><script type="module">import React from'react';import{createRoot}from'react-dom/client';import{RunPanel}from'/src/components/RunPanel.tsx';import'/src/index.css';createRoot(document.getElementById('root')).render(React.createElement(RunPanel,{lastRunAt:null,onFinished:()=>{},onGoPricing:()=>{}}));</script></body></html>`;
@@ -60,7 +60,8 @@ const vite = await createServer({ configFile: false, root: resolve(import.meta.d
     if (url.pathname === '/api/auth/me') { res.end(JSON.stringify({user:{id:'fixture',name:'Fixture Candidate',email:'fixture@example.test',avatarUrl:null},googleConfigured:true})); return; }
     if (url.pathname === '/api/today') { res.end(JSON.stringify({runs:1,submitted:32,reviewed:224})); return; }
     if (url.pathname === '/api/applications') { res.end(JSON.stringify(apps)); return; }
-    if (url.pathname === '/api/entitlements') { res.end(JSON.stringify({ tier: runAdmin ? 'admin' : 'standard', manualRuns: runAdmin, autoRunsPerDay: runAdmin ? 4 : 0, canPauseAutoApply: runAdmin, fineTune: false, advancedFilters: false, runScopes: runAdmin, employerSources: false })); return; }
+    if (url.pathname === '/api/entitlements') { res.end(JSON.stringify({ tier: runAdmin ? 'admin' : 'standard', manualRuns: runAdmin, firstRunRequired:!runAdmin, autoRunsPerDay: runAdmin ? 4 : 1, autoRunsUsedToday:0, canPauseAutoApply:true, fineTune: false, advancedFilters: false, runScopes: runAdmin, employerSources: false })); return; }
+    if (url.pathname === '/api/setup/status') { res.end(JSON.stringify({ready:setupReady,done:setupReady?3:0,total:3,checks:[{id:'resume',label:'Your resume',fix:'documents'},{id:'profile',label:'Your details',fix:'details'},{id:'looking',label:'Your job search',fix:'looking'}].map(check=>({...check,done:setupReady,required:true,hint:'Complete this step to start applying.'}))})); return; }
     if (url.pathname === '/api/auto-schedule') { res.end(JSON.stringify({enabled:false,applicationMode:'auto',runsUsedToday:0,runsPerDay:4,nextRunAt:null,dueNow:false,timeZone:'Australia/Sydney',lastError:null,waitingForSetup:false,waitingForBoard:false,waitingForFirstRun:false})); return; }
     if (url.pathname === '/api/run/status') { res.end(JSON.stringify({ running: false, mode: null, applicationMode: 'auto', startedAt: null, finishedAt: null, exitCode: 0, applied: 2, prepared: 0, hasKey: true, isOwner: true })); return; }
     if (url.pathname === '/api/settings') { res.end(JSON.stringify({ PLATFORMS: 'seek' })); return; }
@@ -157,6 +158,18 @@ try {
   runAdmin=false;const regular=await browser.newPage();let hrRequests=0;regular.on('request',r=>{if(r.url().includes('/api/hr-outreach'))hrRequests++;});await regular.goto(origin+'/hr-preview.html?hr=off');await regular.locator('.applications-list').waitFor();assert.equal(await regular.locator('.hr-role-link').count(),0);assert.equal(hrRequests,0);
   await regular.goto(origin+'/hr-live-preview.html');await regular.locator('.run-layout').waitFor();await regular.waitForTimeout(350);assert.equal(await regular.locator('.hr-activity-inline').count(),0);assert.equal(hrRequests,0);
   assert.equal(await regular.getByRole('checkbox',{name:'Email hiring teams',exact:true}).count(),0,'Preference keeps its existing access restriction');
+  setupReady=false;
+  const newcomer=await browser.newPage({viewport:{width:390,height:844}});await newcomer.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
+  await newcomer.goto(origin+'/hr-live-preview.html');
+  const finishSetup=newcomer.getByRole('button',{name:'Finish setup',exact:true});await finishSetup.waitFor();assert.equal(await finishSetup.isEnabled(),true,'New users get an actionable setup button');
+  const controls=newcomer.locator('.run-controls-card');
+  assert.equal(await controls.locator('.resume-line,.run-auto-row,.signin-status,.gmail-card,.activity-open').count(),0,'Unfinished setup has no resume claim, paused schedule or duplicate connection controls');
+  assert.equal(await controls.getByRole('button',{name:'Start Auto apply',exact:true}).count(),0,'No disabled Start button before setup is finished');
+  assert.ok((await controls.innerText()).length<210,'First-run panel has one short explanation');
+  await newcomer.screenshot({path:resolve(screenshotDir,'new-user-apply-mobile.png'),fullPage:true});
+  await newcomer.setViewportSize({width:1150,height:950});await newcomer.screenshot({path:resolve(screenshotDir,'new-user-apply-desktop.png'),fullPage:true});
+  await finishSetup.click();await newcomer.getByRole('button',{name:'Hide steps',exact:true}).waitFor();assert.equal(await newcomer.locator('.run-notes').evaluate(el=>el===document.activeElement),true,'Finish setup focuses the setup section');
+  setupReady=true;await newcomer.reload();await newcomer.getByRole('button',{name:'Start Auto apply',exact:true}).waitFor();assert.equal(await newcomer.getByRole('button',{name:'Finish setup',exact:true}).count(),0,'Start returns once setup is complete');
   runAdmin=true;
   const shell=await browser.newPage({viewport:{width:1950,height:950}});
   await shell.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());

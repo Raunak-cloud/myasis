@@ -2196,6 +2196,8 @@ textarea.run-instructions-input {
 .run-dashboard .run-controls-card,
 .run-dashboard .saved-search-card { min-height: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .run-section-title { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -.01em; }
+.run-dashboard .run-notes { scroll-margin-top: 72px; }
+.run-dashboard .run-mode-description { max-width: 44ch; line-height: 1.5; }
 .run-dashboard .hr-outreach-preference { margin: 0; padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
 .run-dashboard .hr-outreach-preference p { font-size: 12px; line-height: 1.55; }
 .run-activity-column { grid-area: activity; display: grid; gap: 16px; min-width: 0; }
@@ -2242,6 +2244,7 @@ button.apply-stat > span > span { flex: none; color: var(--text-faint); }
   .run-dashboard .run-controls-card .run-auto-row { justify-content: flex-start; padding-top: 4px; }
   .main-shell.run-dashboard .run-actions > .btn.lg,
   .main-shell.run-dashboard .run-actions > .activity-open { min-height: 48px; }
+  .run-dashboard .run-actions:not(:has(> .activity-open)) { grid-template-columns: minmax(0, 1fr); }
   .run-dashboard .run-actions > .resume-line { line-height: 1.4; }
 }
 .run-dashboard .console-card {
