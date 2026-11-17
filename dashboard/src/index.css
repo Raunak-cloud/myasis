@@ -954,7 +954,7 @@ a:focus-visible,
 }
 /* The list fills the sidebar so its foot sits at the bottom, not under the last link. */
 .side-nav { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
-.nav-links { flex: none; display: flex; flex-direction: column; gap: 2px; overflow: visible; }
+.nav-links { flex: none; display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow: visible; }
 
 /* ---------- the foot of the menu: the account, as one panel ----------
    Who is signed in at the top, then the plan and the job boards as rows that

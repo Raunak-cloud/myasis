@@ -131,7 +131,9 @@ try {
   await page.locator('.drawer').getByRole('button',{name:'Close',exact:true}).click();await page.getByRole('button',{name:'HR email for Archived application at Historical Employer'}).click();
   await page.locator('.drawer').getByText('My archived application',{exact:true}).waitFor();await page.locator('.drawer').getByText('View sent email',{exact:true}).click();assert.match(await page.locator('.drawer .letter').innerText(),/Exact historical email body/);
   await page.locator('.drawer').getByRole('button',{name:'Close',exact:true}).click();
-  failHistory=true;await page.reload();await page.getByRole('alert').filter({hasText:'Could not load your HR emails'}).waitFor();failHistory=false;await page.getByRole('button',{name:'Refresh HR status'}).click();await page.getByRole('button',{name:'HR email for Data Analyst at Fixture Employer'}).click();await page.locator('.drawer .hr-email').waitFor();await page.locator('.drawer').getByRole('button',{name:'Close',exact:true}).click();
+  failHistory=true;await page.reload();await page.getByRole('alert').filter({hasText:'Could not load your HR emails'}).waitFor();failHistory=false;
+  await page.getByRole('alert').filter({hasText:'Could not load your HR emails'}).waitFor({state:'hidden'});
+  await page.getByRole('button',{name:'HR email for Data Analyst at Fixture Employer'}).click();await page.locator('.drawer .hr-email').waitFor();await page.locator('.drawer').getByRole('button',{name:'Close',exact:true}).click();
   reportingMode=true;await page.reload();await page.getByRole('button',{name:'HR email for Data Analyst at Fixture Employer'}).click();
   const report=(title:string)=>page.locator('.drawer .hr-email').filter({has:page.getByText(title,{exact:true})});
   await report('No public contact role').waitFor();
