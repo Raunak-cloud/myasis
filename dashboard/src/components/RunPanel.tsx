@@ -17,6 +17,7 @@ import { TermsInput } from './TermsInput';
 import { EmployerSourceEditor } from './EmployerSourceEditor';
 import { SeekSignIn } from './SeekSignIn';
 import {FreeTrialOffer} from './FreeTrialOffer';
+import {GUEST_EMPLOYER_SOURCES} from '../../../seek-bot/src/guest-applications';
 import { GmailConnect } from './GmailConnect';
 import { LiveActionViewer } from './LiveActionViewer';
 import { MascotLogo } from './MascotLogo';
@@ -181,7 +182,8 @@ export function RunPanel({
   const [adminModeEnabled, setAdminModeEnabled] = useState(false);
   const adminMode = isAdmin && adminModeEnabled;
   const useScheduledRuns = Boolean(entitlements?.canPauseAutoApply) && !adminMode;
-  const jobBoards = [...(employerSourcesEnabled ? ALL_JOB_SOURCES : JOB_BOARDS), ...(boards?.adzunaAvailable ? [{ id: 'adzuna', label: 'Adzuna' }] : [])];
+  const jobBoards = [...(employerSourcesEnabled ? ALL_JOB_SOURCES : JOB_BOARDS), ...(boards?.adzunaAvailable ? [{ id: 'adzuna', label: 'Adzuna' }] : [])]
+    .filter(source=>!entitlements?.employerGuestOnly||!isEmployerSource(source.id)||(GUEST_EMPLOYER_SOURCES as readonly string[]).includes(source.id));
   const outOfAllowance = Boolean(entitlements && !isAdmin && billing && billing.totalRemaining < 1);
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [edits, setEdits] = useState<Record<string, string>>({});

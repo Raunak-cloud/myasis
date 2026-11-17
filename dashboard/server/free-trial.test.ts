@@ -35,11 +35,13 @@ test('new-user trial: atomic signup, employer-only defaults, shared five credits
   const facts={admin:false,billing:initial,autoRunsUsedToday:0,autoApplyPaused:true,hasSuccessfulRun:false,overrides:{evaluationsPerRun:null,maxApplicationsPerRun:null},searchTermSuggestionsLeft:1};
   const entitled=deriveEntitlements(facts);assert.equal(entitled.employerSources,true);assert.equal(entitled.indeedApplications,false);assert.equal(entitled.fineTune,false);
   const settings=applyRunPolicy({...RUN_SETTING_DEFAULTS},entitled,'auto');applyJobSourceAccess(settings,false,entitled.employerSources);
-  const sources=settings.PLATFORMS.split(',');assert(sources.includes('workday')&&sources.includes('pageup')&&sources.includes('smartrecruiters'));assert(!sources.includes('seek')&&!sources.includes('indeed'));
+  const sources=settings.PLATFORMS.split(',');assert.deepEqual(sources,['smartrecruiters','greenhouse']);assert(!sources.includes('seek')&&!sources.includes('indeed'));
   assert.deepEqual(availableJobSources(sources,true,()=>false).usable,sources,'no job-board sign-in is required');
-  assert.equal(applyRunPolicy({...RUN_SETTING_DEFAULTS,PLATFORMS:'pageup'},entitled,'auto',true,true).PLATFORMS,'pageup','trial source choices are saved without changing other plan controls');
-  assert.equal(effectivePlatforms({PLATFORMS:'pageup,indeed',PLATFORMS_CHOSEN:'1'},entitled),'pageup','source choices do not grant a paid Indeed entitlement');
+  assert.equal(applyRunPolicy({...RUN_SETTING_DEFAULTS,PLATFORMS:'greenhouse'},entitled,'auto',true,true).PLATFORMS,'greenhouse','trial source choices are saved without changing other plan controls');
+  assert.equal(effectivePlatforms({PLATFORMS:'greenhouse,pageup,workday,indeed',PLATFORMS_CHOSEN:'1'},entitled),'greenhouse','free choices exclude account-based sources and paid Indeed access');
   assert.equal(mayRunEmployerSiteApplications({targetIsAdmin:false,initiatedByAdmin:false,hasIntensiveAllowance:false,hasFreeEmployerAllowance:true}),true);
+  const paidEntitlements=deriveEntitlements({...facts,billing:{...initial,paid:{...initial.paid,hasActivePass:true,hasActiveIntensivePass:true}}});
+  assert.equal(paidEntitlements.employerGuestOnly,false);assert(effectivePlatforms({},paidEntitlements).includes('workday'),'paid employer-site coverage is unchanged');
   const consume=async(external:boolean)=>{const c=await pool.connect();try{await c.query('BEGIN');await consumeApplicationCredit(c,uid,external);await c.query('COMMIT');return true;}catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}};
   for(let i=0;i<4;i++)await consume(true);
   const race=await Promise.allSettled([consume(true),consume(true)]);assert.equal(race.filter(r=>r.status==='fulfilled').length,1,'only one caller can spend the final free credit');
@@ -52,7 +54,7 @@ test('new-user trial: atomic signup, employer-only defaults, shared five credits
   write('run');const grants=await Promise.all(Array.from({length:8},()=>freeTrialOffer(uid)));assert(grants.every(v=>v?.seekBonusAwarded));
   const connected=await billingStatus(uid,email);assert.equal(connected.free.allowance,11);assert.equal(connected.free.remaining,6);
   const connectedEntitlements=deriveEntitlements({...facts,billing:connected});assert(effectivePlatforms({},connectedEntitlements).split(',').includes('seek'));
-  assert.equal(effectivePlatforms({PLATFORMS:'pageup',PLATFORMS_CHOSEN:'1'},connectedEntitlements),'pageup','explicit source choices remain unchanged');
+  assert.equal(effectivePlatforms({PLATFORMS:'greenhouse',PLATFORMS_CHOSEN:'1'},connectedEntitlements),'greenhouse','explicit eligible source choices remain unchanged');
   write('run',false);assert.equal((await billingStatus(uid,email)).free.remaining,6,'earned bonus survives disconnection');
   for(let i=0;i<6;i++)await consume(i%2===0);
   write('run');const exhausted=await billingStatus(uid,email);assert.equal(exhausted.free.used,11);assert.equal(exhausted.free.remaining,0);assert.equal(exhausted.free.allowance,11);assert.equal(deriveEntitlements({...facts,billing:exhausted}).employerSources,false);

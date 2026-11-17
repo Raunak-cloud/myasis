@@ -13,6 +13,8 @@ import { VERIFICATION_PURPOSES, verificationSiteUrl, type VerificationPurpose } 
 import { VerificationChoices } from './verification-choices.js';
 import { GMAIL_IO_TIMEOUT_MS } from '../gmail-mcp-client.js';
 import { ordinaryFieldGuidance } from './ordinary-field-guidance.js';
+import {guestEmployerAccountRequired} from '../guest-applications.js';
+import {applicationModelEnvironment} from '../application-model.js';
 import { browserDeadline, assertBrowserOperationActive, BROWSER_OPERATION_TIMEOUT_MS, browserOperationOptions } from '../browser-deadline.js';
 
 // Private credential transport. Magnus chooses controls; native fill emits normal input events.
@@ -122,6 +124,7 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
   assertLive();
   const purpose = String(args.purpose ?? '');
   if (!['sign_in', 'create_account', 'reset_password'].includes(purpose)) return ok('Choose sign_in, create_account or reset_password from the observed form.', 'invalid-arguments');
+  if(applicationModelEnvironment().FREE_EMPLOYER_GUEST_ONLY==='true'&&guestEmployerAccountRequired(ctx.page.url(),true))return ok('Free employer applications use direct or guest forms only. No account was created, recovered or filled. Use a guest application if offered; if the employer requires registration or login, finish skipped with that reason. Ordinary application-email verification is allowed.','reobserve');
   if(![args.refs,args.targets].some(value=>Array.isArray(value)&&value.length))return ok('Supply current authentication refs or targets. Nothing was filled.','invalid-arguments');
   const account=employerCredentialState(credentialUrl(ctx),ctx.profile.email,ctx.job.company);
   if(account.state==='external')return accountHandoff(ctx);

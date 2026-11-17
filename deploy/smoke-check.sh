@@ -22,7 +22,7 @@ cd "$APP/dashboard"
 ../seek-bot/node_modules/.bin/tsx scripts/test-jora-beta-ui.mts
 ../seek-bot/node_modules/.bin/tsx --test server/job-index/codex-discovery.test.ts server/job-index/geography.test.ts server/job-index/config.test.ts server/job-index/extract.test.ts server/job-index/network.test.ts server/job-index/review.test.ts server/job-index/store.test.ts
 npm run test:statuses
-../seek-bot/node_modules/.bin/tsx --test server/billing-unlimited.test.ts server/billing-upgrades.test.ts server/application-email.test.ts server/auto-application-email.test.ts server/auth.test.ts server/free-trial.test.ts
+../seek-bot/node_modules/.bin/tsx --test server/billing-unlimited.test.ts server/billing-upgrades.test.ts server/application-email.test.ts server/auto-application-email.test.ts server/auth.test.ts server/free-trial.test.ts server/free-trial-rollout.test.ts
 ../seek-bot/node_modules/.bin/tsx scripts/test-free-trial-ui.mts
 ../seek-bot/node_modules/.bin/tsx server/run-policy.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/completed-job-reviews.test.ts server/job-review-memory.test.ts
@@ -65,7 +65,7 @@ check_bot() (
 cd "$APP/seek-bot"
 node dist/agent/auto-email-application.test.js
 node dist/agent/email-application.test.js
-node --test dist/jora-session.test.js dist/jora.test.js dist/jora-browser.test.js dist/application-identity.test.js dist/duplicate-review.test.js
+node --test dist/jora-session.test.js dist/jora.test.js dist/jora-browser.test.js dist/application-identity.test.js dist/duplicate-review.test.js dist/guest-applications.test.js
 if [ "$REPLAY_REQUIRED" = 1 ]; then
   cd "$APP/seek-bot"
   node dist/company-match.test.js

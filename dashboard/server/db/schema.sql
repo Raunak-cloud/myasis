@@ -1206,3 +1206,18 @@ CREATE TABLE IF NOT EXISTS public_employer_directory_searches (
  source TEXT NOT NULL CHECK(source IN ('pageup','smartrecruiters')),query TEXT NOT NULL,
  day DATE NOT NULL DEFAULT current_date,PRIMARY KEY(source,query,day)
 );
+
+-- Employer-first trial for accounts still getting started. Do not reset usage,
+-- choices or paid access, and never re-enrol accounts on later migrations.
+WITH rollout AS (
+ INSERT INTO application_setting_migrations(name) VALUES('employer-first-unused-trials-v1')
+ ON CONFLICT(name) DO NOTHING RETURNING name
+)
+INSERT INTO new_user_trials(user_id)
+SELECT u.id FROM users u WHERE EXISTS(SELECT 1 FROM rollout) AND u.blocked_at IS NULL
+ AND NOT EXISTS(SELECT 1 FROM monthly_application_usage m WHERE m.user_id=u.id AND m.successful_applications>0)
+ AND NOT EXISTS(SELECT 1 FROM applications a WHERE a.user_id=u.id AND a.submitted_by_myasis=true)
+ AND NOT EXISTS(SELECT 1 FROM application_reviews r WHERE r.user_id=u.id AND r.credit_consumed=true)
+ AND NOT EXISTS(SELECT 1 FROM run_starts r WHERE r.user_id=u.id AND r.applied>0)
+ AND NOT EXISTS(SELECT 1 FROM application_credit_grants g WHERE g.user_id=u.id AND g.credits_total>0)
+ON CONFLICT(user_id) DO NOTHING;

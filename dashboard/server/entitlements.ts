@@ -8,6 +8,7 @@ import { countedRunSql, RUN_TIME_ZONE } from './run-accounting.js';
 import { limitSearchTerms } from '../src/search-limits.js';
 import { boundedUserRunLimit, dailyApplicationLimit, USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
 import { EMPLOYER_SOURCES, isEmployerSource } from '../../seek-bot/src/employer-source-config.js';
+import {GUEST_EMPLOYER_SOURCES} from '../../seek-bot/src/guest-applications.js';
 
 export { SCHEDULED_MIN_SCORE, RUN_TIME_ZONE };
 
@@ -165,15 +166,16 @@ export const EMPLOYER_SOURCES_CHOSEN_KEY = 'EMPLOYER_SOURCES_CHOSEN';
  */
 export function effectivePlatforms(
   saved: Record<string, string | undefined>,
-  entitlement: Pick<Entitlements, 'indeedApplications'> & Partial<Pick<Entitlements, 'employerSources' | 'tier' | 'employerTrial' | 'seekTrialConnected'>>,
+  entitlement: Pick<Entitlements, 'indeedApplications'> & Partial<Pick<Entitlements, 'employerSources' | 'tier' | 'employerTrial' | 'seekTrialConnected' | 'employerGuestOnly'>>,
 ): string {
   if(entitlement.employerTrial && entitlement.employerSources && saved[PLATFORMS_CHOSEN_KEY]!=='1')return [
-    ...EMPLOYER_SOURCES.map(source=>source.id),...(entitlement.seekTrialConnected?['seek']:[]),...(entitlement.indeedApplications?['indeed']:[]),
+    ...(entitlement.employerGuestOnly?GUEST_EMPLOYER_SOURCES:EMPLOYER_SOURCES.map(source=>source.id)),...(entitlement.seekTrialConnected?['seek']:[]),...(entitlement.indeedApplications?['indeed']:[]),
   ].join(',');
   const value = (saved.PLATFORMS ?? RUN_SETTING_DEFAULTS.PLATFORMS).trim() || RUN_SETTING_DEFAULTS.PLATFORMS;
   const base = saved[PLATFORMS_CHOSEN_KEY] !== '1' && entitlement.indeedApplications && value === RUN_SETTING_DEFAULTS.PLATFORMS ? 'seek,indeed' : value;
   const selected = base.split(',').map(id => id.trim().toLowerCase()).filter(id => id && (!isEmployerSource(id) || entitlement.employerSources)
     && (id!=='indeed'||!entitlement.employerTrial||entitlement.indeedApplications)
+    && (!entitlement.employerGuestOnly||!isEmployerSource(id)||(GUEST_EMPLOYER_SOURCES as readonly string[]).includes(id))
     && (id !== 'jora' || saved.JORA_BETA_ENABLED !== 'false'));
   if (saved.JORA_BETA_ENABLED === 'true') selected.push('jora');
   if (entitlement.employerSources && entitlement.tier === 'intensive' && saved[EMPLOYER_SOURCES_CHOSEN_KEY] !== '1') {
@@ -187,7 +189,7 @@ export function applyRunPolicy(
   entitlement: Pick<
     Entitlements,
     'tier' | 'fineTune' | 'advancedFilters' | 'indeedApplications' | 'evaluationsPerRun' | 'maxApplicationsPerRunOverride'
-  > & Partial<Pick<Entitlements, 'employerSources' | 'maxApplicationsPerDay' | 'employerTrial' | 'seekTrialConnected'>>,
+  > & Partial<Pick<Entitlements, 'employerSources' | 'maxApplicationsPerDay' | 'employerTrial' | 'seekTrialConnected' | 'employerGuestOnly'>>,
   trigger: 'manual' | 'auto',
   /** Whether the account picked its boards itself (see effectivePlatforms). */
   boardsChosen = false,
@@ -271,6 +273,7 @@ export interface Entitlements {
   employerSources: boolean;
   employerTrial?: boolean;
   seekTrialConnected?: boolean;
+  employerGuestOnly?: boolean;
   /**
    * Search-term suggestions from resumes left. Null means no limit. The free
    * plan gets one: enough to see what it does, and the reason to buy a pass
@@ -464,6 +467,7 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
     runScopes: tier === 'admin',
     indeedApplications: billing.paid.hasActiveJobSearchPass || billing.paid.hasActiveIntensivePass,
     employerSources: tier === 'admin' || tier === 'intensive',
+    employerGuestOnly:!facts.admin&&!billing.paid.hasActivePass,
     ...(billing.free?.trial?{employerSources:tier==='admin'||tier==='intensive'||billing.free.remaining>0,employerTrial:true,seekTrialConnected:billing.free.trial.seekBonusAwarded}:{}),
     searchTermSuggestionsLeft: facts.searchTermSuggestionsLeft,
     timeZone: RUN_TIME_ZONE,

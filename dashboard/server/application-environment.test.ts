@@ -10,6 +10,7 @@ after(async () => { await pool.end(); });
 
 test('worker environment excludes retired controls and unknown credentials without mutating its input', () => {
   const input = { PATH: 'fixture-path', DATA_DIR: '/owner/files', CELERIS_API_KEY: 'fixture-key',
+    FREE_EMPLOYER_GUEST_ONLY:'forged-policy',
     HUMANIZER_API_KEY: 'fixture-rewriter', SITE_AUTH_SECRET: 'fixture-session',
     APPLICATION_AI_MODEL: 'retired', APPLICATION_AI_FORM_REVIEW_MODE: 'retired',
     APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true',
@@ -31,10 +32,10 @@ test('owner authorization selects one whole-run provider and server-owned creden
   Object.assign(process.env,{CELERIS_API_KEY:'server-review-key',OPENROUTER_API_KEY:'server-apply-key',ADMIN_EMAILS:'admin@fixture.invalid',ADZUNA_ENABLED:'true',ADZUNA_APP_ID:'server-adzuna-id',ADZUNA_APP_KEY:'server-adzuna-key'});
   pool.query = (async(sql:string,params:unknown[]) => ({rows: sql.includes('FROM application_model_assignments') ? [] : sql.includes('FROM run_starts')
     ? params[0]==='authorized'?[{email:'admin@fixture.invalid'}]:[]
-    : [{id:params[0],email:params[0]==='admin'?'admin@fixture.invalid':'customer@fixture.invalid'}]})) as typeof originalQuery;
+    : [{id:params[0],email:params[0]==='admin'?'admin@fixture.invalid':'customer@fixture.invalid',paid_application_access:params[0]==='paidcustomer'}]})) as typeof originalQuery;
   try {
-    for (const owner of ['admin','customer']) for (const selected of ['celeris','minimax','deepseek','retired']) {
-      const settings={APPLICATION_AI_MODEL:selected,CELERIS_API_KEY:'forged-review',OPENROUTER_API_KEY:'forged-apply',ADZUNA_APP_KEY:'forged-adzuna'};
+    for (const owner of ['admin','customer','paidcustomer']) for (const selected of ['celeris','minimax','deepseek','retired']) {
+      const settings={APPLICATION_AI_MODEL:selected,CELERIS_API_KEY:'forged-review',OPENROUTER_API_KEY:'forged-apply',ADZUNA_APP_KEY:'forged-adzuna',FREE_EMPLOYER_GUEST_ONLY:'forged-policy'};
       const env=await accountApplicationEnvironment(owner,settings);
       const minimax=owner==='admin' && selected==='minimax';
       const openRouter=owner==='admin' && selected==='minimax';
@@ -42,6 +43,7 @@ test('owner authorization selects one whole-run provider and server-owned creden
       assert.equal(env.CELERIS_API_KEY,openRouter?'':'server-review-key');
       assert.equal(env.OPENROUTER_API_KEY,openRouter?'server-apply-key':'');
       assert.equal(env.DATA_DIR,userDir(owner));
+      assert.equal(env.FREE_EMPLOYER_GUEST_ONLY,owner==='customer'?'true':'false','the server enforces guest-only for free accounts and preserves paid/admin access');
       assert.equal(env.ADZUNA_APP_KEY,'server-adzuna-key');
       assert.equal(env.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN,minimax?'false':'true');
       assert.equal(env.APPLICATION_AGENT_MODE,'agent-only');

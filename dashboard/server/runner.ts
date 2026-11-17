@@ -43,8 +43,10 @@ export async function accountBrowserEnvironment(userId: string, mode: RunMode): 
 /** Recheck the active owner before accessing their private application files. */
 export async function accountApplicationEnvironment(userId: string, settings?: Record<string, string>, runStartId?: string | null): Promise<Record<string, string>> {
   if (!/^[A-Za-z0-9_-]+$/.test(userId)) throw new Error('This account is not available for an application run.');
-  const owners = await query<{ id: string; email: string }>(
-    'SELECT id, email FROM users WHERE id = $1 AND blocked_at IS NULL',
+  const owners = await query<{ id: string; email: string; paid_application_access?:boolean }>(
+    `SELECT id, email,EXISTS(SELECT 1 FROM application_credit_grants g JOIN billing_purchases p ON p.id=g.purchase_id AND p.user_id=g.user_id
+      WHERE g.user_id=users.id AND p.plan_key IN ('essential-pass','job-search-pass','intensive-pass') AND (g.expires_at IS NULL OR g.expires_at>now())) AS paid_application_access
+      FROM users WHERE id = $1 AND blocked_at IS NULL`,
     [userId],
   );
   const owner = owners[0];
@@ -130,6 +132,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
   const queuePolicy = Object.fromEntries(['CELERIS_WORKSPACE_ID', 'CELERIS_QUEUE_FILE', 'CELERIS_MAX_CONCURRENT_REQUESTS', 'CELERIS_MIN_INTERVAL_MS']
     .flatMap(key => serverEnv[key]?.trim() ? [[key, serverEnv[key]!]] : []));
   return { ...queuePolicy, ...applicationBudget, ...bonusEnvironment, OPERATOR_MAX_EVALUATIONS:operatorReviewLimit, OPERATOR_RUN_TIMEOUT_MINUTES:operatorTimeout, DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
+    FREE_EMPLOYER_GUEST_ONLY:!admin&&!owner.paid_application_access?'true':'false',
     APPLICATION_AGENT_MODE: agentMode,
     APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: applicationScreenshotsForAccount(selectedSettings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, admin, selected),
     // Only the authorized provider credential enters the account's run context.
@@ -141,7 +144,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
 export function applicationRunEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const credentials = new Set(['CELERIS_API_KEY', 'CAPMONSTER_API_KEY',
     'SITE_AUTH_SECRET', 'WEBSHARE_API_KEY']);
-  return Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('ADZUNA_') && !key.startsWith('OPERATOR_') && !key.startsWith('OPENROUTER_') && !key.startsWith('GMAIL_') && !key.startsWith('APPLICATION_AI_') && !key.startsWith('APPLICATION_AGENT_') && !key.startsWith('HUMANIZER_')
+  return Object.fromEntries(Object.entries(env).filter(([key]) => key !== 'FREE_EMPLOYER_GUEST_ONLY' && !key.startsWith('ADZUNA_') && !key.startsWith('OPERATOR_') && !key.startsWith('OPENROUTER_') && !key.startsWith('GMAIL_') && !key.startsWith('APPLICATION_AI_') && !key.startsWith('APPLICATION_AGENT_') && !key.startsWith('HUMANIZER_')
     && (!/(?:_KEY|SECRET|PASSWORD|PASSWD|TOKEN)$/.test(key) || credentials.has(key))));
 }
 

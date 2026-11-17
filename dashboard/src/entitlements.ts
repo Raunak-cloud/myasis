@@ -31,6 +31,7 @@ export interface Entitlements {
   employerSources: boolean;
   employerTrial?: boolean;
   seekTrialConnected?: boolean;
+  employerGuestOnly?: boolean;
   /** Suggestions from resumes left; null means no limit. */
   searchTermSuggestionsLeft: number | null;
   timeZone: string;

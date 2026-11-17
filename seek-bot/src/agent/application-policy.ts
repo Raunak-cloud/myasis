@@ -1,4 +1,5 @@
 import { JOB_FIT_POLICY } from '../job-fit-policy.js';
+import {GUEST_EMPLOYER_INSTRUCTION} from '../guest-applications.js';
 
 /** Select one suitability authority; never give the applier contradictory
  * rematching instructions alongside a matcher approval or explicit selection. */
@@ -36,6 +37,6 @@ Saved instructions: "[candidate saved instructions inserted here at runtime]"`;
 
 
 /** The owner-approved system text, with only its saved-instructions slot filled. */
-export function buildApplicationSystemPrompt(savedInstructions: string | undefined): string {
-  return AGENT_ONLY_PROMPT.replace('"[candidate saved instructions inserted here at runtime]"', () => JSON.stringify(savedInstructions ?? ''));
+export function buildApplicationSystemPrompt(savedInstructions: string | undefined,guestEmployerOnly=false): string {
+  return AGENT_ONLY_PROMPT.replace('"[candidate saved instructions inserted here at runtime]"', () => JSON.stringify(savedInstructions ?? ''))+(guestEmployerOnly?'\n\n'+GUEST_EMPLOYER_INSTRUCTION:'');
 }
