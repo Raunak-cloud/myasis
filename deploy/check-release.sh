@@ -11,6 +11,7 @@ if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(
     case "$path" in
       dashboard/src/components/FreeTrialOffer.tsx) free_offer_changed=1 ;;
       dashboard/src/index.css|dashboard/scripts/test-free-trial-ui.mts|deploy/check-release.sh) ;;
+      dashboard/src/components/Landing.tsx|dashboard/src/components/PricingPanel.tsx|dashboard/src/components/PricingSources.tsx|dashboard/src/pricing.ts|dashboard/scripts/test-pricing-upgrades-ui.mts) ;;
       *) free_offer_only=0 ;;
     esac
   done < <(git diff --name-only "$2" "$3")
@@ -20,6 +21,7 @@ if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(
       bash -n deploy/check-release.sh
       cd dashboard
       ../seek-bot/node_modules/.bin/tsx scripts/test-free-trial-ui.mts
+      ../seek-bot/node_modules/.bin/tsx scripts/test-pricing-upgrades-ui.mts
     '
     echo 'Targeted free offer UI checks passed (60-second maximum)'
     exit 0
