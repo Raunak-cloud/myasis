@@ -1,6 +1,10 @@
 const NAMES: Record<string,string> = {seek:'SEEK',indeed:'Indeed',jora:'Jora'};
 
-/** Original source artwork, served locally. The containing control supplies its accessible name. */
+export function EmployerSitesLabel() {
+ return <span className="board-brand employer-sites-label"><svg width="22" height="22" viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 28V8l10-4 10 4v20M3 28h26M13 28v-6h6v6M11 12h2m6 0h2M11 17h2m6 0h2"/></svg><span>Employer sites</span></span>;
+}
+
+/** Original source artwork, served locally. Adjacent text supplies the accessible name. */
 export function BoardLogo({board}:{board:string}) {
  if(!NAMES[board])return null;
  return <span className={`board-brand-logo board-brand-logo-${board}`} aria-hidden="true"><img src={`/platforms/${board}.svg`} alt="" width="56" height="26" /></span>;

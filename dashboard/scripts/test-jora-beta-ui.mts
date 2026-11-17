@@ -15,6 +15,7 @@ let tier: 'standard' | 'intensive' | 'admin' = 'standard';
 let paidStandard=false;
 let activeStandard=false;
 let seekConnected=true;
+let failEmployerSave=false;
 const html = `<!doctype html><html><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/></head><body><div id="root"></div><script type="module">
 import React from 'react';import{createRoot}from'react-dom/client';import App from '/src/App.tsx';import'/src/index.css';
 createRoot(document.getElementById('root')).render(React.createElement(App));</script></body></html>`;
@@ -26,6 +27,7 @@ const server = await createServer({ configFile: false, root, plugins: [react(), 
     if (path === '/api/run/stream') { res.statusCode = 204; res.end(); return; }
     let body = ''; for await (const chunk of req) body += chunk;
     if (req.method !== 'GET') writes.push({ path, body: JSON.parse(body || '{}') });
+    if(path==='/api/settings'&&req.method==='POST'&&JSON.parse(body).updates?.EMPLOYER_APPLICATIONS_ENABLED!==undefined&&failEmployerSave){res.statusCode=503;res.setHeader('content-type','application/json');res.end(JSON.stringify({error:'Fixture save failed. Your preference was not changed.'}));return;}
     if (path === '/api/settings' && req.method === 'POST') settings = { ...settings, ...JSON.parse(body).updates };
     if (path === '/api/signin/session' && req.method === 'POST') signinSession = {id:'fictional-session',display:100,password:'fictional',target:'jora',state:'starting',startedAt:Date.now(),expiresAt:Date.now()+600000};
     if (path === '/api/signin/session' && req.method === 'DELETE') { signinSession = null; joraConnected = !req.url?.includes('cancel=true'); }
@@ -39,7 +41,7 @@ const server = await createServer({ configFile: false, root, plugins: [react(), 
       '/api/billing/status': { configured: true, totalRemaining: paidStandard||activeStandard||tier==='intensive'?55:5, free: { allowance: 5, used: 0, remaining: 5 }, paid: { remaining: paidStandard||activeStandard||tier==='intensive'?50:0, hasActivePass: paidStandard||activeStandard||tier==='intensive', hasActiveEssentialPass:paidStandard,hasActiveIntensivePass:tier==='intensive',hasActiveJobSearchPass:activeStandard } },
       '/api/setup/status': { ready: true, done: 3, total: 3, checks: ['resume', 'profile', 'looking'].map(id => ({ id, label: id, done: true, required: true })) },
       '/api/run/status': { running: false, hasKey: true, isOwner: true, applied: 0 },
-      '/api/signin/session': { supported: true, session: signinSession, seek: { signedIn: seekConnected }, indeed: { signedIn: false }, jora: joraConnected ? {signedIn:true,checkedAt:new Date().toISOString()} : null, joraVerified:joraConnected },
+      '/api/signin/session': { supported: true, session: signinSession, seek: { signedIn: seekConnected }, indeed: { signedIn: false }, jora: joraConnected ? {signedIn:true,checkedAt:new Date().toISOString()} : null, joraVerified:joraConnected,employerApplicationsEnabled:settings.EMPLOYER_APPLICATIONS_ENABLED!=='false' },
       '/api/auto-schedule': { enabled: false, applicationMode: 'auto', runsUsedToday: 0, runsPerDay: 1, nextRunAt: null, timeZone: 'Australia/Sydney', waitingForSetup: false },
       '/api/board-resumes': { boards: [] }, '/api/gmail/status': { connected: false },
       '/api/application-reviews': { applications: [] }, '/api/skipped': { items: [] }, '/api/attention': [], '/api/admin/simulations': { simulations: [] },
@@ -52,6 +54,21 @@ await server.listen();
 const origin = `http://127.0.0.1:${(server.httpServer!.address() as { port: number }).port}`;
 const browser = await chromium.launch({ headless: true, chromiumSandbox: true,
   ...(process.platform === 'win32' ? { channel: 'chrome' } : { executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome-stable' }) });
+async function employerPreference(page:import('../../seek-bot/node_modules/patchright/index.js').Page){
+  const sourceButton=()=>page.getByRole('button',{name:'Job sources: manage connections and employer-site applications.',exact:true});
+  const sourceDialog=()=>page.getByRole('dialog',{name:'Job sources',exact:true});
+  const toggle=()=>sourceDialog().getByRole('switch',{name:'Employer-site applications',exact:true});
+  const before={...settings};let n=writes.length;
+  await toggle().click();let confirmation=page.getByRole('alertdialog',{name:'Turn off employer-site applications?',exact:true});await confirmation.waitFor();assert.match(await confirmation.innerText(),/Future runs/);
+  if(activeStandard)await page.screenshot({path:resolve(output,'employer-confirmation.png'),fullPage:true,animations:'disabled'});
+  assert.equal(writes.length,n,'asking for confirmation does not save');await confirmation.getByRole('button',{name:'Cancel',exact:true}).click();assert.equal(await toggle().getAttribute('aria-checked'),'true');
+  await toggle().click();await page.getByRole('alertdialog').getByRole('button',{name:'Turn off employer sites',exact:true}).click();await toggle().filter({hasText:'Off'}).waitFor();
+  assert.deepEqual(writes[n],{path:'/api/settings',body:{updates:{EMPLOYER_APPLICATIONS_ENABLED:'false'}}});assert.deepEqual(settings,{...before,EMPLOYER_APPLICATIONS_ENABLED:'false'},'no other preferences changed');
+  await sourceDialog().getByRole('button',{name:'Close',exact:true}).click();await page.locator('.nav-employer-sites .nav-dot.off').waitFor();
+  await page.reload();await sourceButton().waitFor();await sourceButton().click();await toggle().filter({hasText:'Off'}).waitFor();
+  failEmployerSave=true;await toggle().click();await sourceDialog().getByText('Fixture save failed. Your preference was not changed.',{exact:true}).waitFor();assert.equal(await toggle().getAttribute('aria-checked'),'false');assert.equal(settings.EMPLOYER_APPLICATIONS_ENABLED,'false');
+  failEmployerSave=false;await toggle().click();await toggle().filter({hasText:'On'}).waitFor();assert.equal(settings.EMPLOYER_APPLICATIONS_ENABLED,'true');
+}
 try {
   mkdirSync(output, { recursive: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } }); page.setDefaultTimeout(8000);
@@ -59,7 +76,7 @@ try {
   await page.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   for (const plan of ['free','essential','active','intensive','admin'] as const) {
     tier=plan==='free'||plan==='essential'||plan==='active'?'standard':plan;paidStandard=plan==='essential';activeStandard=plan==='active';seekConnected=true;
-    settings.JORA_BETA_ENABLED = 'false'; settings.PLATFORMS = 'seek'; writes.length = 0; joraConnected = false;
+    settings.JORA_BETA_ENABLED = 'false'; settings.PLATFORMS = 'seek';settings.EMPLOYER_APPLICATIONS_ENABLED='true'; writes.length = 0; joraConnected = false;
     await page.goto(origin);
     await page.getByText('data analyst',{exact:true}).waitFor();
     assert.equal(await page.getByRole('checkbox', {name:'Include Jora Beta'}).count(),0,'the extra checkbox is removed');
@@ -70,15 +87,16 @@ try {
     if(plan==='free'||plan==='essential') {
       assert.equal(await review.getByRole('button',{name:'Jora (Beta)',exact:true}).count(),0,'Free and Essential have no Jora control');
       await review.getByRole('button',{name:'Cancel',exact:true}).click();
-      const sidebar=page.getByRole('button',{name:'Job boards: which account is signed in, sign out, sign in.',exact:true});
+      const sidebar=page.getByRole('button',{name:'Job sources: manage connections and employer-site applications.',exact:true});
       assert.equal(await sidebar.getByRole('img',{name:'Jora',exact:true}).count(),0);
       await sidebar.click();
-      const dialog=page.getByRole('dialog',{name:'Job boards',exact:true});
+      const dialog=page.getByRole('dialog',{name:'Job sources',exact:true});
       assert.equal(await dialog.getByRole('img',{name:'Jora',exact:true}).count(),0,'Jora connection stays hidden even with a saved session');
+      await employerPreference(page);
       await dialog.getByRole('button',{name:'Close',exact:true}).click();
       joraConnected=true;settings.JORA_BETA_ENABLED='true';seekConnected=plan!=='essential';await page.reload();await page.getByText('data analyst',{exact:true}).waitFor();
       if(plan==='essential')assert.equal(await page.getByRole('button',{name:'Start Auto apply',exact:true}).isDisabled(),true,'a stale Jora choice cannot make an Essential run ready without SEEK');
-      await sidebar.click();assert.equal(await page.getByRole('dialog',{name:'Job boards',exact:true}).getByRole('img',{name:'Jora',exact:true}).count(),0);
+      await sidebar.click();assert.equal(await page.getByRole('dialog',{name:'Job sources',exact:true}).getByRole('img',{name:'Jora',exact:true}).count(),0);
       assert.equal(writes.some(w=>w.path==='/api/signin/session'),false);
       continue;
     }
@@ -91,22 +109,23 @@ try {
     assert.equal(settings.PLATFORMS, 'seek'); assert.equal(settings.MIN_SALARY, '100000'); assert.equal(settings.MAX_AGE_DAYS, '10');
     const start = page.getByRole('button',{name:'Start Auto apply',exact:true});
     await start.waitFor(); assert.equal(await start.isEnabled(), true, 'public Jora search needs no board login');
-    const sidebar = page.getByRole('button',{name:'Job boards: which account is signed in, sign out, sign in.',exact:true});
-    assert.equal((await sidebar.locator('.nav-board-brands').innerText()).trim(),'','Sidebar uses logos without repeating board names');
+    const sidebar = page.getByRole('button',{name:'Job sources: manage connections and employer-site applications.',exact:true});
+    assert.equal((await sidebar.locator('.nav-board-brands').innerText()).trim(),'Employer sites','Sidebar names employer sites and uses board logos');
     for(const name of ['SEEK','Indeed','Jora'])assert.equal(await sidebar.getByRole('img',{name,exact:true}).count(),1,'Logo retains its accessible name');
     for(const board of ['seek','indeed','jora'])assert.equal(await sidebar.locator(`img[src="/platforms/${board}.svg"]`).count(),1);
     await page.waitForFunction(()=>[...document.querySelectorAll('.nav-board-brands img')].every(n=>(n as HTMLImageElement).complete&&(n as HTMLImageElement).naturalWidth>0));
     assert.ok(await sidebar.locator('img[src="/platforms/seek.svg"]').evaluate(el=>el.getBoundingClientRect().width>=70),'SEEK logo is legible in the sidebar');
     await sidebar.click();
-    let dialog = page.getByRole('dialog',{name:'Job boards',exact:true});
+    let dialog = page.getByRole('dialog',{name:'Job sources',exact:true});
     let row = dialog.locator('.boards-row').filter({has:page.getByRole('img',{name:'Jora',exact:true})});
     await row.getByRole('button',{name:'Sign in',exact:true}).click();
     const signIn = page.getByRole('dialog',{name:'Browser sign-in',exact:true}); await signIn.waitFor();
     assert.deepEqual(writes.find(write=>write.path==='/api/signin/session')!.body,{target:'jora',manual:true});
     await signIn.getByRole('button',{name:'Done',exact:true}).click();
-    await sidebar.click(); dialog=page.getByRole('dialog',{name:'Job boards',exact:true});
+    await sidebar.click(); dialog=page.getByRole('dialog',{name:'Job sources',exact:true});
     row=dialog.locator('.boards-row').filter({has:page.getByRole('img',{name:'Jora',exact:true})});
     await row.getByRole('button',{name:'Manage sign-in',exact:true}).waitFor();
+    await employerPreference(page);
     if(plan==='active') {
       await page.screenshot({path:resolve(output,'desktop.png'),fullPage:true,animations:'disabled'});
       await page.setViewportSize({width:390,height:844});
@@ -118,7 +137,7 @@ try {
     await page.reload(); await page.getByText('data analyst',{exact:true}).waitFor();
     assert.equal(settings.JORA_BETA_ENABLED,'true');
     assert.equal(await page.getByRole('checkbox',{name:'Include Jora Beta'}).count(),0);
-    await sidebar.click(); dialog=page.getByRole('dialog',{name:'Job boards',exact:true});
+    await sidebar.click(); dialog=page.getByRole('dialog',{name:'Job sources',exact:true});
     await dialog.locator('.boards-row').filter({has:page.getByRole('img',{name:'Jora',exact:true})}).getByRole('button',{name:'Manage sign-in',exact:true}).waitFor();
     await dialog.getByRole('button',{name:'Close',exact:true}).click();
     assert.equal(writes.some(write=>['/api/run','/api/auto-apply'].includes(write.path)),false,'fixture never starts a real run');

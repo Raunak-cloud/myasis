@@ -17,6 +17,7 @@ export interface BoardState {
 }
 
 export interface BoardsStatus {
+  employerApplicationsEnabled?: boolean;
   adzunaAvailable?: boolean;
   seek: BoardState | null;
   indeed: BoardState | null;
@@ -45,6 +46,7 @@ export function useBoardsStatus(verifyJora = false): BoardsStatus | null {
         .then((value) => {
           if (cancelled || !value || typeof value !== 'object') return;
           setStatus({ seek: value.seek ?? null, indeed: value.indeed ?? null, jora: value.jora ?? null,
+            employerApplicationsEnabled:value.employerApplicationsEnabled!==false,
             joraChecking: value.joraChecking === true, adzunaAvailable: value.adzunaAvailable === true });
         })
         .catch(() => {});

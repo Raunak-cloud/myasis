@@ -34,6 +34,7 @@ import { allowedOrigin, crossSite, hasSessionCookie, rateLimited, readJsonBody, 
 import { marketScoutProxy } from './server/market-scout.js';
 import { isAdmin as isAdminEmail } from './server/billing.js';
 import { jobSourceSettingsError } from './server/job-sources.js';
+import {employerApplicationsEnabled,preserveEmployerSources} from './src/employer-applications.js';
 import { adzunaConfigured } from '../seek-bot/src/adzuna-config.js';
 import { applicationModelForAccount } from './server/application-model-policy.js';
 import { assignedApplicationModel } from './server/application-model-assignments.js';
@@ -508,8 +509,10 @@ function dataApi(): Plugin {
             if (updates.PLATFORMS !== undefined && updates.PLATFORMS.trim() !== effectivePlatforms(before, entitlements)) {
               await upsertSettingRow(userId, PLATFORMS_CHOSEN_KEY, '1');
             }
+            const employersEnabled=employerApplicationsEnabled({...before,...updates});
+            if(updates.PLATFORMS!==undefined)updates.PLATFORMS=preserveEmployerSources(before.PLATFORMS,updates.PLATFORMS,employersEnabled);
             const settings = await saveUserSettings(userId, updates);
-            if (updates.PLATFORMS !== undefined && entitlements.employerSources) {
+            if (updates.PLATFORMS !== undefined && entitlements.employerSources && employersEnabled) {
               await upsertSettingRow(userId, EMPLOYER_SOURCES_CHOSEN_KEY, '1');
               settings[EMPLOYER_SOURCES_CHOSEN_KEY] = '1';
             }
@@ -827,6 +830,7 @@ function dataApi(): Plugin {
             seek,
             indeed,
             jora, joraChecking: seekCheckInProgress(userId, 'jora'),
+            employerApplicationsEnabled:employerApplicationsEnabled(await loadUserSettings(userId)),
             adzunaAvailable: adzunaConfigured({ ...readEnv(), ...process.env }),
             checking: seekCheckInProgress(userId, 'seek') || seekCheckInProgress(userId, 'indeed'),
           });

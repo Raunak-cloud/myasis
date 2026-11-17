@@ -41,7 +41,7 @@ node --test server/form-lab/engine.test.mjs
 ../seek-bot/node_modules/.bin/tsx scripts/test-visitor-analytics.mts
 ../seek-bot/node_modules/.bin/tsx server/visits.test.ts
 ../seek-bot/node_modules/.bin/tsx server/visits-access.test.ts
-../seek-bot/node_modules/.bin/tsx --test server/job-sources.test.ts
+../seek-bot/node_modules/.bin/tsx --test server/job-sources.test.ts server/employer-applications.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/application-model-policy.test.ts server/application-environment.test.ts server/application-agent-policy.test.ts server/operator-run-plan.test.ts
 ../seek-bot/node_modules/.bin/tsx server/application-model-assignments.test.ts
 ../seek-bot/node_modules/.bin/tsx --test server/operator-application-budget.test.ts

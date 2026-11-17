@@ -14,6 +14,7 @@ import { browserRunEnvironment } from './browser-run-policy.js';
 import { browserBenchmarkInProgress } from './browser-benchmark-lock.js';
 import { applicationWorkerEnvironment } from './application-worker-policy.js';
 import { loadUserSettings } from './settings.js';
+import {employerApplicationsEnabled} from '../src/employer-applications.js';
 import { applicationModelLabel } from '../../seek-bot/src/application-model-catalog.js';
 import {priorRunRepairMessage} from '../src/priorRunRepair.js';
 import { applicationModelCredentials, applicationModelForAccount } from './application-model-policy.js';
@@ -54,6 +55,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
   const serverEnv = { ...readEnv(), ...process.env };
   const admin = isAdmin(owner.email);
   const selectedSettings = settings ?? await loadUserSettings(userId);
+  const persistedSettings=settings?await loadUserSettings(userId):selectedSettings;
   let workdaySites: string[] = [];
   let workdayDirectoryFile = '';
   if (selectedSettings.PLATFORMS?.split(',').includes('workday') && (selectedSettings.EMPLOYER_FEEDS_ADMIN_ENABLED === 'true' || selectedSettings.SMARTRECRUITERS_ADMIN_ENABLED === 'true')) {
@@ -133,6 +135,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
     .flatMap(key => serverEnv[key]?.trim() ? [[key, serverEnv[key]!]] : []));
   return { ...queuePolicy, ...applicationBudget, ...bonusEnvironment, OPERATOR_MAX_EVALUATIONS:operatorReviewLimit, OPERATOR_RUN_TIMEOUT_MINUTES:operatorTimeout, DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
     FREE_EMPLOYER_GUEST_ONLY:!admin&&!owner.paid_application_access?'true':'false',
+    ...(!employerApplicationsEnabled(persistedSettings)?{ALLOW_EXTERNAL_APPLY:'false'}:{}),
     APPLICATION_AGENT_MODE: agentMode,
     APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: applicationScreenshotsForAccount(selectedSettings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, admin, selected),
     // Only the authorized provider credential enters the account's run context.

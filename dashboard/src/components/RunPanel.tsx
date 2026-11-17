@@ -179,7 +179,8 @@ export function RunPanel({
   /** On-demand runs use the authenticated admin path; normal application caps still apply. */
   const isAdmin = entitlements?.tier === 'admin';
   const {progress:hrProgress,error:hrProgressError}=useHrOutreachActivity(isAdmin);
-  const employerSourcesEnabled = entitlements?.employerSources === true;
+  const employerSitesEnabled=boards?.employerApplicationsEnabled!==false;
+  const employerSourcesEnabled = entitlements?.employerSources === true && employerSitesEnabled;
   const [adminModeEnabled, setAdminModeEnabled] = useState(false);
   const adminMode = isAdmin && adminModeEnabled;
   const useScheduledRuns = Boolean(entitlements?.canPauseAutoApply) && !adminMode;
@@ -238,7 +239,7 @@ export function RunPanel({
     fetch('/api/settings').then((r) => r.ok ? r.json() : null).then(value => {
       if (value) setSettings(value);
     }).catch(() => {});
-  }, [entitlements?.employerTrial,entitlements?.seekTrialConnected,entitlements?.employerSources]);
+  }, [entitlements?.employerTrial,entitlements?.seekTrialConnected,entitlements?.employerSources,boards?.employerApplicationsEnabled]);
 
   /**
    * How tall the run bar is, published for the page to reserve.
@@ -1182,6 +1183,7 @@ export function RunPanel({
                   {fieldError('PLATFORMS')}
                 </div>
                 {employerSourceSelected && !isAdmin && <p className="job-meta">{entitlements?.employerTrial?'Employer websites are included in your free trial. No job-board connection is needed.':'Employer sources are included with Get Owtomated. No SEEK or Indeed sign-in is needed for these sources.'}</p>}
+                {!employerSitesEnabled&&<p className="job-meta">Employer-site applications are off. Manage them in Job sources in the sidebar.</p>}
                 {isAdmin && EMPLOYER_SOURCES.filter(source => platforms.includes(source.id)).map(source => (
                   <div key={source.id} className="field run-review-wide" data-field={source.key}>
                     <EmployerSourceEditor source={source} value={val(source.key)} onChange={value => setEdit(source.key, value)} />

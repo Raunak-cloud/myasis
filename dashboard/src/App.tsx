@@ -1,5 +1,5 @@
 import { Wordmark } from './components/Wordmark';
-import {BoardBrand} from './components/BoardBrand';
+import {BoardBrand,EmployerSitesLabel} from './components/BoardBrand';
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Application } from './types';
 import type { AttentionItem } from './components/AttentionPanel';
@@ -444,13 +444,14 @@ export default function App() {
                   className="nav-row"
                   onClick={() => { setMenuOpen(false); setBoardsOpen(true); }}
                   aria-haspopup="dialog"
-                  aria-label="Job boards: which account is signed in, sign out, sign in."
-                  title="See which account each job board is signed in with, sign out, or sign in yourself."
+                  aria-label="Job sources: manage connections and employer-site applications."
+                  title="Manage job-board connections and employer-site applications."
                 >
                   <span className="nav-row-main">
-                    <span className="nav-row-title">Job boards</span>
+                    <span className="nav-row-title">Job sources</span>
                     <span className="nav-board-brands">
                       {visibleJobBoards(boards, entitlements?.joraSignIn === true).map(board=><span className="nav-board-brand" key={board}><BoardBrand board={board} compact/><span className={`nav-dot ${boards[board]?.signedIn?'on':'off'}`} aria-hidden="true"/></span>)}
+                      <span className="nav-board-brand nav-employer-sites"><EmployerSitesLabel/><span className={`nav-dot ${boards.employerApplicationsEnabled===false?'off':'on'}`} aria-hidden="true"/></span>
                     </span>
                   </span>
                   <svg className="nav-row-chevron" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>

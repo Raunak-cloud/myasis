@@ -4,6 +4,7 @@ import { applicationModelSettingsError, applicationModelForAccount } from './app
 import { applicationAgentSettingsError, applicationAgentModeForAccount, applicationScreenshotsForAccount } from './application-agent-policy.js';
 
 export function jobSourceSettingsError(updates: Record<string, unknown>, targetIsAdmin: boolean, employerSources = targetIsAdmin, adzunaAvailable = false): { status: number; error: string } | null {
+  if(updates.EMPLOYER_APPLICATIONS_ENABLED!==undefined && !['true','false'].includes(String(updates.EMPLOYER_APPLICATIONS_ENABLED)))return {status:400,error:'Choose whether employer-site applications are on or off.'};
   const modelError = applicationModelSettingsError(updates, targetIsAdmin);
   if (modelError) return modelError;
   const agentError = applicationAgentSettingsError(updates, targetIsAdmin);

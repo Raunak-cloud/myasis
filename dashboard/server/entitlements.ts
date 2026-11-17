@@ -9,6 +9,7 @@ import { limitSearchTerms } from '../src/search-limits.js';
 import { boundedUserRunLimit, dailyApplicationLimit, USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
 import { EMPLOYER_SOURCES, isEmployerSource } from '../../seek-bot/src/employer-source-config.js';
 import {GUEST_EMPLOYER_SOURCES} from '../../seek-bot/src/guest-applications.js';
+import {employerApplicationsEnabled} from '../src/employer-applications.js';
 
 export { SCHEDULED_MIN_SCORE, RUN_TIME_ZONE };
 
@@ -113,6 +114,7 @@ const INTENSIVE_EVALUATIONS_PER_RUN = PLAN_LIMITS['intensive-pass'].evaluationsP
  */
 const BASIC_SETTINGS_KEYS = [
   'JORA_BETA_ENABLED',
+  'EMPLOYER_APPLICATIONS_ENABLED',
   'KEYWORDS',
   'EXCLUDED_COMPANIES',
   'WORK_ARRANGEMENTS',
@@ -168,20 +170,21 @@ export function effectivePlatforms(
   saved: Record<string, string | undefined>,
   entitlement: Pick<Entitlements, 'indeedApplications'> & Partial<Pick<Entitlements, 'employerSources' | 'tier' | 'employerTrial' | 'seekTrialConnected' | 'employerGuestOnly' | 'joraSignIn'>>,
 ): string {
-  if(entitlement.employerTrial && entitlement.employerSources && saved[PLATFORMS_CHOSEN_KEY]!=='1')return [
+  const employersEnabled=entitlement.employerSources && employerApplicationsEnabled(saved);
+  if(entitlement.employerTrial && employersEnabled && saved[PLATFORMS_CHOSEN_KEY]!=='1')return [
     ...(entitlement.employerGuestOnly?[...GUEST_EMPLOYER_SOURCES,'jora']:EMPLOYER_SOURCES.map(source=>source.id)),...(entitlement.seekTrialConnected?['seek']:[]),...(entitlement.indeedApplications?['indeed']:[]),
     ...(!entitlement.employerGuestOnly && entitlement.joraSignIn===true && saved.JORA_BETA_ENABLED==='true'?['jora']:[]),
   ].join(',');
   const value = (saved.PLATFORMS ?? RUN_SETTING_DEFAULTS.PLATFORMS).trim() || RUN_SETTING_DEFAULTS.PLATFORMS;
   const base = saved[PLATFORMS_CHOSEN_KEY] !== '1' && entitlement.indeedApplications && value === RUN_SETTING_DEFAULTS.PLATFORMS ? 'seek,indeed' : value;
-  const selected = base.split(',').map(id => id.trim().toLowerCase()).filter(id => id && (!isEmployerSource(id) || entitlement.employerSources)
+  const selected = base.split(',').map(id => id.trim().toLowerCase()).filter(id => id && (!isEmployerSource(id) || employersEnabled)
     && (id!=='indeed'||!entitlement.employerTrial||entitlement.indeedApplications)
     && (!entitlement.employerGuestOnly||!isEmployerSource(id)||(GUEST_EMPLOYER_SOURCES as readonly string[]).includes(id))
     && (id !== 'jora' || entitlement.joraSignIn===true && saved.JORA_BETA_ENABLED !== 'false'));
   if (entitlement.joraSignIn===true && saved.JORA_BETA_ENABLED === 'true') selected.push('jora');
   // Free accounts use public Jora discovery in the background, without a Jora account.
-  if(entitlement.employerGuestOnly && entitlement.employerSources) selected.push('jora');
-  if (entitlement.employerSources && entitlement.tier === 'intensive' && saved[EMPLOYER_SOURCES_CHOSEN_KEY] !== '1') {
+  if(entitlement.employerGuestOnly && employersEnabled) selected.push('jora');
+  if (employersEnabled && entitlement.tier === 'intensive' && saved[EMPLOYER_SOURCES_CHOSEN_KEY] !== '1') {
     selected.push(...EMPLOYER_SOURCES.map(source => source.id));
   }
   return [...new Set(selected)].join(',') || RUN_SETTING_DEFAULTS.PLATFORMS;
@@ -212,6 +215,7 @@ export function applyRunPolicy(
   }
   // A pass that includes Indeed adds it, unless the account picked its boards itself.
   resolved.PLATFORMS = effectivePlatforms({ PLATFORMS: resolved.PLATFORMS, JORA_BETA_ENABLED: resolved.JORA_BETA_ENABLED,
+    EMPLOYER_APPLICATIONS_ENABLED:resolved.EMPLOYER_APPLICATIONS_ENABLED,
     [PLATFORMS_CHOSEN_KEY]: boardsChosen ? '1' : '', [EMPLOYER_SOURCES_CHOSEN_KEY]: employerSourcesChosen ? '1' : '' }, entitlement);
   // Review overrides remain independent of the application allowance.
   if (entitlement.evaluationsPerRun !== null) {

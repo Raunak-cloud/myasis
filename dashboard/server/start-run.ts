@@ -31,6 +31,7 @@ import { query } from './db/index.js';
 import { validateExternalJobUrl } from './external-job-url.js';
 import { mayRunEmployerSiteApplications } from './employer-site-access.js';
 import { applyJobSourceAccess, availableJobSources, jobSourceSettingsError } from './job-sources.js';
+import {employerApplicationsEnabled} from '../src/employer-applications.js';
 import { loadProfile } from './profile.js';
 import { annualSalaryAmount, EXPECTED_SALARY_REQUIRED } from '../src/salary.js';
 import type { RunDevice } from '../src/run-device.js';
@@ -289,6 +290,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
 
   const settingsSnapshot = await runSettingsSnapshotForUser(userId, { unlimited: admin });
   const settings = settingsSnapshot.settings;
+  const employersEnabled=employerApplicationsEnabled(settings);
 
   /**
    * Only known per-account settings are accepted from a browser: without this
@@ -297,6 +299,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * the behaviour settings either, whatever its UI is showing.
    */
   for (const [key, value] of Object.entries(request.clientOverrides ?? {})) {
+    if(key==='EMPLOYER_APPLICATIONS_ENABLED')continue; // Changed only through the saved account preference.
     if (trigger !== 'manual' && trigger !== 'admin') break;
     if (!USER_SETTABLE_SETTINGS_KEYS.includes(key as (typeof USER_SETTABLE_SETTINGS_KEYS)[number])) continue;
     if (!mayEditRunSetting(key, entitlements)) continue;
@@ -347,6 +350,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     if (selections) prepaid = await applicationsForConfirmation(userId, selections);
   } catch (error) { return { ok: false, status: 409, error: (error as Error).message }; }
   const prepaidExternal = prepaid.filter(item => item.job.applicationMode === 'external' || isExternalApplicationUrl(item.formUrl)).length;
+  if(prepaidExternal>0&&!employersEnabled)return {ok:false,status:409,error:'Employer-site applications are off. Turn them on before confirming these applications.'};
   // Preparing a trial application already spent its credit. Completing that
   // exact approved draft remains available when its unused balance reaches zero.
   if(prepaidExternal>0&&entitlements.employerTrial){
@@ -374,6 +378,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   catch (error) { return { ok: false, status: 400, error: (error as Error).message }; }
   let directExternalUrl: string | null = null;
   if (request.externalUrl !== undefined) {
+    if(!employersEnabled)return {ok:false,status:409,error:'Employer-site applications are off. Turn them on before starting a direct application.'};
     if (trigger !== 'admin') return { ok: false, status: 403, error: 'Only administrators can start a direct website application.' };
     if (mode !== 'live') return { ok: false, status: 400, error: 'A direct website application must be a live run.' };
     if (request.jobIds !== undefined) return { ok: false, status: 400, error: 'Choose either a direct website URL or targeted board jobs, not both.' };
@@ -441,12 +446,12 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
         Math.max(0, INTENSIVE_EMPLOYER_SITES_PER_DAY - externalUsedToday),
       );
       // Decided from the active pass here, never from a supplied override.
-      const employerSitesAllowed = prepaidExternal > 0 || mayRunEmployerSiteApplications({
+      const employerSitesAllowed = employersEnabled && (prepaidExternal > 0 || mayRunEmployerSiteApplications({
         targetIsAdmin: admin,
         initiatedByAdmin: trigger === 'admin',
         hasIntensiveAllowance: externalAvailable,
         hasFreeEmployerAllowance:freeEmployerRemaining>0,
-      });
+      }));
       overrides.ALLOW_EXTERNAL_APPLY = employerSitesAllowed ? 'true' : 'false';
       if (directExternalUrl && overrides.ALLOW_EXTERNAL_APPLY !== 'true') {
         return { ok: false, status: 403, error: 'Direct employer-website testing requires an administrator and an active Get Owtomated pass.' };
@@ -485,7 +490,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
      * employer-sites-only search could never find a job (0 of 191 on 4 Oct).
      */
     const allowance = await billingStatus(userId, email).catch(() => null);
-    overrides.ALLOW_EXTERNAL_APPLY = mayRunEmployerSiteApplications({
+    overrides.ALLOW_EXTERNAL_APPLY = employersEnabled && mayRunEmployerSiteApplications({
       targetIsAdmin: admin,
       initiatedByAdmin: trigger === 'admin',
       hasIntensiveAllowance: Boolean(allowance?.paid.hasActiveIntensivePass),

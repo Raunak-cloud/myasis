@@ -30,7 +30,8 @@ test('owner authorization selects one whole-run provider and server-owned creden
   const names = ['CELERIS_API_KEY','OPENROUTER_API_KEY','ADMIN_EMAILS','ADZUNA_ENABLED','ADZUNA_APP_ID','ADZUNA_APP_KEY'] as const;
   const prior = Object.fromEntries(names.map(name => [name,process.env[name]]));
   Object.assign(process.env,{CELERIS_API_KEY:'server-review-key',OPENROUTER_API_KEY:'server-apply-key',ADMIN_EMAILS:'admin@fixture.invalid',ADZUNA_ENABLED:'true',ADZUNA_APP_ID:'server-adzuna-id',ADZUNA_APP_KEY:'server-adzuna-key'});
-  pool.query = (async(sql:string,params:unknown[]) => ({rows: sql.includes('FROM application_model_assignments') ? [] : sql.includes('FROM run_starts')
+  let employersEnabled=true;
+  pool.query = (async(sql:string,params:unknown[]) => ({rows: sql.includes('SELECT key, value FROM settings')?[{key:'EMPLOYER_APPLICATIONS_ENABLED',value:String(employersEnabled)}]:sql.includes('FROM application_model_assignments') ? [] : sql.includes('FROM run_starts')
     ? params[0]==='authorized'?[{email:'admin@fixture.invalid'}]:[]
     : [{id:params[0],email:params[0]==='admin'?'admin@fixture.invalid':'customer@fixture.invalid',paid_application_access:params[0]==='paidcustomer'}]})) as typeof originalQuery;
   try {
@@ -48,6 +49,12 @@ test('owner authorization selects one whole-run provider and server-owned creden
       assert.equal(env.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN,minimax?'false':'true');
       assert.equal(env.APPLICATION_AGENT_MODE,'agent-only');
       assert.equal(settings.APPLICATION_AI_MODEL,selected,'no saved preference mutation');
+    }
+    for(const owner of ['admin','customer']){
+      employersEnabled=false;
+      assert.equal((await accountApplicationEnvironment(owner,{APPLICATION_AI_MODEL:'celeris',ALLOW_EXTERNAL_APPLY:'true',EMPLOYER_APPLICATIONS_ENABLED:'true'})).ALLOW_EXTERNAL_APPLY,'false','saved owner opt-out wins over posted settings and admin routing');
+      employersEnabled=true;
+      assert.equal((await accountApplicationEnvironment(owner,{APPLICATION_AI_MODEL:'celeris'})).ALLOW_EXTERNAL_APPLY,undefined,'enabling never grants employer access beyond the existing plan policy');
     }
     const overrideSettings={APPLICATION_AI_MODEL:'celeris',ADMIN_APPLICATION_MODEL:'minimax'};
     const override=await accountApplicationEnvironment('customer',overrideSettings,'authorized');

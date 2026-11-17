@@ -35,6 +35,7 @@ export const KEEP_SETTINGS_KEYS = [
   // since launch but missing from this list, so it never reached a run.
   'AI_INSTRUCTIONS_B64',
   'JORA_BETA_ENABLED',
+  'EMPLOYER_APPLICATIONS_ENABLED',
 ] as const;
 
 /** TARGET_ROLE remains only so every run explicitly blanks legacy values. */
@@ -95,6 +96,7 @@ export const RUN_SETTING_DEFAULTS: Record<string, string> = {
   EXCLUDED_COMPANIES: '',
   PLATFORMS: 'seek',
   JORA_BETA_ENABLED: 'false',
+  EMPLOYER_APPLICATIONS_ENABLED:'true',
   ...EMPLOYER_SOURCE_DEFAULTS,
   WORK_ARRANGEMENTS: 'remote,hybrid,onsite',
   JOB_TYPES: '',

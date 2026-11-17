@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import {BoardBrand} from './BoardBrand';
+import { useEffect,useState } from 'react';
+import {BoardBrand,EmployerSitesLabel} from './BoardBrand';
+import {EMPLOYER_APPLICATIONS_ENABLED} from '../employer-applications';
 import { BOARDS_CHANGED, OPEN_BOARD_SIGNIN, visibleJobBoards, type BoardState, type BoardsStatus } from '../boards';
 
 /**
@@ -29,9 +30,22 @@ export function JobBoardsDialog({ boards, joraSignIn = false, onClose, onSignIn 
   /** Takes the person to the Apply page, where the sign-in window opens. */
   onSignIn: () => void;
 }) {
-  const [busy, setBusy] = useState<Board | null>(null);
+  const [busy, setBusy] = useState<Board | 'employer-sites' | null>(null);
   const [confirming, setConfirming] = useState<Board | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [employersEnabled,setEmployersEnabled]=useState(boards.employerApplicationsEnabled!==false);
+  const [confirmEmployerOff,setConfirmEmployerOff]=useState(false);
+  useEffect(()=>setEmployersEnabled(boards.employerApplicationsEnabled!==false),[boards.employerApplicationsEnabled]);
+
+  async function setEmployerApplications(enabled:boolean) {
+    setBusy('employer-sites');setError(null);
+    try {
+      const response=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({updates:{[EMPLOYER_APPLICATIONS_ENABLED]:String(enabled)}})});
+      const body=await response.json();
+      if(!response.ok || body.settings?.[EMPLOYER_APPLICATIONS_ENABLED]!==String(enabled))throw new Error(body.error??'Could not change employer-site applications. Please try again.');
+      setEmployersEnabled(enabled);setConfirmEmployerOff(false);window.dispatchEvent(new Event(BOARDS_CHANGED));
+    }catch(reason){setError((reason as Error).message);}finally{setBusy(null);}
+  }
 
   async function signOut(board: Board) {
     setBusy(board);
@@ -62,11 +76,19 @@ export function JobBoardsDialog({ boards, joraSignIn = false, onClose, onSignIn 
 
   const shown = visibleJobBoards(boards, joraSignIn);
 
+  if(confirmEmployerOff)return <div className="overlay center" onClick={()=>{if(!busy)setConfirmEmployerOff(false);}}><div className="card confirm" role="alertdialog" aria-modal="true" aria-labelledby="employer-off-title" onClick={event=>event.stopPropagation()}>
+    <h2 id="employer-off-title">Turn off employer-site applications?</h2>
+    <p>Future runs will apply through job boards only. Any run already in progress can finish.</p>
+    {!boards.seek?.signedIn&&!boards.indeed?.signedIn&&<p className="dim">Connect a job board to keep applying.</p>}
+    {error&&<div className="banner banner-bad" role="alert">{error}</div>}
+    <div className="confirm-actions"><button className="btn" autoFocus disabled={busy!==null} onClick={()=>{setConfirmEmployerOff(false);setError(null);}}>Cancel</button><button className="btn btn-danger" disabled={busy!==null} onClick={()=>void setEmployerApplications(false)}>{busy?'Saving…':'Turn off employer sites'}</button></div>
+  </div></div>;
+
   return (
     <div className="overlay center" onClick={onClose}>
       <div className="card confirm boards-dialog" role="dialog" aria-modal="true" aria-labelledby="boards-dialog-title" onClick={(event) => event.stopPropagation()}>
-        <h2 id="boards-dialog-title">Job boards</h2>
-        <p className="dim">The accounts Owtomate applies with. It signs an expired session back in by itself; a board you sign out of here stays signed out until you sign in again.</p>
+        <h2 id="boards-dialog-title">Job sources</h2>
+        <p className="dim">Manage your job-board connections and applications on company websites.</p>
         {error && <div className="banner banner-bad">{error}</div>}
 
         {shown.map((board) => {
@@ -99,6 +121,8 @@ export function JobBoardsDialog({ boards, joraSignIn = false, onClose, onSignIn 
             </div>
           );
         })}
+
+        <div className="boards-row employer-sites-row"><div className="boards-row-main"><strong><EmployerSitesLabel/></strong><span className="job-meta">{employersEnabled?'Apply directly on company websites.':'Employer-site applications are off.'}</span><span className="job-meta">Changes apply to future runs.</span></div><button type="button" role="switch" aria-label="Employer-site applications" aria-checked={employersEnabled} className={`btn employer-sites-switch ${employersEnabled?'on':''}`} disabled={busy!==null} onClick={()=>{setError(null);if(employersEnabled)setConfirmEmployerOff(true);else void setEmployerApplications(true);}}>{busy==='employer-sites'?'Saving…':employersEnabled?'On':'Off'}</button></div>
 
         <div className="confirm-actions">
           <button className="btn" onClick={onClose}>Close</button>
