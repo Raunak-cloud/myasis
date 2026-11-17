@@ -207,6 +207,14 @@ export function PricingPanel() {
             if (card.key !== 'intensive-pass' && /application credits$/.test(feature)) return `${upgrade.additionalApplications} additional application credits`;
             return feature;
           });
+          const primary = features.filter(feature => /application credits$|^Unlimited applications$|^Daily limit:|scheduled run|^AI reviews|^Web search|^\d+ free employer-site applications|^Connect SEEK|^Only employer forms/.test(feature));
+          const details = features.filter(feature => !primary.includes(feature));
+          const featureItem = (feature: string) => (
+            <li key={feature}>
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+              {feature.replace(/ · Auto apply or Semi auto$/, '').replace(/^Up to /, '')}
+            </li>
+          );
           return (
             <article className={`pricing-card ${card.key === 'intensive-pass' ? 'premium' : ''} ${card.recommended ? 'recommended' : ''} ${isCurrent ? 'current' : ''}`} key={card.key}>
               <div className="pricing-plan-summary">
@@ -223,18 +231,18 @@ export function PricingPanel() {
                   <span>{upgrade ? `upgrade · ends ${dateLabel(upgrade.expiresAt!)}` : card.term}</span>
                 </p>
                 <p className="pricing-plan-copy">{upgrade ? card.presentation.description.replace(/for \d+ days/, `until ${dateLabel(upgrade.expiresAt!)}`) : card.presentation.description}</p>
+              </div>
+              <div className="pricing-plan-sources">
+                <span className="pricing-section-label">Job sources</span>
                 <PricingSources plan={card.key}/>
               </div>
               <ul className="pricing-features">
-                {features.map((feature) => (
-                  <li key={feature}>
-                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M20 6 9 17l-5-5" />
-                    </svg>
-                    {feature}
-                  </li>
-                ))}
+                {primary.map(featureItem)}
               </ul>
+              <details className="pricing-plan-details">
+                <summary>Plan details</summary>
+                <ul className="pricing-features">{details.map(featureItem)}{!details.some(feature=>feature.includes('Auto apply'))&&<li>Auto apply or Semi auto</li>}</ul>
+              </details>
               <button
                 className={`btn pricing-cta ${card.recommended && !isCurrent ? 'primary' : ''}`}
                 disabled={!paid || checkoutDisabled || unavailable}

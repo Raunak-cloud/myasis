@@ -29,7 +29,7 @@ const origin = `http://127.0.0.1:${(server.httpServer!.address() as { port: numb
 const browser = await chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : { executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome-stable' }) });
 try {
   mkdirSync(resolve(dashboard, '../output'), { recursive: true });
-  for (const width of [1440, 390]) {
+  for (const width of [1440, 900, 390]) {
     const context = await browser.newContext({ viewport: { width, height: 1000 } });
     const page = await context.newPage();
     const errors: string[] = [];
@@ -74,6 +74,15 @@ try {
       assert.equal(await card('Get Owtomated').getByRole('group',{name:'Supported job sources'}).getByRole('img',{name,exact:true}).count(),1);
     }
     assert.equal(await card('Active Search').locator('img[src="/platforms/workday.svg"]').count(),0,'employer sources remain exclusive to Get Owtomated');
+    assert.match(await card('Get Owtomated').innerText(),/Web search for employer-site jobs/);
+    assert.doesNotMatch(await card('Active Search').innerText(),/Web search/);
+    assert.equal(await page.locator('.pricing-plan-details[open]').count(),0,'secondary plan details start collapsed');
+    assert.ok(await page.locator('.pricing-source-brands img[src="/platforms/seek.svg"]').first().evaluate(el=>el.getBoundingClientRect().width<=48),'pricing logos stay compact');
+    const ctaTops=await page.locator('.pricing-card .pricing-cta').evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().top));
+    if(width===1440)assert.ok(Math.max(...ctaTops)-Math.min(...ctaTops)<1,'desktop plan actions align for comparison');
+    await card('Essential Pass').locator('.pricing-plan-details summary').click();
+    assert.match(await card('Essential Pass').innerText(),/30 days of access/);
+    await card('Essential Pass').locator('.pricing-plan-details summary').click();
     assert.equal(await page.getByRole('region',{name:'Free application offer'}).count(),0,'Plans and pricing omits the promotional banner');
     assert.equal(await card('Essential Pass').getByRole('button').isDisabled(), true);
     assert.match(await card('Active Search').innerText(), /A\$10\.05/);
@@ -105,6 +114,11 @@ try {
     await card('Get Owtomated').getByRole('button', { name: 'Your pass is active' }).waitFor();
     assert.equal(await page.locator('.pricing-card button:not(:disabled)').count(), 0);
     assert.equal(await page.locator('.pricing-topup').count(), 0);
+    if(width===1440) {
+      await page.evaluate(()=>document.documentElement.dataset.theme='dark');
+      await page.screenshot({path:resolve(dashboard,'../output/pricing-redesign-dark.png'),fullPage:true,animations:'disabled'});
+      await page.evaluate(()=>delete document.documentElement.dataset.theme);
+    }
     freePlan = true;
     await page.reload();
     await card('Essential Pass').getByRole('button',{name:'Choose Essential Pass'}).waitFor();
