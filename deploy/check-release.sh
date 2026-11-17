@@ -49,9 +49,9 @@ if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(
   free_offer_changed=0
   while IFS= read -r path; do
     case "$path" in
-      dashboard/src/components/FreeTrialOffer.tsx|dashboard/src/components/PricingSources.tsx) free_offer_changed=1 ;;
+      dashboard/src/components/FreeTrialOffer.tsx|dashboard/src/components/PricingSources.tsx|dashboard/src/components/PricingPanel.tsx) free_offer_changed=1 ;;
       dashboard/src/index.css|dashboard/scripts/test-free-trial-ui.mts|deploy/check-release.sh) ;;
-      dashboard/src/components/Landing.tsx|dashboard/src/components/PricingPanel.tsx|dashboard/src/pricing.ts|dashboard/scripts/test-pricing-upgrades-ui.mts) ;;
+      dashboard/src/components/Landing.tsx|dashboard/src/pricing.ts|dashboard/scripts/test-pricing-upgrades-ui.mts) ;;
       *) free_offer_only=0 ;;
     esac
   done < <(git diff --name-only "$2" "$3")
