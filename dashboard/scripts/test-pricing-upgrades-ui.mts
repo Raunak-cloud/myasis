@@ -63,7 +63,7 @@ try {
     await card('Essential Pass').getByRole('button', { name: 'Your pass is active' }).waitFor();
     const free=card('Free');assert.match(await free.innerText(),/5 free employer-site applications/);assert.match(await free.innerText(),/6 extra free applications \(11 total\)/);assert.match(await free.innerText(),/do not require an account/);
     assert.equal(await free.locator('img[src="/platforms/jora.svg"]').count(),0);assert.equal(await free.locator('img[src="/platforms/indeed.svg"]').count(),0);
-    assert.equal(await card('Essential Pass').locator('img[src="/platforms/jora.svg"]').count(),1);assert.equal(await card('Active Search').locator('img[src="/platforms/indeed.svg"]').count(),1);
+    assert.equal(await card('Essential Pass').locator('img[src="/platforms/jora.svg"]').count(),0);assert.equal(await card('Active Search').locator('img[src="/platforms/indeed.svg"]').count(),1);
     await page.getByRole('region',{name:'Free application offer'}).waitFor();
     assert.equal(await card('Essential Pass').getByRole('button').isDisabled(), true);
     assert.match(await card('Active Search').innerText(), /A\$10\.05/);
@@ -97,7 +97,7 @@ try {
     const publicPricing=page.locator('#pricing');await publicPricing.waitFor();
     assert.match(await publicPricing.innerText(),/5 free applications/);assert.match(await publicPricing.innerText(),/11 free applications in total/);
     assert.equal(await publicPricing.locator('.home-price-row').nth(0).locator('img[src="/platforms/jora.svg"]').count(),0);
-    assert.equal(await publicPricing.locator('.home-price-row').nth(1).locator('img[src="/platforms/jora.svg"]').count(),1);
+    assert.equal(await publicPricing.locator('.home-price-row').nth(1).locator('img[src="/platforms/jora.svg"]').count(),0);
     await page.waitForFunction(()=>[...document.querySelectorAll('#pricing img')].every(n=>(n as HTMLImageElement).complete&&(n as HTMLImageElement).naturalWidth>0));
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'public pricing fits mobile');
     await publicPricing.screenshot({path:resolve(dashboard,'../output/public-pricing-'+width+'.png')});

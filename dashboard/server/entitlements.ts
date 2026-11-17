@@ -2,7 +2,7 @@ import { one, query } from './db/index.js';
 import { upsertSettingRow } from './db/records.js';
 import { billingStatus, isAdmin, type BillingStatus } from './billing.js';
 import { KEEP_SETTINGS_KEYS, OPTIONAL_LIMIT_KEYS, RUN_LIMITS, RUN_SETTING_DEFAULTS } from './settings.js';
-import { PLAN_LIMITS, SCHEDULED_MIN_SCORE, CUSTOM_MIN_SCORE, MAX_MATCH_SCORE, planDailyApplicationLimit } from '../src/pricing.js';
+import { PLAN_LIMITS, SCHEDULED_MIN_SCORE, CUSTOM_MIN_SCORE, MAX_MATCH_SCORE, planDailyApplicationLimit, joraConnectionAllowed } from '../src/pricing.js';
 import type { RunDevice } from '../src/run-device.js';
 import { countedRunSql, RUN_TIME_ZONE } from './run-accounting.js';
 import { limitSearchTerms } from '../src/search-limits.js';
@@ -166,18 +166,19 @@ export const EMPLOYER_SOURCES_CHOSEN_KEY = 'EMPLOYER_SOURCES_CHOSEN';
  */
 export function effectivePlatforms(
   saved: Record<string, string | undefined>,
-  entitlement: Pick<Entitlements, 'indeedApplications'> & Partial<Pick<Entitlements, 'employerSources' | 'tier' | 'employerTrial' | 'seekTrialConnected' | 'employerGuestOnly'>>,
+  entitlement: Pick<Entitlements, 'indeedApplications'> & Partial<Pick<Entitlements, 'employerSources' | 'tier' | 'employerTrial' | 'seekTrialConnected' | 'employerGuestOnly' | 'joraSignIn'>>,
 ): string {
   if(entitlement.employerTrial && entitlement.employerSources && saved[PLATFORMS_CHOSEN_KEY]!=='1')return [
     ...(entitlement.employerGuestOnly?[...GUEST_EMPLOYER_SOURCES,'jora']:EMPLOYER_SOURCES.map(source=>source.id)),...(entitlement.seekTrialConnected?['seek']:[]),...(entitlement.indeedApplications?['indeed']:[]),
+    ...(!entitlement.employerGuestOnly && entitlement.joraSignIn===true && saved.JORA_BETA_ENABLED==='true'?['jora']:[]),
   ].join(',');
   const value = (saved.PLATFORMS ?? RUN_SETTING_DEFAULTS.PLATFORMS).trim() || RUN_SETTING_DEFAULTS.PLATFORMS;
   const base = saved[PLATFORMS_CHOSEN_KEY] !== '1' && entitlement.indeedApplications && value === RUN_SETTING_DEFAULTS.PLATFORMS ? 'seek,indeed' : value;
   const selected = base.split(',').map(id => id.trim().toLowerCase()).filter(id => id && (!isEmployerSource(id) || entitlement.employerSources)
     && (id!=='indeed'||!entitlement.employerTrial||entitlement.indeedApplications)
     && (!entitlement.employerGuestOnly||!isEmployerSource(id)||(GUEST_EMPLOYER_SOURCES as readonly string[]).includes(id))
-    && (id !== 'jora' || saved.JORA_BETA_ENABLED !== 'false'));
-  if (saved.JORA_BETA_ENABLED === 'true') selected.push('jora');
+    && (id !== 'jora' || entitlement.joraSignIn===true && saved.JORA_BETA_ENABLED !== 'false'));
+  if (entitlement.joraSignIn===true && saved.JORA_BETA_ENABLED === 'true') selected.push('jora');
   // Free accounts use public Jora discovery in the background, without a Jora account.
   if(entitlement.employerGuestOnly && entitlement.employerSources) selected.push('jora');
   if (entitlement.employerSources && entitlement.tier === 'intensive' && saved[EMPLOYER_SOURCES_CHOSEN_KEY] !== '1') {
@@ -191,7 +192,7 @@ export function applyRunPolicy(
   entitlement: Pick<
     Entitlements,
     'tier' | 'fineTune' | 'advancedFilters' | 'indeedApplications' | 'evaluationsPerRun' | 'maxApplicationsPerRunOverride'
-  > & Partial<Pick<Entitlements, 'employerSources' | 'maxApplicationsPerDay' | 'employerTrial' | 'seekTrialConnected' | 'employerGuestOnly'>>,
+  > & Partial<Pick<Entitlements, 'employerSources' | 'maxApplicationsPerDay' | 'employerTrial' | 'seekTrialConnected' | 'employerGuestOnly' | 'joraSignIn'>>,
   trigger: 'manual' | 'auto',
   /** Whether the account picked its boards itself (see effectivePlatforms). */
   boardsChosen = false,
@@ -471,7 +472,7 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
     indeedApplications: billing.paid.hasActiveJobSearchPass || billing.paid.hasActiveIntensivePass,
     employerSources: tier === 'admin' || tier === 'intensive',
     employerGuestOnly:!facts.admin&&!billing.paid.hasActivePass,
-    joraSignIn:facts.admin||billing.paid.hasActivePass,
+    joraSignIn:joraConnectionAllowed(billing.paid,facts.admin),
     ...(billing.free?.trial?{employerSources:tier==='admin'||tier==='intensive'||billing.free.remaining>0,employerTrial:true,seekTrialConnected:billing.free.trial.seekBonusAwarded}:{}),
     searchTermSuggestionsLeft: facts.searchTermSuggestionsLeft,
     timeZone: RUN_TIME_ZONE,

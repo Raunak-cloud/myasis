@@ -796,12 +796,12 @@ function dataApi(): Plugin {
            * first-time copy ("Sign in once…") until there is a real prior
            * session worth reconfirming.
            */
-          const verifySites = (crossSite(req) ? '' : url.searchParams.get('verify') ?? '')
+          let verifySites = (crossSite(req) ? '' : url.searchParams.get('verify') ?? '')
             .split(',')
             .filter((site): site is 'seek' | 'indeed' | 'jora' => site === 'seek' || site === 'indeed' || site === 'jora')
             .filter((site) => site === 'jora' || priorState[site]?.signedIn === true);
           if(verifySites.includes('jora') && !(await entitlementsFor(userId,(await currentUser(req.headers?.cookie))?.email)).joraSignIn)
-            verifySites.splice(verifySites.indexOf('jora'),1);
+            verifySites=verifySites.filter(site=>site!=='jora');
           /**
            * A green tick must describe the live account, not a cached answer.
            * When the Apply page mounts it requests verification for the boards
@@ -843,7 +843,7 @@ function dataApi(): Plugin {
           }
           const target = url.searchParams.get('target') === 'gmail' ? 'gmail' : url.searchParams.get('target') === 'jora' ? 'jora' : url.searchParams.get('target') === 'indeed' ? 'indeed' : 'seek';
           if(target==='jora' && !(await entitlementsFor(userId,(await currentUser(req.headers?.cookie))?.email)).joraSignIn)
-            return send({error:'Jora sign-in is available on paid plans. Employer job discovery does not need Jora sign-in.'},403);
+            return send({error:'Jora sign-in requires Active Search or Get Owtomated. Employer job discovery does not need Jora sign-in.'},403);
           if (target === 'gmail') {
             if (url.searchParams.get('consent') !== 'true' || !(await gmailAccess(userId)).providers.includes('browser')) return send({ error: 'Confirm available Gmail mailbox access first.' }, 403);
           }

@@ -10,7 +10,7 @@ export function PricingFreeOffer() {
 }
 
 export function PricingSources({plan}:{plan:'free'|PassPlanKey}) {
- const boards=plan==='free'?['seek']:plan==='essential-pass'?['seek','jora']:['seek','indeed','jora'];
+ const boards=plan==='free'||plan==='essential-pass'?['seek']:['seek','indeed','jora'];
  return <div className="pricing-source-brands" aria-label="Job-board connections">
   {boards.map(board=><BoardBrand key={board} board={board} compact/>)}
   {plan==='free'&&<span className="pricing-source-note">Optional SEEK connection</span>}

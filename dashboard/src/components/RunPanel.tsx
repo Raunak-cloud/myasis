@@ -476,7 +476,7 @@ export function RunPanel({
     setEdit('WORK_ARRANGEMENTS', [...next].join(','));
   };
   const platforms = [...new Set([...val('PLATFORMS').split(',').map(item => item.trim()).filter(id => id && id !== 'jora'),
-    ...(val('JORA_BETA_ENABLED') === 'true' ? ['jora'] : [])])];
+    ...(entitlements?.joraSignIn === true && val('JORA_BETA_ENABLED') === 'true' ? ['jora'] : [])])];
   /** Unknown until read; then only a board confirmed signed in can be used. */
   const boardUsable = (id: string) => id === 'jora' || (id === 'adzuna' ? boards?.adzunaAvailable === true : isEmployerSource(id) ? employerSourcesEnabled : boardSignedIn === null || boardSignedIn[id] === true);
   const employerSourceSelected = employerSourcesEnabled && platforms.some(isEmployerSource);

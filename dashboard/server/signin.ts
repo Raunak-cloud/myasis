@@ -16,6 +16,7 @@ import { one } from './db/index.js';
 import { browserGmailUrl } from './gmail-access.js';
 import { isAdmin } from './admin-access.js';
 import { billingStatus } from './billing.js';
+import {joraConnectionAllowed} from '../src/pricing.js';
 
 const START_URLS: Record<SigninTarget, string> = {
   seek: 'https://www.seek.com.au/oauth/login/',
@@ -72,8 +73,8 @@ export async function startSignin(userId: string, target: SigninTarget = 'seek',
   if (!signinSupported()) return { ok: false, error: 'Remote sign-in is only available on the Linux server. On this machine, use the local Chrome sign-in instead.' };
   const owner = await one<{ email: string }>('SELECT email FROM users WHERE id=$1 AND blocked_at IS NULL', [userId]);
   if (!owner) return { ok: false, error: 'This account is unavailable.' };
-  if(target==='jora' && !isAdmin(owner.email) && !(await billingStatus(userId,owner.email)).paid.hasActivePass)
-    return {ok:false,error:'Jora sign-in is available on paid plans. Employer job discovery does not need Jora sign-in.'};
+  if(target==='jora' && !isAdmin(owner.email) && !joraConnectionAllowed((await billingStatus(userId,owner.email)).paid))
+    return {ok:false,error:'Jora sign-in requires Active Search or Get Owtomated. Employer job discovery does not need Jora sign-in.'};
   return desktops.start(userId, target, options.assist !== false, options.expiresAt, isAdmin(owner.email));
 }
 

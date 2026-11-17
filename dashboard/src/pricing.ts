@@ -45,6 +45,10 @@ export function planDailyApplicationLimit(paid:{hasActiveJobSearchPass?:boolean;
     ? PLAN_LIMITS['job-search-pass'].applicationsPerDay : DAILY_APPLICATION_MAX;
 }
 
+export function joraConnectionAllowed(paid:{hasActiveJobSearchPass?:boolean;hasActiveIntensivePass?:boolean},admin=false):boolean {
+  return admin || Boolean(paid.hasActiveJobSearchPass || paid.hasActiveIntensivePass);
+}
+
 export const SCHEDULED_MIN_SCORE = 60;
 export const CUSTOM_MIN_SCORE = 60;
 export const MAX_MATCH_SCORE = 100;
@@ -79,7 +83,6 @@ export const PLAN_PRESENTATION = {
       `AI reviews up to ${ESSENTIAL.evaluationsPerRun} jobs each run`,
       `Jobs that match your resume by at least ${SCHEDULED_MIN_SCORE}%`,
       'SEEK applications',
-      'Optional Jora connection',
       'Personalised cover letters and application tracking',
     ],
   },

@@ -41,7 +41,13 @@ test('new-user trial: atomic signup, employer-only defaults, shared five credits
   assert.equal(effectivePlatforms({PLATFORMS:'greenhouse,pageup,workday,indeed',PLATFORMS_CHOSEN:'1'},entitled),'greenhouse,jora','free choices exclude account-based sources and paid Indeed access');
   assert.equal(mayRunEmployerSiteApplications({targetIsAdmin:false,initiatedByAdmin:false,hasIntensiveAllowance:false,hasFreeEmployerAllowance:true}),true);
   const paidEntitlements=deriveEntitlements({...facts,billing:{...initial,paid:{...initial.paid,hasActivePass:true,hasActiveIntensivePass:true}}});
-  assert.equal(paidEntitlements.employerGuestOnly,false);assert.equal(paidEntitlements.joraSignIn,true);assert(effectivePlatforms({},paidEntitlements).includes('workday'),'paid employer-site coverage is unchanged');
+  assert.equal(paidEntitlements.employerGuestOnly,false);assert.equal(paidEntitlements.joraSignIn,true);assert(effectivePlatforms({JORA_BETA_ENABLED:'true'},paidEntitlements).includes('jora'),'entitled trial defaults respect the saved Jora choice');
+  for(const plan of ['essential','active'] as const){
+   const e=deriveEntitlements({...facts,billing:{...initial,paid:{...initial.paid,hasActivePass:true,hasActiveEssentialPass:plan==='essential',hasActiveJobSearchPass:plan==='active'}}});
+   assert.equal(e.joraSignIn,plan==='active');
+   assert.equal(effectivePlatforms({PLATFORMS:'seek,jora',PLATFORMS_CHOSEN:'1',JORA_BETA_ENABLED:'true'},e).includes('jora'),plan==='active');
+  }
+  assert(effectivePlatforms({},paidEntitlements).includes('workday'),'paid employer-site coverage is unchanged');
   const consume=async(external:boolean)=>{const c=await pool.connect();try{await c.query('BEGIN');await consumeApplicationCredit(c,uid,external);await c.query('COMMIT');return true;}catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}};
   for(let i=0;i<4;i++)await consume(true);
   const race=await Promise.allSettled([consume(true),consume(true)]);assert.equal(race.filter(r=>r.status==='fulfilled').length,1,'only one caller can spend the final free credit');

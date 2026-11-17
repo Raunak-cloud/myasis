@@ -5,25 +5,28 @@ import { applyJobSourceAccess, availableJobSources, jobSourceSettingsError } fro
 import { USER_SETTABLE_SETTINGS_KEYS } from './settings.js';
 import { applyRunPolicy, effectivePlatforms, mayEditRunSetting } from './entitlements.js';
 
-test('every plan can opt into Jora without changing saved preferences or requiring a Jora login', () => {
+test('entitled plans can opt into Jora without changing saved preferences or requiring a Jora login', () => {
   for (const tier of ['standard', 'intensive', 'admin'] as const) {
     const entitlement = { tier, fineTune: tier !== 'standard', advancedFilters: false, indeedApplications: false,
-      evaluationsPerRun: 40, maxApplicationsPerRunOverride: null, employerSources: false };
+      evaluationsPerRun: 40, maxApplicationsPerRunOverride: null, employerSources: false,joraSignIn:true };
     const saved = { PLATFORMS: 'seek', MIN_SALARY: '100000', MAX_AGE_DAYS: '10', JORA_BETA_ENABLED: 'true' };
     assert.equal(mayEditRunSetting('JORA_BETA_ENABLED', entitlement), true);
     for (const trigger of ['manual', 'auto'] as const) {
       assert.equal(applyRunPolicy(saved, entitlement, trigger).PLATFORMS, 'seek,jora');
+      assert.equal(applyRunPolicy(saved,{...entitlement,joraSignIn:false},trigger).PLATFORMS,'seek','a stale or posted Jora preference cannot enable an unavailable source');
       assert.equal(applyRunPolicy({ ...saved, JORA_BETA_ENABLED: 'false' }, entitlement, trigger).PLATFORMS, 'seek');
     }
     assert.deepEqual(saved, { PLATFORMS: 'seek', MIN_SALARY: '100000', MAX_AGE_DAYS: '10', JORA_BETA_ENABLED: 'true' });
   }
-  assert.equal(effectivePlatforms({ PLATFORMS: 'seek,indeed', JORA_BETA_ENABLED: 'false' }, { indeedApplications: true }), 'seek,indeed');
-  assert.equal(effectivePlatforms({ PLATFORMS: 'seek,indeed', JORA_BETA_ENABLED: 'true' }, { indeedApplications: true }), 'seek,indeed,jora');
-  assert.equal(effectivePlatforms({ PLATFORMS: 'seek,jora', JORA_BETA_ENABLED: 'false' }, { indeedApplications: false }), 'seek');
-  assert.equal(effectivePlatforms({ PLATFORMS: 'seek' }, { indeedApplications: false }), 'seek', 'availability does not opt users in');
+  assert.equal(effectivePlatforms({ PLATFORMS: 'seek,indeed', JORA_BETA_ENABLED: 'false' }, { indeedApplications: true,joraSignIn:true }), 'seek,indeed');
+  assert.equal(effectivePlatforms({ PLATFORMS: 'seek,indeed', JORA_BETA_ENABLED: 'true' }, { indeedApplications: true,joraSignIn:true }), 'seek,indeed,jora');
+  assert.equal(effectivePlatforms({ PLATFORMS: 'seek,jora', JORA_BETA_ENABLED: 'false' }, { indeedApplications: false,joraSignIn:true }), 'seek');
+  assert.equal(effectivePlatforms({ PLATFORMS: 'seek' }, { indeedApplications: false,joraSignIn:true }), 'seek', 'availability does not opt users in');
+  assert.equal(effectivePlatforms({PLATFORMS:'jora',JORA_BETA_ENABLED:'true'},{indeedApplications:false,joraSignIn:false}),'seek');
+  assert.equal(effectivePlatforms({PLATFORMS:'jora',JORA_BETA_ENABLED:'true'},{indeedApplications:false}),'seek','unknown entitlement cannot grant Jora access');
 });
 
-test('Jora is accepted for ordinary customer settings and usable without native board sessions', () => {
+test('public Jora discovery remains session-free; run policy enforces the account tier', () => {
   for (const admin of [false, true]) {
     for (const updates of [{ PLATFORMS: 'jora' }, { JORA_BETA_ENABLED: 'true' }, { JORA_BETA_ENABLED: true }, { PLATFORMS: 'seek, JORA' }]) {
       assert.equal(jobSourceSettingsError(updates, admin, false), null);
