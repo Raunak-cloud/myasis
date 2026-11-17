@@ -1,5 +1,8 @@
 import type { JobListing } from './types.js';
 
+import type {GuestAccessProof} from './guest-applications.js';
+export type {GuestAccessProof} from './guest-applications.js';
+
 /** Owner-scoped immutable bytes, explicitly assigned a role by the applying agent. */
 export interface ApplicationDocument {
   role: 'cover-letter' | 'supporting';
@@ -35,7 +38,8 @@ export interface ApplicationDocumentRestoration {
 export interface PreparedApplication {
   /** Job/letter preparation precedes form filling; legacy drafts are completed forms. */
   preparation?: { version: 1; stage: 'job-and-letter'; access: 'no-login-required' | 'signed-in'; checkedAt: string; checkedUrl: string }
-    | { version: 2; stage: 'job-and-letter'; access: 'not-checked'; listingUrl: string };
+    | { version: 2; stage: 'job-and-letter'; access: 'not-checked'; listingUrl: string }
+    | GuestAccessProof;
   id: string;
   revision: string;
   job: JobListing;
@@ -44,6 +48,8 @@ export interface PreparedApplication {
   bonusRunId?:string;
   /** Server-bound Auto authorization; internal email records never await confirmation. */
   autoRunId?: string;
+  /** Operator-authorized refund audit. Financial metadata never changes approved application bytes. */
+  creditRestoration?: {id:string;actorUserId:string;restoredAt:string;reason:string;originalRevision:string;creditSource:'free-trial';usedBefore:number;usedAfter:number};
   formUrl: string;
   answers: Array<{ question: string; answer: string }>;
   coverLetter?: string;

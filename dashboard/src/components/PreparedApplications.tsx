@@ -13,7 +13,9 @@ interface Review {
     bonusRunId?:string;
     revision: string; job: { id?: string; platform?: string; title: string; company: string; location: string; url: string };
     resume?: string; coverLetter?: string; answers: Array<{ question: string; answer: string }>;
-    preparation?: { version:1; stage:'job-and-letter'; access:'no-login-required'|'signed-in'; checkedAt:string; checkedUrl:string };
+    preparation?: { version:1; stage:'job-and-letter'; access:'no-login-required'|'signed-in'; checkedAt:string; checkedUrl:string }
+      | {version:2;stage:'job-and-letter';access:'not-checked';listingUrl:string}
+      | import('../../../seek-bot/src/guest-applications.js').GuestAccessProof;
     email?: { to: string; subject: string; attachCoverLetter?: boolean };
   };
 }
@@ -188,7 +190,9 @@ export function PreparedApplications({ running, onStarted, onCountChange, canCha
         disabled={running || busy || Boolean(editing)} onRetry={() => void decide('submit', item)} />}
       <details><summary>Review application</summary>
         <div className="prepared-content">
-        {item.application.preparation?.stage==='job-and-letter' && <p className="job-meta">Job matched and cover letter prepared from the listing. When you choose Apply, the agent will open the application, handle any required sign-in and fill the form.</p>}
+        {item.application.preparation?.stage==='job-and-letter' && <p className="job-meta">{item.application.preparation.version===3
+          ? `${item.application.preparation.access==='guest-confirmed'?'Guest application confirmed.':'Application access confirmed.'} Your cover letter is prepared. The form will be filled when you choose Apply.`
+          : 'Job matched and cover letter prepared from the listing. When you choose Apply, the agent will open the application, handle any required sign-in and fill the form.'}</p>}
         {item.application.email && <p className="job-meta">Email application<br/>To: {item.application.email.to}<br/>Subject: {item.application.email.subject}<br/>Attachments: resume{item.application.email.attachCoverLetter ? ' and cover letter' : ''}</p>}
         <p className="job-meta">Resume: {item.application.resume || 'No resume recorded'}</p>
         {/^https?:\/\//i.test(item.application.job.url) && <p><a href={item.application.job.url} target="_blank" rel="noreferrer">View job listing ↗</a></p>}

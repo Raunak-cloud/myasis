@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {test} from 'node:test';
-import {guestEmployerAccountRequired,GUEST_EMPLOYER_SOURCES} from './guest-applications.js';
+import {guestEmployerAccountRequired,GUEST_EMPLOYER_SOURCES,confirmedGuestPreparation,confirmedNativePreparation} from './guest-applications.js';
 import {buildApplicationSystemPrompt} from './agent/application-policy.js';
 import {withApplicationModel} from './application-model.js';
 import {doCompleteAuthentication} from './agent/authentication.js';
@@ -12,6 +12,15 @@ test('free guest policy distinguishes employer pages from connected native board
  for(const url of ['https://www.seek.com.au/job/123','https://secure.indeed.com/login'])assert.equal(guestEmployerAccountRequired(url,true),false);
  assert.equal(guestEmployerAccountRequired('https://employer.org/signup',false),false);
  assert.doesNotMatch(buildApplicationSystemPrompt(''),/FREE EMPLOYER APPLICATIONS/);assert.match(buildApplicationSystemPrompt('',true),/Never create or recover an employer account/);assert.match(buildApplicationSystemPrompt('',true),/Ordinary verification of an application email is allowed/);
+});
+
+test('guest proof requires observed, isolated HTTPS evidence; native proof cannot authorize employer accounts',()=>{
+ const proof={version:3,stage:'job-and-letter',access:'guest-confirmed',checkedAt:new Date().toISOString(),checkedUrl:'https://employer.fixture.invalid/apply',evidence:'Apply for this job',isolation:'no-employer-session',method:'form'};
+ assert.equal(confirmedGuestPreparation({preparation:proof}),true);
+ for(const change of [{version:2},{access:'signed-in'},{evidence:''},{checkedAt:'invalid'},{checkedUrl:'http://fixture.invalid/apply'},{method:'login'},{isolation:'saved-employer-profile'}])assert.equal(confirmedGuestPreparation({preparation:{...proof,...change}}),false);
+ assert.equal(confirmedNativePreparation({preparation:{...proof,access:'hosted-confirmed'}}),false);
+ assert.equal(confirmedNativePreparation({preparation:{...proof,access:'hosted-confirmed',checkedUrl:'https://www.seek.com.au/apply'}}),true);
+ assert.equal(confirmedNativePreparation({preparation:{...proof,access:'hosted-confirmed',checkedUrl:'https://seek.com.au.fixture.invalid/apply'}}),false);
 });
 
 test('free Jora discovery cannot start a SEEK or Indeed application through an aggregator',async()=>{

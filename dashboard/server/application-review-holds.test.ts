@@ -43,7 +43,7 @@ try {
   await query('INSERT INTO users VALUES($1,$2,NULL),($3,$4,NULL),($5,$6,NULL),($7,$8,NULL)', [owner, 'owner@hold.fixture.invalid', other, 'other@hold.fixture.invalid', actor, 'operator@hold.fixture.invalid', outsider, 'nonadmin@hold.fixture.invalid']);
   await query('INSERT INTO run_starts VALUES($1,$2,$3,NULL)', [run, owner, started]);
   const sql = readFileSync(new URL('./db/schema.sql', import.meta.url), 'utf8');
-  for (const table of ['application_reviews', 'application_review_operator_holds']) {
+  for (const table of ['new_user_trials','billing_purchases','application_credit_grants','application_reviews', 'application_review_operator_holds']) {
     const statement = sql.match(new RegExp(`CREATE TABLE IF NOT EXISTS ${table} \\([\\s\\S]*?\\n\\);`))?.[0];
     assert.ok(statement, `Missing ${table} schema`); await query(statement);
   }

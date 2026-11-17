@@ -12,6 +12,7 @@ import { metric } from './pipeline.js';
 import { currentApplicationWorker } from './application-workers.js';
 import { updateLiveTarget, type LiveActivity } from './live-workers.js';
 import {repairPersistentDownloadHistory} from './browser-download-history.js';
+import {jobBoardForHost} from './job-board-url.js';
 
 const attachedBrowsers = new WeakMap<BrowserContext, Browser>();
 
@@ -221,6 +222,23 @@ export async function applicationWorkerContexts(ctx: BrowserContext, count: numb
     await Promise.allSettled(contexts.map(worker => worker.close()));
     throw error;
   }
+}
+
+/** Inspect public employer forms without inheriting employer or Google logins.
+ * The connected SEEK session remains available for native SEEK applications. */
+export async function guestPreparationContext(ctx:BrowserContext):Promise<BrowserContext> {
+  const browser=ctx.browser();
+  if(!browser)throw Error('This browser cannot create an isolated guest inspection.');
+  const state=await ctx.storageState({indexedDB:true});
+  const allowed=(host:string)=>jobBoardForHost(host.replace(/^\./,''))==='seek';
+  const isolated=await browser.newContext({viewport:null,storageState:{
+    cookies:state.cookies.filter(cookie=>allowed(cookie.domain)),
+    origins:state.origins.filter(origin=>{try{return allowed(new URL(origin.origin).hostname);}catch{return false;}}),
+  }});
+  isolated.setDefaultTimeout(30_000);
+  await installEsbuildNameShim(isolated);
+  watchCaptchas(isolated);
+  return isolated;
 }
 
 /**

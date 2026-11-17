@@ -39,5 +39,24 @@ test('listing-only preparation drafts for a login-gated destination without brow
   assert.equal(trace.sendAudit.attempted,false);assert.deepEqual(trace.steps.map((s:{tool:string})=>s.tool),['prepare_job_and_letter']);
   const missing=await prepareMatchedJob({...job,description:''},profile,{letter:async()=>{throw Error('Do not invent a description');}});
   assert.equal(missing.status,'error');assert.equal(letters,1);
+  await withApplicationModel({DATA_DIR:dir,RESUME_SELECT:'cv',FREE_EMPLOYER_GUEST_ONLY:'true'},async()=>{
+    const page={} as import('patchright').Page;
+    const proof={version:3 as const,stage:'job-and-letter' as const,access:'guest-confirmed' as const,checkedAt:new Date().toISOString(),checkedUrl:'https://fixture.invalid/apply',evidence:'Apply for this job',isolation:'no-employer-session' as const,method:'form' as const};
+    for(const status of ['skipped','error'] as const){
+      const blocked=await prepareMatchedJob(matched,profile,{page,access:async()=>({ok:false,status,reason:status==='skipped'?'An employer account is required.':'Guest access could not be confirmed.'}),letter:async()=>{throw Error('Unverified destinations must not generate a cover letter or spend a preparation credit');}});
+      assert.equal(blocked.status,status);
+    }
+    assert.equal((await prepareMatchedJob(matched,profile,{letter:async()=>{throw Error('No browser');}})).status,'error');
+    const nativeViaJora=await prepareMatchedJob({...matched,platform:'jora'},profile,{page,access:async()=>({ok:true,proof:{...proof,access:'hosted-confirmed',checkedUrl:'https://www.seek.com.au/job/12345678/apply'}}),letter:async()=>{throw Error('An unsupported aggregate handoff must not spend a Free credit');}});
+    assert.equal(nativeViaJora.status,'skipped');
+    const ready=await prepareMatchedJob(matched,profile,{page,access:async()=>({ok:true,proof}),letter:async()=> 'A truthful, tailored letter.'});
+    assert.equal(ready.status,'prepared');
+    if(ready.status==='prepared'){
+      assert.deepEqual(ready.draft.preparation,proof);
+      assert.equal(applicationRevision({...ready.draft,preparation:Object.fromEntries(Object.entries(proof).reverse()) as typeof proof}),ready.draft.revision,'new proof survives JSONB key ordering');
+      assert.notEqual(applicationRevision({...ready.draft,preparation:{...proof,evidence:'Changed evidence'}}),ready.draft.revision);
+      assert.equal(withCoverLetter(ready.draft,'A corrected letter.').preparation?.version,3,'letter edits retain access proof');
+    }
+  });
  });}finally{rmSync(dir,{recursive:true,force:true});}
 });

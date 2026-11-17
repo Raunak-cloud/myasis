@@ -72,6 +72,9 @@ test('new-user trial: atomic signup, employer-only defaults, shared five credits
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM new_user_trials')).rows[0].n,1,'returning and migrated accounts never acquire a new trial');
   email='semi@trial.fixture.invalid';subject='semi-subject';const semi=await signup();assert(semi.ok);const semiId=String(semi.userId);
   const draft:PreparedApplication={id:randomUUID(),revision:'a'.repeat(64),job:{id:'fixture-job',platform:'workday',title:'Software Engineer',company:'Fixture Employer',location:'Sydney',url:'https://fixture.invalid/job',applicationMode:'external'},formUrl:'https://fixture.invalid/apply',preparedAt:new Date().toISOString(),answers:[],resume:'Fixture CV.pdf'};
+  await assert.rejects(saveApplicationReview(semiId,draft),/Guest application access must be confirmed/);
+  assert.equal((await billingStatus(semiId,email)).free.remaining,5,'unverified Free destinations never use a credit');
+  draft.preparation={version:3,stage:'job-and-letter',access:'guest-confirmed',checkedAt:new Date().toISOString(),checkedUrl:draft.formUrl,evidence:'Apply for this job',isolation:'no-employer-session',method:'form'};
   await saveApplicationReview(semiId,draft);await saveApplicationReview(semiId,draft);
   assert.equal((await billingStatus(semiId,email)).free.remaining,4,'one prepared employer application spends one free credit, even if its save is repeated');
   await pool.query(`UPDATE monthly_application_usage SET successful_applications=5 WHERE user_id=$1`,[semiId]);

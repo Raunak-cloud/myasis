@@ -19,6 +19,7 @@ check_dashboard() (
   set -euo pipefail
 cd "$APP/dashboard"
 ../seek-bot/node_modules/.bin/tsx --test server/request-limits.test.ts test/dashboard-requests.test.ts
+../seek-bot/node_modules/.bin/tsx --test server/free-preparation.test.ts
 ../seek-bot/node_modules/.bin/tsx scripts/test-dashboard-requests-ui.mts
 ../seek-bot/node_modules/.bin/tsx --test server/signin-sessions.test.ts
 ../seek-bot/node_modules/.bin/tsx scripts/test-jora-beta-ui.mts
@@ -65,6 +66,7 @@ check_bot() (
   trap - EXIT
   set -euo pipefail
 cd "$APP/seek-bot"
+node --test dist/prepare-job.test.js dist/guest-preparation.test.js
 node dist/agent/auto-email-application.test.js
 node dist/agent/email-application.test.js
 node --test dist/jora-session.test.js dist/jora.test.js dist/jora-browser.test.js dist/application-identity.test.js dist/duplicate-review.test.js dist/guest-applications.test.js

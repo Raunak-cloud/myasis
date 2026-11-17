@@ -12,6 +12,7 @@ import { resolve } from 'node:path';
 import { userDir } from './userdata.js';
 import type { PoolClient } from 'pg';
 import { isSiteSecurityFailure, securityRetryAt, securityRetryRemaining, type SecurityRetry } from '../src/securityRetry.js';
+import {freeGuestPreparationRequired,freePreparationNeedsCheck} from './free-preparation.js';
 
 export interface ReviewSelection { id: string; revision: string; retry?: boolean }
 export interface ApplicationReviewOperatorHold {
@@ -46,8 +47,41 @@ export async function listApplicationReviews(userId: string) {
      LEFT JOIN application_review_operator_holds h ON h.user_id=r.user_id AND h.job_key=r.job_key AND h.released_at IS NULL
      WHERE r.user_id=$1 AND NOT (r.payload ? 'autoRunId') ORDER BY r.updated_at DESC LIMIT 100`, [userId]);
   const owner = rows.some(row => row.security_retry_after) ? await query<{ email: string }>('SELECT email FROM users WHERE id=$1', [userId]) : [];
-  return rows.map(({ security_retry_after, ...row }) => ({ ...row, security_retry: row.status === 'failed' && security_retry_after && !isAdmin(owner[0]?.email)
+  const guestOnly=rows.some(row=>freePreparationNeedsCheck(row.application))&&await freeGuestPreparationRequired(userId);
+  return rows.filter(row=>!guestOnly||!freePreparationNeedsCheck(row.application)).map(({ security_retry_after, ...row }) => ({ ...row, security_retry: row.status === 'failed' && security_retry_after && !isAdmin(owner[0]?.email)
     ? { reason: 'site-security', retryAt: new Date(security_retry_after).toISOString() } as SecurityRetry : null }));
+}
+
+/** One explicit operator refund for an unusable, unchecked Free-plan draft.
+ * Retains failure/history/approval bytes and never grants a paid plan. */
+export async function restoreFailedPreparationCredit(actorUserId:string,userId:string,selection:ReviewSelection,reason:string) {
+  reviewSelection([selection]);const explanation=operatorText(reason,'a credit restoration reason');
+  const connection=await getPool().connect();
+  try {
+    await connection.query('BEGIN');await verifyOperator(connection,actorUserId,userId);
+    await connection.query('SELECT pg_advisory_xact_lock($1::bigint)',[userId]);
+    const row=(await connection.query<{payload:PreparedApplication;status:string;credit_consumed:boolean}>(
+      'SELECT payload,status,credit_consumed FROM application_reviews WHERE user_id=$1 AND id=$2 FOR UPDATE',[userId,selection.id])).rows[0];
+    if(!row||row.payload.revision!==selection.revision)throw new ApplicationReviewError('The exact owner-scoped preparation was not found.');
+    if(row.payload.creditRestoration){await connection.query('COMMIT');return {restored:false,audit:row.payload.creditRestoration};}
+    if(row.status!=='failed'||!row.credit_consumed||row.payload.preparation?.version!==2||row.payload.preparation.access!=='not-checked')throw new ApplicationReviewError('Only a charged, failed, unchecked preparation can be restored by this operation.');
+    const active=await connection.query('SELECT id FROM run_starts WHERE user_id=$1 AND finished_at IS NULL LIMIT 1',[userId]);
+    if(active.rows.length)throw new ApplicationReviewError('Wait for this account’s active run to finish before restoring its credit.');
+    const applied=await connection.query('SELECT id FROM applications WHERE user_id=$1 AND job_id=$2 LIMIT 1',[userId,row.payload.job.id]);
+    if(applied.rows.length)throw new ApplicationReviewError('A submitted application cannot receive this preparation refund.');
+    const purchases=await connection.query('SELECT id FROM billing_purchases WHERE user_id=$1 LIMIT 1',[userId]);
+    if(purchases.rows.length)throw new ApplicationReviewError('This operation restores only documented Free-trial deductions.');
+    const trial=await connection.query('SELECT user_id FROM new_user_trials WHERE user_id=$1',[userId]);
+    if(!trial.rows.length)throw new ApplicationReviewError('The owner has no Free employer-site trial.');
+    const date=new Date(row.payload.preparedAt);
+    if(!Number.isFinite(date.getTime()))throw new ApplicationReviewError('The original preparation date is unavailable.');
+    const usage=(await connection.query<{successful_applications:number}>(
+      "UPDATE monthly_application_usage SET successful_applications=successful_applications-1 WHERE user_id=$1 AND month_start=date_trunc('month',$2::timestamptz)::date AND successful_applications>0 RETURNING successful_applications",[userId,date.toISOString()])).rows[0];
+    if(!usage)throw new ApplicationReviewError('No matching Free-trial deduction remains to restore.');
+    const audit={id:randomUUID(),actorUserId,restoredAt:new Date().toISOString(),reason:explanation,originalRevision:selection.revision,creditSource:'free-trial' as const,usedBefore:usage.successful_applications+1,usedAfter:usage.successful_applications};
+    await connection.query("UPDATE application_reviews SET credit_consumed=false,payload=jsonb_set(payload,'{creditRestoration}',$3::jsonb),updated_at=now() WHERE user_id=$1 AND id=$2",[userId,selection.id,JSON.stringify(audit)]);
+    await connection.query('COMMIT');return {restored:true,audit};
+  }catch(error){await connection.query('ROLLBACK');throw error;}finally{connection.release();}
 }
 
 export async function pendingReviewKeys(userId: string): Promise<string[]> {
@@ -179,6 +213,7 @@ export async function saveApplicationReview(userId: string, draft: PreparedAppli
       AND (application_reviews.payload->>'preparedAt') < (EXCLUDED.payload->>'preparedAt')
     RETURNING credit_consumed`,
     [userId, `${draft.job.platform ?? 'seek'}:${draft.job.id}`, draft.id, JSON.stringify(draft)]);
+    if(saved.rows[0]&&!automatic&&freePreparationNeedsCheck(draft)&&await freeGuestPreparationRequired(userId,connection))throw new ApplicationReviewError('Guest application access must be confirmed before this Free-plan application can be prepared. No credit was used.');
     // Operator holds are independent durable records keyed to this owner/job.
     // Importing a newer model draft cannot erase or release an active hold.
     if (saved.rows[0] && !saved.rows[0].credit_consumed) {
@@ -224,6 +259,7 @@ export async function applicationsForConfirmation(userId: string, selections: Re
      WHERE r.user_id=$1 AND r.id=ANY($2::uuid[])`,
     [userId, selections.map(item => item.id)]);
   const owner = await query<{ email: string }>('SELECT email FROM users WHERE id=$1', [userId]);
+  if(rows.some(row=>freePreparationNeedsCheck(row.payload))&&await freeGuestPreparationRequired(userId))throw new ApplicationReviewError('Guest application access has not been confirmed for this Free-plan draft. No application was started.');
   return confirmedVersions(rows, selections, isAdmin(owner[0]?.email));
 }
 
@@ -267,6 +303,7 @@ export async function claimApplicationReviews(userId: string, selections: Review
        WHERE r.user_id=$1 AND r.id=ANY($2::uuid[]) FOR UPDATE OF r`,
       [userId, selections.map(item => item.id)]);
     const owner = await connection.query<{ email: string }>('SELECT email FROM users WHERE id=$1 FOR SHARE', [userId]);
+    if(result.rows.some(row=>freePreparationNeedsCheck(row.payload))&&await freeGuestPreparationRequired(userId,connection))throw new ApplicationReviewError('Guest application access has not been confirmed for this Free-plan draft. No application was started.');
     const applications = confirmedVersions(result.rows, selections, isAdmin(owner.rows[0]?.email));
     await connection.query("UPDATE application_reviews SET status='approved',detail=NULL,updated_at=now() WHERE user_id=$1 AND id=ANY($2::uuid[])", [userId, selections.map(item => item.id)]);
     await connection.query('COMMIT');

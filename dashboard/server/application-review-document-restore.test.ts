@@ -56,7 +56,7 @@ try{
   await query('INSERT INTO run_starts VALUES(1,$1,$2,$3),(2,$4,$2,$3)',[owner,started,finished,other]);
   await query('INSERT INTO knowledge_items VALUES(1,$1,\'file\',$2,true),(2,$3,\'file\',$2,true)',[owner,filename,other]);
   const sql=readFileSync(new URL('./db/schema.sql',import.meta.url),'utf8');
-  for(const table of ['application_reviews','application_review_operator_holds']){
+  for(const table of ['new_user_trials','billing_purchases','application_credit_grants','application_reviews','application_review_operator_holds']){
     const statement=sql.match(new RegExp(`CREATE TABLE IF NOT EXISTS ${table} \\([\\s\\S]*?\\n\\);`))?.[0];assert.ok(statement);await query(statement);
   }
   await query('CREATE UNIQUE INDEX application_review_one_active_hold_idx ON application_review_operator_holds(user_id,job_key) WHERE released_at IS NULL');

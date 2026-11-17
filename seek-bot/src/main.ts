@@ -1348,7 +1348,7 @@ async function main() {
             await showLiveActivity({ phase: preparingApplications()?'reviewing':'applying', detail: preparingApplications()?`Preparing the cover letter for ${job.title} at ${job.company}`:`${job.title} at ${job.company}` }, applicationPage);
             if (limitReached()) break;
             try {
-              const apply = () => measured('application', () => preparingApplications() ? prepareMatchedJob(job,profile) : approvedApplication(job)?.email
+              const apply = () => measured('application', () => preparingApplications() ? prepareMatchedJob(job,profile,{page:applicationPage}) : approvedApplication(job)?.email
                 ? submitApprovedEmail(approvedApplication(job)!)
                 : adapter.apply(applicationPage, job, profile, { onFriction: () => {} }), { jobId: job.id, platform: platformId });
               outcome = await withApprovedRetry(retryApproval,()=>withApplicationAllowance(slot.beforeSubmit, apply));

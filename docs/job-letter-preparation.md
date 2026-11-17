@@ -1,5 +1,24 @@
 # Semi auto preparation
 
+## Free employer-site applications
+
+The Free offer checks the actual application before preparing a letter or
+spending a credit. The applying model opens the matched vacancy in an isolated
+browser context without employer or Google sessions. It must reach a guest
+application form or an explicit apply-by-email option. Required sign-in,
+registration, closed jobs and unconfirmed access do not become prepared jobs.
+This inspection never enters candidate data, uploads documents or submits.
+A connected native SEEK session remains available for SEEK applications.
+Jora discovery for Free users continues to support direct employer jobs only.
+
+Confirmed access is saved as version 3 evidence and bound to the approval
+revision. Free users cannot see or approve older unchecked employer drafts.
+Paid preparation retains the listing-only behavior described below. The normal
+applying agent still checks current access when the user chooses Apply, because
+an employer can change its form after preparation.
+
+## Paid listing preparation
+
 Preparation reads a job listing, checks the match against the saved profile and
 preferences, writes an evidence-checked cover letter and saves it for review.
 The matching coordinator already opens and reads the listing. The preparation

@@ -169,7 +169,7 @@ export async function runDirectExternalApplication(
   console.log(`Direct website job: ${job.title} @ ${job.company}`);
   let outcome: ApplyOutcome | undefined;
   try {
-    if(preparingApplications())outcome=await prepareMatchedJob(job,profile);
+    if(preparingApplications())outcome=await prepareMatchedJob(job,profile,{page});
     else{
     const apply = () => (test?.runAgent ?? runApplicationAgent)({ page, job, profile, log: (line: string) => console.log(line) });
     const run = await apply();
