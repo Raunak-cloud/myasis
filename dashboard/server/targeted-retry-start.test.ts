@@ -30,7 +30,7 @@ test('normal startRun resolves retained metadata and still enforces mode, accoun
   };
   try {
     writeFileSync(join(directory, 'boundary.mjs'), `
-export const state={credits:5,sent:0,busy:false,starts:[],queries:[],events:[],pending:['seek:held-fixture'],repairs:[],approvedDrafts:[]};
+export const state={credits:5,sent:0,busy:false,employersEnabled:true,starts:[],queries:[],events:[],pending:['seek:held-fixture'],repairs:[],approvedDrafts:[]};
 export const approvedRunRepairs=async()=>state.repairs;
 export const bonusRunForStart=async()=>{throw Error('No bonus run is authorized in this fixture');};
 export const bindBonusRun=async()=>{throw Error('No bonus run is authorized in this fixture');};
@@ -43,15 +43,15 @@ export const query=async(sql,params)=>{state.queries.push({sql,params});if(sql.i
 export const userDir=id=>{if(id!=='183')throw Error('Foreign fixture owner');return ${JSON.stringify(owner)};};
 export const runner={claimStart:()=>!state.busy,releaseStart:()=>{},inUse:()=>state.busy,start:async(...args)=>{state.starts.push(args);return {ok:true};}};
 export const readEnv=()=>({}),adzunaConfigured=()=>false;
-export const runSettingsSnapshotForUser=async()=>({settings:{KEYWORDS:'data analyst',MAX_AGE_DAYS:'15',MIN_SCORE:'70'},saved:{}});
-export const USER_SETTABLE_SETTINGS_KEYS=[],DAILY_APPLICATION_CAP_CHOSEN='fixture-daily';
+export const runSettingsSnapshotForUser=async()=>({settings:{KEYWORDS:'data analyst',MAX_AGE_DAYS:'15',MIN_SCORE:'70',EMPLOYER_APPLICATIONS_ENABLED:String(state.employersEnabled)},saved:{}});
+export const USER_SETTABLE_SETTINGS_KEYS=['EMPLOYER_APPLICATIONS_ENABLED'],DAILY_APPLICATION_CAP_CHOSEN='fixture-daily';
 export const billingStatus=async()=>({totalRemaining:state.credits,paid:{remaining:state.credits,hasActiveIntensivePass:true,employerSiteRemaining:5},free:{remaining:0}});
 export const consumeSuccessfulApplication=async()=>{throw Error('A fixture cannot charge an application');},isAdmin=email=>email==='operator@fixture.invalid';
 export const applyRunPolicy=settings=>({...settings,PLATFORMS:'seek',MAX_APPS_PER_RUN:'5',MAX_APPS_PER_DAY:'100'});
 export const PLATFORMS_CHOSEN_KEY='platforms-chosen',EMPLOYER_SOURCES_CHOSEN_KEY='sources-chosen',INTENSIVE_EMPLOYER_SITES_PER_DAY=5;
 export const discardRunStart=async()=>{},recordRunStart=async()=> 'fixture-new-run';
 export const entitlementsFor=async()=>({tier:'intensive',employerSources:true,fineTune:true,manualRuns:true,firstRunRequired:false,autoRunsPerDay:4});
-export const mayEditRunSetting=()=>false,listResumes=async()=>[{id:'fixture-resume'}];
+export const mayEditRunSetting=()=>true,listResumes=async()=>[{id:'fixture-resume'}];
 export const checkSignin=async()=>{throw Error('Fixture browser access is forbidden');},waitForSigninChecks=async()=>({ok:true});
 export const sessionFor=()=>null,stopSignin=async()=>{throw Error('Fixture cannot stop sign-in');};
 export const externalSubmittedToday=async()=>0,submittedToday=async()=>state.sent,readSiteState=()=>({signedIn:true});
@@ -68,7 +68,7 @@ export const gmailAccess=async()=>({connected:false}),scheduledStart=async()=>{t
       ['../../seek-bot/src/job-board-url.js', '../../seek-bot/src/repair-safety.js', './run-diagnostics.js']);
     compile('./targeted-retry-indeed.ts','indeed.mjs',{'./db/index.js':url('boundary.mjs')},['../../seek-bot/src/job-board-url.js']);
     compile('./start-run.ts', 'start.mjs', { './targeted-retry-jobs.js': url('targeted.mjs'),'./targeted-retry-indeed.js':url('indeed.mjs') },
-      ['../../seek-bot/src/application-model-catalog.js', '../../seek-bot/src/employer-source-config.js', '../src/salary.js',
+      ['../../seek-bot/src/application-model-catalog.js', '../../seek-bot/src/employer-source-config.js', '../src/salary.js', '../src/employer-applications.js',
         '../../seek-bot/src/job-board-url.js', '../../seek-bot/src/cover-letter-policy.js', '../../seek-bot/src/run-limits.js', '../../seek-bot/src/discovery-seeds.js', './employer-site-access.js', './operator-run-plan.js', './operator-application-budget.js']);
     const { startRun } = await import(url('start.mjs')) as typeof import('./start-run.js');
     const { state } = await import(url('boundary.mjs'));
@@ -161,6 +161,18 @@ export const gmailAccess=async()=>({connected:false}),scheduledStart=async()=>{t
     state.repairs=[];const beforeEmptyRepair=state.starts.length;
     assert.equal((await startRun({...repairRequest,requirePriorRunRepair:true}) as {status:number}).status,409);
     assert.equal(state.starts.length,beforeEmptyRepair,'an explicit repair-only request cannot fall through to discovery');
+    state.employersEnabled=false;
+    const boardRequest={...request,jobIds:undefined,scope:undefined,applicationMode:'auto' as const,clientOverrides:{EMPLOYER_APPLICATIONS_ENABLED:'true'}};
+    assert.deepEqual(await startRun(boardRequest),{ok:true,mode:'live'});
+    assert.equal(state.starts.at(-1)[1].ALLOW_EXTERNAL_APPLY,'false','a stale form cannot override the saved employer opt-out');
+    const beforeExternal=state.starts.length;
+    assert.equal((await startRun({...boardRequest,externalUrl:'https://careers.fixture.invalid/job/1'}) as {status:number}).status,409);
+    state.approvedDrafts[0].formUrl='https://careers.fixture.invalid/job/1';
+    assert.equal((await startRun({...boardRequest,approvals:[{id:attemptId,revision:'a'.repeat(64)}]}) as {status:number}).status,409);
+    assert.equal(state.starts.length,beforeExternal,'disabled direct and prepared employer applications never launch or spend a credit');
+    state.employersEnabled=true;
+    assert.deepEqual(await startRun(boardRequest),{ok:true,mode:'live'});
+    assert.equal(state.starts.at(-1)[1].ALLOW_EXTERNAL_APPLY,'true','re-enabling restores existing employer allowance');
     assert.ok(state.queries.every((entry:{sql:string})=>!/(INSERT|UPDATE|DELETE).*?(billing|settings|credit_grants)/i.test(entry.sql)));
   } finally {
     assert.ok(resolve(directory).startsWith(resolve(tmpdir())));
