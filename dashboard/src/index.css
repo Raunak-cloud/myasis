@@ -410,6 +410,7 @@ tbody tr.clickable { cursor: pointer; }
 .pricing-free-start .pricing-free-reward { flex: 0 1 340px; }
 .pricing-free-reward strong { font-size: 17px; letter-spacing: 0; }
 .pricing-source-brands { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 12px; font-size: 11px; font-style: normal; margin-top: 2px; }
+.pricing-source-brands .board-brand-logo, .pricing-free-reward .board-brand-logo { width: 64px; height: 28px; padding: 0; border: 0; }
 .pricing-source-note { flex-basis: 100%; color: var(--text-dim); font-size: 11px; }
 .home-price-desc > p { margin: 0 0 12px; }
 .landing .pricing-free-start, .landing .pricing-source-brands { --text-dim: var(--body); }
