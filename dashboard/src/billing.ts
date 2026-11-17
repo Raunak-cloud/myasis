@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { BillingOffers } from './billing-offers.js';
+import type { FreeTrialOffer } from './free-trial.js';
+import { BOARDS_CHANGED } from './boards.js';
 
 /**
  * The account's plan and application allowance, as the server counts them.
@@ -10,7 +12,7 @@ import type { BillingOffers } from './billing-offers.js';
  */
 export interface BillingStatus {
   configured: boolean;
-  free: { allowance: number; used: number; remaining: number };
+  free: { allowance: number; used: number; remaining: number; trial?:FreeTrialOffer };
   paid: {
     remaining: number;
     employerSiteRemaining: number;
@@ -44,11 +46,13 @@ export function useBillingStatus(): BillingStatus | null {
     // A run submits applications while this sits in the corner; coming back to the tab is when the number is looked at.
     const onFocus = () => document.visibilityState === 'visible' && load();
     window.addEventListener(BILLING_CHANGED, load);
+    window.addEventListener(BOARDS_CHANGED, load);
     window.addEventListener('entitlements-changed', load);
     document.addEventListener('visibilitychange', onFocus);
     return () => {
       cancelled = true;
       window.removeEventListener(BILLING_CHANGED, load);
+      window.removeEventListener(BOARDS_CHANGED, load);
       window.removeEventListener('entitlements-changed', load);
       document.removeEventListener('visibilitychange', onFocus);
     };

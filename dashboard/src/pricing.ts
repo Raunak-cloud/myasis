@@ -57,13 +57,14 @@ const INTENSIVE = PLAN_LIMITS['intensive-pass'];
 export const PLAN_PRESENTATION = {
   free: {
     label: 'Try it free',
-    description: 'See Owtomate apply to well-matched SEEK roles before paying.',
+    description: 'Start with employer websites. No job-board connection or card needed.',
     features: [
       `${FREE_APPLICATIONS} application credits`,
+      'Connect SEEK for 6 extra free applications',
       `${plural(FREE.autoRunsPerDay, 'scheduled run', 'scheduled runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${FREE.evaluationsPerRun} jobs each run`,
       `Jobs that match your resume by at least ${SCHEDULED_MIN_SCORE}%`,
-      'SEEK applications',
+      'Employer-site applications, with optional SEEK connection',
       'Personalised cover letters and application tracking',
     ],
   },

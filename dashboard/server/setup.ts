@@ -115,7 +115,7 @@ export async function setupStatus(
       id: 'boards',
       label: employerSourceSelected ? 'Job sources ready' : 'Job board connected',
       done: employerSourceSelected || connectedBoards.length > 0,
-      hint: employerSourceSelected ? 'Employer job sources are ready. You can also connect SEEK or Indeed.' : connectedBoards.length
+      hint: employerSourceSelected ? entitlement.employerTrial?'Employer sites are ready. Connecting SEEK is optional and adds 6 free applications.':'Employer job sources are ready. You can also connect SEEK or Indeed.' : connectedBoards.length
         ? `Connected to ${connectedBoards.map((site) => site === 'seek' ? 'SEEK' : 'Indeed').join(' and ')}.`
         : 'Connect SEEK, or Indeed if available.',
       fix: 'boards',

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import {BOARDS_CHANGED} from './boards';
 
 /**
  * What this account may do, as the server decided it.
@@ -28,6 +29,8 @@ export interface Entitlements {
   runScopes: boolean;
   indeedApplications: boolean;
   employerSources: boolean;
+  employerTrial?: boolean;
+  seekTrialConnected?: boolean;
   /** Suggestions from resumes left; null means no limit. */
   searchTermSuggestionsLeft: number | null;
   timeZone: string;
@@ -58,9 +61,11 @@ export function useEntitlements(): Entitlements | null {
     };
     load();
     window.addEventListener('entitlements-refresh', load);
+    window.addEventListener(BOARDS_CHANGED,load);
     return () => {
       cancelled = true;
       window.removeEventListener('entitlements-refresh', load);
+      window.removeEventListener(BOARDS_CHANGED,load);
     };
   }, []);
   return entitlements;

@@ -17,7 +17,7 @@ before(async () => {
   await pool.query(`CREATE SCHEMA ${schema}; CREATE TABLE users(id bigint PRIMARY KEY,email text NOT NULL);
     INSERT INTO users VALUES (1,'unlimited@fixture.invalid'),(2,'finite@fixture.invalid'),(3,'active@fixture.invalid'),(4,'checkout@fixture.invalid');`);
   const sql = readFileSync(new URL('./db/schema.sql', import.meta.url), 'utf8');
-  for (const table of ['billing_purchases', 'billing_checkout_intents', 'application_credit_grants', 'employer_site_credit_grants', 'monthly_application_usage', 'application_reviews']) {
+  for (const table of ['new_user_trials', 'billing_purchases', 'billing_checkout_intents', 'application_credit_grants', 'employer_site_credit_grants', 'monthly_application_usage', 'application_reviews']) {
     await pool.query(sql.match(new RegExp(`CREATE TABLE IF NOT EXISTS ${table} \\([\\s\\S]*?\\n\\);`))![0]);
   }
 });

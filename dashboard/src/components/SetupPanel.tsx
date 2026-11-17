@@ -12,6 +12,7 @@ import { USER_RUN_LIMITS, userRunLimitError } from '../../../seek-bot/src/run-li
 import { SearchTermsGenerator } from './SearchTermsGenerator';
 import { SeekSignIn } from './SeekSignIn';
 import { useEntitlements } from '../entitlements';
+import {useBillingStatus} from '../billing';
 import { TermsInput } from './TermsInput';
 import { MAX_SEARCH_TERMS } from '../search-limits';
 
@@ -92,6 +93,7 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
    * advertisement, not an interface.
    */
   const entitlements = useEntitlements();
+  const employerTrial=Boolean(useBillingStatus()?.free.trial);
   const canFineTune = entitlements?.fineTune ?? false;
   const canUseAdvancedFilters = entitlements?.advancedFilters ?? false;
 
@@ -333,8 +335,8 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
       <Step
         id="boards"
         n={4}
-        title="Connect a job board"
-        blurb="SEEK, or Indeed if available."
+        title={employerTrial?'Job sources':'Connect a job board'}
+        blurb={employerTrial?'Employer websites need no job-board connection. Connect SEEK for 6 extra free applications, whenever you like.':'SEEK, or Indeed if available.'}
         done={done('boards')}
         open={openStep === 'boards'}
         onSelect={selectStep}

@@ -211,7 +211,7 @@ export async function handleGoogleCallback(
         WHERE google_id = $4 AND NOT EXISTS (SELECT 1 FROM users other WHERE other.email = $1 AND other.id <> users.id)
         RETURNING id, blocked_at, false AS is_new`, values)
     : await one<{ id: string; blocked_at: Date | null; is_new: boolean }>(
-    `INSERT INTO users (email, name, avatar_url, google_id, last_login_at)
+    `WITH account AS (INSERT INTO users (email, name, avatar_url, google_id, last_login_at)
      VALUES ($1,$2,$3,$4, now())
      ON CONFLICT (email) DO UPDATE SET
        name = COALESCE(EXCLUDED.name, users.name),
@@ -219,7 +219,9 @@ export async function handleGoogleCallback(
        google_id = COALESCE(users.google_id, EXCLUDED.google_id),
        last_login_at = now()
      WHERE users.google_id IS NULL OR users.google_id = EXCLUDED.google_id
-     RETURNING id, blocked_at, (xmax = 0) AS is_new`,
+     RETURNING id, blocked_at, (xmax = 0) AS is_new),
+     trial AS (INSERT INTO new_user_trials(user_id) SELECT id FROM account WHERE is_new AND blocked_at IS NULL ON CONFLICT DO NOTHING)
+     SELECT id,blocked_at,is_new FROM account`,
     values,
   );
   if (!user) return { ok: false, error: 'This email address is already linked to another Google account. Please use the original account.' };

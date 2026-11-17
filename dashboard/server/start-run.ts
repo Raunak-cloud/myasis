@@ -347,6 +347,12 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     if (selections) prepaid = await applicationsForConfirmation(userId, selections);
   } catch (error) { return { ok: false, status: 409, error: (error as Error).message }; }
   const prepaidExternal = prepaid.filter(item => item.job.applicationMode === 'external' || isExternalApplicationUrl(item.formUrl)).length;
+  // Preparing a trial application already spent its credit. Completing that
+  // exact approved draft remains available when its unused balance reaches zero.
+  if(prepaidExternal>0&&entitlements.employerTrial){
+    entitlements={...entitlements,employerSources:true};
+    overrides.PLATFORMS=[...new Set(prepaid.map(item=>item.job.platform??'seek'))].join(',');
+  }
   const emailOnly = prepaid.length > 0 && prepaid.every(item => item.email);
   const gmail = await gmailAccess(userId);
   const needsBrowser = !emailOnly || gmail.provider === 'browser';
@@ -423,11 +429,13 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
         overrides.MAX_APPS_PER_DAY = String(dailyApplicationLimit(chosenDailyCap));
       }
       const externalUsedToday = admin ? 0 : await externalSubmittedToday(userId);
+      const freeEmployerRemaining=allowance.free.trial?.employerSites?allowance.free.remaining:0;
+      const trialEmployerLimit=freeEmployerRemaining>0?freeEmployerRemaining:entitlements.employerTrial?prepaidExternal:0;
       const externalAvailable = prepaidExternal > 0 || allowance.paid.hasActiveIntensivePass
         && allowance.paid.remaining > 0
         && allowance.paid.employerSiteRemaining > 0
         && (unlimitedApplications || externalUsedToday < INTENSIVE_EMPLOYER_SITES_PER_DAY);
-      const externalCeiling = externalUsedToday + Math.min(
+      const externalCeiling = trialEmployerLimit>0?externalUsedToday+trialEmployerLimit:externalUsedToday + Math.min(
         selections ? prepaidExternal : allowance.paid.employerSiteRemaining,
         selections ? prepaidExternal : allowance.paid.remaining,
         Math.max(0, INTENSIVE_EMPLOYER_SITES_PER_DAY - externalUsedToday),
@@ -437,6 +445,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
         targetIsAdmin: admin,
         initiatedByAdmin: trigger === 'admin',
         hasIntensiveAllowance: externalAvailable,
+        hasFreeEmployerAllowance:freeEmployerRemaining>0,
       });
       overrides.ALLOW_EXTERNAL_APPLY = employerSitesAllowed ? 'true' : 'false';
       if (directExternalUrl && overrides.ALLOW_EXTERNAL_APPLY !== 'true') {
@@ -480,6 +489,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
       targetIsAdmin: admin,
       initiatedByAdmin: trigger === 'admin',
       hasIntensiveAllowance: Boolean(allowance?.paid.hasActiveIntensivePass),
+      hasFreeEmployerAllowance:Boolean(allowance?.free.trial?.employerSites&&allowance.free.remaining>0),
     }) ? 'true' : 'false';
   }
 

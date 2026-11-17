@@ -36,11 +36,13 @@ type Status = {
 
 const SITE_NAME = { seek: 'SEEK', indeed: 'Indeed', jora: 'Jora', gmail: 'Gmail' } as const;
 
-export function SeekSignIn({ indeedEnabled = false, showConnected = false, adminBrowserAccess = false, onVerifyingChange }: {
+export function SeekSignIn({ indeedEnabled = false, showConnected = false, adminBrowserAccess = false, hidePrompt = false, onVerifyingChange }: {
   indeedEnabled?: boolean;
   /** Keep the connection state visible on Setup, even after sign-in succeeds. */
   showConnected?: boolean;
   adminBrowserAccess?: boolean;
+  /** Keep the private viewer available without presenting SEEK as required. */
+  hidePrompt?: boolean;
   /** Told whenever a sign-in check starts or settles, so the page can hold a run back until it has. */
   onVerifyingChange?: (verifying: boolean) => void;
 }) {
@@ -238,6 +240,7 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, admin
      * controls only made it look like a setting.
      */
     if (seekSettled && indeedSettled && !error && !notice && !showConnected) return null;
+    if(hidePrompt&&!error&&!notice&&!showConnected)return null;
 
     const expired = status.seek?.signedIn === false;
     const indeedExpired = status.indeed?.signedIn === false;

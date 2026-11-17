@@ -30,6 +30,14 @@ CREATE TABLE IF NOT EXISTS sessions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   expires_at TIMESTAMPTZ NOT NULL
 );
+
+-- Granted atomically at genuine signup only. Existing accounts retain their offer.
+CREATE TABLE IF NOT EXISTS new_user_trials (
+  user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  seek_connected_at TIMESTAMPTZ,
+  seek_account TEXT
+);
 CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS sessions_expiry_idx ON sessions(expires_at);
 

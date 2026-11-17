@@ -15,6 +15,7 @@ const id=randomUUID();
 const draft=(job:string):PreparedApplication=>({id:randomUUID(),revision:'a'.repeat(64),job:{id:job,title:'Synthetic analyst',company:'Fixture',location:'Sydney',platform:'seek',url:`https://www.seek.com.au/job/${job}`},formUrl:`https://www.seek.com.au/job/${job}/apply/review`,preparedAt:new Date().toISOString(),answers:[],resume:'Fixture CV.pdf'});
 try{
  await query('CREATE TEMP TABLE users(id BIGINT PRIMARY KEY,email TEXT,blocked_at TIMESTAMPTZ)');
+ await query('CREATE TEMP TABLE new_user_trials(user_id BIGINT PRIMARY KEY,seek_connected_at TIMESTAMPTZ,seek_account TEXT)');
  await query("INSERT INTO users VALUES(1,'admin@bonus.fixture.invalid',NULL),(2,'candidate@bonus.fixture.invalid',NULL),(3,'other@bonus.fixture.invalid',NULL)");
  await query('CREATE TEMP TABLE run_starts(id BIGINT PRIMARY KEY,user_id BIGINT,mode TEXT,trigger TEXT,started_by BIGINT,started_at TIMESTAMPTZ,finished_at TIMESTAMPTZ,operator_options JSONB,stopped BOOLEAN DEFAULT false,applied INTEGER,exit_code INTEGER)');
  await query("CREATE TEMP TABLE bonus_runs(id UUID PRIMARY KEY,user_id BIGINT,started_by BIGINT,max_applications INTEGER,application_mode TEXT,message TEXT,salary_discount_percent NUMERIC,jora_enabled BOOLEAN NOT NULL DEFAULT false,status TEXT DEFAULT 'queued',created_at TIMESTAMPTZ DEFAULT now(),claimed_at TIMESTAMPTZ,run_start_id BIGINT,finished_at TIMESTAMPTZ,failure_detail TEXT)");

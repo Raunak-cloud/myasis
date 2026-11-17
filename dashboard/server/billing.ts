@@ -16,6 +16,8 @@ import { activeBillingPass, managedCheckout, type CheckoutOptions } from './bill
 import { billingOffers } from './billing-policy.js';
 import { fulfillPayment } from './billing-fulfillment.js';
 import type { BillingOffers } from '../src/billing-offers.js';
+import {freeTrialOffer} from './free-trial.js';
+import {SEEK_CONNECTION_APPLICATIONS,type FreeTrialOffer} from '../src/free-trial.js';
 export { BillingPolicyError } from './billing-policy.js';
 
 /** Large but finite so JSON/arithmetic (e.g. Math.min with a run cap) stays well-behaved — Infinity serialises to null. */
@@ -97,6 +99,7 @@ export interface BillingStatus {
     allowance: number;
     used: number;
     remaining: number;
+    trial?: FreeTrialOffer;
   };
   paid: {
     remaining: number;
@@ -188,7 +191,9 @@ export async function billingStatus(userId: string, email?: string | null): Prom
     [userId],
   );
   const freeUsed = Number(usage?.used ?? 0);
-  const freeRemaining = Math.max(0, FREE_APPLICATIONS - freeUsed);
+  const trial=await freeTrialOffer(userId);
+  const freeAllowance=FREE_APPLICATIONS+(trial?.seekBonusAwarded?SEEK_CONNECTION_APPLICATIONS:0);
+  const freeRemaining = Math.max(0, freeAllowance - freeUsed);
   const paidRemaining = paid?.intensive_pass ? ADMIN_UNLIMITED : Number(paid?.remaining ?? 0);
   const hasActivePass = Boolean(paid?.essential_pass || paid?.job_search_pass || paid?.intensive_pass);
   const activePassExpiry = paid?.intensive_pass
@@ -201,9 +206,10 @@ export async function billingStatus(userId: string, email?: string | null): Prom
   return {
     configured: paymentsConfigured(),
     free: {
-      allowance: FREE_APPLICATIONS,
+      allowance: freeAllowance,
       used: freeUsed,
       remaining: freeRemaining,
+      ...(trial?{trial}:{}),
     },
     paid: {
       remaining: paidRemaining,

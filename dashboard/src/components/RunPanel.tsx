@@ -16,6 +16,7 @@ import { SearchTermsGenerator } from './SearchTermsGenerator';
 import { TermsInput } from './TermsInput';
 import { EmployerSourceEditor } from './EmployerSourceEditor';
 import { SeekSignIn } from './SeekSignIn';
+import {FreeTrialOffer} from './FreeTrialOffer';
 import { GmailConnect } from './GmailConnect';
 import { LiveActionViewer } from './LiveActionViewer';
 import { MascotLogo } from './MascotLogo';
@@ -233,7 +234,7 @@ export function RunPanel({
     fetch('/api/settings').then((r) => r.ok ? r.json() : null).then(value => {
       if (value) setSettings(value);
     }).catch(() => {});
-  }, []);
+  }, [entitlements?.employerTrial,entitlements?.seekTrialConnected,entitlements?.employerSources]);
 
   /**
    * How tall the run bar is, published for the page to reserve.
@@ -691,6 +692,8 @@ export function RunPanel({
   return (
     <div className="run-layout">
       <div className="run-span run-notes" ref={setupRef} tabIndex={-1}>
+        <FreeTrialOffer offer={billing?.free.trial} running={running}/>
+        {billing?.free.trial&&accountSetupIncomplete&&!setupExpanded&&<SeekSignIn hidePrompt onVerifyingChange={setVerifyingSignIn}/>}
         {setup && <SetupChecklist status={setup} expanded={setupExpanded} onExpandedChange={setSetupExpanded} onVerifyingSignInChange={setVerifyingSignIn} />}
         <BoardResumesNote />
       </div>
@@ -715,7 +718,7 @@ export function RunPanel({
         */}
         {outOfAllowance && (
           <div className="banner banner-bad out-of-applications" role="status">
-            <span><strong>You're out of applications.</strong> Get a pass, then start a run when you're ready.</span>
+            <span><strong>You're out of applications.</strong> {billing?.free.trial&&!billing.free.trial.seekBonusAwarded?'Connect SEEK for 6 more free applications, or choose a pass.':'Get a pass, then start a run when you’re ready.'}</span>
             <button type="button" className="btn primary" onClick={onGoPricing}>View plans</button>
           </div>
         )}
@@ -836,7 +839,7 @@ export function RunPanel({
         {!running && !accountSetupIncomplete && (
           <>
             {/* Same rule the run applies: an account that cannot fine-tune gets Indeed from its pass, not from the setting. */}
-            {!setupExpanded && <SeekSignIn onVerifyingChange={setVerifyingSignIn} indeedEnabled={platforms.includes('indeed')} />}
+            {!setupExpanded && <SeekSignIn hidePrompt={Boolean(billing?.free.trial&&!billing.free.trial.seekBonusAwarded)} onVerifyingChange={setVerifyingSignIn} indeedEnabled={platforms.includes('indeed')} />}
             <GmailConnect compact />
           </>
         )}
@@ -1167,14 +1170,14 @@ export function RunPanel({
                       );
                     })}
                   </div>
-                  {unusableBoards.length > 0 && (
+                  {unusableBoards.length > 0 && !(entitlements?.employerTrial&&employerSourceSelected) && (
                     <p className="job-meta board-signin-hint">
                       {unusableBoards.map((board) => board.label).join(' and ')} {unusableBoards.length === 1 ? 'is' : 'are'} not signed in, so {unusableBoards.length === 1 ? 'it' : 'they'} cannot be used. Sign in on the Apply page first.
                     </p>
                   )}
                   {fieldError('PLATFORMS')}
                 </div>
-                {employerSourceSelected && !isAdmin && <p className="job-meta">Employer sources are included with Get Owtomated. No SEEK or Indeed sign-in is needed for these sources.</p>}
+                {employerSourceSelected && !isAdmin && <p className="job-meta">{entitlements?.employerTrial?'Employer websites are included in your free trial. No job-board connection is needed.':'Employer sources are included with Get Owtomated. No SEEK or Indeed sign-in is needed for these sources.'}</p>}
                 {isAdmin && EMPLOYER_SOURCES.filter(source => platforms.includes(source.id)).map(source => (
                   <div key={source.id} className="field run-review-wide" data-field={source.key}>
                     <EmployerSourceEditor source={source} value={val(source.key)} onChange={value => setEdit(source.key, value)} />

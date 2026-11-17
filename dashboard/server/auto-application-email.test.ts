@@ -23,6 +23,7 @@ test('live Auto email uses existing receipt/credit ledger without confirmation o
   const sources = new Map<string,string|null>();
   const applied = new Set<string>(); let ended=false,attempts=0,credits=0,externalCredits=0,uncertain=false;
   const sql = async (statement:string, params:any[]=[]) => {
+    if (statement.includes('FROM new_user_trials')) return {rows:[]};
     if (['BEGIN','COMMIT','ROLLBACK'].includes(statement) || statement.startsWith('SELECT pg_advisory')) return {rows:[]};
     if (statement.includes('FROM run_starts r JOIN users')) return {rows:params[0]===owner && params[1]==='1001' && !ended ? [{id:'1001'}] : []};
     if (statement.includes('FROM bonus_runs')) return {rows:[]};

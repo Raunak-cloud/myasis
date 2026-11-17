@@ -27,6 +27,7 @@ let salary = '';
 let writes = 0;
 pool.query = (async (sql: string) => {
   assert.match(sql.trim(), /^(?:SELECT|WITH)/i, 'run refusal must not write');
+  if (sql.includes('FROM new_user_trials')) return { rows: [] };
   if (sql.includes('SELECT * FROM profiles')) return { rows: [{ expected_salary: salary }] };
   if (sql.includes('FROM monthly_application_usage')) return { rows: [{ used: '0' }] };
   if (sql.includes('SELECT email FROM users')) return { rows: [{ email: 'one-time-admin@example.com' }] };

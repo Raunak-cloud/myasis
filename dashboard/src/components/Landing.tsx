@@ -158,7 +158,7 @@ export function Landing({ googleConfigured, initialImprovements, initialAuthErro
             <JobSourceLogos />
             <div className="home-hero-actions">
               {start()}
-              <p className="home-hero-note"><strong>{FREE_APPLICATIONS}</strong> free applications, no card.</p>
+              <p className="home-hero-note"><strong>{FREE_APPLICATIONS}</strong> free applications. No card or job-board connection needed.</p>
             </div>
             <p className="home-consent">By signing in you agree to the <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.</p>
             {error && <div className="home-error" role="alert">{error}</div>}
@@ -284,7 +284,7 @@ export function Landing({ googleConfigured, initialImprovements, initialAuthErro
                 <span className="home-last-bubble">Now go.</span>
               </div>
               <p className="home-last-copy">
-                The sooner you leave us for your new role, the more we like our job. Five free applications. One sign-in. No card.
+                The sooner you leave us for your new role, the more we like our job. Five free applications. No card or job-board connection needed.
               </p>
               <div className="home-last-cta">{start('Start applying', 'white')}</div>
               <p className="home-last-tag">{FREE_APPLICATIONS} free applications &middot; no card needed.</p>

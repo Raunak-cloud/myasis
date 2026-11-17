@@ -1,5 +1,5 @@
 import type { PoolClient } from 'pg';
-import { FREE_APPLICATIONS } from '../src/pricing.js';
+import {freeApplicationAllowance} from './free-trial.js';
 
 /** Caller owns the transaction. The account lock serializes every credit deduction. */
 export async function consumeApplicationCredit(client: PoolClient, userId: string, external = false): Promise<void> {
@@ -12,6 +12,16 @@ export async function consumeApplicationCredit(client: PoolClient, userId: strin
       WHERE g.user_id = $1 AND p.plan_key = 'intensive-pass'
         AND (g.expires_at IS NULL OR g.expires_at > now())) AS active`, [userId]);
   if (unlimited.rows[0]?.active) return;
+
+  const trial=await client.query<{seek_connected_at:Date|null}>('SELECT seek_connected_at FROM new_user_trials WHERE user_id=$1',[userId]);
+  const usage = await client.query<{ used: string }>(
+    `SELECT COALESCE(sum(successful_applications), 0)::text AS used FROM monthly_application_usage WHERE user_id = $1`,[userId]);
+  if ((!external || trial.rows.length>0) && Number(usage.rows[0]?.used ?? 0)<freeApplicationAllowance(trial.rows[0])) {
+    await client.query(`INSERT INTO monthly_application_usage (user_id, month_start, successful_applications)
+      VALUES ($1, date_trunc('month', now())::date, 1) ON CONFLICT (user_id, month_start) DO UPDATE SET
+      successful_applications = monthly_application_usage.successful_applications + 1`,[userId]);
+    return;
+  }
 
   let employerGrantId: string | null = null;
   if (external) {
@@ -29,21 +39,7 @@ export async function consumeApplicationCredit(client: PoolClient, userId: strin
     employerGrantId = employerGrant.rows[0]?.id ?? null;
     if (!employerGrantId) throw new Error('No employer-site application allowance remains.');
   }
-  const usage = await client.query<{ used: string }>(
-    `SELECT COALESCE(sum(successful_applications), 0)::text AS used
-       FROM monthly_application_usage
-      WHERE user_id = $1`,
-    [userId],
-  );
-  if (!external && Number(usage.rows[0]?.used ?? 0) < FREE_APPLICATIONS) {
-    await client.query(
-      `INSERT INTO monthly_application_usage (user_id, month_start, successful_applications)
-       VALUES ($1, date_trunc('month', now())::date, 1)
-       ON CONFLICT (user_id, month_start) DO UPDATE SET
-         successful_applications = monthly_application_usage.successful_applications + 1`,
-      [userId],
-    );
-  } else {
+  {
     const grant = await client.query<{ id: string }>(
       `SELECT id
          FROM application_credit_grants

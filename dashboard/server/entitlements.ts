@@ -129,8 +129,9 @@ const FINE_TUNING_KEYS: string[] = KEEP_SETTINGS_KEYS.filter(
 /** Active Search may refine matching without receiving Intensive's run controls or standing instructions. */
 const ADVANCED_FILTER_KEYS = ['MIN_SCORE', 'MAX_AGE_DAYS'] as const;
 
-export function mayEditRunSetting(key: string, entitlement: Pick<Entitlements, 'fineTune' | 'advancedFilters'> & Partial<Pick<Entitlements, 'tier'>>): boolean {
+export function mayEditRunSetting(key: string, entitlement: Pick<Entitlements, 'fineTune' | 'advancedFilters'> & Partial<Pick<Entitlements, 'tier' | 'employerTrial'>>): boolean {
   if (key === 'MAX_APPS_PER_RUN') return false;
+  if(key==='PLATFORMS'&&entitlement.employerTrial)return true;
   if (key === 'APPLICATION_AI_MODEL' || key === 'APPLICATION_AGENT_MODE' || key === 'APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN') return entitlement.tier === 'admin';
   if (!FINE_TUNING_KEYS.includes(key)) return true;
   return entitlement.fineTune
@@ -164,11 +165,15 @@ export const EMPLOYER_SOURCES_CHOSEN_KEY = 'EMPLOYER_SOURCES_CHOSEN';
  */
 export function effectivePlatforms(
   saved: Record<string, string | undefined>,
-  entitlement: Pick<Entitlements, 'indeedApplications'> & Partial<Pick<Entitlements, 'employerSources' | 'tier'>>,
+  entitlement: Pick<Entitlements, 'indeedApplications'> & Partial<Pick<Entitlements, 'employerSources' | 'tier' | 'employerTrial' | 'seekTrialConnected'>>,
 ): string {
+  if(entitlement.employerTrial && entitlement.employerSources && saved[PLATFORMS_CHOSEN_KEY]!=='1')return [
+    ...EMPLOYER_SOURCES.map(source=>source.id),...(entitlement.seekTrialConnected?['seek']:[]),...(entitlement.indeedApplications?['indeed']:[]),
+  ].join(',');
   const value = (saved.PLATFORMS ?? RUN_SETTING_DEFAULTS.PLATFORMS).trim() || RUN_SETTING_DEFAULTS.PLATFORMS;
   const base = saved[PLATFORMS_CHOSEN_KEY] !== '1' && entitlement.indeedApplications && value === RUN_SETTING_DEFAULTS.PLATFORMS ? 'seek,indeed' : value;
   const selected = base.split(',').map(id => id.trim().toLowerCase()).filter(id => id && (!isEmployerSource(id) || entitlement.employerSources)
+    && (id!=='indeed'||!entitlement.employerTrial||entitlement.indeedApplications)
     && (id !== 'jora' || saved.JORA_BETA_ENABLED !== 'false'));
   if (saved.JORA_BETA_ENABLED === 'true') selected.push('jora');
   if (entitlement.employerSources && entitlement.tier === 'intensive' && saved[EMPLOYER_SOURCES_CHOSEN_KEY] !== '1') {
@@ -182,7 +187,7 @@ export function applyRunPolicy(
   entitlement: Pick<
     Entitlements,
     'tier' | 'fineTune' | 'advancedFilters' | 'indeedApplications' | 'evaluationsPerRun' | 'maxApplicationsPerRunOverride'
-  > & Partial<Pick<Entitlements, 'employerSources' | 'maxApplicationsPerDay'>>,
+  > & Partial<Pick<Entitlements, 'employerSources' | 'maxApplicationsPerDay' | 'employerTrial' | 'seekTrialConnected'>>,
   trigger: 'manual' | 'auto',
   /** Whether the account picked its boards itself (see effectivePlatforms). */
   boardsChosen = false,
@@ -264,6 +269,8 @@ export interface Entitlements {
   indeedApplications: boolean;
   /** May discover vacancies directly from the supported employer sources. */
   employerSources: boolean;
+  employerTrial?: boolean;
+  seekTrialConnected?: boolean;
   /**
    * Search-term suggestions from resumes left. Null means no limit. The free
    * plan gets one: enough to see what it does, and the reason to buy a pass
@@ -384,7 +391,7 @@ export async function discardRunStart(id: string | null): Promise<void> {
 /** Everything about an account that decides what it may do. Facts only; no database. */
 interface EntitlementFacts {
   admin: boolean;
-  billing: Pick<BillingStatus, 'paid'>;
+  billing: Pick<BillingStatus, 'paid'> & Partial<Pick<BillingStatus,'free'>>;
   autoRunsUsedToday: number;
   autoApplyPaused: boolean;
   hasSuccessfulRun: boolean;
@@ -457,6 +464,7 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
     runScopes: tier === 'admin',
     indeedApplications: billing.paid.hasActiveJobSearchPass || billing.paid.hasActiveIntensivePass,
     employerSources: tier === 'admin' || tier === 'intensive',
+    ...(billing.free?.trial?{employerSources:tier==='admin'||tier==='intensive'||billing.free.remaining>0,employerTrial:true,seekTrialConnected:billing.free.trial.seekBonusAwarded}:{}),
     searchTermSuggestionsLeft: facts.searchTermSuggestionsLeft,
     timeZone: RUN_TIME_ZONE,
   };

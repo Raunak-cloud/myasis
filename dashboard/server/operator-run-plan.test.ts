@@ -53,6 +53,7 @@ test('only verified live admin starts accept a 400-review sponsorship; 401 and o
  process.env.ADMIN_EMAILS='operator@fixture.invalid';let operator=true;
  pool.query=(async(sql:string)=>{
   assert.match(sql.trim(),/^(SELECT|WITH)/,'validation must not write account settings or billing');
+  if(sql.includes('FROM new_user_trials'))return {rows:[]};
   if(sql.includes('SELECT email FROM users'))return {rows:[{email:operator?'operator@fixture.invalid':'candidate@fixture.invalid'}]};
   if(sql.includes('FROM monthly_application_usage'))return {rows:[{used:'2'}]};
   if(sql.includes('FROM run_starts')||sql.includes('FROM feature_uses')||sql.includes('FROM applications'))return {rows:[{n:'0',complete:false}]};

@@ -2,6 +2,7 @@ import { paymentsConfigured, type BillingStatus } from './billing.js';
 import { deriveEntitlements, FREE_SEARCH_TERM_SUGGESTIONS, type Entitlements } from './entitlements.js';
 import { allowanceRefusal, manualRunRefusal } from './start-run.js';
 import { FREE_APPLICATIONS, PAID_PLANS, PLAN_LIMITS } from '../src/pricing.js';
+import {SEEK_CONNECTION_APPLICATIONS} from '../src/free-trial.js';
 
 /**
  * Account states an admin can preview.
@@ -28,6 +29,7 @@ interface Scenario {
   autoRunsUsedToday?: number;
   autoApplyPaused?: boolean;
   hasSuccessfulRun?: boolean;
+  trial?:'new'|'connected';
 }
 
 const ESSENTIAL = PAID_PLANS['essential-pass'].applications;
@@ -35,7 +37,9 @@ const JOB_SEARCH = PAID_PLANS['job-search-pass'].applications;
 const INTENSIVE = PAID_PLANS['intensive-pass'].applications;
 
 const SCENARIOS: Scenario[] = [
-  { key: 'free-new', group: 'Free plan', label: 'New account', description: `Just signed up: all ${FREE_APPLICATIONS} free applications left.`, pass: 'none', paidRemaining: 0, freeRemaining: FREE_APPLICATIONS, hasSuccessfulRun: false },
+  { key: 'free-new', group: 'Free plan', label: 'New account', description: `${FREE_APPLICATIONS} free employer-site applications. No job-board connection needed.`, pass: 'none', paidRemaining: 0, freeRemaining: FREE_APPLICATIONS, hasSuccessfulRun: false,trial:'new' },
+  { key:'free-seek-bonus',group:'Free plan',label:'SEEK bonus unlocked',description:`SEEK is connected: ${SEEK_CONNECTION_APPLICATIONS} extra free applications.`,pass:'none',paidRemaining:0,freeRemaining:FREE_APPLICATIONS+SEEK_CONNECTION_APPLICATIONS,hasSuccessfulRun:false,trial:'connected' },
+  { key:'free-seek-offer',group:'Free plan',label:'First five used',description:'The first five credits are used. Connecting SEEK can unlock six more.',pass:'none',paidRemaining:0,freeRemaining:0,trial:'new' },
   { key: 'free-out', group: 'Free plan', label: 'Out of applications', description: 'The free applications are used up and no pass was bought. Scheduled runs are refused.', pass: 'none', paidRemaining: 0, freeRemaining: 0 },
   { key: 'essential-active', group: 'Essential Pass', label: 'Active', description: `Affordable SEEK automation, ${PLAN_LIMITS['essential-pass'].autoRunsPerDay} runs a day.`, pass: 'essential-pass', paidRemaining: Math.round(ESSENTIAL * 0.6), freeRemaining: 0 },
   { key: 'job-search-active', group: 'Active Search', label: 'Active', description: `Part-way through the pass, ${PLAN_LIMITS['job-search-pass'].autoRunsPerDay} automatic runs a day.`, pass: 'job-search-pass', paidRemaining: Math.round(JOB_SEARCH * 0.6), freeRemaining: 0, autoRunsUsedToday: 1 },
@@ -64,9 +68,11 @@ interface Simulation {
 
 function simulate(scenario: Scenario): Simulation {
   const active = scenario.pass !== 'none' && scenario.paidRemaining > 0;
+  const freeAllowance=FREE_APPLICATIONS+(scenario.trial==='connected'?SEEK_CONNECTION_APPLICATIONS:0);
   const billing: BillingStatus = {
     configured: paymentsConfigured(),
-    free: { allowance: FREE_APPLICATIONS, used: FREE_APPLICATIONS - scenario.freeRemaining, remaining: scenario.freeRemaining },
+    free: { allowance: freeAllowance, used: freeAllowance - scenario.freeRemaining, remaining: scenario.freeRemaining,
+      ...(scenario.trial?{trial:{employerSites:true,seekBonusApplications:SEEK_CONNECTION_APPLICATIONS,seekBonusAwarded:scenario.trial==='connected'}}:{}) },
     paid: {
       remaining: scenario.paidRemaining,
       employerSiteRemaining: active && scenario.pass === 'intensive-pass' ? 18 : 0,
