@@ -398,11 +398,17 @@ tbody tr.clickable { cursor: pointer; }
 .board-brand-logo { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 72px; height: 28px; padding: 0; border-radius: 5px; background: #fff; border: 0; }
 .board-brand-logo img { display: block; width: 100%; height: 100%; object-fit: contain; }
 .board-brand-compact .board-brand-logo { width: 64px; height: 28px; }
-.nav-board-brands { display: grid; gap: 6px; margin-top: 7px; }
-.nav-board-brand { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; }
-.nav-board-brand .board-brand-logo { width: 72px; height: 28px; padding: 0; border: 0; }
-.nav-board-brand .nav-dot { flex: none; width: 6px; height: 6px; }
-.nav-employer-sites { padding-top: 5px; border-top: 1px solid var(--border); }
+.nav-sources { position: relative; }
+.nav-sources .nav-row-title { padding-right: 20px; }
+.nav-sources .nav-row-chevron { position: absolute; top: 11px; right: 10px; }
+.nav-board-brands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 10px; margin-top: 8px; }
+.nav-board-brand { display: flex; align-items: center; justify-content: space-between; min-width: 0; min-height: 22px; gap: 4px; font-size: 11px; }
+.nav-board-brand .board-brand-logo { width: 48px; height: 20px; padding: 0; border: 0; }
+.nav-board-brand .board-brand-logo img { object-position: left center; }
+.nav-board-brand .nav-dot { flex: none; width: 5px; height: 5px; }
+.nav-employer-sites { grid-column: 1 / -1; padding-top: 8px; border-top: 1px solid var(--border); }
+.nav-employer-sites .employer-sites-label { gap: 6px; font-size: 11px; font-weight: 500; }
+.nav-employer-sites svg { width: 16px; height: 16px; }
 .employer-sites-label { font-size: 12px; font-weight: 600; white-space: nowrap; }
 .nav-employer-sites .nav-dot.off { background: var(--text-faint); }
 .employer-sites-switch { min-width: 64px; flex: none; }

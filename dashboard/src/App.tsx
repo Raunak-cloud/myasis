@@ -441,7 +441,7 @@ export default function App() {
               {boards && (
                 <button
                   type="button"
-                  className="nav-row"
+                  className="nav-row nav-sources"
                   onClick={() => { setMenuOpen(false); setBoardsOpen(true); }}
                   aria-haspopup="dialog"
                   aria-label="Job sources: manage connections and employer-site applications."
