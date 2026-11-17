@@ -43,6 +43,9 @@
   .pricing-dashboard .pricing-page { display: flex; flex-direction: column; flex: 1; }
   .pricing-page .pricing-grid { flex: 1; }
 }
+@media (min-width: 1200px) and (max-width: 1400px) {
+  .pricing-page .pricing-features { font-size: 13px; line-height: 1.35; gap: 4px; }
+}
 
 @container pricing (max-width: 960px) {
   .pricing-page .pricing-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
