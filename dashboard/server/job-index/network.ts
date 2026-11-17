@@ -90,7 +90,8 @@ export class PublicCrawler {
   private next = new Map<string, number>();
   requests = 0;
   readonly maxRequests:number;private readonly read:typeof publicRequest;
-  constructor(read=publicRequest,maxRequests=160) {this.read=read;this.maxRequests=maxRequests;}
+  private readonly options:{allowLoginWidgets?:boolean};
+  constructor(read=publicRequest,maxRequests=160,options:{allowLoginWidgets?:boolean}={}) {this.read=read;this.maxRequests=maxRequests;this.options=options;}
   private async request(url: string, init?: {body?:string;signal?:AbortSignal}): Promise<PageResponse> {
     if (++this.requests>this.maxRequests) throw new CrawlDeferred(60_000);
     return this.read(url,init);
@@ -124,7 +125,7 @@ export class PublicCrawler {
     if(page.verification||challenge==='verification')throw new PublicVerificationRequired(page);
     if([401,403].includes(page.status)||challenge==='denied')throw new CrawlBlocked('The public source requires access or human verification.');
     // Don't index or follow an HTML login wall that happens to return 200.
-    if(/text\/html/.test(page.type)&&/<input\b[^>]*type\s*=\s*["']password["']/i.test(page.text)&&!/"@type"\s*:\s*"JobPosting"/.test(page.text))throw new CrawlBlocked('Sign-in page excluded.');
+    if(!this.options.allowLoginWidgets&&/text\/html/.test(page.type)&&/<input\b[^>]*type\s*=\s*["']password["']/i.test(page.text)&&!/"@type"\s*:\s*"JobPosting"/.test(page.text))throw new CrawlBlocked('Sign-in page excluded.');
     return page;
   }
   /** Adapter keeps existing employer parsers behind the same network policy. */

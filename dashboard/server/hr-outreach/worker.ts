@@ -72,18 +72,18 @@ export async function processHrJob(job: HrJob, deps: HrWorkerDependencies = defa
     const crawler=deps===defaultDependencies?new HrPublicCrawler():undefined;
     const vacancy={roleTitle:job.title,location:job.location||evidence?.location||undefined,
       jobDescription:evidence?.description,jobDescriptionObservedAt:evidence?.observedAt,excludedEmails};
-    const contextKey=createHash('sha256').update(JSON.stringify(['agent-research-verification-v1',job.url,job.title,vacancy.location??'',vacancy.jobDescription??'',vacancy.jobDescriptionObservedAt??'',[...excludedEmails].sort()])).digest('hex');
+    const contextKey=createHash('sha256').update(JSON.stringify(['agent-public-contact-selection-v2',job.url,job.title,vacancy.location??'',vacancy.jobDescription??'',vacancy.jobDescriptionObservedAt??'',[...excludedEmails].sort()])).digest('hex');
     const cache=await store.cache(job.company_key);
     // A company-wide negative result cannot suppress new vacancy-specific
     // recruitment evidence, even while yesterday's website lookup is cached.
-    const fresh=cache?.fresh&&(cache.contact!==null||cache.contextKey===contextKey);
+    const fresh=cache?.fresh&&(cache.contact!==null?!!cache.contact.evidenceQuotes?.length||!deps.research:cache.contextKey===contextKey);
     const associated=cache?.contact?!excluded.has(cache.contact.email.toLowerCase())&&!assessHiringContact(cache.contact,job.company,job.title).reviewRequired&&await (deps.verifyContact?.(job.company,job.url,cache.contact,{signal,...vacancy,crawler})??Promise.resolve(true)):true;
     let contact:HiringContact|null=fresh&&associated?cache!.contact:null;
     if(!fresh||!associated) {
       const previous=associated&&cache?.contact?cache.contact:job.retry_parent_contact??undefined;
       const researchInput={company:job.company,jobUrl:job.url,website:parentEmployerWebsite(job.retry_parent_contact),...vacancy,previous,signal};
       let found=await deps.discover(researchInput,{search:deps===defaultDependencies?hrContactSearch():undefined,maxPages:12,crawler});
-      if(!found.contact&&deps.research){
+      if(deps.research&&(!found.contact||!found.contact.evidenceQuotes?.length)){
         const additional=await deps.research(researchInput,found,{apiKey:deps.apiKey(),search:deps===defaultDependencies?hrContactSearch():undefined,crawler});
         measuredCost+=additional.costUsd;
         if(store.researchCost){await store.researchCost(job,measuredCost);measuredCost=0;}

@@ -84,10 +84,19 @@ const GROUPS: GroupSpec[] = [
     ],
   },
   {
+    key:'hr-research',title:'HR contact research',
+    keys:[
+      {key:'HR_SEARCH_PROVIDER',label:'Search provider',help:'Auto uses Serper when its key is configured, otherwise Brave. Each lookup uses the selected provider.',kind:'choice',options:[{value:'auto',label:'Auto'},{value:'serper',label:'Serper'},{value:'brave',label:'Brave'}]},
+      {key:'SERPER_API_KEY',label:'Serper API key',help:'Searches public pages for hiring contacts. Kept on the server.',kind:'secret'},
+      {key:'HUNTER_API_KEY',label:'Hunter API key',help:'Used for read-only contact-provider comparison tests. Kept on the server.',kind:'secret'},
+      {key:'APOLLO_API_KEY',label:'Apollo API key',help:'Used for read-only contact-provider comparison tests. Kept on the server.',kind:'secret'},
+    ],
+  },
+  {
     key:'job-index',title:'Job discovery',
     keys:[
       {key:'JOB_INDEX_DATABASE_URL',label:'Neon database connection',help:'Direct connection URL for the separate job database. Use TLS; this never changes the application database.',kind:'secret'},
-      {key:'BRAVE_SEARCH_API_KEY',label:'Brave Search API key',help:'Public job discovery only. Maximum 20 search requests per day across the crawler.',kind:'secret'},
+      {key:'BRAVE_SEARCH_API_KEY',label:'Brave Search API key',help:'Public job discovery and optional HR research. The job crawler keeps its separate 20-search daily allowance.',kind:'secret'},
     ],
   },
   {

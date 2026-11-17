@@ -33,3 +33,19 @@ test('inline Cloudflare reaches browser recovery and unsupported verification is
  await assert.rejects(crawler.get('https://employer.org/careers'),/not supported/);
  assert.equal(renders,1);assert.equal(crawler.events.at(-1)?.code,'verification_unsupported');
 });
+
+test('anonymous HR reads permit optional account widgets without changing the indexer or private URL rules',async()=>{
+ const read=async(url:string)=>page(url,url.endsWith('/robots.txt')?'User-agent: *\nAllow: /':'<html><body><main><h1>Employer careers</h1><p>Recruitment talent@employer.org</p></main><aside><input type="password"></aside></body></html>');
+ await assert.rejects(new PublicCrawler(read).get('https://employer.org/careers'),/Sign-in/);
+ let renders=0;const crawler=new HrPublicCrawler(new PublicCrawler(read,40,{allowLoginWidgets:true}),async url=>{renders++;return page(url);});
+ assert.match((await crawler.get('https://employer.org/careers')).text,/talent@employer.org/);assert.equal(renders,0);
+ await assert.rejects(async()=>crawler.get('https://employer.org/login'),/Account/);
+ await assert.rejects(async()=>crawler.get('https://127.0.0.1/private'));
+});
+
+test('agent-requested rendering retains real public DOM for later verification and reuses no account session',async()=>{
+ let renders=0;const crawler=new HrPublicCrawler({get:async url=>page(url,'<h1>Employer</h1><script src="contacts.js"></script>')},async(url,options)=>{renders++;await options.authorize(url);return page(url,'<h1>Employer careers</h1><a href="mailto:talent@employer.org">Recruitment</a>');});
+ const rendered=await crawler.renderPublicPage('https://employer.org/careers');
+ assert.match(rendered.text,/talent@employer.org/);assert.equal(await crawler.get(rendered.url),rendered);assert.equal(renders,1);
+ assert.deepEqual(crawler.events.map(event=>event.kind),['render_started','render_completed']);
+});

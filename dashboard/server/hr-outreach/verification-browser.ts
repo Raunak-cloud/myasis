@@ -64,7 +64,9 @@ export async function readVerifiedHrPage(raw:string,options:VerificationBrowserO
     const final=crawlUrl(page.url());await validate(final.href);if(final.origin!==destination.origin)throw new CrawlBlocked('Security verification left the requested employer website.');
     const text=await page.content();if(Buffer.byteLength(text)>3_000_000)throw new CrawlBlocked('Verified public page exceeds the size limit.');
     const document=parseHTML(text).document;
-    if(document.querySelector('input[type="password"]'))throw new CrawlBlocked('Sign-in page excluded.');
+    // Optional login widgets do not make an anonymously readable page private.
+    // This disposable browser has no account cookies or credential tools and
+    // cannot submit forms. Account URLs and private destinations stay excluded.
     const visible=(document.body?.textContent??'').replace(/\s+/g,' ');
     if(!visible.trim()||/access denied|verify (?:that )?you are human|please (?:complete|solve) (?:the )?(?:captcha|security check)/i.test(visible))throw new CrawlBlocked('Security verification did not reveal the requested public page.');
     const source=new URL(final.href);for(const name of [...source.searchParams.keys()])if(/^__?cf_chl_/i.test(name))source.searchParams.delete(name);

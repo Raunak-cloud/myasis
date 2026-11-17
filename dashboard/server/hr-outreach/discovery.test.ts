@@ -11,6 +11,46 @@ function fixture(pages: Record<string, string | PageResponse>) {
 }
 const previous: HiringContact = { email: 'careers@acme.org', companyDomain: 'acme.org', kind: 'recruitment', sourceUrl: 'https://acme.org/careers', sourceText: 'Acme recruitment careers@acme.org', validatedAt: '2026-10-01T00:00:00Z' };
 
+test('agent-selected public evidence is checked before recrawling global navigation without bypassing employer identity',async()=>{
+ const source='https://acme.org/team/recruitment';
+ const f=fixture({'https://acme.org/':'<h1>Acme</h1>'+Array.from({length:30},(_,i)=>`<a href="/careers/region-${i}">Careers</a>`).join(''),[source]:'<title>Acme Recruitment</title><h1>Acme</h1><p>Send your CV to talent@acme.org.</p>'});
+ const result=await discoverHiringContact({company:'Acme',website:'https://acme.org/',sourceUrls:[source]},{crawler:f,maxPages:2});
+ assert.equal(result.contact?.email,'talent@acme.org');assert.equal(f.calls[0],source);
+ const other='https://unrelated.org/careers';
+ const bad=await discoverHiringContact({company:'Acme',sourceUrls:[other]},{crawler:fixture({[other]:'<h1>Unrelated business</h1><p>Recruitment talent@unrelated.org.</p>'}),maxPages:2});
+ assert.equal(bad.contact,null);
+ const ordered=fixture({'https://acme.org/':'<h1>Acme</h1>'+Array.from({length:30},(_,i)=>`<a href="/careers/australia-${i}">Careers in Australia</a>`).join(''),[source]:'<h1>Acme</h1><p>Recruitment talent@acme.org</p>'});
+ const selected=await discoverHiringContact({company:'Acme',website:'https://acme.org/',sourceUrls:['https://acme.org/',source]},{crawler:ordered,maxPages:4});
+ assert.equal(selected.contact?.email,'talent@acme.org');assert.deepEqual(ordered.calls,['https://acme.org/',source]);
+});
+
+test('partially redacted addresses are not treated as complete published mailboxes',()=>{
+ for(const email of ['j***e@acme.org','***@acme.org'])assert.equal(publishedHiringContacts(`<h1>Acme careers</h1><p>Recruitment contact ${email}</p>`,'https://acme.org/careers','acme.org',true).length,0);
+ assert.equal(publishedHiringContacts('<h1>Acme careers</h1><p>Recruitment talent@acme.org</p>','https://acme.org/careers','acme.org',true)[0]?.email,'talent@acme.org');
+});
+
+test('an agent can connect an actual published profile email to its separate recruiter bio with exact public evidence',async()=>{
+ const source='https://acme.org/people/jane';
+ const html='<title>Jane Doe</title><h1>Acme</h1><p>Email: jane@acme.org</p><section><h2>Jane Doe</h2><p>Jane recruits software engineers in Sydney.</p></section>';
+ const evidence={email:'jane@acme.org',sourceUrl:source,quotes:['Email: jane@acme.org','Jane recruits software engineers in Sydney.']};
+ assert.deepEqual(publishedHiringContacts(html,source,'acme.org',true),[]);
+ const result=await discoverHiringContact({company:'Acme',roleTitle:'Software Engineer',sourceUrls:[source],contactEvidence:evidence},{crawler:fixture({[source]:html})});
+ assert.equal(result.contact?.email,'jane@acme.org');assert.match(result.contact!.sourceText,/recruits software engineers/);
+ assert.deepEqual(result.contact?.evidenceQuotes,evidence.quotes);
+ const revalidated=await discoverHiringContact({company:'Acme',roleTitle:'Software Engineer',previous:result.contact!},{crawler:fixture({[source]:html}),search:async()=>{throw Error('Published evidence should revalidate without searching');}});
+ assert.equal(revalidated.contact?.email,'jane@acme.org');assert.equal(revalidated.pagesRead,1);assert.match(revalidated.reason,/revalidated/);
+ let renders=0;
+ const dynamic={...fixture({[source]:'<h1>Acme</h1><script src="profile.js"></script>'}),renderPublicPage:async()=>{renders++;return response(source,html);}};
+ const rendered=await discoverHiringContact({company:'Acme',previous:result.contact!},{crawler:dynamic});assert.equal(rendered.contact?.email,'jane@acme.org');assert.equal(renders,1);
+ const changed=await discoverHiringContact({company:'Acme',previous:result.contact!},{crawler:fixture({[source]:'<h1>Acme</h1><p>Recruitment another@acme.org</p>'})});assert.equal(changed.contact,null);assert.equal(changed.retryable,true,'changed cited evidence goes back to the agent rather than silently switching recipients');
+ for(const bad of [{...evidence,email:'invented@acme.org'},{...evidence,quotes:['A fabricated recruitment biography.']},{...evidence,email:'privacy@acme.org'}]){
+  const rejected=await discoverHiringContact({company:'Acme',sourceUrls:[source],contactEvidence:bad},{crawler:fixture({[source]:html+'<p>Recruitment other@acme.org</p>'})});
+  assert.equal(rejected.contact,null,'invalid nominations cannot silently switch to another email');
+ }
+ const unrelated=await discoverHiringContact({company:'Different Employer',sourceUrls:[source],contactEvidence:evidence},{crawler:fixture({[source]:html})});assert.equal(unrelated.contact,null);
+ const suffix=await discoverHiringContact({company:'Acme',sourceUrls:[source],contactEvidence:{...evidence,quotes:['Jane recruits software engineers in Sydney.']}},{crawler:fixture({[source]:html.replaceAll('jane@acme.org','jane@acme.org.other.org')})});assert.equal(suffix.contact,null,'a substring of another full address is not publication of the nominated mailbox');
+});
+
 test('company careers pages precede search, select a published hiring contact, and retain source evidence', async () => {
   const crawler = fixture({
     'https://acme.org/': '<h1>Acme</h1><a href="/contact">Contact</a><a href="/careers">Careers</a>',
@@ -34,6 +74,21 @@ test('only visible published contacts are extracted; scripts, hidden traps and i
 test('a recruiting header elsewhere does not promote a generic sales or support email', () => {
   const html = '<h1>Acme careers</h1><p>General enquiries info@acme.org</p><p>Support support@acme.org</p><a href="/careers">Careers</a>';
   assert.deepEqual(publishedHiringContacts(html, 'https://acme.org/', 'acme.org', true), []);
+});
+
+test('nested footer navigation cannot turn an operations mailbox into a hiring contact',()=>{
+ const html='<title>Acme delivery</title><h1>Acme</h1><footer><div><div>Delivery and fleet support. <a href="mailto:admin@acme.org">admin@acme.org</a></div><div>Company <a href="/careers">Careers</a></div></div></footer>';
+ assert.deepEqual(publishedHiringContacts(html,'https://acme.org/','acme.org',true),[]);
+ const recruiting=html.replace('Delivery and fleet support.','For recruitment, send your CV to');
+ assert.equal(publishedHiringContacts(recruiting,'https://acme.org/','acme.org',true)[0]?.email,'admin@acme.org');
+ assert.equal(publishedHiringContacts('<h1>Acme</h1><p>Recruitment <a href="/contact">jane@acme.org</a></p>','https://acme.org/','acme.org',true)[0]?.email,'jane@acme.org','visible address text is evidence even if the publisher uses a normal hyperlink');
+});
+
+test('mailbox context stays inside its own contact card rather than borrowing a sibling hiring heading',()=>{
+ const html='<title>Acme</title><h1>Acme</h1><div><article><h2>Business enquiries</h2><p>Delivery services and partnerships</p><a href="mailto:admin@acme.org">Email us</a></article><article><h2>Careers and applicants</h2><p>Contact our recruitment team.</p>SECOND_CONTACT</article></div>';
+ assert.deepEqual(publishedHiringContacts(html.replace('SECOND_CONTACT',''),'https://acme.org/contact','acme.org',true),[]);
+ const contacts=publishedHiringContacts(html.replace('SECOND_CONTACT','<a href="mailto:talent@acme.org">Applicant contact</a>'),'https://acme.org/contact','acme.org',true);
+ assert.deepEqual(contacts.map(contact=>contact.email),['talent@acme.org']);
 });
 
 test('an explicit do-not-email notice disqualifies the published address', () => {
@@ -183,6 +238,14 @@ test('search uses global reservation, provider key only in headers, bounded resu
   };
   const search = createHiringContactSearch({ key: 'fixture-secret', reserveSearch: async () => ++reservations === 1, network });
   assert.equal((await search('Acme careers')).length, 1); await assert.rejects(search('Acme contacts'), /deferred/); assert.equal(requests, 1);
+});
+
+test('search-service refusal is reported separately from inaccessible employer websites without retaining provider payloads',async()=>{
+ for(const [status,code] of [[402,'search_payment_required'],[429,'search_rate_limited'],[503,'search_service_unavailable']] as const){
+  const search=createHiringContactSearch({key:'fixture-secret',reserveSearch:async()=>true,network:async()=>Response.json({error:'PRIVATE_PROVIDER_PAYLOAD'},{status})});
+  const result=await discoverHiringContact({company:'Acme'},{crawler:fixture({}),search});
+  assert.equal(result.outcome,'temporarily_unavailable');assert.ok(result.diagnostics.events.some(event=>event.code===code&&event.action==='search_public'));assert.doesNotMatch(JSON.stringify(result),/PRIVATE_PROVIDER_PAYLOAD|fixture-secret/);
+ }
 });
 
 test('company mentions on a public directory cannot establish the official company domain', async () => {

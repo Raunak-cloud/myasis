@@ -27,6 +27,14 @@ test('fresh shared contact is reused and exact delivered message saved before on
   const draft=events.find(e=>e[0]==='draft'),send=events.find(e=>e[0]==='send');assert.equal(draft[4],send[1].body);assert.match(send[1].body,/Application reference: HR-/);
   assert.equal(events.at(-1)[2],'sent');
 });
+
+test('legacy cached suggestions receive agent selection once and cited contacts retain fast cross-run reuse',async()=>{
+ const selected={...contact,evidenceQuotes:['Recruitment email']};
+ const legacy=fixture();legacy.deps.research=async()=>{legacy.events.push(['agent']);return{contact:selected,reason:'Agent-selected public hiring contact',pagesRead:1,retryable:false,outcome:'found',diagnostics,costUsd:.001};};
+ await processHrJob({...job},legacy.deps);assert.ok(legacy.events.some(event=>event[0]==='discover'));assert.ok(legacy.events.some(event=>event[0]==='agent'));assert.equal(legacy.events.at(-1)[2],'sent');
+ const reused=fixture();reused.deps.store.cache=async()=>({contact:selected,fresh:true,reason:'Agent-selected public contact',outcome:'found',diagnostics});reused.deps.research=async()=>{throw Error('A fresh cited contact should be reused.');};
+ await processHrJob({...job},reused.deps);assert.equal(reused.events.some(event=>event[0]==='discover'),false);assert.equal(reused.events.at(-1)[2],'sent');
+});
 test('expired contacts must revalidate before compose and sending',async()=>{
   const {deps,events}=fixture({fresh:false});await processHrJob({...job},deps);
   assert.ok(events.findIndex(e=>e[0]==='discover')<events.findIndex(e=>e[0]==='compose'));assert.equal(events.at(-1)[2],'sent');

@@ -1,5 +1,21 @@
 import { CrawlBlocked, CrawlDeferred, crawlUrl } from '../job-index/network.js';
 
+export class PublicSearchResponseError extends Error {
+  readonly status:number;
+  constructor(status:number){super('Public contact search is temporarily unavailable.');this.status=status;}
+}
+export class PublicSearchPayloadError extends Error {constructor(){super('The search provider did not return a usable result list.');}}
+
+export class PublicSourceResponseError extends Error {
+  readonly contentType:string;
+  readonly status:number;
+  constructor(status:number,contentType:string){
+    super(`Public source returned HTTP ${status}.`);
+    this.status=status;
+    this.contentType=contentType.split(';')[0].trim().toLowerCase().replace(/[^a-z0-9.+/-]/g,'').slice(0,80);
+  }
+}
+
 export function researchSourceUrl(raw:string|undefined):string|undefined{
   try{if(raw){const url=crawlUrl(raw);return `${url.origin}${url.pathname}`.slice(0,500);}}catch{ /* Do not retain invalid URLs or query data. */ }
 }
@@ -8,6 +24,18 @@ export function researchSourceUrl(raw:string|undefined):string|undefined{
 export function publicResearchFailure(error:unknown, signal?:AbortSignal):{code:string;detail:string}{
   const message=error instanceof Error?error.message:'';
   if(signal?.aborted)return{code:'deadline_exceeded',detail:'Public research was cancelled or reached its deadline.'};
+  if(error instanceof PublicSearchPayloadError)return{code:'search_response_invalid',detail:'The public search service did not return a usable result list. This is not proof that no hiring contacts exist.'};
+  if(error instanceof PublicSearchResponseError)return error.status===400||error.status===422
+    ?{code:'search_request_rejected',detail:`The public search service rejected this request with HTTP ${error.status}. Check the query or request inputs; this is not a company website failure.`}
+    :error.status===401||error.status===403?{code:'search_access_denied',detail:`The public search service refused API access with HTTP ${error.status}. Check its account credentials or permissions; this is not proof that no hiring contacts exist.`}
+    :error.status===402
+    ?{code:'search_payment_required',detail:'The public search service refused this request with HTTP 402. Its account access or credit needs attention; this is not a company website failure.'}
+    :error.status===429?{code:'search_rate_limited',detail:'The public search service is rate limiting requests (HTTP 429). Use evidence already gathered or report research incomplete.'}
+    :{code:'search_service_unavailable',detail:`The public search service returned HTTP ${error.status}. This is not a company website failure.`};
+  if(error instanceof PublicSourceResponseError)return error.status===404||error.status===410
+    ?{code:'http_not_found',detail:`This public page returned HTTP ${error.status}. Follow a published link or another source.`}
+    :error.status>=200&&error.status<300?{code:'unsupported_source_type',detail:`This response is ${error.contentType||'an unknown content type'}, not a readable HTML or text page.`}
+    :{code:'source_http_error',detail:`This public page returned HTTP ${error.status}.`};
   if(/^Security verification is not supported/.test(message))return{code:'verification_unsupported',detail:'This website verification type is not supported by the configured solver.'};
   if(/^Security verification solver is not enabled/.test(message))return{code:'verification_disabled',detail:'Website verification could not run because the solver is not enabled.'};
   if(/^Security verification/.test(message))return{code:'verification_failed',detail:'Website verification did not reveal the requested public page.'};
