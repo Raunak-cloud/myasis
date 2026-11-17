@@ -4,6 +4,7 @@ import { BILLING_CHANGED, type BillingStatus } from '../billing';
 import { trackRedditEvent } from '../redditPixel';
 import { trackMetaEvent } from '../metaPixel';
 import './PricingPanel.css';
+import {PricingFreeOffer,PricingSources} from './PricingSources';
 
 
 function dateLabel(value: string): string {
@@ -179,6 +180,7 @@ export function PricingPanel() {
         </section>
       )}
 
+      <PricingFreeOffer/>
       <div className="pricing-grid">
         {PLAN_CARDS.map((card) => {
           const isCurrent = card.key === current;
@@ -222,6 +224,7 @@ export function PricingPanel() {
                   <span>{upgrade ? `upgrade · ends ${dateLabel(upgrade.expiresAt!)}` : card.term}</span>
                 </p>
                 <p className="pricing-plan-copy">{upgrade ? card.presentation.description.replace(/for \d+ days/, `until ${dateLabel(upgrade.expiresAt!)}`) : card.presentation.description}</p>
+                <PricingSources plan={card.key}/>
               </div>
               <ul className="pricing-features">
                 {features.map((feature) => (

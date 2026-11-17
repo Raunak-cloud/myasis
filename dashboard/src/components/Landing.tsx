@@ -9,6 +9,8 @@ import { HeroStory } from './HeroStory';
 import { TrustStrip } from './TrustStrip';
 import { JobSourceLogos } from './JobSourceLogos';
 import type { WebsitePatch } from '../marketingTypes';
+import {PricingFreeOffer,PricingSources} from './PricingSources';
+import type {PassPlanKey} from '../pricing';
 
 function landingImprovements():WebsitePatch {
   if(typeof document==='undefined') return {};
@@ -50,6 +52,7 @@ const STEPS = [
  * folded into the description.
  */
 type PriceRowSpec = {
+  key:'free'|PassPlanKey;
   name: string;
   priceCents: number;
   term: string;
@@ -61,10 +64,10 @@ type PriceRowSpec = {
 };
 
 const PRICE_ROWS: PriceRowSpec[] = [
-  { name: 'Free', priceCents: 0, term: 'no card needed', cta: 'Start free', variant: 'light', plan: PLAN_PRESENTATION.free },
-  { name: 'Essential Pass', priceCents: PAID_PLANS['essential-pass'].priceCents, term: `one payment · ${PAID_PLANS['essential-pass'].durationDays} days`, cta: 'Choose Essential', variant: 'light', plan: PLAN_PRESENTATION['essential-pass'] },
-  { name: 'Active Search', priceCents: PAID_PLANS['job-search-pass'].priceCents, term: `one payment · ${PAID_PLANS['job-search-pass'].durationDays} days`, cta: 'Choose Active Search', variant: 'primary', flag: 'most picked', featured: true, plan: PLAN_PRESENTATION['job-search-pass'] },
-  { name: 'Get Owtomated', priceCents: PAID_PLANS['intensive-pass'].priceCents, term: `one payment · ${PAID_PLANS['intensive-pass'].durationDays} days`, cta: 'Get Owtomated', variant: 'light', plan: PLAN_PRESENTATION['intensive-pass'] },
+  { key: 'free', name: 'Free', priceCents: 0, term: 'no card needed', cta: 'Start free', variant: 'light', plan: PLAN_PRESENTATION.free },
+  { key: 'essential-pass', name: 'Essential Pass', priceCents: PAID_PLANS['essential-pass'].priceCents, term: `one payment · ${PAID_PLANS['essential-pass'].durationDays} days`, cta: 'Choose Essential', variant: 'light', plan: PLAN_PRESENTATION['essential-pass'] },
+  { key: 'job-search-pass', name: 'Active Search', priceCents: PAID_PLANS['job-search-pass'].priceCents, term: `one payment · ${PAID_PLANS['job-search-pass'].durationDays} days`, cta: 'Choose Active Search', variant: 'primary', flag: 'most picked', featured: true, plan: PLAN_PRESENTATION['job-search-pass'] },
+  { key: 'intensive-pass', name: 'Get Owtomated', priceCents: PAID_PLANS['intensive-pass'].priceCents, term: `one payment · ${PAID_PLANS['intensive-pass'].durationDays} days`, cta: 'Get Owtomated', variant: 'light', plan: PLAN_PRESENTATION['intensive-pass'] },
 ];
 
 /**
@@ -88,7 +91,7 @@ function PriceRow({ row, cta }: { row: PriceRowSpec; cta: ReactNode }) {
         <span><span className="home-price-currency">A$</span>{(row.priceCents / 100).toFixed(2)}</span>
         <span className="home-price-term">{row.term}</span>
       </span>
-      <span className="home-price-desc">{row.plan.description}</span>
+      <div className="home-price-desc"><p>{row.plan.description}</p><PricingSources plan={row.key}/></div>
       <div className="home-price-notes">
         <ul className={`home-price-features${expanded ? ' is-open' : ''}`}>
           {row.plan.features.map((feature, index) => (
@@ -234,6 +237,7 @@ export function Landing({ googleConfigured, initialImprovements, initialAuthErro
               <h2 id="pricing-heading">Four ways to search with Owtomate.</h2>
               <p>Start free or choose a pass with 30 days of access. One payment, no auto-renew. Prices in Australian dollars.</p>
             </header>
+            <PricingFreeOffer/>
             <ol className="home-price-list">
               {PRICE_ROWS.map((row) => (
                 <PriceRow key={row.name} row={row} cta={start(row.cta, row.variant)} />

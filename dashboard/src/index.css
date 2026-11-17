@@ -404,6 +404,18 @@ tbody tr.clickable { cursor: pointer; }
 .nav-board-brands { display: grid; gap: 6px; margin-top: 7px; }
 .nav-board-brand { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; }
 .nav-board-brand .nav-dot { flex: none; width: 6px; height: 6px; }
+.pricing-free-start { display: flex; flex-wrap: wrap; align-items: center; gap: 22px 36px; padding: 24px 28px; margin: 0 0 24px; border: 2px solid var(--accent); border-left-width: 6px; border-radius: 12px; background: var(--accent-soft); color: var(--text); }
+.pricing-free-start > div { flex: 1 1 280px; min-width: 0; display: grid; gap: 7px; }
+.pricing-free-eyebrow { color: var(--accent); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; }
+.pricing-free-start strong { font-size: 26px; line-height: 1.25; letter-spacing: -.025em; }
+.pricing-free-start p { margin: 0; color: var(--text-dim); font-size: 13px; line-height: 1.6; }
+.pricing-free-start .pricing-free-reward { flex: 0 1 340px; }
+.pricing-free-reward strong { font-size: 17px; letter-spacing: 0; }
+.pricing-source-brands { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 12px; font-size: 11px; font-style: normal; margin-top: 2px; }
+.pricing-source-note { flex-basis: 100%; color: var(--text-dim); font-size: 11px; }
+.home-price-desc > p { margin: 0 0 12px; }
+.landing .pricing-free-start, .landing .pricing-source-brands { --text-dim: var(--body); }
+@media (max-width: 600px) { .pricing-free-start { padding: 20px; } .pricing-free-start > div, .pricing-free-start .pricing-free-reward { flex-basis: 100%; } }
 @media (max-width: 600px) {
   .free-trial-offer { padding: 20px; gap: 20px; }
   .free-trial-offer-copy, .free-trial-offer-action { flex-basis: 100%; }

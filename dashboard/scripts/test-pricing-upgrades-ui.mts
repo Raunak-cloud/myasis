@@ -13,7 +13,12 @@ const html = `<!doctype html><html><head><meta name="viewport" content="width=de
 const server = await createServer({ configFile: false, root: dashboard, plugins: [react(), {
   name: 'pricing-fixture', configureServer(server) {
     server.middlewares.use(async (req, res, next) => {
-      if (req.url?.split('?')[0] !== '/pricing-fixture.html') return next();
+      const path=req.url?.split('?')[0];
+      if(path==='/landing-pricing-fixture.html') {
+        const landingHtml=html.replace("import{PricingPanel}from'/src/components/PricingPanel.tsx'","import{Landing}from'/src/components/Landing.tsx'").replace('React.createElement(PricingPanel)','React.createElement(Landing,{googleConfigured:false})');
+        res.setHeader('content-type','text/html');res.end(await server.transformIndexHtml(path,landingHtml));return;
+      }
+      if (path !== '/pricing-fixture.html') return next();
       res.setHeader('content-type', 'text/html');
       res.end(await server.transformIndexHtml('/pricing-fixture.html', html));
     });
@@ -56,6 +61,10 @@ try {
     await page.goto(origin + '/pricing-fixture.html');
     const card = (name: string) => page.locator('article.pricing-card').filter({ has: page.getByRole('heading', { name, exact: true }) });
     await card('Essential Pass').getByRole('button', { name: 'Your pass is active' }).waitFor();
+    const free=card('Free');assert.match(await free.innerText(),/5 free employer-site applications/);assert.match(await free.innerText(),/6 extra free applications \(11 total\)/);assert.match(await free.innerText(),/do not require an account/);
+    assert.equal(await free.locator('img[src="/platforms/jora.svg"]').count(),0);assert.equal(await free.locator('img[src="/platforms/indeed.svg"]').count(),0);
+    assert.equal(await card('Essential Pass').locator('img[src="/platforms/jora.svg"]').count(),1);assert.equal(await card('Active Search').locator('img[src="/platforms/indeed.svg"]').count(),1);
+    await page.getByRole('region',{name:'Free application offer'}).waitFor();
     assert.equal(await card('Essential Pass').getByRole('button').isDisabled(), true);
     assert.match(await card('Active Search').innerText(), /A\$10\.05/);
     assert.match(await card('Active Search').innerText(), /75 additional application credits/);
@@ -84,6 +93,14 @@ try {
     await card('Get Owtomated').getByRole('button', { name: 'Your pass is active' }).waitFor();
     assert.equal(await page.locator('.pricing-card button:not(:disabled)').count(), 0);
     assert.equal(await page.locator('.pricing-topup').count(), 0);
+    await page.goto(origin+'/landing-pricing-fixture.html');
+    const publicPricing=page.locator('#pricing');await publicPricing.waitFor();
+    assert.match(await publicPricing.innerText(),/5 free applications/);assert.match(await publicPricing.innerText(),/11 free applications in total/);
+    assert.equal(await publicPricing.locator('.home-price-row').nth(0).locator('img[src="/platforms/jora.svg"]').count(),0);
+    assert.equal(await publicPricing.locator('.home-price-row').nth(1).locator('img[src="/platforms/jora.svg"]').count(),1);
+    await page.waitForFunction(()=>[...document.querySelectorAll('#pricing img')].every(n=>(n as HTMLImageElement).complete&&(n as HTMLImageElement).naturalWidth>0));
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'public pricing fits mobile');
+    await publicPricing.screenshot({path:resolve(dashboard,'../output/public-pricing-'+width+'.png')});
     assert.deepEqual(errors, []);
     console.log('PASS pricing upgrade amount, expiry, checkout snapshot and downgrade prevention at width', width);
     await context.close();

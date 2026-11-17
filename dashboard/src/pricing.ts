@@ -1,4 +1,5 @@
 import { USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
+import {SEEK_CONNECTION_APPLICATIONS} from './free-trial.js';
 
 export const FREE_APPLICATIONS = 5;
 const DAILY_APPLICATION_MAX = USER_RUN_LIMITS.MAX_APPS_PER_DAY;
@@ -57,14 +58,14 @@ const INTENSIVE = PLAN_LIMITS['intensive-pass'];
 export const PLAN_PRESENTATION = {
   free: {
     label: 'Try it free',
-    description: 'Start with employer websites. No job-board connection or card needed.',
+    description: 'Start without connecting a job board. No card needed.',
     features: [
-      `${FREE_APPLICATIONS} application credits`,
-      'Connect SEEK for 6 extra free applications',
+      `${FREE_APPLICATIONS} free employer-site applications`,
+      `Connect SEEK for ${SEEK_CONNECTION_APPLICATIONS} extra free applications (${FREE_APPLICATIONS+SEEK_CONNECTION_APPLICATIONS} total)`,
       `${plural(FREE.autoRunsPerDay, 'scheduled run', 'scheduled runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${FREE.evaluationsPerRun} jobs each run`,
       `Jobs that match your resume by at least ${SCHEDULED_MIN_SCORE}%`,
-      'Employer-site applications, with optional SEEK connection',
+      'Only employer forms that do not require an account',
       'Personalised cover letters and application tracking',
     ],
   },
@@ -78,6 +79,7 @@ export const PLAN_PRESENTATION = {
       `AI reviews up to ${ESSENTIAL.evaluationsPerRun} jobs each run`,
       `Jobs that match your resume by at least ${SCHEDULED_MIN_SCORE}%`,
       'SEEK applications',
+      'Optional Jora connection',
       'Personalised cover letters and application tracking',
     ],
   },
@@ -92,6 +94,7 @@ export const PLAN_PRESENTATION = {
       `AI reviews up to ${ACTIVE.evaluationsPerRun} jobs each run`,
       `Choose your minimum match score: ${CUSTOM_MIN_SCORE}% to ${MAX_MATCH_SCORE}%`,
       'SEEK and Indeed applications',
+      'Optional Jora connection',
       'Advanced match and listing-age filters',
     ],
   },
@@ -106,6 +109,7 @@ export const PLAN_PRESENTATION = {
       `AI reviews up to ${INTENSIVE.evaluationsPerRun} jobs each run`,
       `Choose your minimum match score: ${CUSTOM_MIN_SCORE}% to ${MAX_MATCH_SCORE}%`,
       'SEEK and Indeed applications',
+      'Optional Jora connection',
       'Advanced match and listing-age filters',
       'Supported employer-site applications',
       'SmartRecruiters, Greenhouse, PageUp and Workday job sources',
