@@ -87,9 +87,9 @@ try {
       const fit=await page.evaluate(()=>({height:document.documentElement.scrollHeight,width:document.documentElement.scrollWidth,viewportHeight:innerHeight,viewportWidth:innerWidth}));
       await page.screenshot({path:resolve(dashboard,`../output/pricing-screen-fit-${width}.png`),fullPage:true});
       assert.ok(fit.height<=fit.viewportHeight&&fit.width<=fit.viewportWidth,`${width}x${height}: all plan details fit beside the sidebar: ${JSON.stringify(fit)}`);
+      assert.ok(await page.locator('.pricing-grid').evaluate(el=>window.innerHeight-el.getBoundingClientRect().bottom<=20),'cards fill the available desktop height');
     }
     assert.match(await card('Essential Pass').locator('.pricing-price').innerText(),/30 days/);
-    assert.match(await page.locator('.pricing-shared').innerText(),/personalised cover letters, application tracking, and Auto apply or Semi auto/);
     assert.equal(await page.getByRole('region',{name:'Free application offer'}).count(),0,'Plans and pricing omits the promotional banner');
     assert.equal(await card('Essential Pass').getByRole('button').isDisabled(), true);
     assert.match(await card('Active Search').innerText(), /A\$10\.05/);

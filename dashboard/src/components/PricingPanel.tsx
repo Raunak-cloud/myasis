@@ -262,12 +262,6 @@ export function PricingPanel() {
         })}
       </div>
 
-      <p className="pricing-shared">Every plan includes personalised cover letters, application tracking, and Auto apply or Semi auto.</p>
-      <ul className="pricing-trust" aria-label="Payment terms">
-        <li>Secure checkout by Stripe</li>
-        <li>One payment, no renewal</li>
-        <li>Prices in Australian dollars</li>
-      </ul>
 
     </div>
   );
