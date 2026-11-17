@@ -80,6 +80,7 @@ try {
     assert.doesNotMatch(await card('Active Search').innerText(),/Web search/);
     assert.equal(await page.locator('.pricing-card details, .pricing-card summary').count(),0,'plan details have no accordion controls');
     assert.equal(await page.locator('.pricing-plan-details:visible').count(),4,'every plan shows its details immediately');
+    assert.ok(await page.locator('.pricing-features').first().evaluate(el=>parseFloat(getComputedStyle(el).fontSize)>=13),'plan details are readable at every screen size');
     assert.ok(await page.locator('.pricing-source-brands img[src="/platforms/seek.svg"]').first().evaluate(el=>el.getBoundingClientRect().width<=48),'pricing logos stay compact');
     const ctaTops=await page.locator('.pricing-card .pricing-cta').evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().top));
     if(width>=1280) {
