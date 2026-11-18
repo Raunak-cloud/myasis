@@ -77,6 +77,7 @@ try {
     }
     assert.equal(await card('Active Search').locator('img[src="/platforms/workday.svg"]').count(),0,'employer sources remain exclusive to Get Owtomated');
     assert.match(await card('Get Owtomated').innerText(),/Web search for employer-site jobs/);
+    assert.equal(await card('Get Owtomated').getByRole('group',{name:'Supported job sources'}).getByText('Web search',{exact:true}).count(),1);
     assert.doesNotMatch(await card('Active Search').innerText(),/Web search/);
     assert.equal(await page.locator('.pricing-card details, .pricing-card summary').count(),0,'plan details have no accordion controls');
     assert.equal(await page.locator('.pricing-plan-details:visible').count(),4,'every plan shows its details immediately');

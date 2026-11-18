@@ -14,6 +14,7 @@ export function PricingSources({plan}:{plan:'free'|PassPlanKey}) {
  const boards=plan==='free'||plan==='essential-pass'?['seek']:['seek','indeed','jora',...(plan==='intensive-pass'?EMPLOYER_SOURCES.map(source=>source.id):[])];
  return <div className="pricing-source-brands" role="group" aria-label="Supported job sources">
   {boards.map(board=><BoardBrand key={board} board={board} compact/>)}
+  {plan==='intensive-pass'&&<span className="pricing-web-search"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18Z"/></svg>Web search</span>}
   {plan==='free'&&<span className="pricing-source-note">Optional connection</span>}
  </div>;
 }
