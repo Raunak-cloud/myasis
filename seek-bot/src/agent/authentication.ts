@@ -124,8 +124,17 @@ export async function doCompleteAuthentication(ctx: ToolContext, args: Record<st
   assertLive();
   const purpose = String(args.purpose ?? '');
   if (!['sign_in', 'create_account', 'reset_password'].includes(purpose)) return ok('Choose sign_in, create_account or reset_password from the observed form.', 'invalid-arguments');
-  if(applicationModelEnvironment().FREE_EMPLOYER_GUEST_ONLY==='true'&&guestEmployerAccountRequired(ctx.page.url(),true))return ok('Free employer applications use direct or guest forms only. No account was created, recovered or filled. Use a guest application if offered; if the employer requires registration or login, finish skipped with that reason. Ordinary application-email verification is allowed.','reobserve');
   if(![args.refs,args.targets].some(value=>Array.isArray(value)&&value.length))return ok('Supply current authentication refs or targets. Nothing was filled.','invalid-arguments');
+  if (guestEmployerAccountRequired(ctx.page.url(), true)) {
+    const env = applicationModelEnvironment();
+    if (env.FREE_EMPLOYER_GUEST_ONLY === 'true' || env.EMPLOYER_GUEST_ONLY === 'true') {
+      return ok('This plan uses direct or guest employer forms only. No account was created, recovered or filled. Use a guest application if offered; otherwise skip it. Ordinary application-email verification is allowed.', 'reobserve');
+    }
+    if (purpose === 'create_account' && env.EMPLOYER_GUEST_ONLY === 'false') {
+      const problem = mailboxProblem(ctx);
+      if (problem) return ok(`${problem} Employer account creation requires the candidate’s connected Gmail. Use a guest application if offered; otherwise skip it.`, 'reobserve');
+    }
+  }
   const account=employerCredentialState(credentialUrl(ctx),ctx.profile.email,ctx.job.company);
   if(account.state==='external')return accountHandoff(ctx);
   if(purpose==='create_account'&&['accepted','rejected'].includes(account.state))return ok('An Owtomate account already exists for this employer. Reuse its accepted credential or recover that same managed account; do not create another account.','reobserve');

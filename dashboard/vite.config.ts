@@ -837,7 +837,7 @@ function dataApi(): Plugin {
           }
           const target = url.searchParams.get('target') === 'gmail' ? 'gmail' : url.searchParams.get('target') === 'jora' ? 'jora' : url.searchParams.get('target') === 'indeed' ? 'indeed' : 'seek';
           if(target==='jora' && !(await entitlementsFor(userId,(await getUser())?.email)).joraSignIn)
-            return send({error:'Jora sign-in requires Active Search or Get Owtomated. Employer job discovery does not need Jora sign-in.'},403);
+            return send({error:'Jora sign-in is included with every paid pass. Employer job discovery does not need Jora sign-in.'},403);
           if (target === 'gmail') {
             if (url.searchParams.get('consent') !== 'true' || !(await gmailAccess(userId)).providers.includes('browser')) return send({ error: 'Confirm available Gmail mailbox access first.' }, 403);
           }

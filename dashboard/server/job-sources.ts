@@ -13,7 +13,7 @@ export function jobSourceSettingsError(updates: Record<string, unknown>, targetI
   if (selected.includes('adzuna') && !adzunaAvailable) return { status: 400, error: 'Adzuna is currently unavailable.' };
   if (updates.PLATFORMS !== undefined && selected.some(id => id && !['seek', 'indeed', 'adzuna', 'jora'].includes(id) && !isEmployerSource(id))) return { status: 400, error: 'Choose an available job source.' };
   if (!employerSources && (selected.some(isEmployerSource) || EMPLOYER_SOURCES.some(source => updates[source.key] !== undefined))) {
-    return { status: 403, error: 'These job sources are included with Get Owtomated.' };
+    return { status: 403, error: 'These job sources require an available employer-site application allowance.' };
   }
   if (!targetIsAdmin && EMPLOYER_SOURCES.some(source => updates[source.key] !== undefined)) {
     return { status: 403, error: 'Employer search lists are managed by Owtomate.' };

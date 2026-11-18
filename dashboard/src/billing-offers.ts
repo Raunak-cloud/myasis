@@ -7,6 +7,7 @@ export interface BillingOffer {
   sourceGrantId: string | null;
   expiresAt: string | null;
   additionalApplications: number;
+  additionalEmployerSiteApplications?: number;
   reason?: string;
 }
 export type BillingOffers = Record<PaidPlanKey, BillingOffer>;

@@ -2,6 +2,7 @@ import {FREE_APPLICATIONS,type PassPlanKey} from '../pricing';
 import {SEEK_CONNECTION_APPLICATIONS} from '../free-trial';
 import {BoardBrand} from './BoardBrand';
 import {EMPLOYER_SOURCES} from '../../../seek-bot/src/employer-source-config';
+import {GUEST_EMPLOYER_SOURCES} from '../../../seek-bot/src/guest-applications';
 
 export function PricingFreeOffer() {
  return <section className="pricing-free-start" aria-label="Free application offer">
@@ -11,7 +12,7 @@ export function PricingFreeOffer() {
 }
 
 export function PricingSources({plan}:{plan:'free'|PassPlanKey}) {
- const boards=plan==='free'||plan==='essential-pass'?['seek']:['seek','indeed','jora',...(plan==='intensive-pass'?EMPLOYER_SOURCES.map(source=>source.id):[])];
+ const boards=plan==='free'?['seek']:['seek','indeed','jora',...(plan==='intensive-pass'?EMPLOYER_SOURCES.map(source=>source.id):GUEST_EMPLOYER_SOURCES)];
  return <div className="pricing-source-brands" role="group" aria-label="Supported job sources">
   {boards.map(board=><BoardBrand key={board} board={board} compact/>)}
   {plan==='intensive-pass'&&<span className="pricing-web-search"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18Z"/></svg>Web search</span>}

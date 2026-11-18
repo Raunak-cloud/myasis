@@ -37,7 +37,7 @@ const server = await createServer({ configFile: false, root, plugins: [react(), 
       '/api/settings': req.method === 'POST' ? { ok: true, settings } : settings,
       '/api/entitlements': { tier, manualRuns: true, firstRunRequired: false, autoRunsPerDay: 1, autoApplyPaused: true, canPauseAutoApply: true,
         autoRunsUsedToday: 0, scheduledMinScore: 60, scheduledJobsPerDay: 40, evaluationsPerRun: 40, maxApplicationsPerRunOverride: null,
-        fineTune: tier !== 'standard', advancedFilters: tier !== 'standard'||activeStandard, indeedApplications: tier !== 'standard'||activeStandard, employerSources: tier !== 'standard', runScopes: false, joraSignIn:tier!=='standard'||activeStandard },
+        fineTune: tier !== 'standard', advancedFilters: tier !== 'standard'||activeStandard, indeedApplications: tier !== 'standard'||activeStandard||paidStandard, employerSources: tier !== 'standard'||activeStandard||paidStandard, runScopes: false, joraSignIn:tier!=='standard'||activeStandard||paidStandard },
       '/api/billing/status': { configured: true, totalRemaining: paidStandard||activeStandard||tier==='intensive'?55:5, free: { allowance: 5, used: 0, remaining: 5 }, paid: { remaining: paidStandard||activeStandard||tier==='intensive'?50:0, hasActivePass: paidStandard||activeStandard||tier==='intensive', hasActiveEssentialPass:paidStandard,hasActiveIntensivePass:tier==='intensive',hasActiveJobSearchPass:activeStandard } },
       '/api/setup/status': { ready: true, done: 3, total: 3, checks: ['resume', 'profile', 'looking'].map(id => ({ id, label: id, done: true, required: true })) },
       '/api/run/status': { running: false, hasKey: true, isOwner: true, applied: 0 },
@@ -84,8 +84,8 @@ try {
     assert.equal(await page.getByRole('button', {name:'Sign in to Jora (optional)',exact:true}).count(), 0, 'sign-in moved off the run panel');
     await page.getByRole('button',{name:'Start Auto apply',exact:true}).click();
     const review=page.getByRole('dialog',{name:'Review Auto apply settings',exact:true});
-    if(plan==='free'||plan==='essential') {
-      assert.equal(await review.getByRole('button',{name:'Jora (Beta)',exact:true}).count(),0,'Free and Essential have no Jora control');
+    if(plan==='free') {
+      assert.equal(await review.getByRole('button',{name:'Jora (Beta)',exact:true}).count(),0,'Free has no Jora control');
       await review.getByRole('button',{name:'Cancel',exact:true}).click();
       const sidebar=page.getByRole('button',{name:'Job sources: manage connections and employer-site applications.',exact:true});
       assert.equal(await sidebar.getByRole('img',{name:'Jora',exact:true}).count(),0);
@@ -94,8 +94,7 @@ try {
       assert.equal(await dialog.getByRole('img',{name:'Jora',exact:true}).count(),0,'Jora connection stays hidden even with a saved session');
       await employerPreference(page);
       await dialog.getByRole('button',{name:'Close',exact:true}).click();
-      joraConnected=true;settings.JORA_BETA_ENABLED='true';seekConnected=plan!=='essential';await page.reload();await page.getByText('data analyst',{exact:true}).waitFor();
-      if(plan==='essential')assert.equal(await page.getByRole('button',{name:'Start Auto apply',exact:true}).isDisabled(),true,'a stale Jora choice cannot make an Essential run ready without SEEK');
+      joraConnected=true;settings.JORA_BETA_ENABLED='true';await page.reload();await page.getByText('data analyst',{exact:true}).waitFor();
       await sidebar.click();assert.equal(await page.getByRole('dialog',{name:'Job sources',exact:true}).getByRole('img',{name:'Jora',exact:true}).count(),0);
       assert.equal(writes.some(w=>w.path==='/api/signin/session'),false);
       continue;
@@ -159,5 +158,5 @@ try {
     assert.equal(writes.some(write=>['/api/run','/api/auto-apply'].includes(write.path)),false,'fixture never starts a real run');
   }
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ passed: true, checks: ['Free/Essential Jora hidden; Active Search, Get Owtomated and admin access preserved', 'preferences preserved', 'Jora source selection stays in run review', 'removed explanatory text', 'sidebar Jora sign-in and connection state', 'Done and reload preserve connection', 'desktop/mobile layout'], output }));
+  console.log(JSON.stringify({ passed: true, checks: ['Jora connections available on every paid plan and for admins', 'Free keeps its existing connections', 'preferences preserved', 'Jora source selection stays in run review', 'removed explanatory text', 'sidebar Jora sign-in and connection state', 'Done and reload preserve connection', 'desktop/mobile layout'], output }));
 } finally { await browser.close(); await server.close(); }

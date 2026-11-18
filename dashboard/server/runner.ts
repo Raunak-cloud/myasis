@@ -44,9 +44,11 @@ export async function accountBrowserEnvironment(userId: string, mode: RunMode): 
 /** Recheck the active owner before accessing their private application files. */
 export async function accountApplicationEnvironment(userId: string, settings?: Record<string, string>, runStartId?: string | null): Promise<Record<string, string>> {
   if (!/^[A-Za-z0-9_-]+$/.test(userId)) throw new Error('This account is not available for an application run.');
-  const owners = await query<{ id: string; email: string; paid_application_access?:boolean }>(
+  const owners = await query<{ id: string; email: string; paid_application_access?:boolean; intensive_access?:boolean }>(
     `SELECT id, email,EXISTS(SELECT 1 FROM application_credit_grants g JOIN billing_purchases p ON p.id=g.purchase_id AND p.user_id=g.user_id
-      WHERE g.user_id=users.id AND p.plan_key IN ('essential-pass','job-search-pass','intensive-pass') AND (g.expires_at IS NULL OR g.expires_at>now())) AS paid_application_access
+      WHERE g.user_id=users.id AND p.plan_key IN ('essential-pass','job-search-pass','intensive-pass') AND (g.expires_at IS NULL OR g.expires_at>now())) AS paid_application_access,
+      EXISTS(SELECT 1 FROM application_credit_grants g JOIN billing_purchases p ON p.id=g.purchase_id AND p.user_id=g.user_id
+      WHERE g.user_id=users.id AND p.plan_key='intensive-pass' AND (g.expires_at IS NULL OR g.expires_at>now())) AS intensive_access
       FROM users WHERE id = $1 AND blocked_at IS NULL`,
     [userId],
   );
@@ -135,6 +137,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
     .flatMap(key => serverEnv[key]?.trim() ? [[key, serverEnv[key]!]] : []));
   return { ...queuePolicy, ...applicationBudget, ...bonusEnvironment, OPERATOR_MAX_EVALUATIONS:operatorReviewLimit, OPERATOR_RUN_TIMEOUT_MINUTES:operatorTimeout, DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
     FREE_EMPLOYER_GUEST_ONLY:!admin&&!owner.paid_application_access?'true':'false',
+    EMPLOYER_GUEST_ONLY:!admin&&!owner.intensive_access?'true':'false',
     ...(!employerApplicationsEnabled(persistedSettings)?{ALLOW_EXTERNAL_APPLY:'false'}:{}),
     APPLICATION_AGENT_MODE: agentMode,
     APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: applicationScreenshotsForAccount(selectedSettings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, admin, selected),
@@ -147,7 +150,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
 export function applicationRunEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const credentials = new Set(['CELERIS_API_KEY', 'CAPMONSTER_API_KEY',
     'SITE_AUTH_SECRET', 'WEBSHARE_API_KEY']);
-  return Object.fromEntries(Object.entries(env).filter(([key]) => key !== 'FREE_EMPLOYER_GUEST_ONLY' && !key.startsWith('ADZUNA_') && !key.startsWith('OPERATOR_') && !key.startsWith('OPENROUTER_') && !key.startsWith('GMAIL_') && !key.startsWith('APPLICATION_AI_') && !key.startsWith('APPLICATION_AGENT_') && !key.startsWith('HUMANIZER_')
+  return Object.fromEntries(Object.entries(env).filter(([key]) => key !== 'FREE_EMPLOYER_GUEST_ONLY' && key !== 'EMPLOYER_GUEST_ONLY' && !key.startsWith('ADZUNA_') && !key.startsWith('OPERATOR_') && !key.startsWith('OPENROUTER_') && !key.startsWith('GMAIL_') && !key.startsWith('APPLICATION_AI_') && !key.startsWith('APPLICATION_AGENT_') && !key.startsWith('HUMANIZER_')
     && (!/(?:_KEY|SECRET|PASSWORD|PASSWD|TOKEN)$/.test(key) || credentials.has(key))));
 }
 

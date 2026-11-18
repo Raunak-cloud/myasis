@@ -118,9 +118,13 @@ export async function fulfillPayment(pool: Pool, stripe: Stripe, sessionId: stri
     if (!purchase.rows[0]) { await client.query('COMMIT'); transaction = false; return baseResult; }
     await client.query(`INSERT INTO application_credit_grants(user_id,purchase_id,credits_total,expires_at,created_at)
       VALUES($1,$2,$3,$4,$5)`, [userId, purchase.rows[0].id, applications, expiresAt, startsAt]);
-    const employerFull = quote?.target.employerSiteApplications ?? plan.employerSiteApplications;
-    if (employerFull > 0) {
-      const employerCredits = kind === 'upgrade' ? Math.max(1, Math.ceil(employerFull * (Date.parse(expiresAt!) - quote!.quotedAt) / (durationDays * DAY_MS))) : employerFull;
+    // Older open quotes retain their price and receive the employer-site benefit now included in that tier.
+    let employerCredits = quote?.additionalEmployerSiteApplications ?? plan.employerSiteApplications;
+    if (kind === 'upgrade' && active && quote && employerCredits > 0 && quote.additionalEmployerSiteApplications === undefined) {
+      const difference = employerCredits - PAID_PLANS[active.planKey].employerSiteApplications;
+      employerCredits = Math.ceil(difference * (Date.parse(expiresAt!) - quote.quotedAt) / (durationDays * DAY_MS));
+    }
+    if (employerCredits > 0) {
       await client.query(`INSERT INTO employer_site_credit_grants(user_id,purchase_id,credits_total,expires_at,created_at)
         VALUES($1,$2,$3,$4,$5)`, [userId, purchase.rows[0].id, employerCredits, expiresAt, startsAt]);
     }

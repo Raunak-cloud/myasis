@@ -37,8 +37,9 @@ type Status = {
 
 const SITE_NAME = { seek: 'SEEK', indeed: 'Indeed', jora: 'Jora', gmail: 'Gmail' } as const;
 
-export function SeekSignIn({ indeedEnabled = false, showConnected = false, adminBrowserAccess = false, hidePrompt = false, onVerifyingChange }: {
+export function SeekSignIn({ indeedEnabled = false, joraEnabled = false, showConnected = false, adminBrowserAccess = false, hidePrompt = false, onVerifyingChange }: {
   indeedEnabled?: boolean;
+  joraEnabled?: boolean;
   /** Keep the connection state visible on Setup, even after sign-in succeeds. */
   showConnected?: boolean;
   adminBrowserAccess?: boolean;
@@ -281,6 +282,15 @@ export function SeekSignIn({ indeedEnabled = false, showConnected = false, admin
           </div>
           {!status.indeed?.signedIn && <button className="btn" disabled={busy} onClick={() => open('indeed')}>
             {busy ? 'Opening…' : indeedExpired ? 'Sign in again' : 'Open Indeed'}
+          </button>}
+        </div>}
+        {joraEnabled && <div className="seek-connect-row">
+          <div>
+            <h3><BoardBrand board="jora"/></h3>
+            <p className="job-meta">{status.jora?.signedIn ? 'Connected' : status.jora ? 'Signed out' : 'Not connected'}</p>
+          </div>
+          {!status.jora?.signedIn && <button className="btn" disabled={busy} onClick={() => open('jora', true)}>
+            {busy ? 'Opening…' : status.jora ? 'Sign in again' : 'Open Jora'}
           </button>}
         </div>}
       </div>

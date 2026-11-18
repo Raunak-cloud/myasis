@@ -74,7 +74,7 @@ export async function startSignin(userId: string, target: SigninTarget = 'seek',
   const owner = await one<{ email: string }>('SELECT email FROM users WHERE id=$1 AND blocked_at IS NULL', [userId]);
   if (!owner) return { ok: false, error: 'This account is unavailable.' };
   if(target==='jora' && !isAdmin(owner.email) && !joraConnectionAllowed((await billingStatus(userId,owner.email)).paid))
-    return {ok:false,error:'Jora sign-in requires Active Search or Get Owtomated. Employer job discovery does not need Jora sign-in.'};
+    return {ok:false,error:'Jora sign-in is included with every paid pass. Employer job discovery does not need Jora sign-in.'};
   return desktops.start(userId, target, options.assist !== false, options.expiresAt, isAdmin(owner.email));
 }
 

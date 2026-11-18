@@ -1,9 +1,7 @@
-export function mayRunEmployerSiteApplications(input: {
-  targetIsAdmin: boolean;
-  initiatedByAdmin: boolean;
-  hasIntensiveAllowance: boolean;
-  hasFreeEmployerAllowance?: boolean;
-}): boolean {
-  if (input.targetIsAdmin) return true;
-  return input.hasIntensiveAllowance || input.hasFreeEmployerAllowance===true;
+import type { BillingStatus } from './billing.js';
+
+/** One pass-wide employer allowance shares the regular application balance. */
+export function employerApplicationAllowance({ paid, free }: Pick<BillingStatus, 'paid'> & Partial<Pick<BillingStatus, 'free'>>): number {
+  if (paid.hasActivePass) return Math.min(paid.employerSiteRemaining, paid.remaining);
+  return free?.trial?.employerSites ? free.remaining : 0;
 }

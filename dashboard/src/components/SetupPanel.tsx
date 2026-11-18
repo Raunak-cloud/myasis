@@ -93,7 +93,8 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
    * advertisement, not an interface.
    */
   const entitlements = useEntitlements();
-  const employerTrial=Boolean(useBillingStatus()?.free.trial);
+  const billing = useBillingStatus();
+  const employerTrial = Boolean(billing?.free.trial && !billing.paid.hasActivePass);
   const canFineTune = entitlements?.fineTune ?? false;
   const canUseAdvancedFilters = entitlements?.advancedFilters ?? false;
 
@@ -336,13 +337,13 @@ export function SetupPanel({ initialStep = null, inline = false, onVerifyingSign
         id="boards"
         n={4}
         title={employerTrial?'Job sources':'Connect a job board'}
-        blurb={employerTrial?'Employer websites need no job-board connection. Connect SEEK for 6 extra free applications, whenever you like.':'SEEK, or Indeed if available.'}
+        blurb={employerTrial ? 'Employer websites need no job-board connection. Connect SEEK for 6 extra free applications, whenever you like.' : entitlements?.indeedApplications ? 'SEEK, Indeed or Jora.' : 'SEEK.'}
         done={done('boards')}
         open={openStep === 'boards'}
         onSelect={selectStep}
         onEngage={engageStep}
       >
-        <SeekSignIn showConnected adminBrowserAccess={entitlements?.tier === 'admin'} indeedEnabled={Boolean(entitlements?.indeedApplications)} onVerifyingChange={onVerifyingSignInChange} />
+        <SeekSignIn showConnected adminBrowserAccess={entitlements?.tier === 'admin'} indeedEnabled={Boolean(entitlements?.indeedApplications)} joraEnabled={Boolean(entitlements?.joraSignIn)} onVerifyingChange={onVerifyingSignInChange} />
       </Step>
 
       {!inline && <GmailConnect />}

@@ -30,7 +30,7 @@ test('normal startRun resolves retained metadata and still enforces mode, accoun
   };
   try {
     writeFileSync(join(directory, 'boundary.mjs'), `
-export const state={credits:5,sent:0,busy:false,employersEnabled:true,starts:[],queries:[],events:[],pending:['seek:held-fixture'],repairs:[],approvedDrafts:[]};
+export const state={credits:5,sent:0,externalSent:0,externalRemaining:5,intensive:true,busy:false,employersEnabled:true,starts:[],queries:[],events:[],pending:['seek:held-fixture'],repairs:[],approvedDrafts:[]};
 export const approvedRunRepairs=async()=>state.repairs;
 export const bonusRunForStart=async()=>{throw Error('No bonus run is authorized in this fixture');};
 export const bindBonusRun=async()=>{throw Error('No bonus run is authorized in this fixture');};
@@ -45,16 +45,16 @@ export const runner={claimStart:()=>!state.busy,releaseStart:()=>{},inUse:()=>st
 export const readEnv=()=>({}),adzunaConfigured=()=>false;
 export const runSettingsSnapshotForUser=async()=>({settings:{KEYWORDS:'data analyst',MAX_AGE_DAYS:'15',MIN_SCORE:'70',EMPLOYER_APPLICATIONS_ENABLED:String(state.employersEnabled)},saved:{}});
 export const USER_SETTABLE_SETTINGS_KEYS=['EMPLOYER_APPLICATIONS_ENABLED'],DAILY_APPLICATION_CAP_CHOSEN='fixture-daily';
-export const billingStatus=async()=>({totalRemaining:state.credits,paid:{remaining:state.credits,hasActiveIntensivePass:true,employerSiteRemaining:5},free:{remaining:0}});
+export const billingStatus=async()=>({totalRemaining:state.credits,paid:{remaining:state.credits,hasActivePass:true,hasActiveIntensivePass:state.intensive,unlimitedApplications:state.intensive,employerSiteRemaining:state.externalRemaining},free:{remaining:0}});
 export const consumeSuccessfulApplication=async()=>{throw Error('A fixture cannot charge an application');},isAdmin=email=>email==='operator@fixture.invalid';
 export const applyRunPolicy=settings=>({...settings,PLATFORMS:'seek',MAX_APPS_PER_RUN:'5',MAX_APPS_PER_DAY:'100'});
-export const PLATFORMS_CHOSEN_KEY='platforms-chosen',EMPLOYER_SOURCES_CHOSEN_KEY='sources-chosen',INTENSIVE_EMPLOYER_SITES_PER_DAY=5;
+export const PLATFORMS_CHOSEN_KEY='platforms-chosen',EMPLOYER_SOURCES_CHOSEN_KEY='sources-chosen';
 export const discardRunStart=async()=>{},recordRunStart=async()=> 'fixture-new-run';
 export const entitlementsFor=async()=>({tier:'intensive',employerSources:true,fineTune:true,manualRuns:true,firstRunRequired:false,autoRunsPerDay:4});
 export const mayEditRunSetting=()=>true,listResumes=async()=>[{id:'fixture-resume'}];
 export const checkSignin=async()=>{throw Error('Fixture browser access is forbidden');},waitForSigninChecks=async()=>({ok:true});
 export const sessionFor=()=>null,stopSignin=async()=>{throw Error('Fixture cannot stop sign-in');};
-export const externalSubmittedToday=async()=>0,submittedToday=async()=>state.sent,readSiteState=()=>({signedIn:true});
+export const externalSubmittedToday=async()=>state.externalSent,submittedToday=async()=>state.sent,readSiteState=()=>({signedIn:true});
 export const browserRoute=async()=>({}),describeRoute=()=>'',releaseFreeProxy=async()=>{};
 export const validateExternalJobUrl=async()=>{throw Error('No direct external fixture');};
 export const applyJobSourceAccess=()=>{},jobSourceSettingsError=()=>null;
@@ -173,6 +173,22 @@ export const gmailAccess=async()=>({connected:false}),scheduledStart=async()=>{t
     state.employersEnabled=true;
     assert.deepEqual(await startRun(boardRequest),{ok:true,mode:'live'});
     assert.equal(state.starts.at(-1)[1].ALLOW_EXTERNAL_APPLY,'true','re-enabling restores existing employer allowance');
+    assert.equal(state.starts.at(-1)[1].MAX_EXTERNAL_PER_DAY, '', 'Get Owtomated has no separate employer cap');
+    state.intensive = false;
+    state.credits = 50;
+    state.externalSent = 2;
+    for (const applicationMode of ['auto', 'semi-auto'] as const) {
+      state.externalRemaining = 8;
+      assert.deepEqual(await startRun({ ...boardRequest, applicationMode }), { ok: true, mode: 'live' });
+      assert.equal(state.starts.at(-1)[1].ALLOW_EXTERNAL_APPLY, 'true');
+      assert.equal(state.starts.at(-1)[1].MAX_EXTERNAL_PER_DAY, '10', 'the worker receives its two used plus eight remaining');
+      state.externalRemaining = 0;
+      assert.deepEqual(await startRun({ ...boardRequest, applicationMode }), { ok: true, mode: 'live' });
+      assert.equal(state.starts.at(-1)[1].ALLOW_EXTERNAL_APPLY, 'false', 'a run with no employer allowance stays on the boards');
+    }
+    assert.deepEqual(await startRun({ ...boardRequest, approvals: [{ id: attemptId, revision: 'a'.repeat(64) }] }), { ok: true, mode: 'live' });
+    assert.equal(state.starts.at(-1)[1].ALLOW_EXTERNAL_APPLY, 'true', 'confirmation keeps the allowance a prepared application already paid');
+    assert.equal(state.starts.at(-1)[1].MAX_EXTERNAL_PER_DAY, '3', 'confirmation receives just the approved employer slot');
     assert.ok(state.queries.every((entry:{sql:string})=>!/(INSERT|UPDATE|DELETE).*?(billing|settings|credit_grants)/i.test(entry.sql)));
   } finally {
     assert.ok(resolve(directory).startsWith(resolve(tmpdir())));

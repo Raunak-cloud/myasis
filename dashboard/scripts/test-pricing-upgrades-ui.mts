@@ -60,7 +60,7 @@ try {
         return json({ error: 'Your plan or upgrade price has changed. Refresh pricing and try again.' }, 409);
       }
       if (url.pathname === '/api/billing/confirm') return json({ status: status(), fulfilled: true, planKey: 'job-search-pass', kind: 'upgrade',
-        applications: 75, amountPaidCents: 1005, durationDays: 30, expiresAt: active.expiresAt });
+        applications: 75, amountPaidCents: 800, durationDays: 30, expiresAt: active.expiresAt });
       throw new Error('Unexpected pricing request ' + url.pathname);
     });
     await page.goto(origin + '/pricing-fixture.html');
@@ -68,15 +68,19 @@ try {
     await card('Essential Pass').getByRole('button', { name: 'Your pass is active' }).waitFor();
     const free=card('Free');assert.match(await free.innerText(),/5 free employer-site applications/);assert.match(await free.innerText(),/6 extra with SEEK \(11 total\)/);assert.match(await free.innerText(),/Forms without an account/);
     assert.equal(await free.locator('img[src="/platforms/jora.svg"]').count(),0);assert.equal(await free.locator('img[src="/platforms/indeed.svg"]').count(),0);
-    assert.equal(await card('Essential Pass').locator('img[src="/platforms/jora.svg"]').count(),0);assert.equal(await card('Active Search').locator('img[src="/platforms/indeed.svg"]').count(),1);
-    for(const name of ['SEEK','Indeed','Jora']) {
-      assert.equal(await card('Active Search').getByRole('group',{name:'Supported job sources'}).getByRole('img',{name,exact:true}).count(),1);
+    for (const plan of ['Essential Pass', 'Active Search']) {
+      for (const name of ['SEEK', 'Indeed', 'Jora', 'SmartRecruiters', 'Greenhouse']) {
+        assert.equal(await card(plan).getByRole('group', { name: 'Supported job sources' }).getByRole('img', { name, exact: true }).count(), 1);
+      }
+      assert.doesNotMatch(await card(plan).innerText(), /Account creation with connected Gmail/);
     }
     for(const name of ['SEEK','Indeed','Jora','SmartRecruiters','Greenhouse','PageUp','Workday']) {
       assert.equal(await card('Get Owtomated').getByRole('group',{name:'Supported job sources'}).getByRole('img',{name,exact:true}).count(),1);
     }
-    assert.equal(await card('Active Search').locator('img[src="/platforms/workday.svg"]').count(),0,'employer sources remain exclusive to Get Owtomated');
+    assert.equal(await card('Active Search').locator('img[src="/platforms/workday.svg"]').count(),0,'Workday remains exclusive to Get Owtomated');
     assert.match(await card('Get Owtomated').innerText(),/Web search for employer-site jobs/);
+    assert.match(await card('Get Owtomated').innerText(), /No separate employer-site limit/);
+    assert.match(await card('Get Owtomated').innerText(), /Account creation with connected Gmail/);
     assert.equal(await card('Get Owtomated').getByRole('group',{name:'Supported job sources'}).getByText('Web search',{exact:true}).count(),1);
     assert.doesNotMatch(await card('Active Search').innerText(),/Web search/);
     assert.equal(await page.locator('.pricing-card details, .pricing-card summary').count(),0,'plan details have no accordion controls');
@@ -94,8 +98,9 @@ try {
     assert.match(await card('Essential Pass').locator('.pricing-price').innerText(),/30 days/);
     assert.equal(await page.getByRole('region',{name:'Free application offer'}).count(),0,'Plans and pricing omits the promotional banner');
     assert.equal(await card('Essential Pass').getByRole('button').isDisabled(), true);
-    assert.match(await card('Active Search').innerText(), /A\$10\.05/);
+    assert.match(await card('Active Search').innerText(), /A\$8\.00/);
     assert.match(await card('Active Search').innerText(), /75 additional application credits/);
+    assert.match(await card('Active Search').innerText(), /5 extra employer-site applications \(guest forms only\)/);
     assert.doesNotMatch(await card('Active Search').innerText(), /30 days of access/);
     assert.match(await card('Get Owtomated').innerText(), /upgrade/);
     assert.equal(await page.locator('.pricing-topup').count(),0);
@@ -107,7 +112,7 @@ try {
       amountCents: offer.amountCents, expiresAt: offer.expiresAt }]);
     await page.waitForFunction(() => !document.querySelector('button:disabled')?.textContent?.includes('Opening'));
     assert.ok(loads >= 2, 'stale offer reloads the server price');
-    active.planKey = 'job-search-pass'; active.priceCents = 2999; active.applications = 200;
+    active.planKey = 'job-search-pass'; active.priceCents = 3499; active.applications = 200;
     await page.reload();
     await card('Essential Pass').getByRole('button', { name: 'Lower plan unavailable' }).waitFor();
     assert.equal(await card('Essential Pass').getByRole('button').isDisabled(), true);
@@ -118,7 +123,7 @@ try {
     await page.getByRole('status').filter({ hasText: 'Upgraded to Active Search. Access ends' }).waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, 'pricing fits mobile');
     await page.screenshot({ path: resolve(dashboard, '../output/pricing-upgrades-' + width + '.png'), fullPage: true });
-    active.planKey = 'intensive-pass'; active.priceCents = 8999; active.applications = 400;
+    active.planKey = 'intensive-pass'; active.priceCents = 9950; active.applications = 400;
     await page.goto(origin + '/pricing-fixture.html');
     await card('Get Owtomated').getByRole('button', { name: 'Your pass is active' }).waitFor();
     assert.equal(await page.locator('.pricing-card button:not(:disabled)').count(), 0);
@@ -131,13 +136,19 @@ try {
     freePlan = true;
     await page.reload();
     await card('Essential Pass').getByRole('button',{name:'Choose Essential Pass'}).waitFor();
+    assert.match(await card('Essential Pass').innerText(), /A\$19\.00[\s\S]*10 employer-site applications \(guest forms only\)/);
+    assert.match(await card('Active Search').innerText(), /A\$34\.99[\s\S]*20 employer-site applications \(guest forms only\)/);
+    assert.match(await card('Get Owtomated').innerText(), /A\$99\.50/);
     assert.doesNotMatch(await page.locator('body').innerText(),/top-up|50 more applications|Needs a pass/i);
     await page.goto(origin+'/landing-pricing-fixture.html');
     const publicPricing=page.locator('#pricing');await publicPricing.waitFor();
     assert.match(await publicPricing.innerText(),/5 free applications/);assert.match(await publicPricing.innerText(),/11 free applications in total/);
+    for (const [index, price] of ['19.00', '34.99', '99.50'].entries()) {
+      assert.ok((await publicPricing.locator('.home-price-row').nth(index + 1).innerText()).includes(`A$${price}`));
+    }
     assert.doesNotMatch(await publicPricing.innerText(),/top-up|A\$6\.90/i);
     assert.equal(await publicPricing.locator('.home-price-row').nth(0).locator('img[src="/platforms/jora.svg"]').count(),0);
-    assert.equal(await publicPricing.locator('.home-price-row').nth(1).locator('img[src="/platforms/jora.svg"]').count(),0);
+    assert.equal(await publicPricing.locator('.home-price-row').nth(1).locator('img[src="/platforms/jora.svg"]').count(),1);
     assert.equal(await publicPricing.locator('.home-price-row').nth(3).getByRole('group',{name:'Supported job sources'}).getByRole('img').count(),7,'public pricing lists the same supported sources');
     await page.waitForFunction(()=>[...document.querySelectorAll('#pricing img')].every(n=>(n as HTMLImageElement).complete&&(n as HTMLImageElement).naturalWidth>0));
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'public pricing fits mobile');

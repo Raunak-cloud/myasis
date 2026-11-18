@@ -44,7 +44,7 @@ export function quoteCheckout(planKey: PaidPlanKey, active: ActivePass | null, a
     throw new BillingPolicyError('Application top-ups are no longer available.', 410);
   }
   if (!active) return { ...base, kind: 'purchase', amountCents: plan.priceCents, expiresAt: null,
-    additionalApplications: plan.applications, periodStartedAt: null };
+    additionalApplications: plan.applications, additionalEmployerSiteApplications: plan.employerSiteApplications, periodStartedAt: null };
   if (planRank(planKey) === planRank(active.planKey)) throw new BillingPolicyError('Your pass is already active. You can purchase it again after it expires.');
   if (planRank(planKey) < planRank(active.planKey)) throw new BillingPolicyError('You cannot downgrade while your current pass is active.');
   if (!active.expiresAt) throw new BillingPolicyError('Your existing access has no expiry. Contact support to change this plan.');
@@ -64,8 +64,10 @@ export function quoteCheckout(planKey: PaidPlanKey, active: ActivePass | null, a
   // never round them up or carry a balance into a future automatic charge.
   const amountCents = amount < 50 ? 0 : amount;
   const extra = prorate(BigInt(plan.applications) * sourceMs - BigInt(active.applications) * targetMs, targetMs * sourceMs, remainingMs, true);
+  const employerDelta = BigInt(plan.employerSiteApplications - currentPlan.employerSiteApplications);
   return { ...base, kind: 'upgrade', upgradePricingVersion: 2, amountCents, expiresAt: active.expiresAt,
-    additionalApplications: Math.max(1, extra), periodStartedAt: active.periodStartedAt };
+    additionalApplications: Math.max(1, extra), additionalEmployerSiteApplications: prorate(employerDelta, targetMs, remainingMs, true),
+    periodStartedAt: active.periodStartedAt };
 }
 
 export function billingOffers(active: ActivePass | null, admin: boolean, now = Date.now()): BillingOffers {

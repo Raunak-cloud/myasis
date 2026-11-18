@@ -7,7 +7,7 @@ import { withApplicationModel } from './application-model.js';
 import { withApplicationAllowance } from './application-allowance.js';
 import type { CandidateProfile,JobListing } from './types.js';
 const dir=mkdtempSync(join(tmpdir(),'owtomate-job-letter-'));
-process.env.DATA_DIR=dir;process.env.COST_TRACKING='false';process.env.RESUME_SELECT='cv';
+process.env.DATA_DIR=dir;process.env.COST_TRACKING='false';process.env.RESUME_SELECT='cv';process.env.ALLOW_EXTERNAL_APPLY='true';
 mkdirSync(join(dir,'resumes'));writeFileSync(join(dir,'resumes','CV.txt'),'Fixture resume');
 writeFileSync(join(dir,'resumes.json'),JSON.stringify([{id:'cv',label:'Fixture CV',fileName:'CV.txt',isDefault:true}]));
 const {prepareMatchedJob}=await import('./prepare-job.js');
@@ -15,7 +15,7 @@ const {applicationRevision,withCoverLetter}=await import('./application-review-c
 const job:JobListing={id:'fixture',title:'Analyst',company:'Fixture',location:'Sydney',platform:'seek',url:'https://www.seek.com.au/job/12345678',description:'A current analyst vacancy requiring evidence-based reporting.'};
 const profile={name:'Fixture Candidate',email:'owner@fixture.invalid'} as CandidateProfile;
 
-test('listing-only preparation drafts for a login-gated destination without browser access or a submit-allowance call',async()=>{
+test('preparation checks eligibility and credit before drafting, while retaining exact approval content',async()=>{
  try{await withApplicationModel({DATA_DIR:dir,RESUME_SELECT:'cv'},async()=>{
   let letters=0;
   const matched={...job,applicationMode:'external' as const,applicationUrl:'https://employer.fixture.invalid/login'};
@@ -58,5 +58,42 @@ test('listing-only preparation drafts for a login-gated destination without brow
       assert.equal(withCoverLetter(ready.draft,'A corrected letter.').preparation?.version,3,'letter edits retain access proof');
     }
   });
+  const page={} as import('patchright').Page;
+  const proof={version:3 as const,stage:'job-and-letter' as const,access:'registration-confirmed' as const,checkedAt:new Date().toISOString(),
+    checkedUrl:'https://employer.fixture.invalid/register',evidence:'Create an account',isolation:'no-employer-session' as const,method:'form' as const};
+  const paidEnv={DATA_DIR:dir,RESUME_SELECT:'cv',FREE_EMPLOYER_GUEST_ONLY:'false'};
+  const noLetter=async()=>{throw Error('Do not draft when access cannot be confirmed');};
+  const privateMail=Object.fromEntries(['GMAIL_MCP_URL','GMAIL_MCP_TOKEN','GMAIL_MCP_ACCOUNT'].map(name=>[name,process.env[name]]));
+  try{
+    Object.assign(process.env,{GMAIL_MCP_URL:'http://fixture.invalid/',GMAIL_MCP_TOKEN:'fixture',GMAIL_MCP_ACCOUNT:'someone-else@fixture.invalid'});
+    for(const guestOnly of ['true','false']){
+      const blocked=await withApplicationModel({...paidEnv,EMPLOYER_GUEST_ONLY:guestOnly},()=>prepareMatchedJob({...matched},profile,{page,
+        access:async(_page,_job,options)=>{assert.equal(options?.allowRegistration,false);return {ok:true,proof};},letter:noLetter}));
+      assert.equal(blocked.status,'skipped','guest plans and mismatched Gmail cannot prepare employer registration');
+    }
+    process.env.GMAIL_MCP_ACCOUNT=profile.email;
+    const blocked=await withApplicationModel({...paidEnv,EMPLOYER_GUEST_ONLY:'true'},()=>prepareMatchedJob({...matched},profile,{page,
+      access:async(_page,_job,options)=>{assert.equal(options?.allowRegistration,false);return {ok:true,proof};},letter:noLetter}));
+    assert.equal(blocked.status,'skipped','an authorized Gmail account does not widen a guest plan');
+    await withApplicationModel({...paidEnv,EMPLOYER_GUEST_ONLY:'false'},async()=>{
+      const access:typeof import('./guest-preparation.js').inspectGuestPreparation=async(_page,_job,options)=>{
+        assert.equal(options?.allowRegistration,true);return {ok:true,proof};
+      };
+      const unknown={...job,applicationMode:'unknown' as const};
+      const outOfCredit=await withApplicationAllowance(external=>{assert.equal(external,true);return false;},
+        ()=>prepareMatchedJob({...unknown},profile,{page,access,letter:noLetter}));
+      assert.equal(outOfCredit.status,'skipped');
+      const ready=await withApplicationAllowance(external=>external,()=>prepareMatchedJob({...unknown},profile,{page,access,letter:async()=> 'A truthful letter.'}));
+      assert.equal(ready.status,'prepared');
+      if(ready.status==='prepared'){
+        assert.equal(ready.draft.job.applicationMode,'external');
+        assert.equal(ready.draft.preparation?.access,'registration-confirmed');
+      }
+    });
+  }finally{
+    for(const [name,value] of Object.entries(privateMail)){
+      if(value===undefined)delete process.env[name];else process.env[name]=value;
+    }
+  }
  });}finally{rmSync(dir,{recursive:true,force:true});}
 });

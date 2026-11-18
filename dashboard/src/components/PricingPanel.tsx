@@ -205,6 +205,10 @@ export function PricingPanel() {
           const features = card.presentation.features.map(feature => {
             if (!upgrade) return feature;
             if (feature === `${PAID_PLANS[card.key as PassPlanKey].durationDays} days of access`) return `Access until ${dateLabel(upgrade.expiresAt!)}`;
+            if (upgrade.additionalEmployerSiteApplications && /^\d+ employer-site applications/.test(feature)) {
+              const count = upgrade.additionalEmployerSiteApplications;
+              return `${count} extra employer-site ${count === 1 ? 'application' : 'applications'} (guest forms only)`;
+            }
             if (card.key !== 'intensive-pass' && /application credits$/.test(feature)) return `${upgrade.additionalApplications} additional application credits`;
             return feature;
           });

@@ -239,7 +239,7 @@ export function RunPanel({
     fetch('/api/settings').then((r) => r.ok ? r.json() : null).then(value => {
       if (value) setSettings(value);
     }).catch(() => {});
-  }, [entitlements?.employerTrial,entitlements?.seekTrialConnected,entitlements?.employerSources,boards?.employerApplicationsEnabled]);
+  }, [entitlements?.employerTrial, entitlements?.seekTrialConnected, entitlements?.employerSources, entitlements?.indeedApplications, entitlements?.joraSignIn, boards?.employerApplicationsEnabled]);
 
   /**
    * How tall the run bar is, published for the page to reserve.
@@ -1182,7 +1182,7 @@ export function RunPanel({
                   )}
                   {fieldError('PLATFORMS')}
                 </div>
-                {employerSourceSelected && !isAdmin && <p className="job-meta">{entitlements?.employerTrial?'Employer websites are included in your free trial. No job-board connection is needed.':'Employer sources are included with Get Owtomated. No SEEK or Indeed sign-in is needed for these sources.'}</p>}
+                {employerSourceSelected && !isAdmin && <p className="job-meta">{entitlements?.employerGuestOnly && entitlements?.employerTrial ? 'Employer websites are included in your free trial.' : 'Employer sources are available with your pass.'} No job-board connection is needed.</p>}
                 {!employerSitesEnabled&&<p className="job-meta">Employer-site applications are off. Manage them in Job sources in the sidebar.</p>}
                 {isAdmin && EMPLOYER_SOURCES.filter(source => platforms.includes(source.id)).map(source => (
                   <div key={source.id} className="field run-review-wide" data-field={source.key}>

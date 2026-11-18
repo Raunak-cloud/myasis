@@ -12,7 +12,7 @@ import { resolve } from 'node:path';
 import { userDir } from './userdata.js';
 import type { PoolClient } from 'pg';
 import { isSiteSecurityFailure, securityRetryAt, securityRetryRemaining, type SecurityRetry } from '../src/securityRetry.js';
-import {freeGuestPreparationRequired,freePreparationNeedsCheck} from './free-preparation.js';
+import {freePreparationNeedsCheck,paidGuestPlan,preparationAccessProblem} from './free-preparation.js';
 
 export interface ReviewSelection { id: string; revision: string; retry?: boolean }
 export interface ApplicationReviewOperatorHold {
@@ -47,8 +47,9 @@ export async function listApplicationReviews(userId: string) {
      LEFT JOIN application_review_operator_holds h ON h.user_id=r.user_id AND h.job_key=r.job_key AND h.released_at IS NULL
      WHERE r.user_id=$1 AND NOT (r.payload ? 'autoRunId') ORDER BY r.updated_at DESC LIMIT 100`, [userId]);
   const owner = rows.some(row => row.security_retry_after) ? await query<{ email: string }>('SELECT email FROM users WHERE id=$1', [userId]) : [];
-  const guestOnly=rows.some(row=>freePreparationNeedsCheck(row.application))&&await freeGuestPreparationRequired(userId);
-  return rows.filter(row=>!guestOnly||!freePreparationNeedsCheck(row.application)).map(({ security_retry_after, ...row }) => ({ ...row, security_retry: row.status === 'failed' && security_retry_after && !isAdmin(owner[0]?.email)
+  const unchecked=rows.filter(row=>row.application.preparation?.access!=='registration-confirmed'&&freePreparationNeedsCheck(row.application));
+  const accessProblem=await preparationAccessProblem(userId,unchecked.map(row=>row.application));
+  return rows.filter(row=>!accessProblem||!unchecked.includes(row)).map(({ security_retry_after, ...row }) => ({ ...row, security_retry: row.status === 'failed' && security_retry_after && !isAdmin(owner[0]?.email)
     ? { reason: 'site-security', retryAt: new Date(security_retry_after).toISOString() } as SecurityRetry : null }));
 }
 
@@ -84,11 +85,15 @@ export async function restoreFailedPreparationCredit(actorUserId:string,userId:s
   }catch(error){await connection.query('ROLLBACK');throw error;}finally{connection.release();}
 }
 
-export async function pendingReviewKeys(userId: string): Promise<string[]> {
-  const rows = await query<{ payload: PreparedApplication }>(
-    `SELECT payload FROM application_reviews WHERE user_id=$1 AND status IN ('ready','approved','failed') AND NOT (payload ? 'autoRunId')
-     UNION ALL SELECT jsonb_build_object('job',job) AS payload FROM application_review_operator_holds WHERE user_id=$1 AND released_at IS NULL`, [userId]);
-  return [...new Set(rows.flatMap(row => applicationKeys(row.payload.job)))];
+export async function pendingReviewKeys(userId: string, options: { refreshUncheckedEmployerDrafts?: boolean } = {}): Promise<string[]> {
+  const rows = await query<{ payload: PreparedApplication; status:string }>(
+    `SELECT payload,status FROM application_reviews WHERE user_id=$1 AND status IN ('ready','approved','failed') AND NOT (payload ? 'autoRunId')
+     UNION ALL SELECT jsonb_build_object('job',job) AS payload,'hold' AS status FROM application_review_operator_holds WHERE user_id=$1 AND released_at IS NULL`, [userId]);
+  // A new semi-auto check can update an unapproved draft in place and retain its paid credit.
+  // Keep Auto apply, previous approvals and operator holds excluded from discovery.
+  const canRefresh=(row:(typeof rows)[number])=>row.status==='ready'&&freePreparationNeedsCheck(row.payload);
+  const refresh=options.refreshUncheckedEmployerDrafts&&rows.some(canRefresh)&&await paidGuestPlan(userId);
+  return [...new Set(rows.filter(row=>!refresh||!canRefresh(row)).flatMap(row => applicationKeys(row.payload.job)))];
 }
 
 function operatorText(value: unknown, label: string): string {
@@ -213,7 +218,10 @@ export async function saveApplicationReview(userId: string, draft: PreparedAppli
       AND (application_reviews.payload->>'preparedAt') < (EXCLUDED.payload->>'preparedAt')
     RETURNING credit_consumed`,
     [userId, `${draft.job.platform ?? 'seek'}:${draft.job.id}`, draft.id, JSON.stringify(draft)]);
-    if(saved.rows[0]&&!automatic&&freePreparationNeedsCheck(draft)&&await freeGuestPreparationRequired(userId,connection))throw new ApplicationReviewError('Guest application access must be confirmed before this Free-plan application can be prepared. No credit was used.');
+    if(saved.rows[0]&&!automatic){
+      const problem=await preparationAccessProblem(userId,[draft],connection);
+      if(problem)throw new ApplicationReviewError(`${problem} No credit was used.`);
+    }
     // Operator holds are independent durable records keyed to this owner/job.
     // Importing a newer model draft cannot erase or release an active hold.
     if (saved.rows[0] && !saved.rows[0].credit_consumed) {
@@ -259,7 +267,8 @@ export async function applicationsForConfirmation(userId: string, selections: Re
      WHERE r.user_id=$1 AND r.id=ANY($2::uuid[])`,
     [userId, selections.map(item => item.id)]);
   const owner = await query<{ email: string }>('SELECT email FROM users WHERE id=$1', [userId]);
-  if(rows.some(row=>freePreparationNeedsCheck(row.payload))&&await freeGuestPreparationRequired(userId))throw new ApplicationReviewError('Guest application access has not been confirmed for this Free-plan draft. No application was started.');
+  const accessProblem=await preparationAccessProblem(userId,rows.map(row=>row.payload));
+  if(accessProblem)throw new ApplicationReviewError(`${accessProblem} No application was started.`);
   return confirmedVersions(rows, selections, isAdmin(owner[0]?.email));
 }
 
@@ -303,7 +312,8 @@ export async function claimApplicationReviews(userId: string, selections: Review
        WHERE r.user_id=$1 AND r.id=ANY($2::uuid[]) FOR UPDATE OF r`,
       [userId, selections.map(item => item.id)]);
     const owner = await connection.query<{ email: string }>('SELECT email FROM users WHERE id=$1 FOR SHARE', [userId]);
-    if(result.rows.some(row=>freePreparationNeedsCheck(row.payload))&&await freeGuestPreparationRequired(userId,connection))throw new ApplicationReviewError('Guest application access has not been confirmed for this Free-plan draft. No application was started.');
+    const accessProblem=await preparationAccessProblem(userId,result.rows.map(row=>row.payload),connection);
+    if(accessProblem)throw new ApplicationReviewError(`${accessProblem} No application was started.`);
     const applications = confirmedVersions(result.rows, selections, isAdmin(owner.rows[0]?.email));
     await connection.query("UPDATE application_reviews SET status='approved',detail=NULL,updated_at=now() WHERE user_id=$1 AND id=ANY($2::uuid[])", [userId, selections.map(item => item.id)]);
     await connection.query('COMMIT');

@@ -225,12 +225,12 @@ export async function applicationWorkerContexts(ctx: BrowserContext, count: numb
 }
 
 /** Inspect public employer forms without inheriting employer or Google logins.
- * The connected SEEK session remains available for native SEEK applications. */
-export async function guestPreparationContext(ctx:BrowserContext):Promise<BrowserContext> {
+ * Only the originating job board's session is available for its native forms. */
+export async function guestPreparationContext(ctx:BrowserContext, board:'seek'|'indeed'|null='seek'):Promise<BrowserContext> {
   const browser=ctx.browser();
   if(!browser)throw Error('This browser cannot create an isolated guest inspection.');
   const state=await ctx.storageState({indexedDB:true});
-  const allowed=(host:string)=>jobBoardForHost(host.replace(/^\./,''))==='seek';
+  const allowed=(host:string)=>board!==null&&jobBoardForHost(host.replace(/^\./,''))===board;
   const isolated=await browser.newContext({viewport:null,storageState:{
     cookies:state.cookies.filter(cookie=>allowed(cookie.domain)),
     origins:state.origins.filter(origin=>{try{return allowed(new URL(origin.origin).hostname);}catch{return false;}}),

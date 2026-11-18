@@ -1190,12 +1190,13 @@ async function main() {
       );
     };
     // ---- apply -----------------------------------------------------------
-    /** Employer-site applications actually SUBMITTED today, across runs. Failures cost model calls but not allowance. */
+    /** Today's confirmed employer submissions plus preparations made in this run. */
     let externalSubmitted = config.limits.externalAttemptsToday;
     const slots = new ApplicationSlots({ run: config.limits.maxApplicationsPerRun,
       day: config.limits.maxApplicationsPerDay, external: config.limits.maxExternalPerDay,
       appliedToday: () => index.appliedToday(),
       externalToday: config.limits.externalAttemptsToday });
+    const employerAllowanceExhausted = 'No employer-site application allowance remains for this run.';
     const parallel = process.env.APPLICATION_WORKERS === '2' && active.some(adapter => adapter.id === 'seek')
       && active.some(adapter => adapter.id === 'indeed');
     const contexts: BrowserContext[] = [];
@@ -1280,8 +1281,8 @@ async function main() {
 
           if (job.applicationMode === 'external') {
             if (externalSubmitted >= config.limits.maxExternalPerDay) {
-              console.log(`  – skipped (daily limit of ${config.limits.maxExternalPerDay} employer-site applications reached): ${job.title} @ ${job.company}`);
-              logOutcome({ status: 'skipped', jobId: job.id, reason: `daily limit of ${config.limits.maxExternalPerDay} employer-site applications reached`, title: job.title, company: job.company });
+              console.log(`  – skipped (${employerAllowanceExhausted}): ${job.title} @ ${job.company}`);
+              logOutcome({ status: 'skipped', jobId: job.id, reason: employerAllowanceExhausted, title: job.title, company: job.company });
               continue;
             }
           }
@@ -1309,6 +1310,10 @@ async function main() {
           await showLiveActivity({ phase: 'waiting', detail: 'Waiting for an application slot.' });
           const slot = await slots.acquire(job.applicationMode === 'external');
           if (!slot) {
+            if (job.applicationMode === 'external' && !slots.overallLimitReached() && !limitReached()) {
+              logOutcome({ status: 'skipped', jobId: job.id, reason: employerAllowanceExhausted, title: job.title, company: job.company });
+              continue;
+            }
             console.log('Shared application allowance is reached; this worker is finished.');
             break;
           }
@@ -1351,7 +1356,8 @@ async function main() {
               const apply = () => measured('application', () => preparingApplications() ? prepareMatchedJob(job,profile,{page:applicationPage}) : approvedApplication(job)?.email
                 ? submitApprovedEmail(approvedApplication(job)!)
                 : adapter.apply(applicationPage, job, profile, { onFriction: () => {} }), { jobId: job.id, platform: platformId });
-              outcome = await withApprovedRetry(retryApproval,()=>withApplicationAllowance(slot.beforeSubmit, apply));
+              const reserveDestination = (external: boolean) => (!external || config.allowExternalApply) && slot.beforeSubmit(external);
+              outcome = await withApprovedRetry(retryApproval, () => withApplicationAllowance(reserveDestination, apply));
             } catch (err) {
               const msg = (err as Error).message;
               const submitPressed = applicationFailureContext(err)?.submitPressed === true;

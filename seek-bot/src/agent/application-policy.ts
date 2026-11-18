@@ -37,6 +37,9 @@ Saved instructions: "[candidate saved instructions inserted here at runtime]"`;
 
 
 /** The owner-approved system text, with only its saved-instructions slot filled. */
-export function buildApplicationSystemPrompt(savedInstructions: string | undefined,guestEmployerOnly=false): string {
-  return AGENT_ONLY_PROMPT.replace('"[candidate saved instructions inserted here at runtime]"', () => JSON.stringify(savedInstructions ?? ''))+(guestEmployerOnly?'\n\n'+GUEST_EMPLOYER_INSTRUCTION:'');
+export function buildApplicationSystemPrompt(savedInstructions: string | undefined, guestEmployerOnly = false, gmailRequiredForRegistration = false): string {
+  const base = AGENT_ONLY_PROMPT.replace('"[candidate saved instructions inserted here at runtime]"', () => JSON.stringify(savedInstructions ?? ''));
+  if (guestEmployerOnly) return `${base}\n\n${GUEST_EMPLOYER_INSTRUCTION}`;
+  if (gmailRequiredForRegistration) return `${base}\n\nEMPLOYER ACCOUNT CREATION: Create an employer account only through the authentication tools with the candidate’s matching connected Gmail. If the tool reports Gmail is unavailable, look for a guest path and skip the application if registration is required.`;
+  return base;
 }

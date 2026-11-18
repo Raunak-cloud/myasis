@@ -36,9 +36,12 @@ export class ApplicationSlots {
   constructor(private readonly limits: { run: number; day: number; external: number; appliedToday: () => number; externalToday: number }) {
     this.initialDay = limits.appliedToday();
   }
+  overallLimitReached(): boolean {
+    return this.sent >= this.limits.run || this.initialDay + this.sent >= this.limits.day;
+  }
   async acquire(external: boolean): Promise<{ beforeSubmit: (external: boolean) => boolean; finish: (mayHaveSent: boolean) => void } | null> {
     for (;;) {
-      if (this.sent >= this.limits.run || this.initialDay + this.sent >= this.limits.day) return null;
+      if (this.overallLimitReached()) return null;
       if (external && this.externalSent + this.limits.externalToday >= this.limits.external) return null;
       if (this.sent + this.active < this.limits.run && this.initialDay + this.sent + this.active < this.limits.day
         && (!external || this.externalSent + this.externalActive + this.limits.externalToday < this.limits.external)) break;

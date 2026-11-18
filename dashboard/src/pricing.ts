@@ -7,19 +7,19 @@ const DAILY_APPLICATION_MAX = USER_RUN_LIMITS.MAX_APPS_PER_DAY;
 /** One-off, non-renewing products. Prices include GST where it applies. */
 export const PAID_PLANS = {
   'essential-pass': {
-    key: 'essential-pass', kind: 'pass', name: 'Essential Pass', priceCents: 990,
-    applications: 50, durationDays: 30, employerSiteApplications: 0,
-    description: 'Affordable automatic applications for a focused SEEK search.',
+    key: 'essential-pass', kind: 'pass', name: 'Essential Pass', priceCents: 1900,
+    applications: 50, durationDays: 30, employerSiteApplications: 10,
+    description: 'A focused job search with automatic applications.',
   },
   'job-search-pass': {
-    key: 'job-search-pass', kind: 'pass', name: 'Active Search', priceCents: 2999,
-    applications: 200, durationDays: 30, employerSiteApplications: 0,
+    key: 'job-search-pass', kind: 'pass', name: 'Active Search', priceCents: 3499,
+    applications: 200, durationDays: 30, employerSiteApplications: 20,
     description: 'A broader automatic search across SEEK, Indeed and Jora.',
   },
-  // Legacy ledger units remain for historical purchases. unlimitedApplications controls usage.
+  // The general ledger retains units for upgrade and receipt history. No finite employer-site grant is needed.
   'intensive-pass': {
-    key: 'intensive-pass', kind: 'pass', name: 'Get Owtomated', priceCents: 8999,
-    applications: 400, durationDays: 30, employerSiteApplications: 30, unlimitedApplications: true,
+    key: 'intensive-pass', kind: 'pass', name: 'Get Owtomated', priceCents: 9950,
+    applications: 400, durationDays: 30, employerSiteApplications: 0, unlimitedApplications: true,
     description: 'Unlimited application credits for 30 days, up to 100 applications per day.',
   },
   'application-top-up': {
@@ -36,7 +36,7 @@ export const PLAN_LIMITS = {
   free: { autoRunsPerDay: 1, evaluationsPerRun: 30 },
   'essential-pass': { autoRunsPerDay: 2, evaluationsPerRun: 25 },
   'job-search-pass': { autoRunsPerDay: 3, evaluationsPerRun: 70, applicationsPerDay: 50 },
-  'intensive-pass': { autoRunsPerDay: 3, evaluationsPerRun: 200, employerSitesPerDay: 5 },
+  'intensive-pass': { autoRunsPerDay: 3, evaluationsPerRun: 200 },
 } as const;
 
 /** Highest active pass wins; the global admin/Intensive ceiling remains 100. */
@@ -45,8 +45,8 @@ export function planDailyApplicationLimit(paid:{hasActiveJobSearchPass?:boolean;
     ? PLAN_LIMITS['job-search-pass'].applicationsPerDay : DAILY_APPLICATION_MAX;
 }
 
-export function joraConnectionAllowed(paid:{hasActiveJobSearchPass?:boolean;hasActiveIntensivePass?:boolean},admin=false):boolean {
-  return admin || Boolean(paid.hasActiveJobSearchPass || paid.hasActiveIntensivePass);
+export function joraConnectionAllowed(paid: { hasActivePass: boolean }, admin = false): boolean {
+  return admin || paid.hasActivePass;
 }
 
 export const SCHEDULED_MIN_SCORE = 60;
@@ -82,7 +82,8 @@ export const PLAN_PRESENTATION = {
       `${plural(ESSENTIAL.autoRunsPerDay, 'scheduled run', 'scheduled runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${ESSENTIAL.evaluationsPerRun} jobs each run`,
       `Jobs that match your resume by at least ${SCHEDULED_MIN_SCORE}%`,
-      'SEEK applications',
+      `${PAID_PLANS['essential-pass'].employerSiteApplications} employer-site applications (guest forms only)`,
+      'SEEK, Indeed and Jora applications',
       'Personalised cover letters and application tracking',
     ],
   },
@@ -96,6 +97,7 @@ export const PLAN_PRESENTATION = {
       `Up to ${plural(ACTIVE.autoRunsPerDay, 'scheduled run', 'scheduled runs')} each day · Auto apply or Semi auto`,
       `AI reviews up to ${ACTIVE.evaluationsPerRun} jobs each run`,
       `Choose your minimum match score: ${CUSTOM_MIN_SCORE}% to ${MAX_MATCH_SCORE}%`,
+      `${PAID_PLANS['job-search-pass'].employerSiteApplications} employer-site applications (guest forms only)`,
       'SEEK, Indeed and Jora applications',
       'Optional Jora connection',
       'Advanced match and listing-age filters',
@@ -114,7 +116,8 @@ export const PLAN_PRESENTATION = {
       'SEEK, Indeed and Jora applications',
       'Optional Jora connection',
       'Advanced match and listing-age filters',
-      'Supported employer-site applications',
+      'No separate employer-site limit',
+      'Account creation with connected Gmail',
       'SmartRecruiters, Greenhouse, PageUp and Workday job sources',
       'Web search for employer-site jobs',
       'Priority support',

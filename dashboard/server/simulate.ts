@@ -75,7 +75,7 @@ function simulate(scenario: Scenario): Simulation {
       ...(scenario.trial?{trial:{employerSites:true,seekBonusApplications:SEEK_CONNECTION_APPLICATIONS,seekBonusAwarded:scenario.trial==='connected'}}:{}) },
     paid: {
       remaining: scenario.paidRemaining,
-      employerSiteRemaining: active && scenario.pass === 'intensive-pass' ? 18 : 0,
+      employerSiteRemaining: active && scenario.pass !== 'none' ? PAID_PLANS[scenario.pass].employerSiteApplications : 0,
       expiresAt: active ? new Date(Date.now() + 21 * 86_400_000).toISOString() : null,
       hasActivePass: active,
       hasActiveEssentialPass: active && scenario.pass === 'essential-pass',

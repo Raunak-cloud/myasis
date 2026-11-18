@@ -87,30 +87,28 @@ isolated schemas and remove them afterward.
 
 ## Payments and application allowances
 
-The dashboard uses Stripe-hosted Checkout for one-time passes. An application
-is deducted only after the bot reports a successful submission; skipped listings, failed forms, off-platform listings,
-and items that need attention do not count.
+The dashboard uses Stripe-hosted Checkout for one-time passes. A credit is used
+on a successful Auto apply submission or when Semi auto saves a prepared
+application. Confirming that draft does not charge another credit.
 
 Plans are defined in `src/pricing.ts`. `PLAN_LIMITS` there is what the server enforces and what the plan features are written from:
 
 | Plan | Price | Allowance and access | Validity |
 |---|---:|---|---:|
 | Free | A$0 | 5 application credits, 1 scheduled run daily, up to 30 jobs reviewed per run, SEEK | Once per account |
-| Essential | A$9.90 | 50 application credits, 2 scheduled runs daily, up to 25 jobs reviewed, SEEK, personalised cover letters | 30 days |
-| Active Search | A$19.99 | 200 successful applications, 3 automatic runs daily, up to 70 jobs reviewed per run, SEEK and Indeed, priority processing | 30 days |
-| Get Owtomated | A$59.99 | Unlimited applications, 3 scheduled runs daily, up to 80 jobs reviewed per run, SEEK, Indeed, advanced controls and supported employer sites | 30 days |
-| Application Pack | A$6.90 | 50 successful applications; inherits the active pass end date | Active pass end date |
+| Essential Pass | A$19.00 | 50 application credits including up to 10 guest employer-site applications, 2 scheduled runs daily, up to 25 jobs reviewed per run, SEEK, Indeed and Jora | 30 days |
+| Active Search | A$34.99 | 200 application credits including up to 20 guest employer-site applications, 50 applications per day, 3 scheduled runs daily, up to 70 jobs reviewed per run, SEEK, Indeed and Jora | 30 days |
+| Get Owtomated | A$99.50 | Unlimited application credits, up to 100 applications per day, 3 scheduled runs daily, up to 200 jobs reviewed per run, SEEK, Indeed, Jora and supported employer sites | 30 days |
 
 Passes are one-time payments and do not auto-renew. Existing no-expiry purchases remain grandfathered.
 
 Every plan uses the same natural-writing instructions for cover letters and form
 answers: plain language, no em dashes, no metaphors and no stock AI phrasing.
 
-External employer-site applications are enabled only while Get Owtomated
-is active. The dashboard injects this entitlement on the server, so a browser
-request cannot switch it on. Supported forms reuse the selected resume and
-verified profile details, and stop for CAPTCHAs, sign-ins, or unanswerable
-questions.
+The server enforces employer-site access and tracks the applicable allowance.
+Free, Essential Pass and Active Search use guest forms within their allowances.
+Get Owtomated has no separate employer-site limit and can create employer
+accounts when the profile Gmail is connected.
 
 ### Stripe setup
 

@@ -10,6 +10,7 @@ import { boundedUserRunLimit, dailyApplicationLimit, USER_RUN_LIMITS } from '../
 import { EMPLOYER_SOURCES, isEmployerSource } from '../../seek-bot/src/employer-source-config.js';
 import {GUEST_EMPLOYER_SOURCES} from '../../seek-bot/src/guest-applications.js';
 import {employerApplicationsEnabled} from '../src/employer-applications.js';
+import { employerApplicationAllowance } from './employer-site-access.js';
 
 export { SCHEDULED_MIN_SCORE, RUN_TIME_ZONE };
 
@@ -95,10 +96,6 @@ export async function setAdminOverrides(
   }
 }
 
-/** Employer-site applications an Intensive Pass may submit per day. */
-export const INTENSIVE_EMPLOYER_SITES_PER_DAY = PLAN_LIMITS['intensive-pass'].employerSitesPerDay;
-
-
 /** Listings the AI assesses in each run for the four customer plans. */
 const FREE_EVALUATIONS_PER_RUN = PLAN_LIMITS.free.evaluationsPerRun;
 const ESSENTIAL_EVALUATIONS_PER_RUN = PLAN_LIMITS['essential-pass'].evaluationsPerRun;
@@ -132,9 +129,9 @@ const FINE_TUNING_KEYS: string[] = KEEP_SETTINGS_KEYS.filter(
 /** Active Search may refine matching without receiving Intensive's run controls or standing instructions. */
 const ADVANCED_FILTER_KEYS = ['MIN_SCORE', 'MAX_AGE_DAYS'] as const;
 
-export function mayEditRunSetting(key: string, entitlement: Pick<Entitlements, 'fineTune' | 'advancedFilters'> & Partial<Pick<Entitlements, 'tier' | 'employerTrial'>>): boolean {
+export function mayEditRunSetting(key: string, entitlement: Pick<Entitlements, 'fineTune' | 'advancedFilters'> & Partial<Pick<Entitlements, 'tier' | 'employerTrial' | 'employerSources' | 'indeedApplications'>>): boolean {
   if (key === 'MAX_APPS_PER_RUN') return false;
-  if(key==='PLATFORMS'&&entitlement.employerTrial)return true;
+  if (key === 'PLATFORMS' && (entitlement.employerTrial || entitlement.employerSources || entitlement.indeedApplications)) return true;
   if (key === 'APPLICATION_AI_MODEL' || key === 'APPLICATION_AGENT_MODE' || key === 'APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN') return entitlement.tier === 'admin';
   if (!FINE_TUNING_KEYS.includes(key)) return true;
   return entitlement.fineTune
@@ -183,9 +180,10 @@ export function effectivePlatforms(
     && (id !== 'jora' || entitlement.joraSignIn===true && saved.JORA_BETA_ENABLED !== 'false'));
   if (entitlement.joraSignIn===true && saved.JORA_BETA_ENABLED === 'true') selected.push('jora');
   // Free accounts use public Jora discovery in the background, without a Jora account.
-  if(entitlement.employerGuestOnly && employersEnabled) selected.push('jora');
-  if (employersEnabled && entitlement.tier === 'intensive' && saved[EMPLOYER_SOURCES_CHOSEN_KEY] !== '1') {
-    selected.push(...EMPLOYER_SOURCES.map(source => source.id));
+  if (entitlement.employerTrial && entitlement.employerGuestOnly && employersEnabled) selected.push('jora');
+  if (employersEnabled && (!entitlement.employerTrial || entitlement.tier === 'intensive')
+    && entitlement.tier !== 'admin' && saved[EMPLOYER_SOURCES_CHOSEN_KEY] !== '1') {
+    selected.push(...(entitlement.employerGuestOnly ? GUEST_EMPLOYER_SOURCES : EMPLOYER_SOURCES.map(source => source.id)));
   }
   return [...new Set(selected)].join(',') || RUN_SETTING_DEFAULTS.PLATFORMS;
 }
@@ -450,6 +448,7 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
     ? overrides.evaluationsPerRun
     : overrides.evaluationsPerRun ?? planEvaluationsPerRun;
   const advancedFilters = tier !== 'standard' || billing.paid.hasActiveJobSearchPass;
+  const employerTrial = Boolean(billing.free?.trial && (!billing.paid.hasActivePass || tier === 'intensive'));
 
   return {
     tier,
@@ -473,11 +472,11 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
     fineTune: tier !== 'standard',
     advancedFilters,
     runScopes: tier === 'admin',
-    indeedApplications: billing.paid.hasActiveJobSearchPass || billing.paid.hasActiveIntensivePass,
-    employerSources: tier === 'admin' || tier === 'intensive',
-    employerGuestOnly:!facts.admin&&!billing.paid.hasActivePass,
+    indeedApplications: facts.admin || billing.paid.hasActivePass,
+    employerSources: tier === 'admin' || tier === 'intensive' || employerApplicationAllowance(billing) > 0,
+    employerGuestOnly: !facts.admin && !billing.paid.hasActiveIntensivePass,
     joraSignIn:joraConnectionAllowed(billing.paid,facts.admin),
-    ...(billing.free?.trial?{employerSources:tier==='admin'||tier==='intensive'||billing.free.remaining>0,employerTrial:true,seekTrialConnected:billing.free.trial.seekBonusAwarded}:{}),
+    ...(employerTrial ? { employerTrial: true, seekTrialConnected: billing.free?.trial?.seekBonusAwarded } : {}),
     searchTermSuggestionsLeft: facts.searchTermSuggestionsLeft,
     timeZone: RUN_TIME_ZONE,
   };

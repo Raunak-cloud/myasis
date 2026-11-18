@@ -45,13 +45,16 @@ function assertExpectedOffer(options: CheckoutOptions, quote: CheckoutQuote): vo
 function priceData(quote: CheckoutQuote): Stripe.Checkout.SessionCreateParams.LineItem.PriceData {
   const plan = PAID_PLANS[quote.planKey];
   const end = quote.expiresAt ? new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Sydney', day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(quote.expiresAt)) : '';
+  const employerCount = quote.additionalEmployerSiteApplications ?? 0;
+  const employerDetails = quote.planKey === 'intensive-pass' ? ' · employer account creation with connected Gmail'
+    : employerCount > 0 ? ` · ${employerCount} ${quote.kind === 'upgrade' ? 'extra ' : ''}employer-site ${employerCount === 1 ? 'application' : 'applications'} (guest forms only)` : '';
   const description = quote.kind === 'upgrade'
     ? `${quote.planKey === 'intensive-pass' ? 'Unlimited applications' : `${quote.additionalApplications} additional application credits`} · access ends ${end} · no automatic renewal`
     : plan.kind === 'pass'
       ? `${quote.planKey === 'intensive-pass' ? 'Unlimited applications' : `${quote.additionalApplications} application credits`} · ${quote.target.durationDays} days · no automatic renewal`
       : plan.description;
   return { currency: 'aud', unit_amount: quote.amountCents, tax_behavior: 'inclusive',
-    product_data: { name: quote.kind === 'upgrade' ? `Upgrade to ${plan.name}` : plan.name, description } };
+    product_data: { name: quote.kind === 'upgrade' ? `Upgrade to ${plan.name}` : plan.name, description: description + employerDetails } };
 }
 
 /** Serialize checkout links separately from application-credit deductions. Persist
@@ -96,7 +99,8 @@ export async function managedCheckout(
       const same = pending.plan_key === planKey && pending.quote.sourceGrantId === quote.sourceGrantId
         && pending.quote.upgradePricingVersion === quote.upgradePricingVersion
         && pending.quote.expiresAt === quote.expiresAt && pending.quote.amountCents === quote.amountCents
-        && pending.quote.additionalApplications === quote.additionalApplications && pending.expires_at.getTime() > Date.now();
+        && pending.quote.additionalApplications === quote.additionalApplications
+        && pending.quote.additionalEmployerSiteApplications === quote.additionalEmployerSiteApplications && pending.expires_at.getTime() > Date.now();
       if (session.status === 'open' && same && session.url) {
         await client.query("UPDATE billing_checkout_intents SET stripe_checkout_session_id=$2,state='open' WHERE id=$1 AND state='creating'", [pending.id, session.id]);
         // Reusing a checkout must not silently charge a different displayed price.

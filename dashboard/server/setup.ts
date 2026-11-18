@@ -94,9 +94,11 @@ export async function setupStatus(
   const account = await accountSetupChecks(userId);
   // Count board sign-in in the user's progress, but leave the scheduler's
   // separate waitingForBoard state in accountSetupComplete unchanged.
-  const connectedBoards = (['seek', 'indeed'] as const)
-    .filter((site) => readSiteState(userId, site)?.signedIn === true);
   const [settings, entitlement] = await Promise.all([loadUserSettings(userId), entitlementsFor(userId)]);
+  const boardNames = { seek: 'SEEK', indeed: 'Indeed', jora: 'Jora' } as const;
+  const connectedBoards = (['seek', 'indeed', 'jora'] as const).filter(
+    site => (site !== 'jora' || entitlement.joraSignIn) && readSiteState(userId, site)?.signedIn === true,
+  );
   const employerSourceSelected = entitlement.employerSources && effectivePlatforms(settings, entitlement).split(',').some(isEmployerSource);
   // Job titles and location are one step on screen, so they are one check here too.
   const looking: SetupCheck = {
@@ -115,9 +117,13 @@ export async function setupStatus(
       id: 'boards',
       label: employerSourceSelected ? 'Job sources ready' : 'Job board connected',
       done: employerSourceSelected || connectedBoards.length > 0,
-      hint: employerSourceSelected ? entitlement.employerTrial?'Employer sites are ready. Connecting SEEK is optional and adds 6 free applications.':'Employer job sources are ready. You can also connect SEEK or Indeed.' : connectedBoards.length
-        ? `Connected to ${connectedBoards.map((site) => site === 'seek' ? 'SEEK' : 'Indeed').join(' and ')}.`
-        : 'Connect SEEK, or Indeed if available.',
+      hint: employerSourceSelected
+        ? entitlement.employerTrial && entitlement.employerGuestOnly
+          ? 'Employer sites are ready. Connecting SEEK is optional and adds 6 free applications.'
+          : 'Employer sites are ready. You can also connect a job board.'
+        : connectedBoards.length
+          ? `Connected to ${connectedBoards.map(site => boardNames[site]).join(', ')}.`
+          : entitlement.indeedApplications ? 'Connect SEEK, Indeed or Jora.' : 'Connect SEEK.',
       fix: 'boards',
       required: true,
     },

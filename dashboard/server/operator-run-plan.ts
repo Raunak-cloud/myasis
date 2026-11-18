@@ -4,6 +4,7 @@ import {planDailyApplicationLimit} from '../src/pricing.js';
 
 /** An authenticated operator may sponsor one bounded run, never an account upgrade. */
 export const VIP_RUN_PLAN = { plan: 'intensive-pass', maxReviews: 400, timeoutMinutes: 120 } as const;
+export const SPONSORED_EMPLOYER_SITES_PER_DAY = 5;
 
 export function sponsoredRunEntitlements(current: Entitlements): Entitlements {
   return { ...current, tier: 'intensive', fineTune: true, advancedFilters: true,

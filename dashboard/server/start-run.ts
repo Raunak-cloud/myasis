@@ -17,7 +17,6 @@ import {
   entitlementsFor,
   recordRunStart,
   mayEditRunSetting,
-  INTENSIVE_EMPLOYER_SITES_PER_DAY,
   type Entitlements,
 } from './entitlements.js';
 import { listResumes } from './files.js';
@@ -29,7 +28,7 @@ import { browserRoute, describeRoute } from './route.js';
 import { releaseFreeProxy } from './proxy-pool.js';
 import { query } from './db/index.js';
 import { validateExternalJobUrl } from './external-job-url.js';
-import { mayRunEmployerSiteApplications } from './employer-site-access.js';
+import { employerApplicationAllowance } from './employer-site-access.js';
 import { applyJobSourceAccess, availableJobSources, jobSourceSettingsError } from './job-sources.js';
 import {employerApplicationsEnabled} from '../src/employer-applications.js';
 import { loadProfile } from './profile.js';
@@ -44,7 +43,7 @@ import { scheduledStart } from './run-schedule.js';
 import { dailyApplicationLimit, USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
 import { targetedSeekRetryJobs } from './targeted-retry-jobs.js';
 import { targetedIndeedRetryJobs } from './targeted-retry-indeed.js';
-import { VIP_RUN_PLAN, sponsoredRunAllowance, sponsoredRunEntitlements } from './operator-run-plan.js';
+import { VIP_RUN_PLAN, SPONSORED_EMPLOYER_SITES_PER_DAY, sponsoredRunAllowance, sponsoredRunEntitlements } from './operator-run-plan.js';
 import { discoverySeeds } from '../../seek-bot/src/discovery-seeds.js';
 import {approvedRunRepairs} from './approved-run-repairs.js';
 import type {PriorRunRepair} from '../src/priorRunRepair.js';
@@ -336,7 +335,9 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     overrides.OPERATOR_APPLICATION_BASE_USD = String(request.oneTime.applicationBudget.baseUsd);
     overrides.OPERATOR_APPLICATION_MAXIMUM_USD = String(request.oneTime.applicationBudget.maximumUsd);
   }
-  overrides.PENDING_APPLICATION_KEYS_JSON = JSON.stringify(await pendingReviewKeys(userId));
+  overrides.PENDING_APPLICATION_KEYS_JSON = JSON.stringify(await pendingReviewKeys(userId, {
+    refreshUncheckedEmployerDrafts: overrides.APPLICATION_REVIEW_MODE === 'prepare' && request.approvals === undefined,
+  }));
   let selections;
   try { selections = request.approvals === undefined ? null : reviewSelection(request.approvals); }
   catch (error) { return { ok: false, status: 400, error: (error as Error).message }; }
@@ -351,9 +352,9 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   } catch (error) { return { ok: false, status: 409, error: (error as Error).message }; }
   const prepaidExternal = prepaid.filter(item => item.job.applicationMode === 'external' || isExternalApplicationUrl(item.formUrl)).length;
   if(prepaidExternal>0&&!employersEnabled)return {ok:false,status:409,error:'Employer-site applications are off. Turn them on before confirming these applications.'};
-  // Preparing a trial application already spent its credit. Completing that
-  // exact approved draft remains available when its unused balance reaches zero.
-  if(prepaidExternal>0&&entitlements.employerTrial){
+  // Preparing an employer application already spent its credit. Allow the
+  // exact prepared source even when no unused employer-site allowance remains.
+  if (prepaidExternal > 0 && (entitlements.employerTrial || !entitlements.employerSources)) {
     entitlements={...entitlements,employerSources:true};
     overrides.PLATFORMS=[...new Set(prepaid.map(item=>item.job.platform??'seek'))].join(',');
   }
@@ -434,37 +435,21 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
         overrides.MAX_APPS_PER_DAY = String(dailyApplicationLimit(chosenDailyCap));
       }
       const externalUsedToday = admin ? 0 : await externalSubmittedToday(userId);
-      const freeEmployerRemaining=allowance.free.trial?.employerSites?allowance.free.remaining:0;
-      const trialEmployerLimit=freeEmployerRemaining>0?freeEmployerRemaining:entitlements.employerTrial?prepaidExternal:0;
-      const externalAvailable = prepaidExternal > 0 || allowance.paid.hasActiveIntensivePass
-        && allowance.paid.remaining > 0
-        && allowance.paid.employerSiteRemaining > 0
-        && (unlimitedApplications || externalUsedToday < INTENSIVE_EMPLOYER_SITES_PER_DAY);
-      const externalCeiling = trialEmployerLimit>0?externalUsedToday+trialEmployerLimit:externalUsedToday + Math.min(
-        selections ? prepaidExternal : allowance.paid.employerSiteRemaining,
-        selections ? prepaidExternal : allowance.paid.remaining,
-        Math.max(0, INTENSIVE_EMPLOYER_SITES_PER_DAY - externalUsedToday),
-      );
+      const externalRemaining = selections ? prepaidExternal : employerApplicationAllowance(allowance);
+      const employerLimit = sponsored
+        ? Math.min(externalRemaining, Math.max(0, SPONSORED_EMPLOYER_SITES_PER_DAY - externalUsedToday))
+        : externalRemaining;
       // Decided from the active pass here, never from a supplied override.
-      const employerSitesAllowed = employersEnabled && (prepaidExternal > 0 || mayRunEmployerSiteApplications({
-        targetIsAdmin: admin,
-        initiatedByAdmin: trigger === 'admin',
-        hasIntensiveAllowance: externalAvailable,
-        hasFreeEmployerAllowance:freeEmployerRemaining>0,
-      }));
+      const employerSitesAllowed = employersEnabled && (admin || employerLimit > 0);
       overrides.ALLOW_EXTERNAL_APPLY = employerSitesAllowed ? 'true' : 'false';
       if (directExternalUrl && overrides.ALLOW_EXTERNAL_APPLY !== 'true') {
-        return { ok: false, status: 403, error: 'Direct employer-website testing requires an administrator and an active Get Owtomated pass.' };
+        return { ok: false, status: 403, error: 'No employer-site application allowance is available for this account.' };
       }
-      /**
-       * Employer-site applications are Get Owtomated feature and cost
-       * 10-20x a Quick Apply. An operator of this installation has no
-       * ceilings at all: no daily employer-site limit, no allowance
-       * deduction, and their own run settings unclamped.
-       */
+      // The worker uses a daily counter with its current baseline plus this
+      // run's remaining pass allowance. Get Owtomated needs no separate cap.
       if (admin) overrides.ADMIN_UNLIMITED = 'true';
       else {
-        overrides.MAX_EXTERNAL_PER_DAY = unlimitedApplications && !sponsored ? '' : String(externalCeiling);
+        overrides.MAX_EXTERNAL_PER_DAY = unlimitedApplications && !sponsored ? '' : String(externalUsedToday + employerLimit);
         overrides.EXTERNAL_ATTEMPTS_TODAY = String(externalUsedToday);
       }
 
@@ -490,12 +475,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
      * employer-sites-only search could never find a job (0 of 191 on 4 Oct).
      */
     const allowance = await billingStatus(userId, email).catch(() => null);
-    overrides.ALLOW_EXTERNAL_APPLY = employersEnabled && mayRunEmployerSiteApplications({
-      targetIsAdmin: admin,
-      initiatedByAdmin: trigger === 'admin',
-      hasIntensiveAllowance: Boolean(allowance?.paid.hasActiveIntensivePass),
-      hasFreeEmployerAllowance:Boolean(allowance?.free.trial?.employerSites&&allowance.free.remaining>0),
-    }) ? 'true' : 'false';
+    overrides.ALLOW_EXTERNAL_APPLY = employersEnabled && (admin || allowance && employerApplicationAllowance(allowance) > 0) ? 'true' : 'false';
   }
 
   /**

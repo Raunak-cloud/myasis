@@ -6,6 +6,40 @@ import { chooseTestVerification } from './verification-test-support.js';
 import { GmailMcpService } from '../gmail-mcp-service.js';
 import { failedToolResult, ok, type ToolContext } from './context.js';
 import { toolInputIssue, validToolInput } from './tool-input.js';
+import { withApplicationModel } from '../application-model.js';
+
+test('employer registration requires both a permitted plan and the matching connected mailbox', async (t) => {
+  const names = ['GMAIL_MCP_URL', 'GMAIL_MCP_TOKEN', 'GMAIL_MCP_ACCOUNT'] as const;
+  const previous = names.map(name => process.env[name]);
+  t.after(() => names.forEach((name, index) => {
+    if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index];
+  }));
+  for (const name of names) delete process.env[name];
+  const ctx = {
+    page: { url: () => 'https://careers.fixture.invalid/register' },
+    profile: { email: 'candidate@fixture.invalid' },
+    job: { company: 'Fixture Employer' },
+    observation: { fields: [] },
+  } as unknown as ToolContext;
+  const attempt = (guestOnly: boolean) => withApplicationModel(
+    { EMPLOYER_GUEST_ONLY: String(guestOnly), FREE_EMPLOYER_GUEST_ONLY: 'false' },
+    () => doCompleteAuthentication(ctx, { purpose: 'create_account', refs: ['password'] }),
+  );
+  const noMailbox = await attempt(false);
+  assert.match(noMailbox.kind === 'ok' ? noMailbox.message : '', /Gmail is not connected/);
+  Object.assign(process.env, {
+    GMAIL_MCP_URL: 'https://mailbox.fixture.invalid',
+    GMAIL_MCP_TOKEN: 'fixture-only',
+    GMAIL_MCP_ACCOUNT: 'other@fixture.invalid',
+  });
+  const wrongMailbox = await attempt(false);
+  assert.match(wrongMailbox.kind === 'ok' ? wrongMailbox.message : '', /does not match/);
+  process.env.GMAIL_MCP_ACCOUNT = ctx.profile.email;
+  const guest = await attempt(true);
+  assert.match(guest.kind === 'ok' ? guest.message : '', /guest employer forms only/);
+  const permitted = await attempt(false);
+  assert.match(permitted.kind === 'ok' ? permitted.message : '', /None of those refs/);
+});
 
 test('the live missing-target replay is rejected before a mailbox read or browser action', async () => {
   const names = ['GMAIL_MCP_URL', 'GMAIL_MCP_TOKEN', 'GMAIL_MCP_ACCOUNT'] as const;

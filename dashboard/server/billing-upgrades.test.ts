@@ -9,6 +9,7 @@ import { fulfillPayment } from './billing-fulfillment.js';
 import { quoteCheckout, billingOffers, DAY_MS, type ActivePass } from './billing-policy.js';
 import { billingStatus } from './billing.js';
 import { accountDailyApplicationLimit } from './application-daily-limit.js';
+import { consumeApplicationCredit } from './application-credits.js';
 import { PAID_PLANS, planDailyApplicationLimit, type PassPlanKey } from '../src/pricing.js';
 
 // The deployment host has real analytics credentials. Fixture payments must
@@ -80,12 +81,13 @@ test('proration credits the existing tier price, uses integer cents and preserve
   const pass: ActivePass = { grantId: '1', planKey: 'essential-pass', expiresAt: new Date(now+15*DAY_MS).toISOString(),
     periodStartedAt: new Date(now-15*DAY_MS).toISOString(), priceCents: 990, durationMs: 30*DAY_MS, applications: 50 };
   const half = quoteCheckout('job-search-pass', pass, false, now);
-  assert.equal(half.amountCents, 1005); assert.equal(half.additionalApplications, 75); assert.equal(half.expiresAt, pass.expiresAt);
-  assert.equal(quoteCheckout('job-search-pass', { ...pass, expiresAt: new Date(now+30*DAY_MS).toISOString() }, false, now).amountCents, 2009);
+  assert.equal(half.amountCents, 800); assert.equal(half.additionalApplications, 75); assert.equal(half.expiresAt, pass.expiresAt);
+  assert.equal(half.additionalEmployerSiteApplications, 5);
+  assert.equal(quoteCheckout('job-search-pass', { ...pass, expiresAt: new Date(now+30*DAY_MS).toISOString() }, false, now).amountCents, 1599);
   assert.equal(quoteCheckout('job-search-pass', { ...pass, expiresAt: new Date(now+DAY_MS/2).toISOString() }, false, now).amountCents, 0, 'waive subminimum differences, never add a future charge');
-  assert.equal(quoteCheckout('intensive-pass', { ...pass, planKey: 'job-search-pass', priceCents: 2499, durationMs: 60*DAY_MS, applications: 200, expiresAt: new Date(now+30*DAY_MS).toISOString() }, false, now).amountCents, 6000);
-  assert.equal(quoteCheckout('job-search-pass', { ...pass, priceCents: 0 }, false, now).amountCents, 1005, 'a granted pass retains its full tier value');
-  assert.equal(quoteCheckout('job-search-pass', { ...pass, priceCents: 790 }, false, now).amountCents, 1005, 'a discount must not increase the upgrade gap');
+  assert.equal(quoteCheckout('intensive-pass', { ...pass, planKey: 'job-search-pass', priceCents: 2499, durationMs: 60*DAY_MS, applications: 200, expiresAt: new Date(now+30*DAY_MS).toISOString() }, false, now).amountCents, 6451);
+  assert.equal(quoteCheckout('job-search-pass', { ...pass, priceCents: 0 }, false, now).amountCents, 800, 'a granted pass retains its full tier value');
+  assert.equal(quoteCheckout('job-search-pass', { ...pass, priceCents: 790 }, false, now).amountCents, 800, 'a discount must not increase the upgrade gap');
   assert.throws(() => quoteCheckout('essential-pass', pass, false, now), /already active/);
   assert.throws(() => quoteCheckout('essential-pass', { ...pass, planKey: 'job-search-pass' }, false, now), /downgrade/);
   assert.throws(() => quoteCheckout('job-search-pass', { ...pass, expiresAt: null }, false, now), /no expiry/);
@@ -101,19 +103,23 @@ test('one-time purchases reuse a checkout across tabs and grant only once across
   assert.equal(request.mode, 'payment'); assert.equal(request.payment_method_collection, undefined);
   assert.equal(request.subscription_data, undefined); assert.equal(request.payment_intent_data?.setup_future_usage, undefined);
   assert.equal('recurring' in request.line_items![0].price_data!, false);
+  assert.equal(request.line_items![0].price_data!.unit_amount, 1900);
+  assert.match(request.line_items![0].price_data!.product_data!.description!, /10 employer-site applications \(guest forms only\)/);
   paid(first.id);
   const result = await Promise.all([fulfillPayment(pool,fake,first.id,'2'),fulfillPayment(pool,fake,first.id,'2')]);
   assert.equal(result.filter(value => value.fulfilled).length, 1);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM billing_purchases WHERE user_id=2')).rows[0].n, 1);
+  assert.equal((await billingStatus('2')).paid.employerSiteRemaining, 10);
   await assert.rejects(checkout(2,'essential-pass'), /already active/);
 });
 
 test('upgrades preserve expiry and unused credits; a second upgrade uses the full target rate rather than the first gap payment', async () => {
   const source = await seed(1,'essential-pass',15,30,990,20);
+  await pool.query(sql);
   const active = await activeBillingPass(pool,'1');
   const offer = quoteCheckout('job-search-pass',active,false,now);
   const session = await checkout(1,'job-search-pass', { quotedAt: now, sourceGrantId: source.grant, amountCents: offer.amountCents, expiresAt: source.end });
-  assert.equal(sessions.get(session.id)!.amount_total, 1005);
+  assert.equal(sessions.get(session.id)!.amount_total, 800);
   assert.equal(requests.at(-1)!.allow_promotion_codes, false);
   paid(session.id);
   const result = await fulfillPayment(pool,fake,session.id,'1');
@@ -121,9 +127,10 @@ test('upgrades preserve expiry and unused credits; a second upgrade uses the ful
   const balances = (await pool.query('SELECT sum(credits_total-credits_used)::int AS n FROM application_credit_grants WHERE user_id=1')).rows[0].n;
   assert.equal(balances,105);
   const next = await activeBillingPass(pool,'1');
-  assert.equal(next!.durationMs,30*DAY_MS); assert.equal(next!.priceCents,2999);
+  assert.equal(next!.durationMs,30*DAY_MS); assert.equal(next!.priceCents,3499);
+  assert.equal((await billingStatus('1')).paid.employerSiteRemaining, 15);
   const gold = quoteCheckout('intensive-pass',next,false,now);
-  assert.equal(gold.amountCents,3000); assert.equal(gold.expiresAt,source.end);
+  assert.equal(gold.amountCents,3226); assert.equal(gold.expiresAt,source.end);
   await assert.rejects(checkout(1,'essential-pass'),/downgrade/);
   await assert.rejects(checkout(1,'job-search-pass'),/already active/);
   const premium = await checkout(1,'intensive-pass', { quotedAt: now, sourceGrantId: next!.grantId, amountCents: gold.amountCents, expiresAt: gold.expiresAt });
@@ -134,6 +141,35 @@ test('upgrades preserve expiry and unused credits; a second upgrade uses the ful
   const before = (await pool.query('SELECT credits_total FROM application_credit_grants WHERE purchase_id IN (SELECT id FROM billing_purchases WHERE user_id=1 AND purchase_kind=\'upgrade\') ORDER BY id')).rows;
   await pool.query(sql);
   assert.deepEqual((await pool.query('SELECT credits_total FROM application_credit_grants WHERE purchase_id IN (SELECT id FROM billing_purchases WHERE user_id=1 AND purchase_kind=\'upgrade\') ORDER BY id')).rows,before,'legacy backfill cannot refill prorated upgrade grants');
+});
+
+test('the highest existing lower pass receives its allowance once, and guest applications consume both ledgers', async () => {
+  await seed(15, 'essential-pass');
+  const active = await seed(15, 'job-search-pass');
+  await seed(16, 'essential-pass', -1);
+  await pool.query('INSERT INTO new_user_trials (user_id) VALUES (15)');
+  await pool.query(sql);
+  const grant = (await pool.query('SELECT purchase_id, credits_total, expires_at FROM employer_site_credit_grants WHERE user_id=15')).rows[0];
+  assert.equal(grant.purchase_id, active.purchase);
+  assert.equal(grant.credits_total, 20);
+  assert.equal(grant.expires_at.toISOString(), active.end);
+  assert.equal((await billingStatus('16')).paid.employerSiteRemaining, 0);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await consumeApplicationCredit(client, '15', true);
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+  await pool.query(sql);
+  const balance = await billingStatus('15');
+  assert.equal(balance.paid.employerSiteRemaining, 19, 'schema reruns preserve usage');
+  assert.equal(balance.paid.remaining, 249, 'employer applications consume one ordinary credit too');
+  assert.equal(balance.free.used, 0, 'the paid employer benefit does not spend free trial credits');
 });
 
 test('changing an unpaid selection expires the older link; paid but unconfirmed sessions block another payment', async () => {
@@ -175,7 +211,7 @@ test('server rejects tampered, future, expired and stale quotes; an expired pass
   await pool.query("UPDATE application_credit_grants SET expires_at=now()-interval '1 second' WHERE id=$1",[source.grant]);
   await assert.rejects(checkout(5,'job-search-pass',{ quotedAt: now, sourceGrantId: source.grant, amountCents: quote.amountCents }), /changed/);
   assert.equal(requests.length,count);
-  const fresh = await checkout(5,'job-search-pass'); assert.equal(sessions.get(fresh.id)!.amount_total,2999);
+  const fresh = await checkout(5,'job-search-pass'); assert.equal(sessions.get(fresh.id)!.amount_total,3499);
 });
 
 test('a paid upgrade invalidated by another grant is refunded once and never grants a stale or lower plan', async () => {
@@ -200,7 +236,7 @@ test('zero-cost remainder and discounted purchases do not create recurring or ex
   await fulfillPayment(pool,fake,discount.id,'8');
   const discountedPass = (await activeBillingPass(pool,'8'))!;
   assert.equal(discountedPass.priceCents,790,'retain the actual payment for audit');
-  assert.equal(quoteCheckout('job-search-pass',discountedPass,false).amountCents,2009,'upgrade credits the full existing tier rather than the discounted payment');
+  assert.equal(quoteCheckout('job-search-pass',discountedPass,false).amountCents,1599,'upgrade credits the full existing tier rather than the discounted payment');
 });
 
 test('retired top-ups reject new checkout before contacting Stripe but honor an existing paid checkout once', async () => {
@@ -234,14 +270,14 @@ test('retired top-ups reject new checkout before contacting Stripe but honor an 
 test('zero-paid active passes receive the tier price credit and outdated unpaid upgrade links are replaced', async () => {
   const source = await seed(11,'job-search-pass',15,30,0);
   const quote = quoteCheckout('intensive-pass',await activeBillingPass(pool,'11'),false,now);
-  assert.equal(quote.amountCents,3000); assert.equal(quote.expiresAt,source.end);
+  assert.equal(quote.amountCents,3226); assert.equal(quote.expiresAt,source.end);
   const old = await checkout(11,'intensive-pass');
   await pool.query("UPDATE billing_checkout_intents SET quote=quote-'upgradePricingVersion' WHERE stripe_checkout_session_id=$1",[old.id]);
-  const corrected = await checkout(11,'intensive-pass');
+  const corrected = await checkout(11,'intensive-pass', { quotedAt: now });
   assert.notEqual(corrected.id,old.id); assert.equal(sessions.get(old.id)!.status,'expired');
-  assert.equal(sessions.get(corrected.id)!.amount_total,3000);
+  assert.equal(sessions.get(corrected.id)!.amount_total,3226);
   paid(corrected.id); const result=await fulfillPayment(pool,fake,corrected.id,'11');
-  assert.equal(result.amountPaidCents,3000); assert.equal(result.expiresAt,source.end);
+  assert.equal(result.amountPaidCents,3226); assert.equal(result.expiresAt,source.end);
 });
 
 test('a payment from the old upgrade calculation is refunded rather than accepted at the excessive price', async () => {

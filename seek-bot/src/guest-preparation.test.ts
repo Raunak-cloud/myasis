@@ -19,6 +19,8 @@ test('real browser guest checks follow Apply, reject magic-link accounts, isolat
   if(path==='/guest')res.end(form);
   else if(path==='/listing')res.end('<main><h1>Analyst at Fixture</h1><button onclick="location.href=\'/guest\'">Apply Now</button></main>');
   else if(path==='/gated')res.end(req.headers.cookie?.includes('employer=logged-in')?form:login);
+  else if(path==='/registration')res.end('<main><h1>Create an account to apply</h1><form method="POST" action="/register"><label>Email<input type="email" name="email"></label><label>Password<input type="password" name="password" autocomplete="new-password"></label><button>Create an account</button></form></main>');
+  else if(path==='/sign-in-only')res.end(login.replace('</main>','<a href="/registration">Create an account</a></main>'));
   else if(path==='/optional')res.end(login.replace('</main>','<a href="/guest">Continue as guest</a></main>'));
   else if(path==='/popup')res.end('<main><h1>Analyst at Fixture</h1><button onclick="window.open(\'/guest\')">Apply Now</button></main>');
   else if(path==='/iframe')res.end('<h1>Analyst at Fixture</h1><iframe src="/guest"></iframe>');
@@ -36,10 +38,11 @@ test('real browser guest checks follow Apply, reject magic-link accounts, isolat
  {name:'seek',value:'native-session',domain:'.seek.com',path:'/',expires:-1,httpOnly:true,secure:true,sameSite:'Lax'}],origins:[]}});
  const page=await parent.newPage();const parentState=await parent.storageState();
  try{
-  for(const path of ['/listing','/gated','/optional','/popup','/iframe','/email','/file-only','/closed','/slow','/unreachable','/guest']){
+  for(const path of ['/listing','/gated','/optional','/popup','/iframe','/email','/file-only','/closed','/slow','/unreachable','/guest','/registration','/sign-in-only']){
    let calls=0,submitAttempt=false;
    const job:JobListing={id:'fixture'+path.replaceAll('/','-'),title:'Analyst',company:'Fixture',location:'Sydney',platform:'jora',url:origin+path,description:'Fixture job'};
    const result=await inspectGuestPreparation(page,job,{
+    allowRegistration:path==='/registration'||path==='/sign-in-only',
     context:async context=>{const isolated=await guestPreparationContext(context);const state=await isolated.storageState();assert.deepEqual(state.cookies.map(c=>c.name),['seek']);return isolated;},
     guard:async context=>{let blocked:string|null=null;const route:Parameters<typeof context.route>[1]=async request=>{if(new URL(request.request().url()).origin===origin)await request.continue();else{blocked='Fixture unexpected destination';await request.abort();}};await context.route('**/*',route);return {blocked:()=>blocked,stop:()=>context.unroute('**/*',route)};},
     chat:async(request:CelerisRequest):Promise<CelerisReply>=>{
@@ -53,6 +56,8 @@ test('real browser guest checks follow Apply, reject magic-link accounts, isolat
      if(path==='/guest'&&!submitAttempt){submitAttempt=true;args={action:'click',ref:action('Submit application')?.ref,reason:'Attempting a form submit must never execute in this capability.'};}
      else if(action('Apply Now'))args={action:'click',ref:action('Apply Now')!.ref,reason:'Open the actual application.'};
      else if(action('Continue as guest'))args={action:'click',ref:action('Continue as guest')!.ref,reason:'Use the optional guest path.'};
+     else if(path==='/registration'||path==='/sign-in-only'&&calls===1)args={action:'registration',reason:'Create an account',
+       field_refs:observed.fields.filter(field=>field.inputType==='email').map(field=>field.ref)};
      else if(observed.text.includes('Sign in to apply'))args={action:'skip',reason:'Sign in to apply: an employer account or magic-link login is required.'};
      else if(observed.fields.some(field=>field.label.includes('Full name')))args={action:'guest',reason:'Apply for this job',field_refs:observed.fields.filter(field=>field.label.includes('Full name')).map(field=>field.ref)};
      else if(action('hiring@fixture.invalid'))args={action:'guest',reason:'Apply by email',ref:action('hiring@fixture.invalid')!.ref};
@@ -63,9 +68,9 @@ test('real browser guest checks follow Apply, reject magic-link accounts, isolat
      const id='call-'+calls;return {text:'',toolCalls:[{id,name:'check_guest_application',args}],message:{role:'assistant',content:null,tool_calls:[{id,type:'function',function:{name:'check_guest_application',arguments:JSON.stringify(args)}}]}};
     },
    });
-   const expected=!['/gated','/closed','/unreachable'].includes(path);
+   const expected=!['/gated','/closed','/unreachable','/sign-in-only'].includes(path);
    assert.equal(result.ok,expected,path+': '+JSON.stringify(result));
-   if(result.ok){assert.equal(result.proof.access,'guest-confirmed');assert.equal(result.proof.isolation,'no-employer-session');}
+   if(result.ok){assert.equal(result.proof.access,path==='/registration'?'registration-confirmed':'guest-confirmed');assert.equal(result.proof.isolation,'no-employer-session');}
    assert.equal(browser.contexts().length,1,'inspection context is always closed');
   }
   assert.equal(writes,0,'no login, application, email or form submit was sent');

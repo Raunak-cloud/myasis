@@ -10,7 +10,7 @@ after(async () => { await pool.end(); });
 
 test('worker environment excludes retired controls and unknown credentials without mutating its input', () => {
   const input = { PATH: 'fixture-path', DATA_DIR: '/owner/files', CELERIS_API_KEY: 'fixture-key',
-    FREE_EMPLOYER_GUEST_ONLY:'forged-policy',
+    FREE_EMPLOYER_GUEST_ONLY:'forged-policy', EMPLOYER_GUEST_ONLY:'forged-policy',
     HUMANIZER_API_KEY: 'fixture-rewriter', SITE_AUTH_SECRET: 'fixture-session',
     APPLICATION_AI_MODEL: 'retired', APPLICATION_AI_FORM_REVIEW_MODE: 'retired',
     APPLICATION_AGENT_MODE: 'agent-only', APPLICATION_AGENT_MODE_AUTHORIZED: 'true',
@@ -33,10 +33,10 @@ test('owner authorization selects one whole-run provider and server-owned creden
   let employersEnabled=true;
   pool.query = (async(sql:string,params:unknown[]) => ({rows: sql.includes('SELECT key, value FROM settings')?[{key:'EMPLOYER_APPLICATIONS_ENABLED',value:String(employersEnabled)}]:sql.includes('FROM application_model_assignments') ? [] : sql.includes('FROM run_starts')
     ? params[0]==='authorized'?[{email:'admin@fixture.invalid'}]:[]
-    : [{id:params[0],email:params[0]==='admin'?'admin@fixture.invalid':'customer@fixture.invalid',paid_application_access:params[0]==='paidcustomer'}]})) as typeof originalQuery;
+    : [{id:params[0],email:params[0]==='admin'?'admin@fixture.invalid':'customer@fixture.invalid',paid_application_access:['paidcustomer','intensivecustomer'].includes(String(params[0])),intensive_access:params[0]==='intensivecustomer'}]})) as typeof originalQuery;
   try {
-    for (const owner of ['admin','customer','paidcustomer']) for (const selected of ['celeris','minimax','deepseek','retired']) {
-      const settings={APPLICATION_AI_MODEL:selected,CELERIS_API_KEY:'forged-review',OPENROUTER_API_KEY:'forged-apply',ADZUNA_APP_KEY:'forged-adzuna',FREE_EMPLOYER_GUEST_ONLY:'forged-policy'};
+    for (const owner of ['admin','customer','paidcustomer','intensivecustomer']) for (const selected of ['celeris','minimax','deepseek','retired']) {
+      const settings={APPLICATION_AI_MODEL:selected,CELERIS_API_KEY:'forged-review',OPENROUTER_API_KEY:'forged-apply',ADZUNA_APP_KEY:'forged-adzuna',FREE_EMPLOYER_GUEST_ONLY:'forged-policy',EMPLOYER_GUEST_ONLY:'false'};
       const env=await accountApplicationEnvironment(owner,settings);
       const minimax=owner==='admin' && selected==='minimax';
       const openRouter=owner==='admin' && selected==='minimax';
@@ -45,6 +45,7 @@ test('owner authorization selects one whole-run provider and server-owned creden
       assert.equal(env.OPENROUTER_API_KEY,openRouter?'server-apply-key':'');
       assert.equal(env.DATA_DIR,userDir(owner));
       assert.equal(env.FREE_EMPLOYER_GUEST_ONLY,owner==='customer'?'true':'false','the server enforces guest-only for free accounts and preserves paid/admin access');
+      assert.equal(env.EMPLOYER_GUEST_ONLY,['admin','intensivecustomer'].includes(owner)?'false':'true','only Get Owtomated customers can create an employer account');
       assert.equal(env.ADZUNA_APP_KEY,'server-adzuna-key');
       assert.equal(env.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN,minimax?'false':'true');
       assert.equal(env.APPLICATION_AGENT_MODE,'agent-only');

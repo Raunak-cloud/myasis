@@ -21,7 +21,7 @@ export async function submittedToday(userId: string): Promise<number> {
   return Number(rows[0]?.n ?? 0);
 }
 
-/** Employer-site submissions since local midnight, used by Intensive's separate daily ceiling. */
+/** Employer-site submissions since local midnight, used as the worker's starting counter. */
 export async function externalSubmittedToday(userId: string): Promise<number> {
   const rows = await query<{ n: string }>(
     `SELECT count(*)::text AS n

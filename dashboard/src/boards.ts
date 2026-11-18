@@ -26,9 +26,9 @@ export interface BoardsStatus {
   joraChecking?: boolean;
 }
 
-export function visibleJobBoards(boards: BoardsStatus, joraSignIn: boolean) {
+export function visibleJobBoards(boards: BoardsStatus, joraSignIn: boolean, indeedSignIn = false) {
   return (['seek','indeed','jora'] as const).filter(board =>
-    board === 'jora' ? joraSignIn : board === 'seek' || boards[board] != null);
+    board === 'jora' ? joraSignIn : board === 'seek' || indeedSignIn || boards[board] != null);
 }
 
 /** Fired by the Apply page after a sign-in window closes, so the menu updates without waiting for the next poll. */

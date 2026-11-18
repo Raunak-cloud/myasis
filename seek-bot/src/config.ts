@@ -249,15 +249,8 @@ export const config = {
     maxEvaluations: ceiling(process.env.OPERATOR_MAX_EVALUATIONS === '400' ? 400 : 200, process.env.MAX_EVALUATIONS, 40),
     maxApplicationsPerDay: dailyApplicationLimit(process.env.MAX_APPS_PER_DAY),
     /**
-     * Employer-site applications SUBMITTED per day. Unset means no limit (a
-     * direct CLI run); "0" means none are allowed, which is what every
-     * account without an Intensive Pass gets. They cost
-     * 10-20x a SEEK Quick Apply in model calls, so the dashboard sets this
-     * from the account's plan (Intensive Pass only) and passes today's
-     * submitted count in EXTERNAL_ATTEMPTS_TODAY. A failed attempt still
-     * costs model calls, but the run's own step and cost budgets bound that —
-     * charging it against the daily allowance would let one bad form lock the
-     * candidate out of every employer site for the day.
+     * Run allowance expressed as today's employer-site submissions plus
+     * available plan credits. An empty value leaves only the overall daily cap.
      */
     maxExternalPerDay: process.env.MAX_EXTERNAL_PER_DAY
       ? Math.max(0, Number(process.env.MAX_EXTERNAL_PER_DAY))

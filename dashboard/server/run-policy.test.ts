@@ -206,8 +206,11 @@ check('both run modes honor explicit employer source opt-out', ['manual','auto']
   applyRunPolicy({...saved,PLATFORMS:'seek'}, intensivePolicy, trigger as 'manual'|'auto', true, true).PLATFORMS === 'seek'));
 check('expiry removes employer sources and preserves the saved preference',
   effectivePlatforms({PLATFORMS:'seek,greenhouse,workday',[PLATFORMS_CHOSEN_KEY]:'1',[EMPLOYER_SOURCES_CHOSEN_KEY]:'1'}, freePolicy) === 'seek');
-check('employer sources are a Get Owtomated/admin capability',
-  intensiveEntitlements.employerSources && adminEntitlements.employerSources && !freeEntitlements.employerSources && !activeEntitlements.employerSources && !essentialEntitlements.employerSources);
+check('Essential and Active Search include guest employer sites and all three job boards',
+  [essentialEntitlements, activeEntitlements].every(plan => plan.employerSources && plan.employerGuestOnly && plan.indeedApplications && plan.joraSignIn
+    && effectivePlatforms({ JORA_BETA_ENABLED: 'true' }, plan) === 'seek,indeed,jora,smartrecruiters,greenhouse'));
+check('Get Owtomated and admin have full employer-source access, and legacy Free keeps its existing sources',
+  intensiveEntitlements.employerSources && !intensiveEntitlements.employerGuestOnly && adminEntitlements.employerSources && !freeEntitlements.employerSources);
 
 // Every number a plan advertises is the number the server enforces.
 const said = (plan: keyof typeof PLAN_PRESENTATION) => PLAN_PRESENTATION[plan].features.join(' | ');
@@ -215,7 +218,7 @@ check('Active Search and Get Owtomated advertise the editable 60-100% range', ['
 check('Free says the scheduled run and reviews it gets', said('free').includes('1 scheduled run each day') && said('free').includes(`up to ${PLAN_LIMITS.free.evaluationsPerRun} jobs`));
 check('Essential says it gets two scheduled runs', said('essential-pass').includes('2 scheduled runs each day'));
 check('Active Search says the scheduled runs and reviews it gets', said('job-search-pass').includes(`Up to ${automaticRunsPerDay('standard', 'active')} scheduled runs`) && said('job-search-pass').includes(`up to ${PLAN_LIMITS['job-search-pass'].evaluationsPerRun} jobs`));
-check('Get Owtomated says scheduled runs, both modes, 200 reviews and employer-site applications', said('intensive-pass').includes('Up to 3 scheduled runs') && said('intensive-pass').includes('Semi auto') && said('intensive-pass').includes('up to 200 jobs') && said('intensive-pass').includes('employer-site applications'));
+check('Get Owtomated says scheduled runs, both modes, 200 reviews and no separate employer-site limit', said('intensive-pass').includes('Up to 3 scheduled runs') && said('intensive-pass').includes('Semi auto') && said('intensive-pass').includes('up to 200 jobs') && said('intensive-pass').includes('No separate employer-site limit'));
 check('no plan says each month', !Object.values(PLAN_PRESENTATION).some((plan) => plan.features.some((feature) => /each month|a month|monthly/i.test(feature))));
 
 

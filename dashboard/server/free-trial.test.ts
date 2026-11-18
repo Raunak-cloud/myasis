@@ -10,7 +10,7 @@ import {consumeApplicationCredit} from './application-credits.js';
 import {deriveEntitlements,applyRunPolicy,effectivePlatforms} from './entitlements.js';
 import {RUN_SETTING_DEFAULTS} from './settings.js';
 import {availableJobSources,applyJobSourceAccess} from './job-sources.js';
-import {mayRunEmployerSiteApplications} from './employer-site-access.js';
+import { employerApplicationAllowance } from './employer-site-access.js';
 import {userDir} from './userdata.js';
 import {saveApplicationReview,applicationsForConfirmation,claimApplicationReviews} from './application-reviews.js';
 import type {PreparedApplication} from '../../seek-bot/src/application-review-types.js';
@@ -39,13 +39,14 @@ test('new-user trial: atomic signup, employer-only defaults, shared five credits
   assert.deepEqual(availableJobSources(sources,true,()=>false).usable,sources,'no job-board sign-in is required');
   assert.equal(applyRunPolicy({...RUN_SETTING_DEFAULTS,PLATFORMS:'greenhouse'},entitled,'auto',true,true).PLATFORMS,'greenhouse,jora','trial source choices are saved without changing other plan controls');
   assert.equal(effectivePlatforms({PLATFORMS:'greenhouse,pageup,workday,indeed',PLATFORMS_CHOSEN:'1'},entitled),'greenhouse,jora','free choices exclude account-based sources and paid Indeed access');
-  assert.equal(mayRunEmployerSiteApplications({targetIsAdmin:false,initiatedByAdmin:false,hasIntensiveAllowance:false,hasFreeEmployerAllowance:true}),true);
+  assert.equal(employerApplicationAllowance(initial), 5);
   const paidEntitlements=deriveEntitlements({...facts,billing:{...initial,paid:{...initial.paid,hasActivePass:true,hasActiveIntensivePass:true}}});
   assert.equal(paidEntitlements.employerGuestOnly,false);assert.equal(paidEntitlements.joraSignIn,true);assert(effectivePlatforms({JORA_BETA_ENABLED:'true'},paidEntitlements).includes('jora'),'entitled trial defaults respect the saved Jora choice');
   for(const plan of ['essential','active'] as const){
    const e=deriveEntitlements({...facts,billing:{...initial,paid:{...initial.paid,hasActivePass:true,hasActiveEssentialPass:plan==='essential',hasActiveJobSearchPass:plan==='active'}}});
-   assert.equal(e.joraSignIn,plan==='active');
-   assert.equal(effectivePlatforms({PLATFORMS:'seek,jora',PLATFORMS_CHOSEN:'1',JORA_BETA_ENABLED:'true'},e).includes('jora'),plan==='active');
+   assert.equal(e.joraSignIn,true);
+   assert.equal(e.indeedApplications,true);
+   assert.equal(effectivePlatforms({PLATFORMS:'seek,jora',PLATFORMS_CHOSEN:'1',JORA_BETA_ENABLED:'true'},e).includes('jora'),true);
   }
   assert(effectivePlatforms({},paidEntitlements).includes('workday'),'paid employer-site coverage is unchanged');
   const consume=async(external:boolean)=>{const c=await pool.connect();try{await c.query('BEGIN');await consumeApplicationCredit(c,uid,external);await c.query('COMMIT');return true;}catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}};
@@ -72,7 +73,7 @@ test('new-user trial: atomic signup, employer-only defaults, shared five credits
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM new_user_trials')).rows[0].n,1,'returning and migrated accounts never acquire a new trial');
   email='semi@trial.fixture.invalid';subject='semi-subject';const semi=await signup();assert(semi.ok);const semiId=String(semi.userId);
   const draft:PreparedApplication={id:randomUUID(),revision:'a'.repeat(64),job:{id:'fixture-job',platform:'workday',title:'Software Engineer',company:'Fixture Employer',location:'Sydney',url:'https://fixture.invalid/job',applicationMode:'external'},formUrl:'https://fixture.invalid/apply',preparedAt:new Date().toISOString(),answers:[],resume:'Fixture CV.pdf'};
-  await assert.rejects(saveApplicationReview(semiId,draft),/Guest application access must be confirmed/);
+  await assert.rejects(saveApplicationReview(semiId,draft),/Guest application access .* confirmed/);
   assert.equal((await billingStatus(semiId,email)).free.remaining,5,'unverified Free destinations never use a credit');
   draft.preparation={version:3,stage:'job-and-letter',access:'guest-confirmed',checkedAt:new Date().toISOString(),checkedUrl:draft.formUrl,evidence:'Apply for this job',isolation:'no-employer-session',method:'form'};
   await saveApplicationReview(semiId,draft);await saveApplicationReview(semiId,draft);

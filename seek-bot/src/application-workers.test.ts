@@ -77,6 +77,19 @@ test('late external redirects share one external allowance and never bypass it',
   second.finish(true);
   assert.equal(await slots.acquire(true), null);
 });
+test('a contested last employer slot still leaves the worker free to apply on a board', async () => {
+  const slots = new ApplicationSlots(limits({ external: 1 }));
+  const employer = await slots.acquire(true);
+  assert.ok(employer);
+  const competingEmployer = slots.acquire(true);
+  employer.finish(true);
+  assert.equal(await competingEmployer, null);
+  assert.equal(slots.overallLimitReached(), false);
+  const board = await slots.acquire(false);
+  assert.ok(board);
+  board.finish(true);
+  assert.equal(slots.overallLimitReached(), true);
+});
 test('fallback discovery is serialized and one failed refill cannot poison its mutex', async () => {
   const mutex = new AsyncMutex(), seen: number[] = [];
   let active = 0, maximum = 0;

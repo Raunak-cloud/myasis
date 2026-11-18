@@ -23,9 +23,10 @@ function describe(state: BoardState | null): string {
   return state.signedOutByPerson ? 'Signed out by you' : 'Signed out';
 }
 
-export function JobBoardsDialog({ boards, joraSignIn = false, onClose, onSignIn }: {
+export function JobBoardsDialog({ boards, joraSignIn = false, indeedSignIn = false, onClose, onSignIn }: {
   boards: BoardsStatus;
   joraSignIn?: boolean;
+  indeedSignIn?: boolean;
   onClose: () => void;
   /** Takes the person to the Apply page, where the sign-in window opens. */
   onSignIn: () => void;
@@ -74,7 +75,7 @@ export function JobBoardsDialog({ boards, joraSignIn = false, onClose, onSignIn 
     onClose();
   }
 
-  const shown = visibleJobBoards(boards, joraSignIn);
+  const shown = visibleJobBoards(boards, joraSignIn, indeedSignIn);
 
   if(confirmEmployerOff)return <div className="overlay center" onClick={()=>{if(!busy)setConfirmEmployerOff(false);}}><div className="card confirm" role="alertdialog" aria-modal="true" aria-labelledby="employer-off-title" onClick={event=>event.stopPropagation()}>
     <h2 id="employer-off-title">Turn off employer-site applications?</h2>

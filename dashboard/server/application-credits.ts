@@ -6,17 +6,19 @@ export async function consumeApplicationCredit(client: PoolClient, userId: strin
   // One account at a time through this check, so two runs cannot both take the last free application.
   await client.query('SELECT pg_advisory_xact_lock($1::bigint)', [userId]);
 
-  const unlimited = await client.query<{ active: boolean }>(
-    `SELECT EXISTS (SELECT 1 FROM application_credit_grants g
+  const plans = await client.query<{ active: boolean; paid_employer: boolean }>(
+    `SELECT COALESCE(bool_or(p.plan_key = 'intensive-pass'), false) AS active,
+      COALESCE(bool_or(p.plan_key IN ('essential-pass', 'job-search-pass')), false) AS paid_employer
+      FROM application_credit_grants g
       JOIN billing_purchases p ON p.id = g.purchase_id AND p.user_id = g.user_id
-      WHERE g.user_id = $1 AND p.plan_key = 'intensive-pass'
-        AND (g.expires_at IS NULL OR g.expires_at > now())) AS active`, [userId]);
-  if (unlimited.rows[0]?.active) return;
+      WHERE g.user_id = $1 AND (g.expires_at IS NULL OR g.expires_at > now())`, [userId]);
+  if (plans.rows[0]?.active) return;
 
   const trial=await client.query<{seek_connected_at:Date|null}>('SELECT seek_connected_at FROM new_user_trials WHERE user_id=$1',[userId]);
   const usage = await client.query<{ used: string }>(
     `SELECT COALESCE(sum(successful_applications), 0)::text AS used FROM monthly_application_usage WHERE user_id = $1`,[userId]);
-  if ((!external || trial.rows.length>0) && Number(usage.rows[0]?.used ?? 0)<freeApplicationAllowance(trial.rows[0])) {
+  const canUseFree = !external || (trial.rows.length > 0 && !plans.rows[0]?.paid_employer);
+  if (canUseFree && Number(usage.rows[0]?.used ?? 0)<freeApplicationAllowance(trial.rows[0])) {
     await client.query(`INSERT INTO monthly_application_usage (user_id, month_start, successful_applications)
       VALUES ($1, date_trunc('month', now())::date, 1) ON CONFLICT (user_id, month_start) DO UPDATE SET
       successful_applications = monthly_application_usage.successful_applications + 1`,[userId]);

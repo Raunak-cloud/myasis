@@ -450,7 +450,7 @@ export default function App() {
                   <span className="nav-row-main">
                     <span className="nav-row-title">Job sources</span>
                     <span className="nav-board-brands">
-                      {visibleJobBoards(boards, entitlements?.joraSignIn === true).map(board=><span className="nav-board-brand" key={board}><BoardBrand board={board} compact/><span className={`nav-dot ${boards[board]?.signedIn?'on':'off'}`} aria-hidden="true"/></span>)}
+                      {visibleJobBoards(boards, entitlements?.joraSignIn === true, entitlements?.indeedApplications === true).map(board=><span className="nav-board-brand" key={board}><BoardBrand board={board} compact/><span className={`nav-dot ${boards[board]?.signedIn?'on':'off'}`} aria-hidden="true"/></span>)}
                       <span className="nav-board-brand nav-employer-sites"><EmployerSitesLabel/><span className={`nav-dot ${boards.employerApplicationsEnabled===false?'off':'on'}`} aria-hidden="true"/></span>
                     </span>
                   </span>
@@ -566,7 +566,7 @@ export default function App() {
         </div>
       </main>
 
-      {boardsOpen && boards && <JobBoardsDialog boards={boards} joraSignIn={entitlements?.joraSignIn === true} onClose={() => setBoardsOpen(false)} onSignIn={() => go('run')} />}
+      {boardsOpen && boards && <JobBoardsDialog boards={boards} joraSignIn={entitlements?.joraSignIn === true} indeedSignIn={entitlements?.indeedApplications === true} onClose={() => setBoardsOpen(false)} onSignIn={() => go('run')} />}
 
       {confirmSignOut && (
         <div className="overlay center" onClick={() => setConfirmSignOut(false)}>

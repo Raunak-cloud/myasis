@@ -2,9 +2,37 @@
 # deploy.sh bounds this whole group, including the HR regression checks.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-# A narrowly scoped dropdown release uses real-browser recovery checks, bounded
-# to the documented 60-second test budget. Unknown/mixed changes keep all checks.
+# Narrow releases use checks specific to the changed feature, with a 60-second
+# test budget. Unknown or mixed releases keep all checks.
 if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(git rev-parse HEAD)" = "$3" ]; then
+  paid_plans_only=1
+  paid_plans_changed=0
+  while IFS= read -r path; do
+    case "$path" in
+      dashboard/src/pricing.ts) paid_plans_changed=1 ;;
+      dashboard/server/billing-checkouts.ts|dashboard/server/billing-fulfillment.ts|dashboard/server/billing-policy.ts|dashboard/server/billing-unlimited.test.ts|dashboard/server/billing-upgrades.test.ts|dashboard/server/application-credits.ts|dashboard/server/db/schema.sql) ;;
+      dashboard/server/entitlements.ts|dashboard/server/start-run.ts|dashboard/server/runner.ts|dashboard/server/employer-site-access.ts|dashboard/server/operator-run-plan.ts|dashboard/server/application-environment.test.ts|dashboard/server/free-preparation.ts|dashboard/server/application-reviews.ts|dashboard/server/free-preparation.test.ts) ;;
+      dashboard/server/signin.ts|dashboard/server/setup.ts|dashboard/server/job-sources.ts|dashboard/server/today.ts|dashboard/server/run-policy.test.ts|dashboard/server/targeted-retry-start.test.ts|dashboard/server/employer-applications.test.ts|dashboard/server/employer-site-access.test.ts|dashboard/server/free-trial.test.ts|dashboard/server/simulate.ts) ;;
+      dashboard/src/billing-offers.ts|dashboard/src/components/Landing.tsx|dashboard/src/components/PricingPanel.tsx|dashboard/src/components/PricingPanel.css|dashboard/src/components/PricingSources.tsx|dashboard/scripts/test-pricing-upgrades-ui.mts) ;;
+      dashboard/src/App.tsx|dashboard/src/boards.ts|dashboard/vite.config.ts|dashboard/index.html|dashboard/terms.html|dashboard/README.md|dashboard/src/components/JobBoardsDialog.tsx|dashboard/src/components/RunPanel.tsx|dashboard/src/components/SetupPanel.tsx|dashboard/src/components/SeekSignIn.tsx|dashboard/scripts/test-jora-beta-ui.mts) ;;
+      seek-bot/src/guest-applications.ts|seek-bot/src/guest-preparation.ts|seek-bot/src/prepare-job.ts|seek-bot/src/browser.ts|seek-bot/src/main.ts|seek-bot/src/config.ts|seek-bot/src/application-workers.ts|seek-bot/src/application-workers.test.ts|seek-bot/src/guest-applications.test.ts|seek-bot/src/guest-preparation.test.ts|seek-bot/src/prepare-job.test.ts) ;;
+      seek-bot/src/agent/agent-only.ts|seek-bot/src/agent/application-policy.ts|seek-bot/src/agent/authentication.ts|seek-bot/src/agent/authentication-contract.test.ts|deploy/check-release.sh) ;;
+      *) paid_plans_only=0 ;;
+    esac
+  done < <(git diff --name-only "$2" "$3")
+  if [ "$paid_plans_only" = 1 ] && [ "$paid_plans_changed" = 1 ]; then
+    timeout --signal=TERM --kill-after=2s 58s bash -e -c '
+      export CHROME_PATH="${CHROME_PATH:-/usr/bin/google-chrome-stable}"
+      node --test seek-bot/dist/agent/authentication-contract.test.js seek-bot/dist/application-workers.test.js seek-bot/dist/guest-applications.test.js seek-bot/dist/prepare-job.test.js seek-bot/dist/guest-preparation.test.js & agent_tests=$!
+      cd dashboard
+      ../seek-bot/node_modules/.bin/tsx --test server/application-environment.test.ts server/billing-upgrades.test.ts server/billing-unlimited.test.ts server/free-preparation.test.ts server/free-trial.test.ts server/employer-applications.test.ts server/run-policy.test.ts server/targeted-retry-start.test.ts & policy_tests=$!
+      ../seek-bot/node_modules/.bin/tsx scripts/test-pricing-upgrades-ui.mts
+      wait "$agent_tests"
+      wait "$policy_tests"
+    '
+    echo 'Targeted paid-plan checkout, access and preparation checks passed (60-second maximum)'
+    exit 0
+  fi
   board_brand_only=1
   board_brand_changed=0
   while IFS= read -r path; do

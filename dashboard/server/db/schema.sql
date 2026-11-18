@@ -371,31 +371,19 @@ CREATE TABLE IF NOT EXISTS employer_site_credit_grants (
 CREATE INDEX IF NOT EXISTS employer_site_credit_grants_active_idx
   ON employer_site_credit_grants(user_id, expires_at) WHERE credits_used < credits_total;
 
--- Intensive passes sold before employer-site credits became a separate product
--- allowed any remaining application to use an employer form. Preserve that
--- promise; new purchases already insert their advertised allowance directly.
-INSERT INTO employer_site_credit_grants (
-  user_id, purchase_id, credits_total, credits_used, expires_at, created_at
-)
-SELECT g.user_id, g.purchase_id, g.credits_total, g.credits_used, g.expires_at, g.created_at
-  FROM application_credit_grants g
-  JOIN billing_purchases p ON p.id = g.purchase_id
- WHERE p.plan_key = 'intensive-pass' AND p.purchase_kind = 'purchase'
-ON CONFLICT (purchase_id) DO NOTHING;
-
--- The first rollout may already have created a grandfather allowance before
--- the 400-application backfill above. Keep its remaining employer-site
--- capacity aligned with the grandfathered pass's remaining applications.
-UPDATE employer_site_credit_grants AS e
-   SET credits_total = g.credits_total,
-       credits_used = g.credits_used
-  FROM application_credit_grants AS g
-  JOIN billing_purchases AS p ON p.id = g.purchase_id
- WHERE e.purchase_id = g.purchase_id
-   AND p.plan_key = 'intensive-pass'
-   AND e.expires_at IS NULL
-   AND g.expires_at IS NULL
-   AND (e.credits_total, e.credits_used) IS DISTINCT FROM (g.credits_total, g.credits_used);
+-- Add the newly included employer-site allowance to an existing active pass once.
+-- Select the highest active plan and never refill an existing allowance.
+INSERT INTO employer_site_credit_grants (user_id, purchase_id, credits_total, expires_at, created_at)
+SELECT user_id, purchase_id, allowance, expires_at, now() FROM (
+  SELECT DISTINCT ON (g.user_id) g.user_id, g.purchase_id, g.expires_at,
+    CASE p.plan_key WHEN 'job-search-pass' THEN 20 ELSE 10 END AS allowance
+  FROM application_credit_grants g JOIN billing_purchases p ON p.id=g.purchase_id AND p.user_id=g.user_id
+  WHERE p.plan_key IN ('essential-pass','job-search-pass') AND (g.expires_at IS NULL OR g.expires_at>now())
+    AND NOT EXISTS (SELECT 1 FROM employer_site_credit_grants e WHERE e.user_id=g.user_id AND (e.expires_at IS NULL OR e.expires_at>now()))
+    AND NOT EXISTS (SELECT 1 FROM application_credit_grants i JOIN billing_purchases ip ON ip.id=i.purchase_id
+      WHERE i.user_id=g.user_id AND ip.plan_key='intensive-pass' AND (i.expires_at IS NULL OR i.expires_at>now()))
+  ORDER BY g.user_id, CASE p.plan_key WHEN 'job-search-pass' THEN 1 ELSE 2 END, g.expires_at DESC NULLS FIRST, g.id DESC
+) current_pass ON CONFLICT (purchase_id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS monthly_application_usage (
   user_id                BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
