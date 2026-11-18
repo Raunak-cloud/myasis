@@ -51,7 +51,7 @@
   .pricing-page .pricing-card .pricing-cta { min-height: 44px; }
 }
 
-@container pricing (max-width: 960px) {
+@container pricing (max-width: 940px) {
   .pricing-page .pricing-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @container pricing (max-width: 600px) {

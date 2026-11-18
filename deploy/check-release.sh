@@ -26,8 +26,8 @@ if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(
       node --test seek-bot/dist/agent/authentication-contract.test.js seek-bot/dist/application-workers.test.js seek-bot/dist/guest-applications.test.js seek-bot/dist/prepare-job.test.js seek-bot/dist/guest-preparation.test.js & agent_tests=$!
       cd dashboard
       ../seek-bot/node_modules/.bin/tsx --test server/application-environment.test.ts server/billing-upgrades.test.ts server/billing-unlimited.test.ts server/free-preparation.test.ts server/free-trial.test.ts server/employer-applications.test.ts server/run-policy.test.ts server/targeted-retry-start.test.ts & policy_tests=$!
-      ../seek-bot/node_modules/.bin/tsx scripts/test-pricing-upgrades-ui.mts
       wait "$agent_tests"
+      ../seek-bot/node_modules/.bin/tsx scripts/test-pricing-upgrades-ui.mts
       wait "$policy_tests"
     '
     echo 'Targeted paid-plan checkout, access and preparation checks passed (60-second maximum)'

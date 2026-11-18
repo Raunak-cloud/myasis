@@ -27,7 +27,7 @@ test('real browser guest checks follow Apply, reject magic-link accounts, isolat
   else if(path==='/email')res.end('<main><h1>Analyst at Fixture</h1><p>Apply by email</p><a href="mailto:hiring@fixture.invalid">hiring@fixture.invalid</a></main>');
   else if(path==='/file-only')res.end('<main><h1>Analyst at Fixture</h1><h2>Attach your resume</h2><input type="file" aria-label="Resume" style="display:none"><button type="button">Upload resume</button></main>');
   else if(path==='/closed')res.end('<main>This position is no longer accepting applications.</main>');
-  else if(path==='/slow')res.end('<main>Loading...</main><script>setTimeout(()=>document.querySelector(\'main\').innerHTML='+JSON.stringify(form)+',200)</script>');
+  else if(path==='/slow')res.end('<main>Loading...</main><script>setTimeout(()=>document.querySelector(\'main\').innerHTML='+JSON.stringify(form)+',1500)</script>');
   else {res.statusCode=503;res.end('<main>The employer application is temporarily unavailable.</main>');}
  });
  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
