@@ -6,7 +6,7 @@ import type { Application, ApplicationAction, Outcome, SiteAccount } from '../ty
 import type { SkippedJob } from './SkippedPanel';
 import { fmtDate, fmtTime, daysSince, scoreClass } from '../format';
 import { formatApplicationCost, type ApplicationCost } from '../application-cost';
-import { HrEmailIndicator, HrEmailMessage, type HrEmailStatusItem, type HrOutreachEmail } from './HrOutreachPanel';
+import { HrEmailIndicator, HrEmailMessage, HrEmailStages, isHrEmailSent, type HrEmailStatusItem, type HrOutreachEmail } from './HrOutreachPanel';
 
 
 interface Props {
@@ -393,9 +393,13 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                         {a.company} · {a.location}
                         <AdzunaAttribution platform={a.platform} />
                       </div>
-                      {showHrOutreach && <button type="button" className="hr-role-link" onClick={event=>{event.stopPropagation();setOpen(a);}} aria-label={`HR email for ${a.title} at ${a.company}`} aria-describedby={indicatorId}>
-                        HR email {email ? <HrEmailIndicator item={email} id={indicatorId} /> : <span id={indicatorId}>{hrLoading?'Loading…':'View details'}</span>}
-                      </button>}
+                      {showHrOutreach && <>
+                        <button type="button" className="hr-role-link" onClick={event=>{event.stopPropagation();setOpen(a);}} aria-label={`HR email for ${a.title} at ${a.company}`} aria-describedby={indicatorId}>
+                          {(!email || !isHrEmailSent(email)) && 'HR email'}
+                          {email ? <HrEmailIndicator item={email} id={indicatorId} inline /> : <span id={indicatorId}>{hrLoading?'Loading…':'View details'}</span>}
+                        </button>
+                        {email && <HrEmailStages item={email} inline />}
+                      </>}
                     </td>
                     <td className="nowrap application-when">
                       <div>{fmtDate(a.appliedAt)}</div>

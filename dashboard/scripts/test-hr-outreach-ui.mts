@@ -146,18 +146,16 @@ try {
   liveEmail = null;
   await page.reload();
   const role = page.getByRole('button', { name: 'HR email for Data Analyst at Fixture Employer' });
+  const roleDetails = page.locator('.application-role').filter({ has: role });
   const indicator = role.locator('.hr-email-indicator');
+  const stages = roleDetails.getByRole('list', { name: 'Email stages' });
   await role.getByText('View details', { exact: true }).waitFor();
   assert.equal(await indicator.count(), 0, 'No status appears before the follow-up is queued');
   const timeOrigin = await page.evaluate(() => performance.timeOrigin);
   const queued = { ...items[0], status: 'queued', phase: 'queued', toEmail: null, subject: null, body: null, sentAt: null };
   liveEmail = queued;
   await indicator.getByText('Queued', { exact: true }).waitFor();
-  await role.click();
-  const drawer = page.locator('.drawer');
-  const stages = drawer.getByRole('list', { name: 'Email stages' });
-  await stages.waitFor();
-  assert.equal(await stages.locator('[aria-current="step"]').count(), 0, 'Queued email has not started finding a contact');
+  assert.equal(await stages.count(), 0, 'Queued email shows its status until processing begins');
   for (const [status, phase, label, step] of [
     ['researching', 'researching', 'Finding contact', 'Find contact'],
     ['researching', 'writing', 'Writing email', 'Write email'],
@@ -173,16 +171,21 @@ try {
   await indicator.getByText('Checking delivery', { exact: true }).waitFor();
   await stages.locator('[aria-current="step"]').getByText('Check delivery', { exact: true }).waitFor();
   assert.equal(await indicator.getAttribute('data-active'), 'true');
+  assert.deepEqual(await stages.getByRole('listitem').allTextContents(), ['Find contact', 'Write email', 'Send email', 'Check delivery']);
+  assert.equal(await page.locator('.drawer').count(), 0, 'Progress can be followed directly under the role without opening the drawer');
   await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await stages.isVisible(), true, 'Progress stays visible directly under the role on mobile');
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'The live stages fit a phone');
   await page.screenshot({ path: resolve(screenshotDir, 'role-email-live-mobile.png'), fullPage: true, animations: 'disabled' });
   liveEmail = items[0];
   await indicator.getByText('Sent', { exact: true }).waitFor();
-  await drawer.locator('.hr-email-indicator').getByText('Sent', { exact: true }).waitFor();
-  await drawer.getByText('View sent email', { exact: true }).waitFor();
   assert.notEqual(await indicator.getAttribute('data-active'), 'true', 'The indicator stops animating after send');
-  assert.equal(await stages.count(), 0, 'A settled email no longer shows live steps');
+  assert.equal(await stages.count(), 0, 'A sent email no longer shows inline steps');
+  assert.equal((await role.innerText()).trim(), 'Sent', 'Only the Sent badge is displayed once the email is sent');
   assert.equal(await page.evaluate(() => performance.timeOrigin), timeOrigin, 'Updates arrive without a page reload');
+  await role.click();
+  const drawer = page.locator('.drawer');
+  await drawer.getByText('View sent email', { exact: true }).waitFor();
   await drawer.getByRole('button', { name: 'Close', exact: true }).click();
   await page.setViewportSize({ width: 1150, height: 950 });
   liveEmail = undefined;
@@ -277,5 +280,5 @@ try {
   assert.equal(await shell.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Apply fits on mobile');
   await shell.screenshot({path:resolve(screenshotDir,'apply-sidebar-mobile.png'),fullPage:true});
   assert.deepEqual(writes,[{enabled:true},{enabled:false}]);
-  console.log('PASS: Submitted Applications updates hiring-email stages from queued to sent. Apply Activity remains separate, and email preferences and history still work. Fictional APIs only; no real mail sent.');
+  console.log('PASS: Submitted Applications shows live hiring-email stages under the role and collapses to Sent. Apply Activity stays separate, and email preferences and history still work. Fictional APIs only; no real mail sent.');
 }finally{await browser.close();await vite.close();}

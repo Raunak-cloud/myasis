@@ -91,29 +91,35 @@ function emailStep(phase: HrOutreachEmail['phase']) {
   return EMAIL_STAGES.findIndex(stage => stage.phase === phase);
 }
 
-export function HrEmailIndicator({ item, id, announce = false }: { item: HrEmailStatusItem; id?: string; announce?: boolean }) {
+export function isHrEmailSent(item: HrEmailStatusItem) {
+  return item.status === 'sent' && !item.checkingDelivery && item.deliveryStatus !== 'bounced';
+}
+
+export function HrEmailIndicator({ item, id, announce = false, inline = false }: {
+  item: HrEmailStatusItem; id?: string; announce?: boolean; inline?: boolean;
+}) {
   const status = hrEmailStatus(item);
   const phase = emailPhase(item);
   const step = emailStep(phase);
-  const sent = item.status === 'sent' && item.deliveryStatus !== 'bounced' && step < 0;
+  const sent = isHrEmailSent(item);
   return <span
     id={id}
     className={`badge ${status.tone} hr-email-indicator`}
     data-active={step >= 0}
     role={announce ? 'status' : undefined}
   >
-    {(phase || sent) && <span aria-hidden="true" className="hr-email-signal">{sent ? '✓' : ''}</span>}
+    {(phase || sent && !inline) && <span aria-hidden="true" className="hr-email-signal">{sent ? '✓' : ''}</span>}
     <span>{status.label}</span>
-    {step >= 0 && <span className="hr-email-segments" aria-hidden="true">
+    {!inline && step >= 0 && <span className="hr-email-segments" aria-hidden="true">
       {EMAIL_STAGES.map(({ phase }, index) => <span key={phase} data-state={index < step ? 'done' : index === step ? 'current' : 'next'} />)}
     </span>}
   </span>;
 }
 
-function HrEmailStages({ item }: { item: HrOutreachEmail }) {
+export function HrEmailStages({ item, inline = false }: { item: HrEmailStatusItem; inline?: boolean }) {
   const phase = emailPhase(item);
-  if (!phase) return null;
   const step = emailStep(phase);
+  if (!phase || (inline && step < 0)) return null;
   return <ol className="hr-email-stages" role="list" aria-label="Email stages">
     {EMAIL_STAGES.map(({ phase, label }, index) => <li
       key={phase}

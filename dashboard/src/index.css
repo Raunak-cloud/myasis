@@ -3125,6 +3125,7 @@ button.apply-stat > span > span { flex: none; color: var(--text-faint); }
   list-style: none; margin: 14px 0; padding: 12px;
   border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2);
 }
+.application-role .hr-email-stages { max-width: 25rem; margin: 5px 0 0; padding: 8px 10px; }
 .hr-email-stages > li { color: var(--text-dim); font-size: 11px; line-height: 1.35; }
 .hr-email-stages > li::before {
   content: ''; display: block; height: 4px; margin-bottom: 6px; border-radius: 2px; background: var(--border);
