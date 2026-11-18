@@ -26,8 +26,7 @@ const items = ['sent', 'queued', 'researching', 'sending', 'skipped', 'error', '
 const olderItems = [{ ...items[0], id: '93', jobId: 'old-history', title: 'Older outreach role', subject: 'An older introduction' },
   { ...items[0], id: '1', jobId: 'archived', platform: 'external', title: 'Archived application', company: 'Historical Employer', subject: 'My archived application', body: 'Exact historical email body.' }];
 let enabled = false, failSave = false, failHistory = false, failSettings = false, emptyHistory = false, failOlder = false;
-let progress: { active: boolean; phase: string | null; title: string | null; company: string | null; queued: number; sent: number; skipped: number; failed: number; runId: string | null; contactReviewRequiredCount?: number; deliveryFailedCount?: number }
-  = { active: false, phase: 'waiting', title: null, company: null, queued: 1, sent: 0, skipped: 0, failed: 0, runId: '42' };
+const progress = { active: false, phase: 'finished', title: null, company: null, queued: 0, sent: 5, skipped: 0, failed: 0, runId: '42' };
 let reportingMode = false;
 const checkedAt = new Date(Date.now() - 5 * 60_000).toISOString(), retryAt = new Date(Date.now() + 60 * 60_000).toISOString();
 const sourceObservedAt = new Date(Date.now() - 7 * 24 * 60 * 60_000).toISOString();
@@ -149,6 +148,11 @@ try {
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true,'provider logos fit the mobile application cards');
   await page.screenshot({path:resolve(screenshotDir,'application-source-logos-mobile.png'),fullPage:true});
   const live=await browser.newPage({viewport:{width:1150,height:950}});await live.addInitScript(()=>{const interval=window.setInterval.bind(window);window.setInterval=((handler:TimerHandler,delay?:number,...args:unknown[])=>interval(handler,[5000,30000].includes(delay??0)?150:delay,...args)) as typeof window.setInterval;});
+  let activityRequests = 0;
+  live.on('request', request => {
+    const url = new URL(request.url());
+    if (url.pathname === '/api/hr-outreach' && url.searchParams.get('activity') === '1') activityRequests++;
+  });
   await live.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());await live.goto(origin+'/hr-live-preview.html');
   const checkbox=live.getByRole('checkbox',{name:'Email hiring teams',exact:true});await checkbox.waitFor({timeout:10000}).catch(async error=>{console.error('Apply fixture state:',await live.locator('body').innerText());throw error;});
   await live.waitForFunction(()=>!(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.disabled);
@@ -156,16 +160,13 @@ try {
   assert.equal(await checkbox.isChecked(),false);await checkbox.click();await live.waitForFunction(()=>!(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.disabled);await live.waitForFunction(()=>(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.checked===true);assert.equal(enabled,true);
   failSave=true;await checkbox.click();await live.getByRole('alert').filter({hasText:'Could not save'}).waitFor();assert.equal(await checkbox.isChecked(),true);failSave=false;
   failSettings=true;await live.reload();await live.getByRole('alert').filter({hasText:'Could not load your email preference'}).waitFor();failSettings=false;await live.getByRole('button',{name:'Reload preference'}).click();await live.waitForFunction(()=>!(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.disabled);assert.equal(await checkbox.isChecked(),true,'Reloading Apply preserves the saved preference');
-  const inline=live.locator('.console-card .hr-activity-inline');await inline.waitFor();assert.equal(await live.locator('.hr-outreach-activity').count(),0,'Separate Apply card removed');assert.equal(await live.locator('.hr-activity-inline').count(),1);assert.match(await inline.innerText(),/HR emails will start afterwards/);
+  const activity = live.locator('.console-card .activity-body');
+  await activity.getByText('No activity yet', { exact: true }).waitFor();
+  assert.equal(await activity.getByText('Hiring-team follow-ups', { exact: true }).count(), 0);
   assert.equal(await live.getByRole('region',{name:'Application summary'}).count(),0,'Overview is no longer part of Apply');
   assert.equal(await live.locator('.run-controls-card .hr-outreach-preference').count(),1,'Email preference is grouped with application settings');
   const desktopLayout=await live.evaluate(()=>{const activity=document.querySelector('.run-activity-column')!.getBoundingClientRect(),settings=document.querySelector('.run-side')!.getBoundingClientRect();return{beside:activity.left>settings.right,aligned:Math.abs(activity.top-settings.top)<2,overflow:document.documentElement.scrollWidth>innerWidth};});
   assert.deepEqual(desktopLayout,{beside:true,aligned:true,overflow:false},'Activity aligns with the settings column');
-  for(const[phase,label]of [['researching','Finding contact'],['writing','Writing email'],['sending','Sending email'],['checking','Checking delivery']]){
-    progress={...progress,active:true,phase,title:'Data Analyst',company:'Fixture Employer'};await inline.locator('.badge').filter({hasText:new RegExp(`^${label}$`)}).waitFor();assert.match(await inline.innerText(),/Data Analyst · Fixture Employer/);
-    if(phase==='writing'){assert.match(await inline.innerText(),/Contact found\. Writing your follow-up/);assert.equal(await inline.locator('[aria-current="step"]').innerText(),'2\nContact found');await live.screenshot({path:resolve(screenshotDir,'activity-progress-desktop.png'),fullPage:true});}
-  }
-  progress={...progress,active:false,phase:null,queued:0,sent:2,skipped:1,failed:1,deliveryFailedCount:1};await inline.locator('.badge').filter({hasText:/^Finished$/}).waitFor();assert.match(await inline.innerText(),/2 sent · 0 waiting · 1 not sent · 1 need attention/);assert.match(await inline.innerText(),/1 email could not be delivered/);
   for(const width of [320,390,430,768]){
     await live.setViewportSize({width,height:844});
     const mobile=await live.evaluate(()=>{const search=document.querySelector('.saved-search-card')!.getBoundingClientRect(),settings=document.querySelector('.run-controls-card')!.getBoundingClientRect(),bar=document.querySelector('.run-actions')!.getBoundingClientRect(),start=document.querySelector('.run-actions .btn.lg')!.getBoundingClientRect();return{overflow:document.documentElement.scrollWidth>innerWidth,settingsFirst:settings.bottom<=search.top,startHeight:start.height,footerBottom:bar.bottom,footerHeight:bar.height,inputFont:getComputedStyle(document.querySelector('#saved-search-terms')!).fontSize};});
@@ -177,7 +178,11 @@ try {
   await live.getByRole('button',{name:'Auto apply',exact:true}).click();await live.getByRole('button',{name:'Start Auto apply',exact:true}).waitFor();
   assert.equal(await live.getByRole('region',{name:'Application summary'}).count(),0,'Mobile Apply has no Overview section');
   assert.equal(await live.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);await live.screenshot({path:resolve(screenshotDir,'apply-mobile.png'),fullPage:true});
-  const openActivity=live.getByRole('button',{name:'Activity',exact:true});if(await openActivity.isVisible())await openActivity.click();await inline.waitFor();assert.equal(await live.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);await live.screenshot({path:resolve(screenshotDir,'activity-progress-mobile.png'),fullPage:true});await live.getByRole('button',{name:'Close',exact:true}).click();assert.equal(await openActivity.isVisible(),true,'Activity closes back to the mobile controls');
+  const openActivity=live.getByRole('button',{name:'Activity',exact:true});if(await openActivity.isVisible())await openActivity.click();
+  await activity.getByText('No activity yet', { exact: true }).waitFor();
+  assert.equal(await activity.getByText('Hiring-team follow-ups', { exact: true }).count(), 0);
+  assert.equal(activityRequests, 0, 'Apply does not poll hiring-email activity');
+  assert.equal(await live.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);await live.getByRole('button',{name:'Close',exact:true}).click();assert.equal(await openActivity.isVisible(),true,'Activity closes back to the mobile controls');
   runAdmin=false;const regular=await browser.newPage();let hrRequests=0;regular.on('request',r=>{if(r.url().includes('/api/hr-outreach'))hrRequests++;});await regular.goto(origin+'/hr-preview.html?hr=off');await regular.locator('.applications-list').waitFor();assert.equal(await regular.locator('.hr-role-link').count(),0);assert.equal(hrRequests,0);
   await regular.goto(origin+'/hr-live-preview.html');await regular.locator('.run-layout').waitFor();await regular.waitForTimeout(350);assert.equal(await regular.locator('.hr-activity-inline').count(),0);assert.equal(hrRequests,0);
   assert.equal(await regular.getByRole('checkbox',{name:'Email hiring teams',exact:true}).count(),0,'Preference keeps its existing access restriction');
@@ -216,5 +221,5 @@ try {
   assert.equal(await shell.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Apply fits on mobile');
   await shell.screenshot({path:resolve(screenshotDir,'apply-sidebar-mobile.png'),fullPage:true});
   assert.deepEqual(writes,[{enabled:true},{enabled:false}]);
-  console.log('PASS: Overview is absent from desktop/mobile navigation, Apply keeps its 98% width, email preferences persist, HR history stays per role and ordinary users make no HR requests. Fictional APIs only; no real mail sent.');
+  console.log('PASS: Activity omits hiring-email progress on desktop and mobile. Email preferences and per-role history still work. Fictional APIs only; no real mail sent.');
 }finally{await browser.close();await vite.close();}

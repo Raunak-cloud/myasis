@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { fmtDateTime } from '../format';
-import { hrPhaseLabel } from './HrOutreachActivity';
 
 export interface HrOutreachEmail {
   id: string;
@@ -43,6 +42,13 @@ const STATUS: Record<HrOutreachEmail['status'], { label: string; tone: string }>
   error: { label: 'Could not send', tone: 'bad' },
   unconfirmed: { label: 'Delivery unconfirmed', tone: 'warn' },
 };
+const PHASE_LABELS = {
+  queued: 'Queued',
+  researching: 'Finding contact',
+  writing: 'Writing email',
+  sending: 'Sending email',
+  checking: 'Checking delivery',
+} satisfies Record<NonNullable<HrOutreachEmail['phase']>, string>;
 const LOOKUP_OUTCOMES = {
   no_contact: { label: 'No public contact', tone: 'muted', reason: 'No public hiring or recruitment email was found.' },
   company_unverified: { label: 'Company unverified', tone: 'warn', reason: 'The company website or its connection to this vacancy could not be verified.' },
@@ -57,7 +63,7 @@ export function hrEmailStatus(item:HrOutreachEmail) {
   const lookup = item.lookupOutcome && item.lookupOutcome in LOOKUP_OUTCOMES ? LOOKUP_OUTCOMES[item.lookupOutcome as keyof typeof LOOKUP_OUTCOMES] : null;
   const bounced = item.deliveryStatus === 'bounced';
   return bounced ? { label: 'Delivery failed', tone: 'bad' } : item.phase && !['sent', 'skipped', 'error'].includes(item.status) && !(item.status==='unconfirmed'&&item.phase==='queued')
-    ? { label: hrPhaseLabel(item.phase), tone: 'info' }
+    ? { label: PHASE_LABELS[item.phase] ?? 'Working', tone: 'info' }
     : item.status === 'error' && item.lookupRetryAt === null ? { label: 'Failed', tone: 'bad' }
       : lookup && ['skipped', 'error'].includes(item.status) ? lookup : baseStatus;
 }
