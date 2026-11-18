@@ -3,6 +3,7 @@ import { PublicCrawler, CrawlBlocked, CrawlDeferred, crawlUrl, type PageResponse
 import { canonicalUrl } from '../job-index/extract.js';
 import { PublicSearchPayloadError, PublicSearchResponseError, publicResearchFailure } from './research-failure.js';
 import { publicResearchDocument } from './research-page.js';
+import { validApplicationEmail } from '../../../seek-bot/src/application-email-message.js';
 
 export interface HiringContact {
   email: string;
@@ -330,13 +331,19 @@ export function publishedHiringContacts(html: string, sourceUrl: string, company
   return [...result.values()].sort((a, b) => b.score - a.score).map(({ score: _score, ...contact }) => contact);
 }
 
+export function normalizeHiringContactEmail(raw: string): string | null {
+  const email = raw.trim().toLowerCase();
+  const local = email.split('@')[0];
+  return validApplicationEmail(email) && !local.includes('*') && !FORBIDDEN.test(local) ? email : null;
+}
+
 /** The agent can relate an email to a recruiter bio elsewhere on the same page.
  * Every quoted passage and the complete address must exist in that real public
  * document. This does not trust a model-written identity or invented excerpt. */
 export function nominatedPublishedContact(page:PageResponse,evidence:NonNullable<DiscoveryInput['contactEvidence']>,companyDomain:string,now=new Date()):HiringContact|null {
   if(canonicalUrl(page.url)!==canonicalUrl(evidence.sourceUrl))return null;
-  const email=evidence.email.trim().toLowerCase(),matches=email.match(EMAIL);
-  if(matches?.length!==1||matches[0]!==email||/[*•●]/.test(email.split('@')[0])||FORBIDDEN.test(email.split('@')[0]))return null;
+  const email=normalizeHiringContactEmail(evidence.email);
+  if(!email)return null;
   const doc=documentFor(page.text),text=clean(doc.body?.textContent??doc.textContent??'');
   const at=[...text.matchAll(EMAIL)].find(match=>match[0].toLowerCase()===email)?.index??-1;
   const mailto=[...doc.querySelectorAll('a[href^="mailto:"]')].find(node=>{

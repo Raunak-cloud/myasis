@@ -5,6 +5,24 @@ cd "$(dirname "$0")/.."
 # Narrow releases use checks specific to the changed feature, with a 60-second
 # test budget. Unknown or mixed releases keep all checks.
 if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(git rev-parse HEAD)" = "$3" ]; then
+  hr_research_only=1
+  hr_research_changed=0
+  while IFS= read -r path; do
+    case "$path" in
+      dashboard/server/hr-outreach/research.ts) hr_research_changed=1 ;;
+      dashboard/server/hr-outreach/discovery.ts|dashboard/server/hr-outreach/research.test.ts|dashboard/server/hr-outreach/README.md|deploy/check-release.sh) ;;
+      *) hr_research_only=0 ;;
+    esac
+  done < <(git diff --name-only "$2" "$3")
+  if [ "$hr_research_only" = 1 ] && [ "$hr_research_changed" = 1 ]; then
+    (
+      cd dashboard
+      timeout --signal=TERM --kill-after=2s 58s ../seek-bot/node_modules/.bin/tsx --test \
+        server/hr-outreach/research.test.ts server/hr-outreach/discovery.test.ts server/hr-outreach/worker.test.ts
+    )
+    echo 'Targeted hiring-email research checks passed (60-second maximum)'
+    exit 0
+  fi
   paid_plans_only=1
   paid_plans_changed=0
   while IFS= read -r path; do
