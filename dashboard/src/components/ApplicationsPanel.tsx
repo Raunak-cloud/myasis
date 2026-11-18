@@ -1,12 +1,12 @@
 import { EMPLOYER_SOURCES } from '../../../seek-bot/src/employer-source-config';
 import { AdzunaAttribution } from './AdzunaAttribution';
 import {BoardBrand,EmployerSitesLabel} from './BoardBrand';
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useId, useMemo, useState } from 'react';
 import type { Application, ApplicationAction, Outcome, SiteAccount } from '../types';
 import type { SkippedJob } from './SkippedPanel';
 import { fmtDate, fmtTime, daysSince, scoreClass } from '../format';
 import { formatApplicationCost, type ApplicationCost } from '../application-cost';
-import { HrEmailMessage, hrEmailStatus, type HrOutreachEmail } from './HrOutreachPanel';
+import { HrEmailIndicator, HrEmailMessage, type HrEmailStatusItem, type HrOutreachEmail } from './HrOutreachPanel';
 
 
 interface Props {
@@ -56,6 +56,8 @@ function ApplicationSource({application}:{application:Application}) {
 }
 
 const ACCOUNT_KINDS: ApplicationAction['kind'][] = ['account-created', 'signed-in', 'password-reset'];
+type HrRoleStatus = HrEmailStatusItem & Pick<HrOutreachEmail, 'id' | 'jobId' | 'platform'>;
+const hrRoleKey = (item: {jobId: string; platform?: string}) => `${item.platform ?? 'seek'}:${item.jobId}`;
 const mergeHrEmails = (current: HrOutreachEmail[], incoming: HrOutreachEmail[]): HrOutreachEmail[] => {
   const merged = new Map(current.map(item => [item.id, item]));
   for (const item of incoming) merged.set(item.id, item);
@@ -150,27 +152,30 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
     return () => { cancelled = true; };
   }, [showCosts, apps, loading, loadError]);
   const [view, setView] = useState<'sent' | 'skipped'>('sent');
+  const hrStatusId = useId();
+  const [hrStatuses, setHrStatuses] = useState<HrRoleStatus[]>([]);
   const [hrEmails, setHrEmails] = useState<HrOutreachEmail[]>([]);
   const [hrLoading, setHrLoading] = useState(true);
   const [hrError, setHrError] = useState<string | null>(null);
   const [hrRefresh, setHrRefresh] = useState(0);
   useEffect(() => {
     if (!showHrOutreach) {
-      setHrEmails([]); setHrLoading(false); setHrError(null);
+      setHrStatuses([]); setHrEmails([]); setHrLoading(false); setHrError(null);
       return;
     }
+    if (view !== 'sent') return;
     let active = true;
     let pending = false;
     const controller = new AbortController();
     async function load() {
-      if (pending) return;
+      if (pending || document.hidden) return;
       pending = true;
       try {
-        const response = await fetch('/api/hr-outreach', { signal: controller.signal });
+        const response = await fetch('/api/hr-outreach?view=status', { signal: controller.signal, cache: 'no-store' });
         const result = await response.json();
         if (!response.ok || !Array.isArray(result.items)) throw new Error();
         if (active) {
-          setHrEmails(current => mergeHrEmails(current, result.items));
+          setHrStatuses(result.items);
           setHrError(null);
         }
       } catch {
@@ -179,9 +184,28 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
     }
     setHrLoading(true);
     void load();
-    const timer = window.setInterval(() => void load(), 5_000);
-    return () => { active = false; controller.abort(); window.clearInterval(timer); };
-  }, [apps, hrRefresh, showHrOutreach]);
+    const refresh = () => void load();
+    const timer = window.setInterval(refresh, 5_000);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      active = false; controller.abort(); window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [apps, hrRefresh, showHrOutreach, view]);
+  const hrStatusByRole = useMemo(() => {
+    const latest = new Map<string, HrRoleStatus>();
+    // Both responses are newest-first. Use live list status before any cached
+    // detail, and never show an older in-flight status as if it were current.
+    for (const item of hrStatuses) {
+      const key = hrRoleKey(item);
+      if (!latest.has(key)) latest.set(key, item);
+    }
+    for (const item of hrEmails) {
+      const key = hrRoleKey(item);
+      if (!latest.has(key) && !item.phase && !item.checkingDelivery && ['sent', 'skipped', 'error', 'unconfirmed'].includes(item.status)) latest.set(key, item);
+    }
+    return latest;
+  }, [hrStatuses, hrEmails]);
   const [skipped, setSkipped] = useState<SkippedJob[] | null>(null);
   const [skippedError, setSkippedError] = useState<string | null>(null);
 
@@ -205,21 +229,29 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
   useEffect(() => {
     if (!showHrOutreach || !open) { setHrDrawerLoading(false); setHrDrawerError(null); return; }
     let active = true;
+    let pending = false;
     const controller = new AbortController();
     const params = new URLSearchParams({ jobId: open.jobId, platform: open.platform ?? 'seek' });
     setHrDrawerLoading(true); setHrDrawerError(null);
     async function load() {
+      if (pending || document.hidden) return;
+      pending = true;
       try {
-        const response = await fetch(`/api/hr-outreach?${params}`, { signal: controller.signal });
+        const response = await fetch(`/api/hr-outreach?${params}`, { signal: controller.signal, cache: 'no-store' });
         const result = await response.json();
         if (!response.ok || !Array.isArray(result.items)) throw new Error();
         if (active) { setHrEmails(current => mergeHrEmails(current, result.items)); setHrDrawerError(null); }
       } catch { if (active) setHrDrawerError('Could not load this application’s HR email.'); }
-      finally { if (active) setHrDrawerLoading(false); }
+      finally { pending = false; if (active) setHrDrawerLoading(false); }
     }
     void load();
-    const timer = window.setInterval(() => void load(), 5_000);
-    return () => { active = false; controller.abort(); window.clearInterval(timer); };
+    const refresh = () => void load();
+    const timer = window.setInterval(refresh, 5_000);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      active = false; controller.abort(); window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refresh);
+    };
   }, [open, showHrOutreach]);
   const [outcomeSaving, setOutcomeSaving] = useState(false);
   const [outcomeError, setOutcomeError] = useState<{ jobId: string; platform: string; message: string } | null>(null);
@@ -345,11 +377,11 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
               </tr>
             </thead>
             <tbody>
-              {rows.map((a) => {
+              {rows.map((a, index) => {
                 const age = daysSince(a.appliedAt);
                 const stale = !a.confirmationStatus && !a.outcome && age >= followUpDays;
-                const email=hrEmails.find(item=>item.jobId===a.jobId&&item.platform===(a.platform??'seek'));
-                const hrStatus=email?hrEmailStatus(email):null;
+                const email = hrStatusByRole.get(hrRoleKey(a));
+                const indicatorId = `${hrStatusId}-${index}`;
                 return (
                   <tr key={`${a.platform ?? 'seek'}:${a.jobId}`} className="clickable application-item" onClick={() => setOpen(a)}>
                     <td className="application-role">
@@ -361,8 +393,8 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                         {a.company} · {a.location}
                         <AdzunaAttribution platform={a.platform} />
                       </div>
-                      {showHrOutreach && <button type="button" className="hr-role-link" onClick={event=>{event.stopPropagation();setOpen(a);}} aria-label={`HR email for ${a.title} at ${a.company}`}>
-                        HR email {hrStatus?<span className={`badge ${hrStatus.tone}`}>{hrStatus.label}</span>:<span>{hrLoading?'Loading…':'View details'}</span>}
+                      {showHrOutreach && <button type="button" className="hr-role-link" onClick={event=>{event.stopPropagation();setOpen(a);}} aria-label={`HR email for ${a.title} at ${a.company}`} aria-describedby={indicatorId}>
+                        HR email {email ? <HrEmailIndicator item={email} id={indicatorId} /> : <span id={indicatorId}>{hrLoading?'Loading…':'View details'}</span>}
                       </button>}
                     </td>
                     <td className="nowrap application-when">

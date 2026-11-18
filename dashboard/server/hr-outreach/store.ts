@@ -44,13 +44,16 @@ export async function hrAdminAllowed(userId:string,db=database):Promise<boolean>
 }
 // A retry date is shown only while the queue can actually reclaim the item.
 // Internal crawl traces and provider details are deliberately absent here.
-const historyLookupFields=`h.lookup_outcome AS "lookupOutcome",h.lookup_checked_at AS "lookupCheckedAt",
-  CASE WHEN (h.status='error' AND h.retry_allowed AND h.attempts<4 OR h.status='unconfirmed' AND h.attempts<8)
+const lookupRetryAt = `CASE WHEN (h.status='error' AND h.retry_allowed AND h.attempts<4 OR h.status='unconfirmed' AND h.attempts<8)
     AND a.submitted_by_myasis=true AND a.confirmation_status IS NULL AND a.outcome IS NULL
     AND EXISTS(SELECT 1 FROM hr_outreach_preferences p WHERE p.user_id=h.user_id AND p.enabled AND (h.status='unconfirmed' OR a.applied_at>=p.enabled_since))
     AND EXISTS(SELECT 1 FROM run_starts r WHERE r.id=a.source_run_id AND r.user_id=h.user_id AND r.finished_at IS NOT NULL AND r.hr_ready_at IS NOT NULL)
     AND EXISTS(SELECT 1 FROM users u WHERE u.id=h.user_id AND u.blocked_at IS NULL)
-    THEN h.available_at ELSE NULL END AS "lookupRetryAt",
+    THEN h.available_at ELSE NULL END`;
+const checkingDelivery = `(h.status='sent' AND h.delivery_status='unknown'
+  AND h.delivery_lease IS NOT NULL AND h.delivery_lease_until>now())`;
+const historyLookupFields=`h.lookup_outcome AS "lookupOutcome",h.lookup_checked_at AS "lookupCheckedAt",
+  ${lookupRetryAt} AS "lookupRetryAt",${checkingDelivery} AS "checkingDelivery",
   h.contact_review_required AS "contactReviewRequired",h.contact_review_reason AS "contactReviewReason",
   h.delivery_status AS "deliveryStatus",h.delivery_reason AS "deliveryReason",h.delivery_checked_at AS "deliveryCheckedAt",h.delivery_failed_at AS "deliveryFailedAt",
   h.outreach_attempt AS "outreachAttempt",h.retry_of::text AS "retryOfId"`;
@@ -73,6 +76,28 @@ export async function listHrOutreachPage(userId:string, options:{cursor?:string;
     AND ($3::text IS NULL OR (h.job_id=$3 AND h.platform=$4)) ORDER BY h.id DESC LIMIT 51`,
   [userId,options.cursor??null,options.jobId??null,options.platform??null]);
   return {items:rows.slice(0,50),nextCursor:rows.length>50?rows[49].id:null};
+}
+
+/** The live list needs the latest roles as well as older attempts currently
+ * being retried or checked. Keep recent completions long enough for a poll to
+ * pick up the result. Email bodies and contact details stay in the drawer. */
+export async function listHrOutreachStatuses(userId: string, db = database) {
+  const active = `(h.status='queued' OR (h.status IN ('researching','sending','unconfirmed')
+    AND h.lease IS NOT NULL AND h.lease_until>now()) OR ${checkingDelivery})`;
+  const changed = `greatest(h.updated_at,h.delivery_checked_at,h.delivery_failed_at)`;
+  const {rows} = await db.query(`WITH latest AS (
+    SELECT id FROM hr_outreach WHERE user_id=$1 ORDER BY id DESC LIMIT 50
+  ), recent AS (
+    SELECT h.id FROM hr_outreach h WHERE h.user_id=$1 AND (${active} OR ${changed}>now()-interval '5 minutes')
+    ORDER BY ${active} DESC,${changed} DESC,h.id DESC LIMIT 200
+  )
+  SELECT h.id::text,h.job_id AS "jobId",h.platform,h.status,h.phase,
+    h.lookup_outcome AS "lookupOutcome",${lookupRetryAt} AS "lookupRetryAt",
+    h.delivery_status AS "deliveryStatus",${checkingDelivery} AS "checkingDelivery"
+  FROM hr_outreach h JOIN applications a ON a.id=h.application_id AND a.user_id=h.user_id
+  WHERE h.user_id=$1 AND h.id IN (SELECT id FROM latest UNION SELECT id FROM recent)
+  ORDER BY h.id DESC`, [userId]);
+  return rows;
 }
 export interface HrOutreachProgress {
   active:boolean;phase:HrPhase|'waiting'|'finished'|null;title:string|null;company:string|null;

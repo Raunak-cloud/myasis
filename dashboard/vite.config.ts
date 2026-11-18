@@ -94,7 +94,7 @@ import { loadTodayStats } from './server/today.js';
 import { listSiteAccounts, sitePasswordFor } from './server/site-accounts.js';
 import { stopAllSignins } from './server/signin.js';
 import { loadApplicationCosts } from './server/application-costs.js';
-import { listHrOutreachPage, hrOutreachProgress, getHrOutreachSettings, setHrOutreachEnabled } from './server/hr-outreach/store.js';
+import { listHrOutreachPage, listHrOutreachStatuses, hrOutreachProgress, getHrOutreachSettings, setHrOutreachEnabled } from './server/hr-outreach/store.js';
 
 interface ApplicationRow {
   confirmation_status: 'unconfirmed' | null;
@@ -379,6 +379,7 @@ function dataApi(): Plugin {
         return withUser(async userId => {
           const actor = await getUser();
           if (actor?.id !== userId || !isAdminEmail(actor.email)) return send({ error: 'Admins only.' }, 403);
+          if (url.searchParams.get('view') === 'status') return send({ items: await listHrOutreachStatuses(userId) });
           const cursor = url.searchParams.get('cursor') ?? undefined;
           const jobId = url.searchParams.get('jobId') ?? undefined;
           const platform = url.searchParams.get('platform') ?? undefined;

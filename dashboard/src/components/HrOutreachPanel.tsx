@@ -29,9 +29,13 @@ export interface HrOutreachEmail {
   deliveryReason?: string | null;
   deliveryCheckedAt?: string | null;
   deliveryFailedAt?: string | null;
+  checkingDelivery?: boolean;
   outreachAttempt?: number;
   retryOfId?: string | null;
 }
+
+export type HrEmailStatusItem = Pick<HrOutreachEmail,
+  'status' | 'phase' | 'lookupOutcome' | 'lookupRetryAt' | 'deliveryStatus' | 'checkingDelivery'>;
 
 const STATUS: Record<HrOutreachEmail['status'], { label: string; tone: string }> = {
   queued: { label: 'Queued', tone: 'muted' },
@@ -49,6 +53,12 @@ const PHASE_LABELS = {
   sending: 'Sending email',
   checking: 'Checking delivery',
 } satisfies Record<NonNullable<HrOutreachEmail['phase']>, string>;
+const EMAIL_STAGES = [
+  { phase: 'researching', label: 'Find contact' },
+  { phase: 'writing', label: 'Write email' },
+  { phase: 'sending', label: 'Send email' },
+  { phase: 'checking', label: 'Check delivery' },
+] as const;
 const LOOKUP_OUTCOMES = {
   no_contact: { label: 'No public contact', tone: 'muted', reason: 'No public hiring or recruitment email was found.' },
   company_unverified: { label: 'Company unverified', tone: 'warn', reason: 'The company website or its connection to this vacancy could not be verified.' },
@@ -57,18 +67,64 @@ const LOOKUP_OUTCOMES = {
   incomplete: { label: 'Lookup incomplete', tone: 'warn', reason: 'The contact search finished before enough evidence was collected.' },
 } as const;
 
-/** Plain text preserves the exact message without rendering employer content as HTML. */
-export function hrEmailStatus(item:HrOutreachEmail) {
+export function hrEmailStatus(item: HrEmailStatusItem) {
   const baseStatus = STATUS[item.status] ?? { label: 'Pending', tone: 'muted' };
   const lookup = item.lookupOutcome && item.lookupOutcome in LOOKUP_OUTCOMES ? LOOKUP_OUTCOMES[item.lookupOutcome as keyof typeof LOOKUP_OUTCOMES] : null;
-  const bounced = item.deliveryStatus === 'bounced';
-  return bounced ? { label: 'Delivery failed', tone: 'bad' } : item.phase && !['sent', 'skipped', 'error'].includes(item.status) && !(item.status==='unconfirmed'&&item.phase==='queued')
-    ? { label: PHASE_LABELS[item.phase] ?? 'Working', tone: 'info' }
-    : item.status === 'error' && item.lookupRetryAt === null ? { label: 'Failed', tone: 'bad' }
-      : lookup && ['skipped', 'error'].includes(item.status) ? lookup : baseStatus;
+  if (item.deliveryStatus === 'bounced') return { label: 'Delivery failed', tone: 'bad' };
+  const phase = emailPhase(item);
+  if (phase) return { label: PHASE_LABELS[phase], tone: phase === 'queued' ? 'muted' : 'info' };
+  if (item.status === 'error' && item.lookupRetryAt === null) return { label: 'Failed', tone: 'bad' };
+  return lookup && ['skipped', 'error'].includes(item.status) ? lookup : baseStatus;
 }
+
+function emailPhase(item: HrEmailStatusItem): HrOutreachEmail['phase'] {
+  if (item.deliveryStatus === 'bounced') return null;
+  if (item.checkingDelivery) return 'checking';
+  if (item.status === 'unconfirmed') return item.phase === 'checking' ? 'checking' : null;
+  if (item.status === 'queued' || item.status === 'researching' || item.status === 'sending') {
+    return item.phase ?? item.status;
+  }
+  return null;
+}
+
+function emailStep(phase: HrOutreachEmail['phase']) {
+  return EMAIL_STAGES.findIndex(stage => stage.phase === phase);
+}
+
+export function HrEmailIndicator({ item, id, announce = false }: { item: HrEmailStatusItem; id?: string; announce?: boolean }) {
+  const status = hrEmailStatus(item);
+  const phase = emailPhase(item);
+  const step = emailStep(phase);
+  const sent = item.status === 'sent' && item.deliveryStatus !== 'bounced' && step < 0;
+  return <span
+    id={id}
+    className={`badge ${status.tone} hr-email-indicator`}
+    data-active={step >= 0}
+    role={announce ? 'status' : undefined}
+  >
+    {(phase || sent) && <span aria-hidden="true" className="hr-email-signal">{sent ? '✓' : ''}</span>}
+    <span>{status.label}</span>
+    {step >= 0 && <span className="hr-email-segments" aria-hidden="true">
+      {EMAIL_STAGES.map(({ phase }, index) => <span key={phase} data-state={index < step ? 'done' : index === step ? 'current' : 'next'} />)}
+    </span>}
+  </span>;
+}
+
+function HrEmailStages({ item }: { item: HrOutreachEmail }) {
+  const phase = emailPhase(item);
+  if (!phase) return null;
+  const step = emailStep(phase);
+  return <ol className="hr-email-stages" role="list" aria-label="Email stages">
+    {EMAIL_STAGES.map(({ phase, label }, index) => <li
+      key={phase}
+      data-state={index < step ? 'done' : index === step ? 'current' : 'next'}
+      aria-current={index === step ? 'step' : undefined}
+    ><span>{label}</span></li>)}
+  </ol>;
+}
+
+/** Plain text preserves the exact message without rendering employer content as HTML. */
 export function HrEmailMessage({ item }: { item: HrOutreachEmail }) {
-  const status=hrEmailStatus(item);
   const lookup = item.lookupOutcome && item.lookupOutcome in LOOKUP_OUTCOMES ? LOOKUP_OUTCOMES[item.lookupOutcome as keyof typeof LOOKUP_OUTCOMES] : null;
   const bounced=item.deliveryStatus==='bounced';
   const retryAt = item.lookupRetryAt && ['queued', 'error', 'unconfirmed'].includes(item.status) ? item.lookupRetryAt : null;
@@ -80,10 +136,11 @@ export function HrEmailMessage({ item }: { item: HrOutreachEmail }) {
       <div className="minw"><strong>{item.title}</strong><div className="job-meta">{item.company}</div>
         {(item.outreachAttempt ?? 1) > 1 && <div className="job-meta">Retry attempt {item.outreachAttempt}</div>}
       </div>
-      <div className="hr-email-badges"><span className={`badge ${status.tone}`}>{status.label}</span>
+      <div className="hr-email-badges"><HrEmailIndicator item={item} announce />
         {item.contactReviewRequired && <span className="badge warn">Contact needs review</span>}
       </div>
     </div>
+    <HrEmailStages item={item} />
     <dl className="hr-email-meta">
       {item.toEmail && <div><dt>To</dt><dd>{item.contactName && !item.contactReviewRequired ? `${item.contactName} · ` : ''}{item.toEmail}</dd></div>}
       <div><dt>{item.sentAt ? 'Sent' : 'Added'}</dt><dd>{fmtDateTime(item.sentAt ?? item.createdAt)}</dd></div>

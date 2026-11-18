@@ -23,6 +23,14 @@ const literal = '<img src=x onerror="window.fixtureInjected=true">\nThanks for c
 const items = ['sent', 'queued', 'researching', 'sending', 'skipped', 'error', 'unconfirmed'].map((status, i) => ({ id: String(100 - i), jobId: i ? 'other' : 'one', platform: 'seek', title: i ? `Fixture role ${i}` : 'Data Analyst', company: 'Fixture Employer', status,
   toEmail: i ? null : 'hiring@example.test', subject: i ? null : 'My Data Analyst application', body: i ? null : literal, createdAt: now, sentAt: i ? null : now, contactName: i ? null : 'Hiring team',
   sourceUrl: i === 1 ? 'javascript:alert(1)' : i ? null : 'https://fixture.invalid/careers', reason: status === 'skipped' ? 'No public hiring contact was found.' : null, phase: null as string | null, sourceRunId: '42' }));
+// undefined uses historical data, null represents a role with no follow-up yet.
+type FixtureEmail = typeof items[number] & {
+  lookupOutcome?: string;
+  lookupRetryAt?: string | null;
+  deliveryStatus?: string;
+  checkingDelivery?: boolean;
+};
+let liveEmail: FixtureEmail | null | undefined;
 const olderItems = [{ ...items[0], id: '93', jobId: 'old-history', title: 'Older outreach role', subject: 'An older introduction' },
   { ...items[0], id: '1', jobId: 'archived', platform: 'external', title: 'Archived application', company: 'Historical Employer', subject: 'My archived application', body: 'Exact historical email body.' }];
 let enabled = false, failSave = false, failHistory = false, failSettings = false, emptyHistory = false, failOlder = false;
@@ -77,10 +85,15 @@ const vite = await createServer({ configFile: false, root: resolve(import.meta.d
       if (url.searchParams.get('activity') === '1') { res.end(JSON.stringify({ items: [], nextCursor: null, progress })); return; }
       const failed = failHistory || (failOlder && url.searchParams.has('cursor'));
       res.statusCode = failed ? 503 : 200;
-      const allRows = reportingMode ? reportingItems : [...items, ...olderItems];
-      const rows = url.searchParams.has('jobId') ? allRows.filter(item => item.jobId === url.searchParams.get('jobId') && item.platform === url.searchParams.get('platform'))
-        : reportingMode ? reportingItems : url.searchParams.has('cursor') ? olderItems : items;
-      res.end(JSON.stringify(failed ? { error: 'fixture unavailable' } : { items: emptyHistory ? [] : rows, nextCursor: emptyHistory || reportingMode || url.searchParams.has('cursor') || url.searchParams.has('jobId') ? null : '94', progress })); return;
+      const recent = liveEmail === undefined ? items : [...(liveEmail ? [liveEmail] : []), ...items.slice(1)];
+      const allRows = reportingMode ? reportingItems : [...recent, ...olderItems];
+      const rows: FixtureEmail[] = url.searchParams.has('jobId') ? allRows.filter(item => item.jobId === url.searchParams.get('jobId') && item.platform === url.searchParams.get('platform'))
+        : reportingMode ? reportingItems : url.searchParams.has('cursor') ? olderItems : recent;
+      const visible = url.searchParams.get('view') === 'status'
+        ? rows.map(({ id, jobId, platform, status, phase, lookupOutcome, lookupRetryAt, deliveryStatus, checkingDelivery }) =>
+          ({ id, jobId, platform, status, phase, lookupOutcome, lookupRetryAt, deliveryStatus, checkingDelivery }))
+        : rows;
+      res.end(JSON.stringify(failed ? { error: 'fixture unavailable' } : { items: emptyHistory ? [] : visible, nextCursor: emptyHistory || reportingMode || url.searchParams.has('cursor') || url.searchParams.has('jobId') ? null : '94', progress })); return;
     }
     if (req.url === '/api/hr-outreach/settings') {
       if (failSettings) { res.statusCode = 503; res.end(JSON.stringify({ error: 'fixture unavailable' })); return; }
@@ -130,6 +143,49 @@ try {
   await page.locator('.drawer').getByRole('button',{name:'Close',exact:true}).click();await page.getByRole('button',{name:'HR email for Archived application at Historical Employer'}).click();
   await page.locator('.drawer').getByText('My archived application',{exact:true}).waitFor();await page.locator('.drawer').getByText('View sent email',{exact:true}).click();assert.match(await page.locator('.drawer .letter').innerText(),/Exact historical email body/);
   await page.locator('.drawer').getByRole('button',{name:'Close',exact:true}).click();
+  liveEmail = null;
+  await page.reload();
+  const role = page.getByRole('button', { name: 'HR email for Data Analyst at Fixture Employer' });
+  const indicator = role.locator('.hr-email-indicator');
+  await role.getByText('View details', { exact: true }).waitFor();
+  assert.equal(await indicator.count(), 0, 'No status appears before the follow-up is queued');
+  const timeOrigin = await page.evaluate(() => performance.timeOrigin);
+  const queued = { ...items[0], status: 'queued', phase: 'queued', toEmail: null, subject: null, body: null, sentAt: null };
+  liveEmail = queued;
+  await indicator.getByText('Queued', { exact: true }).waitFor();
+  await role.click();
+  const drawer = page.locator('.drawer');
+  const stages = drawer.getByRole('list', { name: 'Email stages' });
+  await stages.waitFor();
+  assert.equal(await stages.locator('[aria-current="step"]').count(), 0, 'Queued email has not started finding a contact');
+  for (const [status, phase, label, step] of [
+    ['researching', 'researching', 'Finding contact', 'Find contact'],
+    ['researching', 'writing', 'Writing email', 'Write email'],
+    ['sending', 'sending', 'Sending email', 'Send email'],
+  ]) {
+    liveEmail = { ...queued, status, phase };
+    await indicator.getByText(label, { exact: true }).waitFor();
+    await stages.locator('[aria-current="step"]').getByText(step, { exact: true }).waitFor();
+    assert.equal(await indicator.getAttribute('data-active'), 'true', `${label} uses the live indicator`);
+    assert.equal(await page.getByRole('button', { name: 'HR email for Different employer role at Another Employer' }).getByText(label, { exact: true }).count(), 0, 'Progress belongs only to the matching board and role');
+  }
+  liveEmail = { ...items[0], checkingDelivery: true };
+  await indicator.getByText('Checking delivery', { exact: true }).waitFor();
+  await stages.locator('[aria-current="step"]').getByText('Check delivery', { exact: true }).waitFor();
+  assert.equal(await indicator.getAttribute('data-active'), 'true');
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'The live stages fit a phone');
+  await page.screenshot({ path: resolve(screenshotDir, 'role-email-live-mobile.png'), fullPage: true, animations: 'disabled' });
+  liveEmail = items[0];
+  await indicator.getByText('Sent', { exact: true }).waitFor();
+  await drawer.locator('.hr-email-indicator').getByText('Sent', { exact: true }).waitFor();
+  await drawer.getByText('View sent email', { exact: true }).waitFor();
+  assert.notEqual(await indicator.getAttribute('data-active'), 'true', 'The indicator stops animating after send');
+  assert.equal(await stages.count(), 0, 'A settled email no longer shows live steps');
+  assert.equal(await page.evaluate(() => performance.timeOrigin), timeOrigin, 'Updates arrive without a page reload');
+  await drawer.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.setViewportSize({ width: 1150, height: 950 });
+  liveEmail = undefined;
   failHistory=true;await page.reload();await page.getByRole('alert').filter({hasText:'Could not load your HR emails'}).waitFor();failHistory=false;
   await page.getByRole('alert').filter({hasText:'Could not load your HR emails'}).waitFor({state:'hidden'});
   await page.getByRole('button',{name:'HR email for Data Analyst at Fixture Employer'}).click();await page.locator('.drawer .hr-email').waitFor();await page.locator('.drawer').getByRole('button',{name:'Close',exact:true}).click();
@@ -221,5 +277,5 @@ try {
   assert.equal(await shell.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Apply fits on mobile');
   await shell.screenshot({path:resolve(screenshotDir,'apply-sidebar-mobile.png'),fullPage:true});
   assert.deepEqual(writes,[{enabled:true},{enabled:false}]);
-  console.log('PASS: Activity omits hiring-email progress on desktop and mobile. Email preferences and per-role history still work. Fictional APIs only; no real mail sent.');
+  console.log('PASS: Submitted Applications updates hiring-email stages from queued to sent. Apply Activity remains separate, and email preferences and history still work. Fictional APIs only; no real mail sent.');
 }finally{await browser.close();await vite.close();}

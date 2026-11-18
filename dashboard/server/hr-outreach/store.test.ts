@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { getPool } from '../db/index.js';
-import { HrStore,companyKey,outreachKey,getHrOutreachSettings,setHrOutreachEnabled,listHrOutreach,listHrOutreachPage,hrOutreachProgress } from './store.js';
+import { HrStore,companyKey,outreachKey,getHrOutreachSettings,setHrOutreachEnabled,listHrOutreach,listHrOutreachPage,listHrOutreachStatuses,hrOutreachProgress } from './store.js';
 import type { HiringContact } from './discovery.js';
 
 const oldAdmins=process.env.ADMIN_EMAILS;process.env.ADMIN_EMAILS='admin-one@example.test,admin-two@example.test';
@@ -103,6 +103,16 @@ try {
   const second=await listHrOutreachPage('1',{cursor:first.nextCursor},db);assert.equal(second.items.length,7);assert.equal(second.nextCursor,null);
   assert.equal(new Set([...first.items,...second.items].map(r=>r.id)).size,57,'real SQL pages neither overlap nor lose old messages');
   assert.equal((await listHrOutreachPage('1',{jobId:'100',platform:'seek'},db)).items[0].body,'Historical exact email 100');
+  await client.query("UPDATE hr_outreach SET updated_at=now()-interval '1 day' WHERE user_id=1");
+  assert.ok(!(await listHrOutreachStatuses('1',db)).some(r=>r.jobId==='100'),'an old inactive email stays in history');
+  await client.query("UPDATE hr_outreach SET delivery_lease='fixture-check',delivery_lease_until=now()+interval '1 minute' WHERE user_id=1 AND job_id='100'");
+  const checking = (await listHrOutreachStatuses('1',db)).find(r=>r.jobId==='100');
+  assert.equal(checking?.checkingDelivery,true,'an older real delivery check appears past the latest history page');
+  assert.equal(checking?.status,'sent','checking an email never changes its recorded send status');
+  assert.equal(Object.hasOwn(checking,'body'),false,'list refresh never reads full email content');
+  assert.ok(!(await listHrOutreachStatuses('2',db)).some(r=>r.jobId==='100'),'status refresh remains owner scoped');
+  await client.query("UPDATE hr_outreach SET delivery_lease=NULL,delivery_lease_until=NULL,delivery_checked_at=now() WHERE user_id=1 AND job_id='100'");
+  assert.equal((await listHrOutreachStatuses('1',db)).find(r=>r.jobId==='100')?.checkingDelivery,false,'the next snapshot carries the completed check');
   const platformContact={...contact,email:'hello@freehire.me',companyDomain:'freehire.me',sourceUrl:'https://freehire.me/talent',sourceText:'Hiring? Request access Join the network'};
   const financeContact={...contact,email:'josh@lansonpartners.com',companyDomain:'lansonpartners.com',sourceUrl:'https://www.lansonpartners.com/our-team',sourceText:'Josh Fordham recruits for the Treasury & Finance market.'};
   await client.query(`UPDATE hr_outreach SET contact=$1,to_email=$2,message_id='original-receipt',company='FiftyFive Group Pty Ltd' WHERE job_id='100'`,[JSON.stringify(platformContact),platformContact.email]);
