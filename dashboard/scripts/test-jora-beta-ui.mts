@@ -54,6 +54,31 @@ await server.listen();
 const origin = `http://127.0.0.1:${(server.httpServer!.address() as { port: number }).port}`;
 const browser = await chromium.launch({ headless: true, chromiumSandbox: true,
   ...(process.platform === 'win32' ? { channel: 'chrome' } : { executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome-stable' }) });
+async function checkJobSourcesLayout(sidebar: import('../../seek-bot/node_modules/patchright/index.js').Locator) {
+  const layout = await sidebar.evaluate(el => {
+    const tiles = [...el.querySelectorAll('.nav-board-brand')].map(tile => {
+      const { x, y } = tile.getBoundingClientRect();
+      return { x, y };
+    });
+    const legible = [...el.querySelectorAll('.nav-board-brands img')].every(img => {
+      const { width, height } = img.getBoundingClientRect();
+      return width >= 48 && height >= 20;
+    });
+    const employer = el.querySelector('.nav-employer-sites')!;
+    const label = employer.querySelector('.employer-sites-label')!.getBoundingClientRect();
+    const status = employer.querySelector('.nav-dot')!.getBoundingClientRect();
+    return { tiles, legible, labelFits: label.right <= status.left, fits: el.scrollWidth <= el.clientWidth,
+      height: el.getBoundingClientRect().height };
+  });
+  assert.equal(layout.tiles.length, 4);
+  const [topLeft, topRight, bottomLeft, bottomRight] = layout.tiles;
+  assert.ok(topLeft.y === topRight.y && bottomLeft.y === bottomRight.y && topLeft.y < bottomLeft.y,
+    'All four sources share a two-row grid');
+  assert.ok(topLeft.x === bottomLeft.x && topRight.x === bottomRight.x && topLeft.x < topRight.x,
+    'Employer sites aligns with the board tiles');
+  assert.ok(layout.labelFits && layout.fits && layout.height <= 105, 'Sources fit without clipping the employer label');
+  assert.ok(layout.legible, 'Board logos stay legible');
+}
 async function employerPreference(page:import('../../seek-bot/node_modules/patchright/index.js').Page){
   const sourceButton=()=>page.getByRole('button',{name:'Job sources: manage connections and employer-site applications.',exact:true});
   const sourceDialog=()=>page.getByRole('dialog',{name:'Job sources',exact:true});
@@ -113,13 +138,7 @@ try {
     for(const name of ['SEEK','Indeed','Jora'])assert.equal(await sidebar.getByRole('img',{name,exact:true}).count(),1,'Logo retains its accessible name');
     for(const board of ['seek','indeed','jora'])assert.equal(await sidebar.locator(`img[src="/platforms/${board}.svg"]`).count(),1);
     await page.waitForFunction(()=>[...document.querySelectorAll('.nav-board-brands img')].every(n=>(n as HTMLImageElement).complete&&(n as HTMLImageElement).naturalWidth>0));
-    const sourceLayout=await sidebar.evaluate(el=>{
-      const bounds=el.getBoundingClientRect();
-      const logos=[...el.querySelectorAll('.nav-board-brand:not(.nav-employer-sites) img')].map(n=>n.getBoundingClientRect());
-      return {height:bounds.height,aligned:logos.every(r=>Math.abs(r.y-logos[0].y)<1),fits:el.scrollWidth<=el.clientWidth,
-        legible:logos.every(r=>r.width>=48&&r.height>=20)};
-    });
-    assert.ok(sourceLayout.height<=105&&sourceLayout.aligned&&sourceLayout.fits&&sourceLayout.legible,'sources fit a compact aligned row');
+    await checkJobSourcesLayout(sidebar);
     if(plan==='active')await sidebar.screenshot({path:resolve(output,'compact-sources-desktop.png'),animations:'disabled'});
     await sidebar.click();
     let dialog = page.getByRole('dialog',{name:'Job sources',exact:true});
@@ -144,7 +163,7 @@ try {
       await page.setViewportSize({width:390,height:844});
       await page.getByRole('button',{name:'Menu',exact:true}).click();
       assert.ok(await sidebar.isVisible());
-      assert.ok(await sidebar.evaluate(el=>el.getBoundingClientRect().height<=105&&el.scrollWidth<=el.clientWidth),'mobile sources stay compact without overflow');
+      await checkJobSourcesLayout(sidebar);
       await sidebar.screenshot({path:resolve(output,'compact-sources-mobile.png'),animations:'disabled'});
       await page.getByRole('button',{name:'Close menu',exact:true}).click();
       await page.setViewportSize({width:1280,height:1000});

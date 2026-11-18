@@ -407,10 +407,15 @@ tbody tr.clickable { cursor: pointer; }
 .nav-sources { position: relative; }
 .nav-sources .nav-row-title { padding-right: 20px; }
 .nav-sources .nav-row-chevron { position: absolute; top: 11px; right: 10px; }
-.nav-board-brands { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 6px; margin-top: 8px; }
-.nav-board-brand { display: flex; align-items: center; justify-content: space-between; min-width: 0; min-height: 22px; gap: 2px; }
-.nav-board-brand:not(.nav-employer-sites) {
-  padding: 2px 3px;
+.nav-board-brands { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 8px; }
+.nav-board-brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  min-height: 26px;
+  gap: 4px;
+  padding: 2px 5px;
   border: 1px solid color-mix(in srgb, var(--board-badge) 68%, var(--border));
   border-radius: 7px;
   background: var(--board-badge);
@@ -418,13 +423,11 @@ tbody tr.clickable { cursor: pointer; }
 .nav-board-brand > .board-brand:not(.employer-sites-label) { justify-content: center; flex: 1; min-width: 0; }
 .nav-board-brand .board-brand-logo { width: min(48px, 100%); height: 20px; background: transparent; }
 .nav-board-brand .nav-dot { flex: none; width: 6px; height: 6px; }
-.nav-board-brand:not(.nav-employer-sites) .nav-dot.on { background: #0b7855; }
-.nav-board-brand:not(.nav-employer-sites) .nav-dot.off { border: 1px solid #64748b; background: transparent; }
-.nav-employer-sites { grid-column: 1 / -1; padding: 8px 4px 0 0; border-top: 1px solid var(--border); }
-.nav-employer-sites .employer-sites-label { gap: 6px; font-size: 11px; font-weight: 500; }
-.nav-employer-sites svg { width: 16px; height: 16px; }
+.nav-board-brand .nav-dot.on { background: #0b7855; }
+.nav-board-brand .nav-dot.off { border: 1px solid #64748b; background: transparent; }
+.nav-employer-sites .employer-sites-label { gap: 4px; font-size: 11px; font-weight: 500; }
+.nav-employer-sites svg { flex: none; width: 14px; height: 14px; }
 .employer-sites-label { font-size: 12px; font-weight: 600; white-space: nowrap; }
-.nav-employer-sites .nav-dot.off { background: var(--text-faint); }
 .employer-sites-switch { min-width: 64px; flex: none; }
 .employer-sites-switch.on { border-color: var(--ok); color: var(--ok); background: var(--ok-soft); }
 .pricing-free-start { display: flex; flex-wrap: wrap; align-items: center; gap: 22px 36px; padding: 24px 28px; margin: 0 0 24px; border: 2px solid var(--accent); border-left-width: 6px; border-radius: 12px; background: var(--accent-soft); color: var(--text); }
