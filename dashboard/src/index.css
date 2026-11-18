@@ -3133,6 +3133,17 @@ button.apply-stat > span > span { flex: none; color: var(--text-faint); }
 .hr-email-stages > [data-state="done"]::before { background: color-mix(in srgb, var(--accent) 60%, var(--border)); }
 .hr-email-stages > [aria-current="step"] { color: var(--accent); font-weight: 650; }
 .hr-email-stages > [aria-current="step"]::before { background: var(--accent); }
+@media (prefers-reduced-motion: no-preference) {
+  .hr-email-stages > [aria-current="step"]::before {
+    background-image: linear-gradient(90deg, transparent 43%, color-mix(in srgb, var(--accent) 25%, var(--surface)) 50%, transparent 57%);
+    background-size: 260% 100%;
+    animation: hr-email-stage-sweep 1.4s linear infinite;
+  }
+}
+@keyframes hr-email-stage-sweep {
+  from { background-position: 100% 0; }
+  to { background-position: 0 0; }
+}
 @media (prefers-reduced-motion: reduce) {
   .hr-email-indicator[data-active="true"] .hr-email-signal { animation: none; }
 }
