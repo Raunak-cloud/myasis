@@ -395,7 +395,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                       </div>
                       {showHrOutreach && <>
                         <button type="button" className="hr-role-link" onClick={event=>{event.stopPropagation();setOpen(a);}} aria-label={`HR email for ${a.title} at ${a.company}`} aria-describedby={indicatorId}>
-                          {(!email || !isHrEmailSent(email)) && 'HR email'}
+                          <span className={email && isHrEmailSent(email) ? 'hr-role-label-mobile' : undefined}>HR email</span>
                           {email ? <HrEmailIndicator item={email} id={indicatorId} inline /> : <span id={indicatorId}>{hrLoading?'Loading…':'View details'}</span>}
                         </button>
                         {email && <HrEmailStages item={email} inline />}

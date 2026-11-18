@@ -183,13 +183,14 @@ try {
   await indicator.getByText('Sent', { exact: true }).waitFor();
   assert.notEqual(await indicator.getAttribute('data-active'), 'true', 'The indicator stops animating after send');
   assert.equal(await stages.count(), 0, 'A sent email no longer shows inline steps');
-  assert.equal((await role.innerText()).trim(), 'Sent', 'Only the Sent badge is displayed once the email is sent');
+  await role.getByText('HR email', { exact: true }).waitFor({ state: 'visible' });
   assert.equal(await page.evaluate(() => performance.timeOrigin), timeOrigin, 'Updates arrive without a page reload');
   await role.click();
   const drawer = page.locator('.drawer');
   await drawer.getByText('View sent email', { exact: true }).waitFor();
   await drawer.getByRole('button', { name: 'Close', exact: true }).click();
   await page.setViewportSize({ width: 1150, height: 950 });
+  assert.equal((await role.innerText()).trim(), 'Sent', 'Desktop shows only the Sent badge');
   liveEmail = undefined;
   failHistory=true;await page.reload();await page.getByRole('alert').filter({hasText:'Could not load your HR emails'}).waitFor();failHistory=false;
   await page.getByRole('alert').filter({hasText:'Could not load your HR emails'}).waitFor({state:'hidden'});
