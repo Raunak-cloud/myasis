@@ -28,7 +28,7 @@
 .pricing-page .pricing-source-brands .board-brand-logo { width: 44px; height: 19px; }
 .pricing-page .pricing-source-brands .board-brand-logo-greenhouse, .pricing-page .pricing-source-brands .board-brand-logo-smartrecruiters { width: 72px; }
 .pricing-page .pricing-source-note { font-size: 11px; }
-.pricing-page .pricing-features { display: grid; grid-template-columns: 1fr; align-content: start; flex: none; gap: 6px; margin: 0; padding: 0; border: 0; color: var(--text); font-size: clamp(13px, 1vw, 15px); line-height: 1.4; }
+.pricing-page .pricing-features { display: grid; grid-template-columns: 1fr; align-content: start; flex: none; gap: 8px; margin: 0; padding: 0; border: 0; color: var(--text); font-size: clamp(13px, 1vw, 15px); line-height: 1.4; }
 .pricing-page .pricing-features li { gap: 6px; min-width: 0; }
 .pricing-page .pricing-card .pricing-features svg { width: 11px; height: 11px; margin-top: 3px; color: var(--text-dim); }
 .pricing-plan-details { display: grid; gap: 8px; padding-top: 10px; border-top: 1px solid var(--border); }
@@ -44,7 +44,7 @@
   .pricing-page .pricing-grid { flex: 1; }
 }
 @media (min-width: 1200px) and (max-width: 1400px) {
-  .pricing-page .pricing-features { font-size: 13px; line-height: 1.35; gap: 4px; }
+  .pricing-page .pricing-features { font-size: 13px; line-height: 1.35; gap: 6px; }
 }
 
 @container pricing (max-width: 960px) {
