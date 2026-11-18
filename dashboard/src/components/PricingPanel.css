@@ -48,7 +48,7 @@
   .pricing-page .pricing-card { gap: 8px; padding: 12px 14px; }
   .pricing-plan-sources { min-height: 70px; padding-top: 8px; }
   .pricing-page .pricing-features { font-size: 13px; line-height: 1.35; gap: 6px; }
-  .pricing-page .pricing-card .pricing-cta { min-height: 44px; }
+  .pricing-page .pricing-card .pricing-cta { height: 44px; min-height: 44px; padding-block: 6px; line-height: 1.25; }
 }
 
 @container pricing (max-width: 940px) {
