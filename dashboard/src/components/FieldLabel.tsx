@@ -21,7 +21,7 @@ interface Placement {
  * A tap opens it as well as a hover, because a phone has no hover and the
  * note was unreachable there.
  */
-export function InfoTip({ label, help }: { label: string; help: string }) {
+export function InfoTip({ label, help, icon = 'i' }: { label: string; help: string; icon?: 'i' | '?' }) {
   const trigger = useRef<HTMLSpanElement>(null);
   const [box, setBox] = useState<Placement | null>(null);
 
@@ -76,7 +76,7 @@ export function InfoTip({ label, help }: { label: string; help: string }) {
         }
       }}
     >
-      i
+      {icon}
       {box && createPortal(
         <span
           className="field-tooltip"

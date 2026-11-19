@@ -6,6 +6,7 @@ import { trackRedditEvent } from '../redditPixel';
 import { trackMetaEvent } from '../metaPixel';
 import './PricingPanel.css';
 import {PricingSources} from './PricingSources';
+import { InfoTip } from './FieldLabel';
 
 
 function dateLabel(value: string): string {
@@ -227,7 +228,9 @@ export function PricingPanel() {
                 .replace('Only employer forms that do not require an account', 'Forms without an account')
                 .replace('Advanced match and listing-age filters', 'Match & listing-age filters')
                 .replace('Supported employer-site applications', 'Employer-site applications')}
-                {beta && <> <span className="beta-flag">Beta</span></>}
+                {beta && <> <span className="beta-flag">Beta</span>{' '}
+                  <InfoTip label="Email employers (beta)" icon="?" help="When enabled, Owtomate emails a short introduction from your connected Gmail after a run finishes, for new submitted applications where a suitable public hiring contact is found." />
+                </>}
               </span>
             </li>
           );
