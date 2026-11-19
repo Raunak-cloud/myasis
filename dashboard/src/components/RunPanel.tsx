@@ -754,7 +754,7 @@ export function RunPanel({
             ? adminMode || !entitlements?.autoRunsPerDay ? 'Find and apply to matching jobs in a single run.' : 'Find and apply to matching jobs on your daily schedule.'
             : <>Review jobs in <a href="/?tab=prepared">Prepared Applications</a> before we apply.</>}</p>
         </div>}
-        {isAdmin && <HrOutreachSettings />}
+        {(isAdmin || entitlements?.tier === 'intensive') && <HrOutreachSettings />}
         <div className="run-actions" ref={runBar}>
           {/* Beside the run button on a phone; the desktop layout hides it. */}
           {(!accountSetupIncomplete || running || lines.length > 0) && <button
@@ -1188,9 +1188,6 @@ export function RunPanel({
                   </div>
                 ))}
                 {isAdmin && platforms.some(isEmployerSource) && <p className="job-meta">These sources use your usual job preferences and application limits. No job-board sign-in is needed.</p>}
-                <p className="job-meta recommended-first-note">
-                  New jobs are prioritised. Unchanged rejected jobs do not use another AI review; changed listings or preferences can be checked again.
-                </p>
                 <div className="field run-review-wide">
                   <FieldLabel label="Job titles and search terms" help="The roles and keywords used to search for job listings. Separate multiple terms with commas." />
                   <TermsInput

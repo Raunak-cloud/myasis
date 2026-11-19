@@ -10,6 +10,7 @@ const originalAdmins = process.env.ADMIN_EMAILS;
 process.env.ADMIN_EMAILS = 'admin-1@example.test,admin-3@example.test';
 const emailFor = (id: string) => id === '2' ? 'ordinary-2@example.test' : `admin-${id}@example.test`;
 const preferences = new Map([['1', false], ['2', true], ['3', true]]);
+const activePasses = new Set<string>();
 let hrReads = 0, hrWrites = 0;
 const mutations: Array<{ userId: string; enabled: boolean }> = [];
 pool.query = (async (sql: string, values: unknown[] = []) => {
@@ -17,8 +18,13 @@ pool.query = (async (sql: string, values: unknown[] = []) => {
     const id = values[0] === 'first-session' ? '1' : values[0] === 'second-session' ? '2' : values[0] === 'third-session' ? '3' : null;
     return { rows: id ? [{ id, email: emailFor(id), name: `Fixture ${id}`, avatarUrl: null }] : [] };
   }
-  if (sql.startsWith('SELECT email FROM users WHERE id=')) {
-    const id = String(values[0]); return { rows: preferences.has(id) ? [{ email: emailFor(id) }] : [] };
+  if (sql.startsWith('SELECT u.id FROM users u')) {
+    assert.match(sql, /purchase\.plan_key='intensive-pass'/);
+    assert.match(sql, /g\.expires_at IS NULL OR g\.expires_at>now\(\)/);
+    const id = String(values[0]);
+    const admins = values[1] as string[];
+    const allowed = preferences.has(id) && (admins.includes(emailFor(id)) || activePasses.has(id));
+    return { rows: allowed ? [{ id }] : [] };
   }
   if(sql.startsWith('WITH source AS')){
     assert.match(sql,/h\.user_id=\$1/);assert.match(sql,/r\.user_id=\$1/);hrReads++;
@@ -99,8 +105,8 @@ try {
     assert.equal((await request(path, 'second-session')).status, 403);
   }
   assert.equal((await request('/api/hr-outreach/settings', 'second-session', { enabled: true, userId: '1' })).status, 403);
-  assert.equal((await request('/api/hr-outreach/settings', 'second-session', { enabled: 'invalid' })).status, 403, 'Admin guard precedes body validation');
-  assert.equal((await request('/api/hr-outreach?cursor=invalid', 'second-session')).status, 403, 'Admin guard precedes private request processing');
+  assert.equal((await request('/api/hr-outreach/settings', 'second-session', { enabled: 'invalid' })).status, 403, 'Access check precedes body validation');
+  assert.equal((await request('/api/hr-outreach?cursor=invalid', 'second-session')).status, 403, 'Access check precedes private request processing');
   assert.equal(hrReads, 0); assert.equal(hrWrites, 0, 'Ordinary accounts cannot read or mutate HR data even with an old enabled preference');
   const first = await request('/api/hr-outreach?userId=2', 'first-session');
   assert.equal(first.status, 200); assert.equal(first.body.items[0].body, 'Private body 1');
@@ -172,7 +178,19 @@ try {
   assert.equal(hrReads, readsBeforeRevocation); assert.equal(hrWrites, writesBeforeRevocation, 'Admin revocation takes effect on the next request');
   assert.equal((await request('/api/hr-outreach', 'first-session', undefined, false, 'DELETE')).status, 405);
   assert.equal((await request('/api/hr-outreach/settings', 'first-session', undefined, false, 'DELETE')).status, 405);
-  console.log('PASS: admin-only HR API rejects ordinary and signed-out users before HR access, respects current admin revocation, rejects cross-site and invalid writes/filters, and scopes admin pagination/settings to their own account; fixture database only, no workers or email sends.');
+  activePasses.add('2');
+  preferences.set('2', false);
+  assert.deepEqual((await request('/api/hr-outreach/settings', 'second-session')).body, { enabled: false });
+  const subscriberHistory = await request('/api/hr-outreach?userId=3', 'second-session');
+  assert.equal(subscriberHistory.status, 200);
+  assert.equal(subscriberHistory.body.items[0].body, 'Private body 2');
+  const subscriberSave = await request('/api/hr-outreach/settings?userId=3', 'second-session', { enabled: true, userId: '3' });
+  assert.equal(subscriberSave.status, 200);
+  assert.deepEqual(mutations.at(-1), { userId: '2', enabled: true });
+  activePasses.delete('2');
+  assert.equal((await request('/api/hr-outreach', 'second-session')).status, 403);
+  assert.equal((await request('/api/hr-outreach/settings', 'second-session', { enabled: true })).status, 403);
+  console.log('PASS: eligible subscribers and admins can use owner-scoped employer email settings and history. Signed-out, expired and ineligible users are denied.');
 } finally {
   try {
     if (server) await new Promise<void>((done, reject) => server!.close(error => error ? reject(error) : done()));

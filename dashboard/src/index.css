@@ -658,7 +658,6 @@ tbody tr.clickable { cursor: pointer; }
 .run-review-section textarea.input { padding: 9px 11px; line-height: 1.5; resize: vertical; }
 .run-review-section .chips { gap: 8px; }
 .run-review-section .chip { padding: 6px 12px; }
-.recommended-first-note { margin: -3px 0 14px; line-height: 1.45; }
 .cover-letter-modes { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .cover-letter-modes .mode { min-height: 100%; padding: 13px; }
 .reusable-cover-letter { margin-top: 14px; }
@@ -2548,7 +2547,6 @@ button.apply-stat > span > span { flex: none; color: var(--text-faint); }
 .env-bar .job-meta { overflow-wrap: anywhere; }
 .env-bar-actions { display: flex; gap: 8px; flex: none; }
 
-.hr-role-label-mobile { display: none; }
 
 /* ==========================================================================
    Phones
@@ -2744,7 +2742,6 @@ button.apply-stat > span > span { flex: none; color: var(--text-faint); }
   .applications-table .application-role .job-title,
   .applications-table .application-role .job-meta { overflow-wrap: anywhere; }
   .applications-table .application-role .app-site-badge { display: inline-block; margin: 4px 0 0; }
-  .hr-role-label-mobile { display: inline; }
   .applications-table .application-status { grid-area: status; align-self: start; justify-self: end; }
   .applications-table .application-when {
     grid-area: when;

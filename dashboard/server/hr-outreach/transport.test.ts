@@ -5,7 +5,7 @@ import { hrBrowserStep, hrBrowserFailure } from '../../../seek-bot/src/hr-browse
 
 const mail: HrMail = { id: 'outreach-owner-job', to: 'hiring@example.invalid', subject: 'Developer application', body: 'Hello hiring team,\n\nI applied for the Developer role.\n\nTaylor', createdAt: '2026-11-16T00:00:00Z' };
 function fixture(overrides: Partial<HrTransportDependencies> = {}): HrTransportDependencies {
-  return { access: async () => ({ connected: true, admin: true, account: 'candidate@example.invalid', provider: 'mcp' } as any), owner: async () => ({ email: 'candidate@example.invalid' }),
+  return { allowed: async () => true, access: async () => ({ connected: true, admin: false, account: 'candidate@example.invalid', provider: 'mcp' } as any), owner: async () => ({ email: 'candidate@example.invalid' }),
     request: async () => { throw Error('Unexpected request'); }, sendBrowser: async () => { throw Error('Unexpected browser'); }, reconcileBrowser: async () => null, ...overrides };
 }
 
@@ -29,8 +29,8 @@ test('send uses owner mailbox and requires actual receipt', async () => {
   assert.deepEqual(await sender.send('owner', mail), { messageId: 'sent-id', threadId: 'thread' });
   await assert.rejects(createHrTransport(fixture({ request: (async () => ({})) as HrTransportDependencies['request'] })).send('owner', mail), (error: any) => error.code === 'uncertain');
 });
-test('ordinary accounts and revoked admin access cannot send or reconcile even with a connected mailbox',async()=>{
-  const transport=createHrTransport(fixture({access:async()=>({connected:true,admin:false,account:'candidate@example.invalid',provider:'mcp'} as any)}));
+test('accounts without current access cannot send or reconcile even with a connected mailbox',async()=>{
+  const transport=createHrTransport(fixture({allowed:async()=>false}));
   await assert.rejects(transport.send('ordinary',mail),(error:any)=>error.code==='unapproved');
   await assert.rejects(transport.reconcile('ordinary',mail),(error:any)=>error.code==='unapproved');
 });

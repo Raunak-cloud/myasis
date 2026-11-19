@@ -109,7 +109,7 @@ export function HrEmailIndicator({ item, id, announce = false, inline = false }:
     role={announce ? 'status' : undefined}
   >
     {(phase || sent && !inline) && <span aria-hidden="true" className="hr-email-signal">{sent ? '✓' : ''}</span>}
-    <span>{status.label}</span>
+    <span>{inline && sent ? 'Employer email sent' : status.label}</span>
     {!inline && step >= 0 && <span className="hr-email-segments" aria-hidden="true">
       {EMAIL_STAGES.map(({ phase }, index) => <span key={phase} data-state={index < step ? 'done' : index === step ? 'current' : 'next'} />)}
     </span>}
@@ -195,8 +195,8 @@ export function HrOutreachSettings() {
     finally { setSaving(false); }
   }
   return <div className="card hr-outreach-preference">
-      <label><input type="checkbox" checked={enabled === true} disabled={enabled === null || saving} onChange={event => void changeEnabled(event.target.checked)} /><strong>Email hiring teams</strong></label>
-      <p className="job-meta">After each run, send a short introduction to a public hiring contact, or the company email when a hiring contact isn't available.</p>
+      <label><input type="checkbox" checked={enabled === true} disabled={enabled === null || saving} onChange={event => void changeEnabled(event.target.checked)} /><strong>Email employers</strong></label>
+      <p className="job-meta">When your run finishes, send a short introduction from your connected Gmail to a public hiring contact or company inbox, when available.</p>
       {enabled === null && !settingsError && <p className="job-meta" role="status">Loading your email preference…</p>}
       {saving && <p className="job-meta" role="status">Saving…</p>}
       {settingsError && <p className="job-meta" role="alert">{settingsError}</p>}

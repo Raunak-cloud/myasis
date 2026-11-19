@@ -95,6 +95,7 @@ import { listSiteAccounts, sitePasswordFor } from './server/site-accounts.js';
 import { stopAllSignins } from './server/signin.js';
 import { loadApplicationCosts } from './server/application-costs.js';
 import { listHrOutreachPage, listHrOutreachStatuses, hrOutreachProgress, getHrOutreachSettings, setHrOutreachEnabled } from './server/hr-outreach/store.js';
+import { hrOutreachAllowed, HR_OUTREACH_ACCESS_MESSAGE } from './server/hr-outreach/access.js';
 
 interface ApplicationRow {
   confirmation_status: 'unconfirmed' | null;
@@ -377,8 +378,7 @@ function dataApi(): Plugin {
       case '/api/hr-outreach': {
         if (req.method !== 'GET') return send({ error: 'GET required' }, 405);
         return withUser(async userId => {
-          const actor = await getUser();
-          if (actor?.id !== userId || !isAdminEmail(actor.email)) return send({ error: 'Admins only.' }, 403);
+          if (!await hrOutreachAllowed(userId)) return send({ error: HR_OUTREACH_ACCESS_MESSAGE }, 403);
           if (url.searchParams.get('view') === 'status') return send({ items: await listHrOutreachStatuses(userId) });
           const cursor = url.searchParams.get('cursor') ?? undefined;
           const jobId = url.searchParams.get('jobId') ?? undefined;
@@ -392,11 +392,10 @@ function dataApi(): Plugin {
       case '/api/hr-outreach/settings': {
         if (req.method !== 'GET' && req.method !== 'POST') return send({ error: 'GET or POST required' }, 405);
         return withUser(async userId => {
-          const actor = await getUser();
-          if (actor?.id !== userId || !isAdminEmail(actor.email)) return send({ error: 'Admins only.' }, 403);
+          if (!await hrOutreachAllowed(userId)) return send({ error: HR_OUTREACH_ACCESS_MESSAGE }, 403);
           if (req.method === 'POST') {
             const body = await readBody();
-            if (typeof body?.enabled !== 'boolean') return send({ error: 'Choose whether hiring-team emails are enabled.' }, 400);
+            if (typeof body?.enabled !== 'boolean') return send({ error: 'Choose whether employer emails are enabled.' }, 400);
             await setHrOutreachEnabled(userId, body.enabled);
           }
           return send(await getHrOutreachSettings(userId));

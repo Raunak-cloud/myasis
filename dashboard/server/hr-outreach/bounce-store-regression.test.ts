@@ -15,6 +15,8 @@ test('delivery checks preserve five sends, suppress only confirmed invalid addre
   try {
     await client.query(`CREATE TEMP TABLE users(id BIGINT PRIMARY KEY,email TEXT,blocked_at TIMESTAMPTZ);
       CREATE TEMP TABLE run_starts(id BIGINT PRIMARY KEY,user_id BIGINT REFERENCES users(id),finished_at TIMESTAMPTZ);
+      CREATE TEMP TABLE billing_purchases(id BIGINT PRIMARY KEY,user_id BIGINT,plan_key TEXT);
+      CREATE TEMP TABLE application_credit_grants(purchase_id BIGINT,user_id BIGINT,expires_at TIMESTAMPTZ);
       CREATE TEMP TABLE application_email_sends(id BIGINT PRIMARY KEY);
       CREATE TEMP TABLE applications(id BIGINT PRIMARY KEY,user_id BIGINT REFERENCES users(id),job_id TEXT,platform TEXT,title TEXT,company TEXT,url TEXT,cover_letter TEXT,
         submitted_by_myasis BOOLEAN,confirmation_status TEXT,outcome TEXT,applied_at TIMESTAMPTZ,location TEXT);

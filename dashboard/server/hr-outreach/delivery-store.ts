@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { adminAddresses } from '../admin-access.js';
+import { hrOutreachEligibleSql } from './access.js';
 import type { HrBounce } from './bounce.js';
 import type { HrDb, HrJob } from './store.js';
 
@@ -26,7 +27,7 @@ export async function claimDeliveryCheck(db: HrDb): Promise<HrDeliveryJob | null
   const { rows } = await db.query(`WITH candidate AS (
     SELECT h.id,a.source_run_id,a.applied_at,a.location FROM hr_outreach h ${ownerJoins}
     WHERE ${confirmed} AND ${sent} AND h.delivery_status='unknown'
-      AND lower(trim(u.email))=ANY($2::text[]) AND h.sent_at>now()-interval '7 days'
+      AND ${hrOutreachEligibleSql('$2')} AND h.sent_at>now()-interval '7 days'
       AND h.delivery_check_after<=now() AND (h.delivery_lease IS NULL OR h.delivery_lease_until<=now())
     ORDER BY h.contact_review_required DESC,h.sent_at DESC,h.id FOR UPDATE OF h SKIP LOCKED LIMIT 1)
     UPDATE hr_outreach h SET delivery_lease=$1,delivery_lease_until=now()+interval '10 minutes',delivery_checks=h.delivery_checks+1
@@ -39,7 +40,7 @@ export async function deliveryCheckAllowed(db: HrDb, job: HrDeliveryJob): Promis
   const { rows } = await db.query(`SELECT h.id FROM hr_outreach h ${ownerJoins}
     WHERE h.id=$1 AND h.user_id=$2 AND h.delivery_lease=$3 AND h.delivery_lease_until>now()
       AND ${confirmed} AND ${sent} AND h.delivery_status='unknown'
-      AND h.sent_at>now()-interval '7 days' AND lower(trim(u.email))=ANY($4::text[])`,
+      AND h.sent_at>now()-interval '7 days' AND ${hrOutreachEligibleSql('$4')}`,
   [job.id, job.user_id, job.delivery_lease, adminAddresses()]);
   return rows.length > 0;
 }
@@ -76,7 +77,7 @@ export async function completeDeliveryCheck(db: HrDb, job: HrDeliveryJob, bounce
     WHERE h.id=$1 AND h.user_id=$2 AND h.delivery_lease=$3 AND h.delivery_lease_until>now()
       AND p.user_id=h.user_id AND u.id=h.user_id AND a.id=h.application_id AND a.user_id=h.user_id
       AND r.id=a.source_run_id AND r.user_id=a.user_id AND ${confirmed} AND ${sent}
-      AND h.delivery_status='unknown' AND lower(trim(u.email))=ANY($4::text[])
+      AND h.delivery_status='unknown' AND ${hrOutreachEligibleSql('$4')}
       AND ($5::text IS NULL OR lower(trim(h.to_email))=$12::text)
     RETURNING h.id,h.to_email,h.delivery_reason,h.delivery_diagnostic_code),
   invalidated AS (

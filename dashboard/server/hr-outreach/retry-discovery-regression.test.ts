@@ -18,6 +18,8 @@ test('a five-application batch retries only its four unsent lookups and keeps de
     // No worker, transport, profile access or production records are involved.
     await client.query(`CREATE TEMP TABLE users(id BIGINT PRIMARY KEY,email TEXT,blocked_at TIMESTAMPTZ);
       CREATE TEMP TABLE run_starts(id BIGINT PRIMARY KEY,user_id BIGINT REFERENCES users(id),finished_at TIMESTAMPTZ);
+      CREATE TEMP TABLE billing_purchases(id BIGINT PRIMARY KEY,user_id BIGINT,plan_key TEXT);
+      CREATE TEMP TABLE application_credit_grants(purchase_id BIGINT,user_id BIGINT,expires_at TIMESTAMPTZ);
       CREATE TEMP TABLE application_email_sends(id BIGINT PRIMARY KEY);
       CREATE TEMP TABLE applications(id BIGINT PRIMARY KEY,user_id BIGINT REFERENCES users(id),job_id TEXT,platform TEXT,title TEXT,company TEXT,url TEXT,cover_letter TEXT,
         submitted_by_myasis BOOLEAN,confirmation_status TEXT,outcome TEXT,applied_at TIMESTAMPTZ,location TEXT);

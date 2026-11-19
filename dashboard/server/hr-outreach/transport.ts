@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { one } from '../db/index.js';
 import { gmailAccess } from '../gmail-access.js';
 import { gmailRequest } from '../gmail-connection.js';
+import { hrOutreachAllowed, HR_OUTREACH_ACCESS_MESSAGE } from './access.js';
 import { GmailServiceError } from '../../../seek-bot/src/gmail-mcp-service.js';
 import { validApplicationEmail } from '../../../seek-bot/src/application-email-message.js';
 import { hrMailBody, hrMailReference, validateHrMail, sendHrMailInBrowser, reconcileBrowserHrEmail, sendBrowserHrEmail, openHrGmail, reconcileHrEmailOnPage, type BrowserHrMail } from '../../../seek-bot/src/hr-email-browser.js';
@@ -23,6 +24,7 @@ export function hrEmailMessage(mail: HrMail, from: string): string {
 }
 
 export interface HrTransportDependencies {
+  allowed: (userId: string) => Promise<boolean>;
   access: typeof gmailAccess;
   owner: (userId: string) => Promise<{ email: string } | null>;
   request: typeof gmailRequest;
@@ -30,13 +32,13 @@ export interface HrTransportDependencies {
   reconcileBrowser: typeof reconcileBrowserHrEmail;
   withBrowser?: <T>(action: (page: Page) => Promise<T>) => Promise<T>;
 }
-const defaults: HrTransportDependencies = { access: gmailAccess, owner: userId => one('SELECT email FROM profiles WHERE user_id=$1', [userId]), request: gmailRequest,
+const defaults: HrTransportDependencies = { allowed: hrOutreachAllowed, access: gmailAccess, owner: userId => one('SELECT email FROM profiles WHERE user_id=$1', [userId]), request: gmailRequest,
   sendBrowser: sendHrMailInBrowser, reconcileBrowser: reconcileBrowserHrEmail };
 
 export function createHrTransport(deps: HrTransportDependencies = defaults) {
   const identity = async (userId: string) => {
+    if (!await deps.allowed(userId)) throw new GmailServiceError('unapproved', HR_OUTREACH_ACCESS_MESSAGE);
     const [connection, owner] = await Promise.all([deps.access(userId), deps.owner(userId)]);
-    if(connection.admin!==true)throw new GmailServiceError('unapproved','HR emails are currently available to administrators only.');
     if (!connection.connected || !connection.account || !owner?.email || owner.email.trim().toLowerCase() !== connection.account.toLowerCase()) throw new GmailServiceError('reconnect', 'Connect the Gmail address saved in your application profile.');
     return connection as typeof connection & { account: string };
   };

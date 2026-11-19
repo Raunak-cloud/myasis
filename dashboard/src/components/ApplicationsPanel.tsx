@@ -179,7 +179,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
           setHrError(null);
         }
       } catch {
-        if (active) setHrError('Could not load your HR emails. Please try again.');
+        if (active) setHrError('Could not load your employer emails. Please try again.');
       } finally { pending = false; if (active) setHrLoading(false); }
     }
     setHrLoading(true);
@@ -241,7 +241,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
         const result = await response.json();
         if (!response.ok || !Array.isArray(result.items)) throw new Error();
         if (active) { setHrEmails(current => mergeHrEmails(current, result.items)); setHrDrawerError(null); }
-      } catch { if (active) setHrDrawerError('Could not load this application’s HR email.'); }
+      } catch { if (active) setHrDrawerError('Could not load this application’s employer email.'); }
       finally { pending = false; if (active) setHrDrawerLoading(false); }
     }
     void load();
@@ -315,7 +315,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
 
   const sent = (
     <div className="applications-panel">
-      {showHrOutreach && hrError && <p className="job-meta" role="alert">{hrError} <button type="button" className="btn btn-small" onClick={()=>setHrRefresh(value=>value+1)}>Refresh HR status</button></p>}
+      {showHrOutreach && hrError && <p className="job-meta" role="alert">{hrError} <button type="button" className="btn btn-small" onClick={()=>setHrRefresh(value=>value+1)}>Refresh email status</button></p>}
       <div className="queue-bar">
         <div className="chips">
           {(['all', 'awaiting', 'interview', 'rejected'] as const).map((f) => (
@@ -394,8 +394,8 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                         <AdzunaAttribution platform={a.platform} />
                       </div>
                       {showHrOutreach && <>
-                        <button type="button" className="hr-role-link" onClick={event=>{event.stopPropagation();setOpen(a);}} aria-label={`HR email for ${a.title} at ${a.company}`} aria-describedby={indicatorId}>
-                          <span className={email && isHrEmailSent(email) ? 'hr-role-label-mobile' : undefined}>HR email</span>
+                        <button type="button" className="hr-role-link" onClick={event=>{event.stopPropagation();setOpen(a);}} aria-label={`Employer email for ${a.title} at ${a.company}`} aria-describedby={indicatorId}>
+                          {(!email || !isHrEmailSent(email)) && <span>Employer email</span>}
                           {email ? <HrEmailIndicator item={email} id={indicatorId} inline /> : <span id={indicatorId}>{hrLoading?'Loading…':'View details'}</span>}
                         </button>
                         {email && <HrEmailStages item={email} inline />}
@@ -531,10 +531,10 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
               </div>
 
               {showHrOutreach && <div className="section hr-application-details">
-                <h3>HR email</h3>
-                {hrDrawerLoading && <p className="job-meta" role="status">Loading HR email…</p>}
+                <h3>Employer email</h3>
+                {hrDrawerLoading && <p className="job-meta" role="status">Loading employer email…</p>}
                 {hrDrawerError && <p className="job-meta" role="alert">{hrDrawerError}</p>}
-                {!hrDrawerLoading && !hrDrawerError && !hrEmails.some(item=>item.jobId===open.jobId&&item.platform===(open.platform??'seek')) && <p className="job-meta">No HR email is recorded for this application.</p>}
+                {!hrDrawerLoading && !hrDrawerError && !hrEmails.some(item=>item.jobId===open.jobId&&item.platform===(open.platform??'seek')) && <p className="job-meta">No employer email is recorded for this application.</p>}
                 {hrEmails.filter(item => item.jobId === open.jobId && item.platform === (open.platform ?? 'seek')).map(item => <HrEmailMessage key={item.id} item={item} />)}
               </div>}
 

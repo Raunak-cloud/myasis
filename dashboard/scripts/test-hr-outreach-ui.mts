@@ -60,7 +60,7 @@ const reportingItems: Array<typeof items[number] & { lookupOutcome?: string; loo
   { ...items[0], id: '196', title: 'HCL Software Engineer', company: 'HCLTech', contactName: null, toEmail: 'verified-recruitment@hcl.example.test', subject: 'Alternative contact subject', body: 'Exact alternative-contact email.', deliveryStatus: 'unknown', deliveryCheckedAt: checkedAt, outreachAttempt: 2, retryOfId: '197' },
   { ...items[0], id: '195', title: 'Temporarily delayed contact role', deliveryStatus: 'unknown', deliveryReason: 'The receiving mail service temporarily delayed this email.', deliveryCheckedAt: checkedAt },
 ];
-let runAdmin = true, setupReady = true;
+let runAdmin = true, runIntensive = false, setupReady = true;
 const writes: unknown[] = [];
 const html = `<!doctype html><html><body><div id="root"></div><script type="module">import React from'react';import{createRoot}from'react-dom/client';import{ApplicationsPanel}from'/src/components/ApplicationsPanel.tsx';import'/src/index.css';const mode=new URLSearchParams(location.search).get('hr');createRoot(document.getElementById('root')).render(React.createElement(ApplicationsPanel,{apps:${JSON.stringify(apps)},onChange:()=>{},followUpDays:10,...(mode==='default'?{}:{showHrOutreach:mode!=='off'})}));</script></body></html>`;
 const liveHtml = `<!doctype html><html><body><main class="main-shell run-dashboard"><header class="page-header"><h1>Apply for jobs</h1></header><div id="root" class="page-content"></div></main><script type="module">import React from'react';import{createRoot}from'react-dom/client';import{RunPanel}from'/src/components/RunPanel.tsx';import'/src/index.css';createRoot(document.getElementById('root')).render(React.createElement(RunPanel,{lastRunAt:null,onFinished:()=>{},onGoPricing:()=>{}}));</script></body></html>`;
@@ -78,7 +78,7 @@ const vite = await createServer({ configFile: false, root: resolve(import.meta.d
     if (url.pathname === '/api/auth/me') { res.end(JSON.stringify({user:{id:'fixture',name:'Fixture Candidate',email:'fixture@example.test',avatarUrl:null},googleConfigured:true})); return; }
     if (url.pathname === '/api/today') { res.end(JSON.stringify({runs:1,submitted:32,reviewed:224})); return; }
     if (url.pathname === '/api/applications') { res.end(JSON.stringify(apps)); return; }
-    if (url.pathname === '/api/entitlements') { res.end(JSON.stringify({ tier: runAdmin ? 'admin' : 'standard', manualRuns: runAdmin, firstRunRequired:!runAdmin, autoRunsPerDay: runAdmin ? 4 : 1, autoRunsUsedToday:0, canPauseAutoApply:true, fineTune: false, advancedFilters: false, runScopes: runAdmin, employerSources: false })); return; }
+    if (url.pathname === '/api/entitlements') { res.end(JSON.stringify({ tier: runAdmin ? 'admin' : runIntensive ? 'intensive' : 'standard', manualRuns: runAdmin || runIntensive, firstRunRequired:!runAdmin && !runIntensive, autoRunsPerDay: runAdmin || runIntensive ? 3 : 1, autoRunsUsedToday:0, canPauseAutoApply:true, fineTune: false, advancedFilters: false, runScopes: runAdmin, employerSources: false })); return; }
     if (url.pathname === '/api/setup/status') { res.end(JSON.stringify({ready:setupReady,done:setupReady?3:0,total:3,checks:[{id:'resume',label:'Your resume',fix:'documents'},{id:'profile',label:'Your details',fix:'details'},{id:'looking',label:'Your job search',fix:'looking'}].map(check=>({...check,done:setupReady,required:true,hint:'Complete this step to start applying.'}))})); return; }
     if (url.pathname === '/api/auto-schedule') { res.end(JSON.stringify({enabled:false,applicationMode:'auto',runsUsedToday:0,runsPerDay:4,nextRunAt:null,dueNow:false,timeZone:'Australia/Sydney',lastError:null,waitingForSetup:false,waitingForBoard:false,waitingForFirstRun:false})); return; }
     if (url.pathname === '/api/run/status') { res.end(JSON.stringify({ running: false, mode: null, applicationMode: 'auto', startedAt: null, finishedAt: null, exitCode: 0, applied: 2, prepared: 0, hasKey: true, isOwner: true })); return; }
@@ -121,7 +121,7 @@ try {
   await page.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
   await page.goto(origin+'/hr-preview.html');
   await page.locator('.applications-list').waitFor();
-  assert.equal(await page.getByRole('checkbox',{name:'Email hiring teams',exact:true}).count(),0,'Email preference has moved out of Submitted Applications');
+  assert.equal(await page.getByRole('checkbox',{name:'Email employers',exact:true}).count(),0,'Email preference has moved out of Submitted Applications');
   assert.equal(await page.getByRole('tab',{name:/^HR emails/}).count(),0,'No separate HR tab');
   assert.equal(await page.locator('.hr-role-link').count(),apps.length,'Every applied role offers its own HR details');
   for(const fixture of sourceFixtures) {
@@ -133,21 +133,21 @@ try {
   assert.doesNotMatch((await page.locator('.application-link').allTextContents()).join(' '),/External/);
   await page.waitForFunction(()=>[...document.querySelectorAll('.application-link img')].every(n=>(n as HTMLImageElement).complete&&(n as HTMLImageElement).naturalWidth>0));
   await page.screenshot({path:resolve(screenshotDir,'application-source-logos.png'),fullPage:true});
-  await page.getByRole('button',{name:'HR email for Data Analyst at Fixture Employer'}).click();
+  await page.getByRole('button',{name:'Employer email for Data Analyst at Fixture Employer'}).click();
   await page.locator('.drawer .hr-email').waitFor();await page.locator('.drawer').getByText('View sent email',{exact:true}).click();
   assert.equal(await page.locator('.drawer .hr-email .letter').innerText(),literal);assert.equal(await page.locator('.drawer .hr-email img').count(),0);
   assert.equal(await page.evaluate(()=>Boolean((window as any).fixtureInjected)),false);assert.match(await page.locator('.drawer .hr-email').innerText(),/hiring@example.test/);
   assert.equal(await page.locator('.drawer .hr-contact-source').getAttribute('href'),'https://fixture.invalid/careers');
   await page.screenshot({path:resolve(screenshotDir,'role-email-desktop.png'),fullPage:true});
   await page.waitForTimeout(350);assert.equal(await page.locator('.drawer .letter').isVisible(),true,'Polling preserves expanded content');
-  await page.locator('.drawer').getByRole('button',{name:'Close',exact:true}).click();await page.getByRole('button',{name:'HR email for Different employer role at Another Employer'}).click();
-  await page.getByText('No HR email is recorded for this application.',{exact:true}).waitFor();assert.equal(await page.locator('.drawer .hr-email').count(),0,'Same job ID on another board cannot leak mail');
-  await page.locator('.drawer').getByRole('button',{name:'Close',exact:true}).click();await page.getByRole('button',{name:'HR email for Archived application at Historical Employer'}).click();
+  await page.locator('.drawer').getByRole('button',{name:'Close',exact:true}).click();await page.getByRole('button',{name:'Employer email for Different employer role at Another Employer'}).click();
+  await page.getByText('No employer email is recorded for this application.',{exact:true}).waitFor();assert.equal(await page.locator('.drawer .hr-email').count(),0,'Same job ID on another board cannot leak mail');
+  await page.locator('.drawer').getByRole('button',{name:'Close',exact:true}).click();await page.getByRole('button',{name:'Employer email for Archived application at Historical Employer'}).click();
   await page.locator('.drawer').getByText('My archived application',{exact:true}).waitFor();await page.locator('.drawer').getByText('View sent email',{exact:true}).click();assert.match(await page.locator('.drawer .letter').innerText(),/Exact historical email body/);
   await page.locator('.drawer').getByRole('button',{name:'Close',exact:true}).click();
   liveEmail = null;
   await page.reload();
-  const role = page.getByRole('button', { name: 'HR email for Data Analyst at Fixture Employer' });
+  const role = page.getByRole('button', { name: 'Employer email for Data Analyst at Fixture Employer' });
   const roleDetails = page.locator('.application-role').filter({ has: role });
   const indicator = role.locator('.hr-email-indicator');
   const stages = roleDetails.getByRole('list', { name: 'Email stages' });
@@ -167,7 +167,7 @@ try {
     await indicator.getByText(label, { exact: true }).waitFor();
     await stages.locator('[aria-current="step"]').getByText(step, { exact: true }).waitFor();
     assert.equal(await indicator.getAttribute('data-active'), 'true', `${label} uses the live indicator`);
-    assert.equal(await page.getByRole('button', { name: 'HR email for Different employer role at Another Employer' }).getByText(label, { exact: true }).count(), 0, 'Progress belongs only to the matching board and role');
+    assert.equal(await page.getByRole('button', { name: 'Employer email for Different employer role at Another Employer' }).getByText(label, { exact: true }).count(), 0, 'Progress belongs only to the matching board and role');
   }
   liveEmail = { ...items[0], checkingDelivery: true };
   await indicator.getByText('Checking delivery', { exact: true }).waitFor();
@@ -180,22 +180,22 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'The live stages fit a phone');
   await page.screenshot({ path: resolve(screenshotDir, 'role-email-live-mobile.png'), fullPage: true, animations: 'disabled' });
   liveEmail = items[0];
-  await indicator.getByText('Sent', { exact: true }).waitFor();
+  await indicator.getByText('Employer email sent', { exact: true }).waitFor();
   assert.notEqual(await indicator.getAttribute('data-active'), 'true', 'The indicator stops animating after send');
   assert.equal(await stages.count(), 0, 'A sent email no longer shows inline steps');
-  await role.getByText('HR email', { exact: true }).waitFor({ state: 'visible' });
+  assert.equal((await role.innerText()).trim(), 'Employer email sent', 'Mobile shows the full sent label');
   assert.equal(await page.evaluate(() => performance.timeOrigin), timeOrigin, 'Updates arrive without a page reload');
   await role.click();
   const drawer = page.locator('.drawer');
   await drawer.getByText('View sent email', { exact: true }).waitFor();
   await drawer.getByRole('button', { name: 'Close', exact: true }).click();
   await page.setViewportSize({ width: 1150, height: 950 });
-  assert.equal((await role.innerText()).trim(), 'Sent', 'Desktop shows only the Sent badge');
+  assert.equal((await role.innerText()).trim(), 'Employer email sent', 'Desktop shows the full sent label without repeating the email label');
   liveEmail = undefined;
-  failHistory=true;await page.reload();await page.getByRole('alert').filter({hasText:'Could not load your HR emails'}).waitFor();failHistory=false;
-  await page.getByRole('alert').filter({hasText:'Could not load your HR emails'}).waitFor({state:'hidden'});
-  await page.getByRole('button',{name:'HR email for Data Analyst at Fixture Employer'}).click();await page.locator('.drawer .hr-email').waitFor();await page.locator('.drawer').getByRole('button',{name:'Close',exact:true}).click();
-  reportingMode=true;await page.reload();await page.getByRole('button',{name:'HR email for Data Analyst at Fixture Employer'}).click();
+  failHistory=true;await page.reload();await page.getByRole('alert').filter({hasText:'Could not load your employer emails'}).waitFor();failHistory=false;
+  await page.getByRole('alert').filter({hasText:'Could not load your employer emails'}).waitFor({state:'hidden'});
+  await page.getByRole('button',{name:'Employer email for Data Analyst at Fixture Employer'}).click();await page.locator('.drawer .hr-email').waitFor();await page.locator('.drawer').getByRole('button',{name:'Close',exact:true}).click();
+  reportingMode=true;await page.reload();await page.getByRole('button',{name:'Employer email for Data Analyst at Fixture Employer'}).click();
   const report=(title:string)=>page.locator('.drawer .hr-email').filter({has:page.getByText(title,{exact:true})});
   await report('No public contact role').waitFor();
   for(const[title,label]of [['No public contact role','No public contact'],['Unverified company role','Company unverified'],['Blocked source role','Access blocked'],['Provider interruption role','Search temporarily unavailable'],['Incomplete lookup role','Lookup incomplete'],['Exhausted lookup role','Failed'],['Unconfirmed delivery role','Delivery unconfirmed']])assert.ok(await report(title).locator('.badge').filter({hasText:new RegExp(`^${label}$`)}).count(),title);
@@ -216,7 +216,7 @@ try {
     if (url.pathname === '/api/hr-outreach' && url.searchParams.get('activity') === '1') activityRequests++;
   });
   await live.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());await live.goto(origin+'/hr-live-preview.html');
-  const checkbox=live.getByRole('checkbox',{name:'Email hiring teams',exact:true});await checkbox.waitFor({timeout:10000}).catch(async error=>{console.error('Apply fixture state:',await live.locator('body').innerText());throw error;});
+  const checkbox=live.getByRole('checkbox',{name:'Email employers',exact:true});await checkbox.waitFor({timeout:10000}).catch(async error=>{console.error('Apply fixture state:',await live.locator('body').innerText());throw error;});
   await live.waitForFunction(()=>!(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.disabled);
   assert.equal(writes.length,0,'Opening either page does not change the saved preference');
   assert.equal(await checkbox.isChecked(),false);await checkbox.click();await live.waitForFunction(()=>!(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.disabled);await live.waitForFunction(()=>(document.querySelector('.hr-outreach-preference input') as HTMLInputElement)?.checked===true);assert.equal(enabled,true);
@@ -247,7 +247,24 @@ try {
   assert.equal(await live.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true);await live.getByRole('button',{name:'Close',exact:true}).click();assert.equal(await openActivity.isVisible(),true,'Activity closes back to the mobile controls');
   runAdmin=false;const regular=await browser.newPage();let hrRequests=0;regular.on('request',r=>{if(r.url().includes('/api/hr-outreach'))hrRequests++;});await regular.goto(origin+'/hr-preview.html?hr=off');await regular.locator('.applications-list').waitFor();assert.equal(await regular.locator('.hr-role-link').count(),0);assert.equal(hrRequests,0);
   await regular.goto(origin+'/hr-live-preview.html');await regular.locator('.run-layout').waitFor();await regular.waitForTimeout(350);assert.equal(await regular.locator('.hr-activity-inline').count(),0);assert.equal(hrRequests,0);
-  assert.equal(await regular.getByRole('checkbox',{name:'Email hiring teams',exact:true}).count(),0,'Preference keeps its existing access restriction');
+  assert.equal(await regular.getByRole('checkbox',{name:'Email employers',exact:true}).count(),0,'Other plans do not show the preference');
+  runIntensive = true;
+  enabled = false;
+  const subscriber = await browser.newPage();
+  await subscriber.goto(origin+'/hr-shell-preview.html?tab=run');
+  const subscriberPreference = subscriber.getByRole('checkbox',{name:'Email employers',exact:true});
+  await subscriberPreference.waitFor();
+  assert.equal(await subscriberPreference.isChecked(),false,'Get Owtomated subscribers opt in');
+  await subscriberPreference.click();
+  await subscriber.waitForFunction(() => {
+    const preference = document.querySelector<HTMLInputElement>('.hr-outreach-preference input');
+    return preference?.checked && !preference.disabled;
+  });
+  assert.equal(enabled,true);
+  await subscriber.goto(origin+'/hr-shell-preview.html?tab=applications');
+  await subscriber.locator('.hr-role-link').first().waitFor();
+  await subscriber.close();
+  runIntensive = false;
   setupReady=false;
   const newcomer=await browser.newPage({viewport:{width:390,height:844}});await newcomer.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());
   await newcomer.goto(origin+'/hr-live-preview.html');
@@ -282,6 +299,6 @@ try {
   await shell.waitForFunction(()=>getComputedStyle(document.querySelector('.side-nav')!).visibility==='hidden');
   assert.equal(await shell.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Apply fits on mobile');
   await shell.screenshot({path:resolve(screenshotDir,'apply-sidebar-mobile.png'),fullPage:true});
-  assert.deepEqual(writes,[{enabled:true},{enabled:false}]);
-  console.log('PASS: Submitted Applications shows live hiring-email stages under the role and collapses to Sent. Apply Activity stays separate, and email preferences and history still work. Fictional APIs only; no real mail sent.');
+  assert.deepEqual(writes,[{enabled:true},{enabled:false},{enabled:true}]);
+  console.log('PASS: Get Owtomated subscribers can opt in and see employer email status and history under each role. Fictional APIs only; no real mail sent.');
 }finally{await browser.close();await vite.close();}

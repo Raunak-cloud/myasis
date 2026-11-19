@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { getPool } from '../db/index.js';
 import { HrStore,companyKey,outreachKey,getHrOutreachSettings,setHrOutreachEnabled,listHrOutreach,listHrOutreachPage,listHrOutreachStatuses,hrOutreachProgress } from './store.js';
 import type { HiringContact } from './discovery.js';
+import { hrOutreachAllowed } from './access.js';
 
 const oldAdmins=process.env.ADMIN_EMAILS;process.env.ADMIN_EMAILS='admin-one@example.test,admin-two@example.test';
 const client=await getPool().connect();
@@ -10,6 +11,8 @@ try {
   await client.query('BEGIN');
   await client.query(`CREATE TEMP TABLE users(id BIGINT PRIMARY KEY,email TEXT,blocked_at TIMESTAMPTZ);
     CREATE TEMP TABLE run_starts(id BIGINT PRIMARY KEY,user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,finished_at TIMESTAMPTZ);
+    CREATE TEMP TABLE billing_purchases(id BIGINT PRIMARY KEY,user_id BIGINT,plan_key TEXT);
+    CREATE TEMP TABLE application_credit_grants(purchase_id BIGINT,user_id BIGINT,expires_at TIMESTAMPTZ);
     CREATE TEMP TABLE application_email_sends(id BIGINT PRIMARY KEY);
     CREATE TEMP TABLE applications(id BIGINT PRIMARY KEY,user_id BIGINT REFERENCES users(id) ON DELETE CASCADE,job_id TEXT,platform TEXT,title TEXT,company TEXT,url TEXT,cover_letter TEXT,
       submitted_by_myasis BOOLEAN,confirmation_status TEXT,outcome TEXT,applied_at TIMESTAMPTZ,location TEXT);
@@ -23,8 +26,8 @@ try {
   assert.equal(outreachKey('Example LTD','Data Analyst'),outreachKey('EXAMPLE LTD','Data   Analyst'));
   assert.deepEqual(await getHrOutreachSettings('1',db),{enabled:false});
   await setHrOutreachEnabled('1',true,db);await setHrOutreachEnabled('2',true,db);
-  await assert.rejects(setHrOutreachEnabled('4',true,db),/administrators/);
-  await assert.rejects(setHrOutreachEnabled('3',true,db),/administrators/);
+  await assert.rejects(setHrOutreachEnabled('4',true,db),/active Get Owtomated pass/);
+  await assert.rejects(setHrOutreachEnabled('3',true,db),/active Get Owtomated pass/);
   await client.query('INSERT INTO hr_outreach_preferences(user_id,enabled) VALUES(3,true),(4,true)');
   const enabledSince=(await client.query('SELECT enabled_since FROM hr_outreach_preferences WHERE user_id=1')).rows[0].enabled_since;
   await setHrOutreachEnabled('1',true,db);
@@ -176,5 +179,30 @@ try {
   await client.query('DELETE FROM users WHERE id=1');
   assert.equal((await listHrOutreach('1',db)).length,0,'private messages cascade on deletion');
   assert.ok(await store.cache(job.company_key),'shared public contact survives account deletion');
+  await client.query(`INSERT INTO users VALUES
+    (20,'active@example.test',NULL),(21,'expired@example.test',NULL),(22,'other@example.test',NULL),(23,'blocked@example.test',now());
+    INSERT INTO billing_purchases VALUES
+    (20,20,'intensive-pass'),(21,21,'intensive-pass'),(22,22,'job-search-pass'),(23,23,'intensive-pass');
+    INSERT INTO application_credit_grants VALUES
+    (20,20,now()+interval '1 day'),(21,21,now()-interval '1 day'),(22,22,NULL),(23,23,NULL),(20,4,NULL);
+    INSERT INTO run_starts(id,user_id,finished_at,hr_ready_at) VALUES(120,20,now(),now());
+    INSERT INTO applications(id,user_id,job_id,platform,title,company,url,submitted_by_myasis,applied_at,source_run_id) VALUES
+    (220,20,'paid-new','seek','New role','New Company','https://example.org/new',true,now()+interval '1 second',120),
+    (221,20,'paid-history','seek','Old role','Old Company','https://example.org/old',true,now()-interval '1 day',120);`);
+  assert.equal(await hrOutreachAllowed('20',db),true);
+  for (const ineligible of ['4','21','22','23']) assert.equal(await hrOutreachAllowed(ineligible,db),false);
+  assert.deepEqual(await getHrOutreachSettings('20',db),{enabled:false});
+  await store.enqueue();
+  assert.deepEqual(await listHrOutreach('20',db),[]);
+  await setHrOutreachEnabled('20',true,db);
+  await store.enqueue();
+  assert.deepEqual((await listHrOutreach('20',db)).map(item=>item.jobId),['paid-new']);
+  const subscriberJob=await store.claim();
+  assert.equal(subscriberJob?.job_id,'paid-new');
+  assert.ok(subscriberJob);
+  assert.equal(await store.allowed(subscriberJob),true);
+  await client.query("UPDATE application_credit_grants SET expires_at=now() WHERE user_id=20");
+  assert.equal(await store.allowed(subscriberJob),false);
+  assert.equal(await store.sending(subscriberJob),false,'An expired pass cannot claim the final send');
   console.log('PASS: real PostgreSQL HR queue, opt-in, no historical/draft sends, duplicate prevention, owner isolation, monthly cache TTL, leases, uncertain recovery and deletion. TEMP tables only.');
 }finally{await client.query('ROLLBACK');client.release();await getPool().end();if(oldAdmins===undefined)delete process.env.ADMIN_EMAILS;else process.env.ADMIN_EMAILS=oldAdmins;}

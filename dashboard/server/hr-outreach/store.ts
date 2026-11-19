@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { query } from '../db/index.js';
-import { adminAddresses, isAdmin } from '../admin-access.js';
+import { adminAddresses } from '../admin-access.js';
+import { hrOutreachAllowed, hrOutreachEligibleSql, HR_OUTREACH_ACCESS_MESSAGE } from './access.js';
 import { assessHiringContact, type HiringContact, type DiscoveryResult } from './discovery.js';
 import { claimDeliveryCheck, deliveryCheckAllowed, deferDeliveryCheck, completeDeliveryCheck, invalidHrAddresses, retryBouncedHrOutreach, type HrDeliveryJob } from './delivery-store.js';
 import type { HrBounce } from './bounce.js';
@@ -29,18 +30,14 @@ export async function getHrOutreachSettings(userId: string, db = database): Prom
   return { enabled: rows[0]?.enabled === true };
 }
 export async function setHrOutreachEnabled(userId: string, enabled: boolean, db = database): Promise<void> {
-  if (typeof enabled !== 'boolean') throw new Error('Choose whether HR emails are enabled.');
-  if(!await hrAdminAllowed(userId,db))throw new Error('HR emails are currently available to administrators only.');
+  if (typeof enabled !== 'boolean') throw new Error('Choose whether employer emails are enabled.');
+  if (!await hrOutreachAllowed(userId, db)) throw new Error(HR_OUTREACH_ACCESS_MESSAGE);
   await db.query(`INSERT INTO hr_outreach_preferences(user_id,enabled,enabled_since) VALUES($1,$2,now())
     ON CONFLICT(user_id) DO UPDATE SET enabled=$2,
     enabled_since=CASE WHEN NOT hr_outreach_preferences.enabled AND $2 THEN now() ELSE hr_outreach_preferences.enabled_since END,
     updated_at=now()`, [userId, enabled]);
   if (!enabled) await db.query(`UPDATE hr_outreach SET status='skipped',phase=NULL,reason='HR emails were turned off.',lease=NULL,lease_until=NULL,updated_at=now()
     WHERE user_id=$1 AND status IN ('queued','researching','error')`, [userId]);
-}
-export async function hrAdminAllowed(userId:string,db=database):Promise<boolean> {
-  const {rows}=await db.query('SELECT email FROM users WHERE id=$1 AND blocked_at IS NULL',[userId]);
-  return isAdmin(rows[0]?.email);
 }
 // A retry date is shown only while the queue can actually reclaim the item.
 // Internal crawl traces and provider details are deliberately absent here.
@@ -146,7 +143,7 @@ export class HrStore {
       JOIN run_starts r ON r.id=a.source_run_id AND r.user_id=a.user_id
       JOIN users u ON u.id=a.user_id WHERE p.enabled AND u.blocked_at IS NULL
       AND r.finished_at IS NOT NULL AND r.hr_ready_at IS NOT NULL
-      AND lower(trim(u.email))=ANY($1::text[])
+      AND ${hrOutreachEligibleSql('$1')}
       AND a.submitted_by_myasis=true AND a.confirmation_status IS NULL AND a.outcome IS NULL
       AND a.applied_at>=p.enabled_since
       AND NOT EXISTS(SELECT 1 FROM hr_outreach h WHERE h.user_id=a.user_id AND h.application_id=a.id)
@@ -191,7 +188,7 @@ export class HrStore {
       LEFT JOIN hr_outreach parent ON parent.id=h.retry_of AND parent.user_id=h.user_id AND parent.application_id=h.application_id
       WHERE p.enabled AND u.blocked_at IS NULL AND h.status IN ('queued','error','unconfirmed') AND h.available_at<=now()
       AND r.finished_at IS NOT NULL AND r.hr_ready_at IS NOT NULL
-      AND lower(trim(u.email))=ANY($2::text[])
+      AND ${hrOutreachEligibleSql('$2')}
       AND (h.lease IS NULL OR h.lease_until<now())
       AND h.attempts<CASE WHEN h.status='unconfirmed' THEN 8 ELSE 4 END
       AND (h.status<>'error' OR h.retry_allowed)
@@ -210,7 +207,7 @@ export class HrStore {
       JOIN run_starts r ON r.id=a.source_run_id AND r.user_id=a.user_id
       WHERE h.id=$1 AND h.user_id=$2 AND h.lease=$3 AND h.lease_until>now() AND p.enabled AND u.blocked_at IS NULL
       AND r.finished_at IS NOT NULL AND r.hr_ready_at IS NOT NULL
-      AND lower(trim(u.email))=ANY($4::text[])
+      AND ${hrOutreachEligibleSql('$4')}
       AND a.submitted_by_myasis=true AND a.confirmation_status IS NULL AND a.outcome IS NULL
       AND (h.status='unconfirmed' OR a.applied_at>=p.enabled_since)`, [job.id,job.user_id,job.lease,adminAddresses()]);
     return rows.length > 0;
@@ -278,7 +275,7 @@ export class HrStore {
       FROM hr_outreach_preferences p,applications a,users u,run_starts r
       WHERE h.id=$1 AND h.user_id=$2 AND h.lease=$3 AND h.status='researching' AND h.lease_until>now()
       AND p.user_id=h.user_id AND p.enabled AND u.id=h.user_id AND u.blocked_at IS NULL
-      AND lower(trim(u.email))=ANY($4::text[])
+      AND ${hrOutreachEligibleSql('$4')}
       AND a.id=h.application_id AND a.user_id=h.user_id AND a.submitted_by_myasis=true AND a.confirmation_status IS NULL AND a.outcome IS NULL
       AND r.id=a.source_run_id AND r.user_id=a.user_id AND r.finished_at IS NOT NULL AND r.hr_ready_at IS NOT NULL
       AND a.applied_at>=p.enabled_since

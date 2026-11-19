@@ -149,7 +149,7 @@ test('empty-status fallback rejects spoofed, quoted, forwarded and incomplete hu
 });
 
 function fixture(overrides: Partial<HrBounceDependencies> = {}): HrBounceDependencies {
-  return { access: async () => ({ connected: true, account, provider: 'mcp', admin: true } as any), owner: async () => ({ email: account }),
+  return { allowed: async () => true, access: async () => ({ connected: true, account, provider: 'mcp', admin: false } as any), owner: async () => ({ email: account }),
     request: async () => { throw Error('Unexpected request'); }, readBrowser: async () => { throw Error('Unexpected browser'); }, now: () => new Date(now), ...overrides };
 }
 test('OAuth bounce check reads raw messages only from the exact owner mailbox and never sends', async () => {
@@ -166,7 +166,7 @@ test('OAuth bounce check reads raw messages only from the exact owner mailbox an
 
 test('browser check uses only its supplied private reader and preserves the provider boundary', async () => {
   let reads = 0;
-  const checker = createHrBounceChecker(fixture({ access: async () => ({ connected: true, account, provider: 'browser', admin: true } as any),
+  const checker = createHrBounceChecker(fixture({ access: async () => ({ connected: true, account, provider: 'browser', admin: false } as any),
     readBrowser: async (_page, actual, sender, options) => { reads++; assert.equal(actual, mail); assert.equal(sender, account); assert.equal(options.sentAt, sentAt); return [sent, notice()]; } }));
   assert.equal((await checker('owner', mail, { sentAt, withBrowser: async action => action({} as any) }))?.kind, 'invalid_recipient');
   assert.equal(reads, 1);
@@ -174,7 +174,7 @@ test('browser check uses only its supplied private reader and preserves the prov
 });
 
 test('ordinary, disconnected and wrong-profile accounts cannot read bounce evidence', async () => {
-  for (const override of [{ access: async () => ({ connected: true, account, provider: 'mcp', admin: false } as any) },
+  for (const override of [{ allowed: async () => false },
     { access: async () => ({ connected: false, account, provider: 'mcp', admin: true } as any) }, { owner: async () => ({ email: 'another@example.test' }) }]) {
     await assert.rejects(createHrBounceChecker(fixture(override))('owner', mail, { sentAt }), (error: any) => ['unapproved', 'reconnect'].includes(error.code));
   }

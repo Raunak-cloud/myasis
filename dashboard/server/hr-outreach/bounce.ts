@@ -1,6 +1,7 @@
 import { one } from '../db/index.js';
 import { gmailAccess } from '../gmail-access.js';
 import { gmailRequest } from '../gmail-connection.js';
+import { hrOutreachAllowed, HR_OUTREACH_ACCESS_MESSAGE } from './access.js';
 import { GmailServiceError } from '../../../seek-bot/src/gmail-mcp-service.js';
 import { hrMailBody, hrMailReference, validateHrMail, type HrBrowserPage } from '../../../seek-bot/src/hr-email-browser.js';
 import { hrMessageId, type HrMail } from './transport.js';
@@ -23,6 +24,7 @@ export interface HrBounceOptions {
   withBrowser?: <T>(action: (page: HrBrowserPage) => Promise<T>) => Promise<T>;
 }
 export interface HrBounceDependencies {
+  allowed: (userId: string) => Promise<boolean>;
   access: typeof gmailAccess;
   owner: (userId: string) => Promise<{ email: string } | null>;
   request: typeof gmailRequest;
@@ -194,13 +196,13 @@ export function parseHrBounce(mail: HrMail, account: string, messages: HrRawMail
   return latest;
 }
 
-const defaults: HrBounceDependencies = { access: gmailAccess, owner: userId => one('SELECT email FROM profiles WHERE user_id=$1', [userId]), request: gmailRequest,
+const defaults: HrBounceDependencies = { allowed: hrOutreachAllowed, access: gmailAccess, owner: userId => one('SELECT email FROM profiles WHERE user_id=$1', [userId]), request: gmailRequest,
   readBrowser: readHrBounceMessagesOnPage, now: () => new Date() };
 export function createHrBounceChecker(deps: HrBounceDependencies = defaults) {
   return async (userId: string, mail: HrMail, options: HrBounceOptions): Promise<HrBounce | null> => {
     validateHrMail(mail);
+    if (!await deps.allowed(userId)) throw new GmailServiceError('unapproved', HR_OUTREACH_ACCESS_MESSAGE);
     const [access, owner] = await Promise.all([deps.access(userId), deps.owner(userId)]);
-    if (access.admin !== true) throw new GmailServiceError('unapproved', 'HR emails are currently available to administrators only.');
     if (!access.connected || !access.account || !owner?.email || access.account.toLowerCase() !== owner.email.trim().toLowerCase()) throw new GmailServiceError('reconnect', 'Connect the Gmail address saved in your application profile.');
     const signal = AbortSignal.any([AbortSignal.timeout(90_000), ...(options.signal ? [options.signal] : [])]);
     const at = Date.parse(options.sentAt); if (!Number.isFinite(at)) throw new GmailServiceError('unapproved', 'The HR email has no recorded send time.');
