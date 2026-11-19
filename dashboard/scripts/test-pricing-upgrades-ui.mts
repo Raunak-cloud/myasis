@@ -81,6 +81,9 @@ try {
     assert.match(await card('Get Owtomated').innerText(),/Web search for employer-site jobs/);
     assert.match(await card('Get Owtomated').innerText(), /No separate employer-site limit/);
     assert.match(await card('Get Owtomated').innerText(), /Account creation with connected Gmail/);
+    const employerEmail = card('Get Owtomated').getByRole('listitem').filter({ hasText: 'Email employers' });
+    assert.equal(await employerEmail.getByText('Beta', { exact: true }).isVisible(), true);
+    assert.equal(await page.locator('.pricing-card .pricing-features li').filter({ hasText: 'Email employers' }).count(),1);
     assert.equal(await card('Get Owtomated').getByRole('group',{name:'Supported job sources'}).getByText('Web search',{exact:true}).count(),1);
     assert.doesNotMatch(await card('Active Search').innerText(),/Web search/);
     assert.equal(await page.locator('.pricing-card details, .pricing-card summary').count(),0,'plan details have no accordion controls');

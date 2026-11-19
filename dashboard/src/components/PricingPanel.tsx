@@ -215,10 +215,10 @@ export function PricingPanel() {
           // Access dates sit beside the price; source names sit in the logo row.
           // Shared features are stated once below the comparison.
           const details = features.filter(feature => !/^\d+ days of access$|^Access until |^SEEK.* applications$|^SmartRecruiters, Greenhouse|^Personalised cover letters/.test(feature));
-          const featureItem = (feature: string) => (
+          const featureItem = (feature: string, beta = false) => (
             <li key={feature}>
               <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
-              {feature.replace(/ · Auto apply or Semi auto$/, '').replace(/^Up to /, '')
+              <span>{feature.replace(/ · Auto apply or Semi auto$/, '').replace(/^Up to /, '')
                 .replace(/ scheduled (runs?) each day$/, ' scheduled $1/day')
                 .replace(/^AI reviews up to (\d+) jobs each run$/, 'Reviews up to $1 jobs/run')
                 .replace(/^Connect SEEK for (\d+) extra free applications \((\d+) total\)$/, '$1 extra with SEEK ($2 total)')
@@ -227,6 +227,8 @@ export function PricingPanel() {
                 .replace('Only employer forms that do not require an account', 'Forms without an account')
                 .replace('Advanced match and listing-age filters', 'Match & listing-age filters')
                 .replace('Supported employer-site applications', 'Employer-site applications')}
+                {beta && <> <span className="beta-flag">Beta</span></>}
+              </span>
             </li>
           );
           return (
@@ -251,7 +253,10 @@ export function PricingPanel() {
               </div>
               <section className="pricing-plan-details" aria-label={`${card.name} plan details`}>
                 <h4>Plan details</h4>
-                <ul className="pricing-features">{details.map(featureItem)}</ul>
+                <ul className="pricing-features">
+                  {details.map(feature => featureItem(feature))}
+                  {card.key === 'intensive-pass' && featureItem('Email employers', true)}
+                </ul>
               </section>
               <button
                 className={`btn pricing-cta ${card.recommended && !isCurrent ? 'primary' : ''}`}

@@ -254,6 +254,7 @@ try {
   await subscriber.goto(origin+'/hr-shell-preview.html?tab=run');
   const subscriberPreference = subscriber.getByRole('checkbox',{name:'Email employers',exact:true});
   await subscriberPreference.waitFor();
+  assert.equal(await subscriber.locator('.hr-outreach-preference').getByText('Beta', { exact: true }).isVisible(),true);
   assert.equal(await subscriberPreference.isChecked(),false,'Get Owtomated subscribers opt in');
   await subscriberPreference.click();
   await subscriber.waitForFunction(() => {

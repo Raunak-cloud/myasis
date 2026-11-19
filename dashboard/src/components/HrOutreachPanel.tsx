@@ -195,7 +195,10 @@ export function HrOutreachSettings() {
     finally { setSaving(false); }
   }
   return <div className="card hr-outreach-preference">
-      <label><input type="checkbox" checked={enabled === true} disabled={enabled === null || saving} onChange={event => void changeEnabled(event.target.checked)} /><strong>Email employers</strong></label>
+      <label>
+        <input type="checkbox" checked={enabled === true} disabled={enabled === null || saving} onChange={event => void changeEnabled(event.target.checked)} aria-labelledby="email-employers-label" aria-describedby="email-employers-beta" />
+        <span><strong id="email-employers-label">Email employers</strong> <span id="email-employers-beta" className="beta-flag">Beta</span></span>
+      </label>
       <p className="job-meta">When your run finishes, send a short introduction from your connected Gmail to a public hiring contact or company inbox, when available.</p>
       {enabled === null && !settingsError && <p className="job-meta" role="status">Loading your email preference…</p>}
       {saving && <p className="job-meta" role="status">Saving…</p>}
