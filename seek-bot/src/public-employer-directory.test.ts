@@ -19,6 +19,21 @@ test('discovery retains only canonical public employer identities and strips pri
   assert.deepEqual(publicEmployerTargets('smartrecruiters', ['Canva', 'canva', 'https://jobs.smartrecruiters.com/Canva/123']), ['Canva']);
 });
 
+test('Greenhouse retains public board tokens across hosted boards, job pages and the jobs API', () => {
+  assert.equal(publicEmployerTarget('greenhouse', 'https://job-boards.greenhouse.io/fixture/jobs/123?source=fixture#application'), 'fixture');
+  assert.equal(publicEmployerTarget('greenhouse', 'https://boards.greenhouse.io/fixture/'), 'fixture');
+  assert.equal(publicEmployerTarget('greenhouse', 'https://boards-api.greenhouse.io/v1/boards/fixture/jobs?content=true'), 'fixture');
+  for (const bad of [
+    'https://job-boards.greenhouse.io.evil.invalid/fixture/jobs/123',
+    'https://boards.greenhouse.io/fixture/jobs/login',
+    'https://boards.greenhouse.io/login',
+    'https://boards.greenhouse.io/embed/job_board?for=fixture',
+    'https://boards-api.greenhouse.io/v1/boards/fixture/applications',
+    'https://user:secret@boards.greenhouse.io/fixture',
+  ]) assert.equal(publicEmployerTarget('greenhouse', bad), null);
+  assert.deepEqual(publicEmployerTargets('greenhouse', ['Fixture', 'fixture', 'https://boards.greenhouse.io/fixture/jobs/123']), ['Fixture']);
+});
+
 test('SmartRecruiters searches beyond 20 manual companies, keeps Australian/public filtering, paging and live details', async () => {
   let calls = 0; const requests: URL[] = [];
   const network: typeof fetch = async input => {
@@ -63,8 +78,15 @@ test('SmartRecruiters public-link case aliases share canonical job IDs and allow
 test('shared search cache reuses only public lists, expires, and bypasses details, authentication and provider errors', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'public-employer-cache-')); let calls = 0, now = 10000000;
   try {
-    const network: typeof fetch = async input => { calls++; return new Response(String(input).includes('pageuppeople') ? '<div id="search-results-content"></div>' : JSON.stringify({ content: [] })); };
-    const urls = ['https://api.smartrecruiters.com/v1/companies/Canva/postings?country=au&q=analyst', 'https://careers.pageuppeople.com/841/cw/en/search/?search-keyword=analyst&page=1'];
+    const network: typeof fetch = async input => {
+      calls++;
+      const host = new URL(String(input)).hostname;
+      return host === 'careers.pageuppeople.com' ? new Response('<div id="search-results-content"></div>')
+        : Response.json(host === 'boards-api.greenhouse.io' ? { jobs: [] } : { content: [] });
+    };
+    const urls = ['https://api.smartrecruiters.com/v1/companies/Canva/postings?country=au&q=analyst',
+      'https://careers.pageuppeople.com/841/cw/en/search/?search-keyword=analyst&page=1',
+      'https://boards-api.greenhouse.io/v1/boards/fixture/jobs?content=true'];
     for (const url of urls) {
       const before = calls;
       await publicEmployerSearchCache(dir, network, () => now)(url);
@@ -76,6 +98,8 @@ test('shared search cache reuses only public lists, expires, and bypasses detail
     const before = calls;
     for (let i = 0; i < 2; i++) await publicEmployerSearchCache(dir, network)('https://api.smartrecruiters.com/v1/companies/Canva/postings/123');
     assert.equal(calls, before + 2);
+    for (let i = 0; i < 2; i++) await publicEmployerSearchCache(dir, network)('https://boards-api.greenhouse.io/v1/boards/fixture/jobs/123?content=true');
+    assert.equal(calls, before + 4, 'Greenhouse details are always read live');
     let failures = 0; const fail = publicEmployerSearchCache(dir, async () => { failures++; return new Response('', { status: 429 }); });
     for (let i = 0; i < 2; i++) await fail(urls[0] + '&q=uncached'); assert.equal(failures, 2);
     const beforeCutoff=calls;
@@ -83,6 +107,22 @@ test('shared search cache reuses only public lists, expires, and bypasses detail
     await cache(urls[0]+'&releasedAfter=2026-11-01T09:00:01.000Z');
     await cache(urls[0]+'&releasedAfter=2026-11-01T09:10:01.000Z');assert.equal(calls,beforeCutoff+1,'small per-run cutoff differences do not defeat shared caching');
     await cache(urls[0]+'&releasedAfter=2026-11-02T09:10:01.000Z');assert.equal(calls,beforeCutoff+2,'different listing-age windows remain separate');
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('Greenhouse board snapshots stop at the byte limit without draining or caching an oversized response', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'greenhouse-board-cache-'));
+  try {
+    let sent = 0, cancelled = 0;
+    const chunk = new Uint8Array(1_000_000);
+    const network: typeof fetch = async () => new Response(new ReadableStream({
+      pull(controller) { sent++; controller.enqueue(chunk); },
+      cancel() { cancelled++; },
+    }));
+    await assert.rejects(publicEmployerSearchCache(dir, network)('https://boards-api.greenhouse.io/v1/boards/fixture/jobs?content=true'), /exceeded size limit/);
+    assert.equal(cancelled, 1);
+    assert.ok(sent >= 9 && sent <= 10, 'stream stops as soon as the limit is crossed');
+    assert.deepEqual(await publicEmployerSearchCache(dir, async () => Response.json({ jobs: ['fresh'] }))('https://boards-api.greenhouse.io/v1/boards/fixture/jobs?content=true').then(response => response.json()), { jobs: ['fresh'] });
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 

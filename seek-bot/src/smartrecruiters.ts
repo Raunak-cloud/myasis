@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { JobListing } from './types.js';
 import { listingAgeCutoff } from './listing-age.js';
 import { publicEmployerTargets } from './public-employer-directory.js';
+import { EmployerFeedPaging, type EmployerFeedBatch } from './employer-feed-paging.js';
 
 const SMARTRECRUITERS_DEFAULT_COMPANIES = 'Canva,KPMGAustralia1,Colliers';
 const SMARTRECRUITERS_PAGE_SIZE = 50;
@@ -85,6 +86,7 @@ export function smartRecruitersListing(raw: unknown, company: string, now = Date
 
 export class SmartRecruitersDiscovery {
   private readonly companies: string[];
+  private readonly paging = new EmployerFeedPaging();
   private readyAt = 0;
   private readonly options: {
     fetch?: typeof fetch; warn?: (message: string) => void;
@@ -126,17 +128,31 @@ export class SmartRecruitersDiscovery {
   }
 
   async search(keyword: string, page: number): Promise<JobListing[]> {
+    return (await this.searchBatch(keyword, page)).jobs;
+  }
+
+  async searchBatch(keyword: string, page: number): Promise<EmployerFeedBatch> {
     if (!Number.isSafeInteger(page) || page < 1) throw new Error('Invalid SmartRecruiters search batch.');
-    const params = new URLSearchParams({ country: 'au', destination: 'PUBLIC', q: keyword.trim().slice(0, 150),
-      limit: String(SMARTRECRUITERS_PAGE_SIZE), offset: String((page - 1) * SMARTRECRUITERS_PAGE_SIZE) });
+    const query = keyword.trim().slice(0, 150);
+    const offset = (page - 1) * SMARTRECRUITERS_PAGE_SIZE;
+    const params = new URLSearchParams({ country: 'au', destination: 'PUBLIC', q: query,
+      limit: String(SMARTRECRUITERS_PAGE_SIZE), offset: String(offset) });
     if (this.options.maxAgeDays !== undefined) params.set('releasedAfter', listingAgeCutoff(this.options.maxAgeDays));
     const jobs = new Map<string, JobListing>();
-    let successful = 0;
+    let successful = 0, hasMore = false;
     for (const company of this.companies) {
       if (this.options.shouldStop?.()) break;
+      const queryKey = company + '\n' + query;
+      if (this.paging.exhausted(queryKey, page)) { successful++; continue; }
       try {
         const data = await this.request(company, `?${params}`);
         if (!Array.isArray(data.content)) throw new Error('SmartRecruiters returned an invalid posting list.');
+        if (!data.content.length || Number.isSafeInteger(data.totalFound) && offset + data.content.length >= data.totalFound
+          || this.paging.repeated(queryKey, page, data.content.map((item: any) => item?.id))) {
+          this.paging.end(queryKey, page);
+        } else {
+          hasMore = true;
+        }
         successful++;
         for (const item of data.content.slice(0, SMARTRECRUITERS_PAGE_SIZE)) {
           try {
@@ -149,7 +165,7 @@ export class SmartRecruitersDiscovery {
       }
     }
     if (!successful && !this.options.shouldStop?.()) throw new Error('None of the selected SmartRecruiters employers could be searched.');
-    return [...jobs.values()];
+    return { jobs: [...jobs.values()], hasMore };
   }
 
   async detail(stub: JobListing): Promise<JobListing> {

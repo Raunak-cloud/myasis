@@ -16,6 +16,7 @@ import { applicationWorkerEnvironment } from './application-worker-policy.js';
 import { loadUserSettings } from './settings.js';
 import {employerApplicationsEnabled} from '../src/employer-applications.js';
 import { applicationModelLabel } from '../../seek-bot/src/application-model-catalog.js';
+import { EMPLOYER_SOURCES } from '../../seek-bot/src/employer-source-config.js';
 import {priorRunRepairMessage} from '../src/priorRunRepair.js';
 import { applicationModelCredentials, applicationModelForAccount } from './application-model-policy.js';
 import { assignedApplicationModel } from './application-model-assignments.js';
@@ -79,8 +80,8 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
     const discovery = selectedSettings.APPLICATION_REVIEW_MODE !== 'approved' && !selectedSettings.TARGET_REPAIR_JOB_JSON;
     for (const source of publicDirectorySources.filter(source => selectedSettings.PLATFORMS?.split(',').includes(source))) {
       try {
-        const key=source==='pageup'?'PAGEUP_SITES':'SMARTRECRUITERS_COMPANIES';
-        directory[source]=await expandedPublicEmployerSites(source,selectedSettings[key]??'',selectedSettings.KEYWORDS??'',discovery);
+        const sourceSpec=EMPLOYER_SOURCES.find(spec=>spec.id===source)!;
+        directory[source]=await expandedPublicEmployerSites(source,selectedSettings[sourceSpec.key]??'',selectedSettings.KEYWORDS??'',discovery);
       } catch { console.warn(`[${source}] Shared employer discovery unavailable; configured companies remain enabled.`); }
     }
     if(Object.keys(directory).length){

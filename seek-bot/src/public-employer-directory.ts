@@ -1,7 +1,7 @@
 import { careerTarget, employerTargets } from './employer-source-config.js';
 
-export type PublicDirectorySource = 'pageup' | 'smartrecruiters';
-export const publicDirectorySources: PublicDirectorySource[] = ['pageup', 'smartrecruiters'];
+export const publicDirectorySources = ['pageup', 'smartrecruiters', 'greenhouse'] as const;
+export type PublicDirectorySource = typeof publicDirectorySources[number];
 
 /** Canonical public employer roots only; application paths and query values never enter the directory. */
 export function publicEmployerTarget(source: PublicDirectorySource, raw: string): string | null {
@@ -12,6 +12,17 @@ export function publicEmployerTarget(source: PublicDirectorySource, raw: string)
     if (source === 'pageup') {
       if (url.hostname !== 'careers.pageuppeople.com' || parts.length < 3) return null;
       return careerTarget('pageup', `${url.origin}/${parts.slice(0, 3).join('/')}`).url.href;
+    }
+    if (source === 'greenhouse') {
+      let board: string | undefined;
+      if (['boards.greenhouse.io', 'job-boards.greenhouse.io'].includes(url.hostname)) {
+        if (parts.length === 1 || (parts.length === 3 && parts[1] === 'jobs' && /^\d{1,20}$/.test(parts[2]))) board = parts[0];
+      } else if (url.hostname === 'boards-api.greenhouse.io' && parts[0] === 'v1' && parts[1] === 'boards'
+        && ((parts.length === 4 && parts[3] === 'jobs') || (parts.length === 5 && parts[3] === 'jobs' && /^\d{1,20}$/.test(parts[4])))) {
+        board = parts[2];
+      }
+      if (!board || /^(embed|login|signin|sign-in|apply|jobs|search|careers)$/i.test(board)) return null;
+      return employerTargets(source, board)[0] ?? null;
     }
     let company: string;
     if (['jobs.smartrecruiters.com', 'careers.smartrecruiters.com'].includes(url.hostname)) company = parts[0];
@@ -32,7 +43,7 @@ export function publicEmployerTargets(source: PublicDirectorySource, values: unk
     try {
       const parts = value.split('|'); if (parts.length > 2) continue;
       const raw = parts.at(-1)!.trim();
-      const target = source === 'smartrecruiters' && !raw.includes('://') ? employerTargets(source, raw)[0] : publicEmployerTarget(source, raw);
+      const target = source !== 'pageup' && !raw.includes('://') ? employerTargets(source, raw)[0] : publicEmployerTarget(source, raw);
       if (!target) continue;
       const label = parts.length === 2 ? parts[0].replace(/[,\r\n]/g, ' ').trim().slice(0, 100) : '';
       const entry = source === 'pageup' && label ? `${label}|${target}` : target;

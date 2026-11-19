@@ -28,10 +28,12 @@ export function brandedPageupSearch(html: string, url: string) {
     action.searchParams.set('country_codes[]', 'AU');
   }
   const anchors = [...document.querySelectorAll('.job-search-results-card-title a[href], .job-search-results-title a[href]')];
-  const jobs = anchors.flatMap(anchor => {
+  const postingIds: Array<string | undefined> = Array(anchors.length).fill(undefined);
+  const jobs = anchors.flatMap((anchor, index) => {
     try {
     const destination = new URL(anchor.getAttribute('href')!, url), identity = brandedPageupIdentity(destination.href);
     if (!identity || destination.origin !== base.origin) return [];
+      postingIds[index] = identity.posting;
     const card = anchor.closest('.job-search-results-card,tr');
     const title = anchor.textContent?.trim(), location = card?.querySelector('.job-component-location,.job-search-results-location')?.textContent?.trim();
     return title && location ? [{ url: destination.href, title, location: location.replace(/\s+/g, ' '),
@@ -42,7 +44,8 @@ export function brandedPageupSearch(html: string, url: string) {
   const hasNext = [...document.querySelectorAll('.pagination-container a[href]')].some(a => {
     try { return Number(new URL(a.getAttribute('href')!, url).searchParams.get('page')) > page; } catch { return false; }
   });
-  return { action: action.href, jobs, returnedCards: anchors.length, exhausted: Boolean(document.querySelector('.pagination-container')) && !hasNext };
+  return { action: action.href, jobs, postingIds,
+    exhausted: Boolean(document.querySelector('.pagination-container')) && !hasNext };
 }
 
 /** Read the publisher's JobPosting, never a recommended card or a site footer. */

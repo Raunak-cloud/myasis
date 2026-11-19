@@ -75,6 +75,45 @@ test('one employer outage preserves others, reports partial coverage and does no
   await assert.rejects(failed.search('software', 1), /None of the selected/);
 });
 
+test('raw public page metadata keeps later Australian listings reachable after a filtered batch', async () => {
+  const offsets: string[] = [];
+  const client = new SmartRecruitersDiscovery('Canva', { gapMs: 0, fetch: async input => {
+    const offset = new URL(String(input)).searchParams.get('offset')!;
+    offsets.push(offset);
+    const content = offset === '0'
+      ? Array.from({ length: 50 }, (_, index) => posting({ id: String(2000 + index), location: { country: 'us' } }))
+      : [posting({ name: 'Later Australian job' })];
+    return response({ totalFound: 51, content });
+  } });
+  assert.deepEqual(await client.searchBatch('software', 1), { jobs: [], hasMore: true });
+  const last = await client.searchBatch('software', 2);
+  assert.deepEqual(last.jobs.map(job => job.title), ['Later Australian job']);
+  assert.equal(last.hasMore, false);
+  assert.deepEqual(await client.searchBatch('software', 3), { jobs: [], hasMore: false });
+  assert.deepEqual(offsets, ['0', '50']);
+});
+
+test('a repeated raw SmartRecruiters batch ends its own employer without stopping another employer', async () => {
+  const canvaOffsets: string[] = [];
+  const client = new SmartRecruitersDiscovery('Canva,Other', { gapMs: 0, fetch: async input => {
+    const url = new URL(String(input));
+    const offset = url.searchParams.get('offset')!;
+    if (url.pathname.includes('/Canva/')) {
+      canvaOffsets.push(offset);
+      return response({ content: [posting({ location: { country: 'us' } })] });
+    }
+    return response({ totalFound: 101, content: [
+      posting({ id: String(2000 + Number(offset)), company: { identifier: 'Other', name: 'Other' }, name: `Role at ${offset}` }),
+    ] });
+  } });
+  assert.equal((await client.searchBatch('software', 1)).hasMore, true);
+  assert.equal((await client.searchBatch('software', 2)).hasMore, true);
+  const last = await client.searchBatch('software', 3);
+  assert.deepEqual(last.jobs.map(job => job.title), ['Role at 100']);
+  assert.equal(last.hasMore, false);
+  assert.deepEqual(canvaOffsets, ['0', '50']);
+});
+
 test('detail rechecks active public Australian jobs and reads every description section as plain text', async () => {
   let closed = false;
   const client = new SmartRecruitersDiscovery('Canva', { gapMs: 0, fetch: (async (url) => {

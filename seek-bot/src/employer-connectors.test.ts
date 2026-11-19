@@ -243,8 +243,8 @@ test('PageUp expired cards on one page cannot hide active jobs on a later page',
     calls++;const page=new URL(String(input)).searchParams.get('page');
     return new Response(`<div id="search-results-content"><div class="job-listing"><a class="job-link" href="/539/caw/en/job/${page==='1'?'123':'456'}/analyst">Analyst</a><span class="location">Sydney</span><span class="close-date"><time datetime="${page==='1'?'2026-01-01':'2027-01-01'}"></time></span></div></div>`);
   }});
-  assert.deepEqual(await api.search('data',1),[]);
-  assert.equal((await api.search('data',2)).length,1,'filtering a closed card is not evidence of result exhaustion');assert.equal(calls,2);
+  assert.deepEqual(await api.searchBatch('data',1),{jobs:[],hasMore:true});
+  assert.equal((await api.searchBatch('data',2)).jobs.length,1,'filtering a closed card is not evidence of result exhaustion');assert.equal(calls,2);
 });
 
 test('PageUp malformed branded cards cannot hide a publisher-advertised next page', async () => {

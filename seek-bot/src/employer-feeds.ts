@@ -9,6 +9,7 @@ import {publicEmployerTarget,publicEmployerTargets} from './public-employer-dire
 import { assertExternalJobUrl } from './external-url.js';
 import { brandedPageupIdentity, brandedPageupSearch, brandedPageupPosting } from './pageup-branded.js';
 import { EmployerFeedHealth } from './employer-feed-health.js';
+import { EmployerFeedPaging, type EmployerFeedBatch } from './employer-feed-paging.js';
 
 type NewSource = Exclude<EmployerSourceId, 'smartrecruiters'>;
 type FeedOptions = { fetch?: typeof fetch; warn?: (message: string) => void; timeoutMs?: number; gapMs?: number; retryDelayMs?: number; now?: () => number; additionalTargets?:string[]; shouldStop?:()=>boolean;
@@ -181,8 +182,7 @@ export class EmployerFeedDiscovery {
   private readonly countryFilters = new Map<string, Record<string, string[]>>();
   private readonly employerNames = new Map<string,string>();
   private readonly brandedSearches = new Map<string, string>();
-  private readonly exhausted = new Map<string, number>();
-  private readonly pageSignatures = new Map<string, string>();
+  private readonly paging = new EmployerFeedPaging();
   private readonly pageupSnapshots = new Map<string, Promise<JobListing[]>>();
   private readonly health: EmployerFeedHealth;
   private readonly now: () => number;
@@ -191,7 +191,7 @@ export class EmployerFeedDiscovery {
     if (!spec) throw new Error('This job source is no longer available.');
     this.targets = employerTargets(source, raw ?? spec.defaults);
     if(source==='workday') this.targets = workdayDirectoryTargets([...this.targets,...(options.additionalTargets??[])]);
-    if(source==='pageup') this.targets = publicEmployerTargets('pageup',[...this.targets,...(options.additionalTargets??[])]);
+    if(source==='pageup'||source==='greenhouse') this.targets = publicEmployerTargets(source,[...this.targets,...(options.additionalTargets??[])]);
     this.reader = new PublicReader(options); this.now = options.now ?? Date.now;
     this.health = new EmployerFeedHealth(options.healthDirectory, this.now);
   }
@@ -233,7 +233,10 @@ export class EmployerFeedDiscovery {
     const url = new URL(search);url.searchParams.set('query', keyword);url.searchParams.set('page', String(page));
     if (!result || result.url !== url.href) result = await this.reader.branded(url.href, url.origin);
     const parsed = brandedPageupSearch(result.html, result.url);
-    if (parsed.exhausted || !parsed.returnedCards) this.exhausted.set(target + '\n' + keyword, page + 1);
+    const queryKey = target + '\n' + keyword;
+    if (parsed.exhausted || !parsed.postingIds.length || this.paging.repeated(queryKey, page, parsed.postingIds)) {
+      this.paging.end(queryKey, page);
+    }
     const configured = careerTarget('pageup', target);
     return parsed.jobs.map(raw => {
       const identity = employerJobIdentity('pageup', raw.url);
@@ -298,13 +301,17 @@ export class EmployerFeedDiscovery {
   }
 
   async search(keyword: string, page: number): Promise<JobListing[]> {
+    return (await this.searchBatch(keyword, page)).jobs;
+  }
+
+  async searchBatch(keyword: string, page: number): Promise<EmployerFeedBatch> {
     if (!Number.isSafeInteger(page) || page < 1) throw new Error('Invalid employer-feed search batch.');
-    const jobs = new Map<string, JobListing>(); let successful = 0;
+    const jobs = new Map<string, JobListing>(); let successful = 0, hasMore = false;
     for (const target of this.targets) {
       if(this.options.shouldStop?.())break;
       const queryKey = target + '\n' + keyword;
       if (this.source !== 'greenhouse') {
-        if (page >= (this.exhausted.get(queryKey) ?? Infinity)) { successful++; continue; }
+        if (this.paging.exhausted(queryKey, page)) { successful++; continue; }
         if (await this.health.unavailable(this.healthKey(target))) continue;
       }
       try {
@@ -322,7 +329,7 @@ export class EmployerFeedDiscovery {
           let data = await this.reader.json(endpoint, request);
           if (!this.countryFilters.has(target)) {
             const filter = workdayCountryFilter(data.facets);
-            if (filter === null) { this.exhausted.set(queryKey, page + 1); successful++; continue; }
+            if (filter === null) { this.paging.end(queryKey, page); successful++; continue; }
             if (filter) {
               this.countryFilters.set(target, filter);
               data = await this.reader.json(endpoint, { ...request, appliedFacets: filter });
@@ -330,10 +337,14 @@ export class EmployerFeedDiscovery {
           }
           if (!Array.isArray(data.jobPostings)) throw new Error('Invalid Workday career-site response.');
           rows = this.normalise(target, data.jobPostings.slice(0, 20));
-          if (!data.jobPostings.length || Number.isSafeInteger(data.total) && request.offset + data.jobPostings.length >= data.total) this.exhausted.set(queryKey, page + 1);
+          if (!data.jobPostings.length || Number.isSafeInteger(data.total) && request.offset + data.jobPostings.length >= data.total
+            || this.paging.repeated(queryKey, page, data.jobPostings.map((item: any) => item?.externalPath))) {
+            this.paging.end(queryKey, page);
+          }
         } else {
           if (this.brandedSearches.has(target)) {
             rows = await this.brandedSearch(target, keyword, page);
+            hasMore ||= !this.paging.exhausted(queryKey, page + 1);
             successful++; for (const job of rows) jobs.set(job.id, job); await this.health.healthy(this.healthKey(target));continue;
           }
           const { url } = careerTarget('pageup', target);
@@ -344,6 +355,7 @@ export class EmployerFeedDiscovery {
           catch (error) {
             if (!(error instanceof PageUpCareerRedirect)) throw error;
             rows = await this.brandedSearch(target, keyword, page, error.destination);
+            hasMore ||= !this.paging.exhausted(queryKey, page + 1);
             successful++; for (const job of rows) jobs.set(job.id, job); await this.health.healthy(this.healthKey(target));continue;
           }
           const { document } = parseHTML(html);
@@ -351,6 +363,7 @@ export class EmployerFeedDiscovery {
           const brandedForm = document.querySelector('form.job-search-results-form[action]')?.getAttribute('action');
           if (brandedForm && new URL(brandedForm, search).hostname !== url.hostname) {
             rows = await this.brandedSearch(target, keyword, page, new URL(brandedForm, search).href);
+            hasMore ||= !this.paging.exhausted(queryKey, page + 1);
             successful++;for (const job of rows) jobs.set(job.id, job);await this.health.healthy(this.healthKey(target));continue;
           }
           if (!document.querySelector('#search-results-content')) throw new Error('PageUp search layout is not recognised; no jobs were assumed.');
@@ -361,18 +374,24 @@ export class EmployerFeedDiscovery {
               published: row?.querySelector('.open-date time')?.getAttribute('datetime'),
               closes: row?.querySelector('.close-date time')?.getAttribute('datetime'), teaser: row?.querySelector('.job-listing-left > p')?.textContent ?? (row?.nextElementSibling?.classList.contains('summary') ? row.nextElementSibling.textContent : '') };
           });
-          const returnedCards = rows.length;
+          const rawIds = rows.map(row => {
+            if (!row.url) return undefined;
+            try { return employerJobIdentity('pageup', new URL(row.url, url).href).posting; }
+            catch { return undefined; }
+          });
           rows = this.normalise(target, rows);
-          if (!returnedCards) this.exhausted.set(queryKey, page + 1);
-          const signature = rows.map(job => job.id).sort().join(',');
-          if (signature && this.pageSignatures.get(queryKey) === signature) {
+          if (!rawIds.length) this.paging.end(queryKey, page);
+          else if (this.paging.repeated(queryKey, page, rawIds)) {
             // Some themes ignore page/filter parameters. Recover the publisher's
             // complete public feed rather than silently hiding later vacancies.
-            rows = await this.pageupSnapshot(target);this.exhausted.set(queryKey, page + 1);
+            this.paging.end(queryKey, page);
+            rows = await this.pageupSnapshot(target);
           }
-          this.pageSignatures.set(queryKey, signature);
         }
-        if (this.source !== 'greenhouse') await this.health.healthy(this.healthKey(target));
+        if (this.source !== 'greenhouse') {
+          hasMore ||= !this.paging.exhausted(queryKey, page + 1);
+          await this.health.healthy(this.healthKey(target));
+        }
         successful++; for (const job of rows as JobListing[]) jobs.set(job.id, job);
       } catch (error) {
         if (this.source !== 'greenhouse') await this.health.failed(this.healthKey(target), (error as Error).message,
@@ -381,7 +400,7 @@ export class EmployerFeedDiscovery {
       }
     }
     if (!successful && !this.options.shouldStop?.()) throw new Error(`None of the selected ${this.source} employers could be searched.`);
-    return [...jobs.values()];
+    return { jobs: [...jobs.values()], hasMore };
   }
 
   async detail(stub: JobListing): Promise<JobListing> {

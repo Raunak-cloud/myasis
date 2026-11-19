@@ -39,6 +39,7 @@ import { discoverySearches, type DiscoverySearch } from './discovery-search.js';
 import { discoverySeeds } from './discovery-seeds.js';
 import { passesListingAge } from './listing-age.js';
 import { EmployerFeedDiscovery } from './employer-feeds.js';
+import type { EmployerFeedBatch } from './employer-feed-paging.js';
 import {workdaySearchCache} from './workday-search-cache.js';
 import {publicEmployerSearchCache} from './public-employer-search-cache.js';
 import type {PublicDirectorySource} from './public-employer-directory.js';
@@ -101,7 +102,7 @@ interface PlatformAdapter {
   scopedSearch?: boolean;
   newestFirst?: boolean;
   assertSignedIn: (page: Page) => Promise<void>;
-  search: (page: Page, keywords: string, pageNum: number, scope?: DiscoverySearch) => Promise<JobListing[]>;
+  search: (page: Page, keywords: string, pageNum: number, scope?: DiscoverySearch) => Promise<JobListing[] | EmployerFeedBatch>;
   fetchJobDetail: (page: Page, job: JobListing) => Promise<JobListing>;
   apply: (page: Page, job: JobListing, profile: CandidateProfile, deps: ApplyDeps) => Promise<ApplyOutcome>;
 }
@@ -153,7 +154,7 @@ if (employerFeedsEnabled(process.env)) {
   ADAPTERS.set('smartrecruiters', {
     id: 'smartrecruiters', label: 'SmartRecruiters', apiDiscovery: true,
     assertSignedIn: async () => {},
-    search: (_page, keyword, page) => discovery.search(keyword, page),
+    search: (_page, keyword, page) => discovery.searchBatch(keyword, page),
     fetchJobDetail: (_page, job) => discovery.detail(job),
     apply: async (page, job, profile, deps) => applyToEmployerJob(page, job, profile, deps, { refresh: job => discovery.detail(job) }),
   });
@@ -165,12 +166,13 @@ if (employerFeedsEnabled(process.env)) {
     const discovery = new EmployerFeedDiscovery(source.id, process.env[source.key] || undefined, {
       warn: message => console.warn(`  ! ${message}`), shouldStop:()=>runDeadline.reached,
       ...(source.id === 'pageup' || source.id === 'workday' ? { healthDirectory: resolve(import.meta.dirname, '../data/public-employer-feed-health') } : {}),
-      ...(source.id==='workday'?{additionalTargets:discoveredWorkdaySites(),fetch:workdaySearchCache(resolve(import.meta.dirname,'../data/public-workday-search-cache'))}
-        :source.id==='pageup'?{additionalTargets:discoveredPublicSites('pageup'),fetch:publicEmployerSearchCache(resolve(import.meta.dirname,'../data/public-employer-search-cache'))}:{}) });
+      additionalTargets: source.id === 'workday' ? discoveredWorkdaySites() : discoveredPublicSites(source.id),
+      ...(source.id==='workday'?{fetch:workdaySearchCache(resolve(import.meta.dirname,'../data/public-workday-search-cache'))}
+        :{fetch:publicEmployerSearchCache(resolve(import.meta.dirname,'../data/public-employer-search-cache'))}) });
     ADAPTERS.set(source.id, {
       id: source.id, label: source.label, apiDiscovery: true,
       assertSignedIn: async () => {},
-      search: (_page, keyword, page) => discovery.search(keyword, page),
+      search: (_page, keyword, page) => discovery.searchBatch(keyword, page),
       fetchJobDetail: (_page, job) => discovery.detail(job),
       apply: async (page, job, profile, deps) => applyToEmployerJob(page, job, profile, deps, { refresh: job => discovery.detail(job) }),
     });
@@ -547,33 +549,49 @@ async function main() {
       return runScope() === 'all' ? 0 : Number(!a.applicationMode || a.applicationMode === 'unknown') - Number(!b.applicationMode || b.applicationMode === 'unknown');
     };
 
-    let nextStream = 0;
-    const liveStreams = () => streams.filter((stream) => !stream.exhausted && !blockedPlatforms.has(stream.adapter.id));
+    const isHostedBoard = (id: PlatformId) => id === 'seek' || id === 'indeed';
+    const boardStreams = streams.filter(stream => isHostedBoard(stream.adapter.id));
+    const fallbackStreams = streams.filter(stream => !isHostedBoard(stream.adapter.id));
+    const startedBoards = new Set<PlatformId>();
+    const hasPages = (stream: SearchStream) => !stream.exhausted && !blockedPlatforms.has(stream.adapter.id);
+    let nextBoard = 0;
+    let nextFallback = 0;
+    let triedBoardContinuation = false;
+    let lastSearchWasBoard = true;
     /** Whether the job-title searches have pages they have not read yet. */
-    const searchesLeft = () => liveStreams().length > 0;
-    const boardSearchesLeft = () => liveStreams().some(stream => !stream.adapter.apiDiscovery);
+    const searchesLeft = () => streams.some(hasPages);
+    const boardSearchesLeft = () => boardStreams.some(hasPages);
     const discoveryLeft = () => searchesLeft();
-    /** Search one batch, then hand its jobs to review and applying. SEEK and
-     * Indeed take turns first; employer feeds are the fallback when they run out. */
+    /** Give SEEK and Indeed a first pass and a continuation. When another
+     * search is needed, alternate the two groups so a long tail of board
+     * pages cannot consume every remaining discovery turn. */
     const searchNextBatch = async (): Promise<void> => {
       if (runDeadline.reached) return;
-      const live = liveStreams();
-      const boardsLeft = live.some(stream => !stream.adapter.apiDiscovery);
-      const available = new Set(live.filter(stream => !boardsLeft || !stream.adapter.apiDiscovery));
+      const firstBoardPass = boardStreams.some(stream => hasPages(stream) && !startedBoards.has(stream.adapter.id));
+      const useFallback = canSearchFallback() && fallbackStreams.some(hasPages)
+        && (!boardSearchesLeft() || (!firstBoardPass && triedBoardContinuation && lastSearchWasBoard));
+      const lane = useFallback ? fallbackStreams : boardStreams;
       let stream: SearchStream | undefined;
-      for (let turn = 0; turn < streams.length; turn++) {
-        const candidate = streams[nextStream++ % streams.length];
-        if (available.has(candidate)) { stream = candidate; break; }
+      for (let turn = 0; turn < lane.length; turn++) {
+        const candidate = lane[(useFallback ? nextFallback++ : nextBoard++) % lane.length];
+        if (!hasPages(candidate) || (!useFallback && firstBoardPass && startedBoards.has(candidate.adapter.id))) continue;
+        stream = candidate;
+        break;
       }
       if (!stream) return;
       const current = stream;
+      lastSearchWasBoard = !useFallback;
+      if (!useFallback) {
+        if (startedBoards.has(current.adapter.id)) triedBoardContinuation = true;
+        startedBoards.add(current.adapter.id);
+      }
       const pageNumber = current.pages + 1;
       if (current.adapter.apiDiscovery && !streams.some(other => other.adapter === current.adapter && other.pages)) {
-        console.log(`${current.adapter.label} public job feed ready (admin only).`);
+        console.log(`${current.adapter.label} public job feed ready.`);
       }
-      let results: JobListing[];
+      let batch: Awaited<ReturnType<PlatformAdapter['search']>>;
       try {
-        results = await readPlatform(current.adapter.id, async () => {
+        batch = await readPlatform(current.adapter.id, async () => {
           await sitePacer.ready(current.adapter.id);
           if (runDeadline.reached) return [];
           try {
@@ -593,9 +611,12 @@ async function main() {
         else console.warn(`  ! ${current.adapter.label} search for "${current.keyword}" failed: ${(error as Error).message}`);
         return;
       }
+      const results = Array.isArray(batch) ? batch : batch.jobs;
       current.pages++;
       current.total += results.length;
-      current.ended = discoveryBatchEnd(results, current.seen, config.rules.maxAgeDays, current.adapter.newestFirst === true);
+      current.ended = Array.isArray(batch)
+        ? discoveryBatchEnd(results, current.seen, config.rules.maxAgeDays, current.adapter.newestFirst === true)
+        : batch.hasMore ? undefined : 'end';
       current.exhausted = Boolean(current.ended);
       const previousFound = seen.size;
       await rankNew(ingest(results, current.adapter));
@@ -669,6 +690,7 @@ async function main() {
     const preparedKeys = new Set<string>();
     const uncertainKeys = new Set<string>();
     let busyWorkers = 0;
+    let busyHostedWorkers = 0;
     let applied = 0;
     let prepared = 0;
     let rehearsed = 0;
@@ -829,7 +851,7 @@ async function main() {
     const reviewDone = () => limitReached() || reviewStopped || (!hasUnreviewed() && !discoveryLeft());
     /** Nothing left to review and no fit check still out. */
     const reviewExhausted = () => limitReached() || (reviewDone() && !pendingFits.length && !activeReviews.size);
-    const isHostedBoardJob = (job: JobListing) => !ADAPTERS.get(job.platform ?? 'seek')?.apiDiscovery
+    const isHostedBoardJob = (job: JobListing) => isHostedBoard(job.platform ?? 'seek')
       && job.applicationMode === 'hosted' && !stoppedPlatform(job.platform ?? 'seek');
     const hostedWorkPending = () => candidates.some(candidate => isHostedBoardJob(candidate.job))
       || hasPromisingUnreviewed(isHostedBoardJob)
@@ -837,8 +859,8 @@ async function main() {
       || pendingFits.some(item => isHostedBoardJob(item.job));
     // An idle second worker must not open employer feeds while the first can
     // still satisfy the run with hosted work. Its progress wakes the idle worker.
-    const canSearchMore = () => searchesLeft()
-      && (searchOnly || boardSearchesLeft() || (!busyWorkers && !hostedWorkPending()));
+    const canSearchFallback = () => searchOnly || (!busyHostedWorkers && !hostedWorkPending());
+    const canSearchMore = () => boardSearchesLeft() || (canSearchFallback() && fallbackStreams.some(hasPages));
 
     /** Reviews the next listing in the pre-ranked queue. */
     const jobLabel = (job: JobListing) => `${job.title} @ ${job.company}`;
@@ -1236,6 +1258,8 @@ async function main() {
           break;
         }
         busyWorkers++;
+        const hostedWorker = isHostedBoardJob(next.job);
+        if (hostedWorker) busyHostedWorkers++;
         let releaseDuplicateReview: (() => void) | undefined;
 
         try {
@@ -1498,6 +1522,7 @@ async function main() {
         } finally {
           releaseDuplicateReview?.();
           busyWorkers--;
+          if (hostedWorker) busyHostedWorkers--;
           workChanged();
         }
       }

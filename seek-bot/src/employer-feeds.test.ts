@@ -86,6 +86,23 @@ test('Greenhouse preserves actual publication dates and ignores edit dates; clos
   assert.equal(feedText('<script>private()</script><p>safe</p>'), 'safe');
 });
 
+test('Greenhouse searches both configured and discovered public boards exactly once', async () => {
+  const boards: string[] = [];
+  const api = new EmployerFeedDiscovery('greenhouse', 'fixture', { now, gapMs: 0,
+    additionalTargets: ['FIXTURE', 'https://job-boards.greenhouse.io/later', 'https://private.invalid/boards/ignore'],
+    fetch: async input => {
+      const board = new URL(String(input)).pathname.split('/')[3];
+      boards.push(board);
+      return response({ jobs: [{ ...greenhouse, title: `Role from ${board}` }] });
+    },
+  });
+  const snapshot = await api.searchBatch('software', 1);
+  assert.equal(snapshot.hasMore, false);
+  assert.deepEqual(snapshot.jobs.map(job => job.title), ['Role from fixture', 'Role from later']);
+  assert.deepEqual(await api.searchBatch('software', 2), { jobs: [], hasMore: false });
+  assert.deepEqual(boards, ['fixture', 'later']);
+});
+
 test('Workday uses its public careers search operation, stable job path, exact date and country on detail', async () => {
   const calls: Array<{ url: string; method?: string; body?: string }> = []; let country = 'Australia';
   const path = '/job/Sydney/Product-Engineer_JR123';
@@ -98,6 +115,36 @@ test('Workday uses its public careers search operation, stable job path, exact d
   assert.match(calls[0].url, /\/wday\/cxs\/fixture\/External\/jobs$/);
   const detail = await api.detail(jobs[0]); assert.equal(detail.ageDays, 2); assert.equal(detail.description, 'Build products'); assert.equal(detail.locationCountry, 'Australia');
   country = 'United States'; await assert.rejects(api.detail(jobs[0]), /not in Australia/);
+});
+
+test('Workday advances after an unreadable page and stops at the publisher total', async () => {
+  const offsets: number[] = [];
+  const api = new EmployerFeedDiscovery('workday', wdRoot, { now, gapMs: 0, fetch: async (_url, init) => {
+    const { offset } = JSON.parse(String(init?.body));
+    offsets.push(offset);
+    const jobPostings = offset === 0
+      ? Array.from({ length: 20 }, (_, index) => ({ externalPath: `/job/Sydney/Role_JR${index}` }))
+      : [{ title: 'Later match', locationsText: 'Sydney', externalPath: '/job/Sydney/Later_JR20' }];
+    return response({ total: 21, jobPostings });
+  } });
+  assert.deepEqual(await api.searchBatch('software', 1), { jobs: [], hasMore: true });
+  const last = await api.searchBatch('software', 2);
+  assert.deepEqual(last.jobs.map(job => job.title), ['Later match']);
+  assert.equal(last.hasMore, false);
+  assert.deepEqual(await api.searchBatch('software', 3), { jobs: [], hasMore: false });
+  assert.deepEqual(offsets, [0, 20]);
+});
+
+test('Workday bounds a repeating raw page even when none of its jobs can be read', async () => {
+  let calls = 0;
+  const api = new EmployerFeedDiscovery('workday', wdRoot, { now, gapMs: 0, fetch: async () => {
+    calls++;
+    return response({ total: 1000, jobPostings: [{ externalPath: '/job/Sydney/Role_JR1' }] });
+  } });
+  assert.deepEqual(await api.searchBatch('software', 1), { jobs: [], hasMore: true });
+  assert.deepEqual(await api.searchBatch('software', 2), { jobs: [], hasMore: false });
+  assert.deepEqual(await api.searchBatch('software', 3), { jobs: [], hasMore: false });
+  assert.equal(calls, 2);
 });
 
 test('PageUp follows public search paging and requires an active job, stable identity and description', async () => {

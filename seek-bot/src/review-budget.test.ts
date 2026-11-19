@@ -89,6 +89,13 @@ export class EmployerFeedDiscovery {
     const {search}=await import('./discovery.mjs?platform='+this.source);
     return search({worker:'feed-'+this.source},keyword,page);
   }
+  async searchBatch(keyword,page) {
+    const {jobs}=await import('./boundary.mjs');
+    return {
+      jobs: await this.search(keyword,page),
+      hasMore: jobs.some(job=>job.platform===this.source && (job.searchPage??1)>page),
+    };
+  }
   async detail(job) {
     const {fetchJobDetail}=await import('./discovery.mjs?platform='+this.source);
     return fetchJobDetail({worker:'feed-'+this.source},job);
@@ -234,6 +241,28 @@ test('hosted-board pagination gets its chance before the first employer-feed sea
     {apply:true,platforms:['seek','indeed','pageup'],reviews:200,cap:1});
   assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['later-hosted-match']);
   assert.equal(result.events.some(e=>e.stage==='search'&&e.id==='pageup'),false);
+});
+
+test('employer discovery gets a turn before long unproductive hosted streams use the review budget', () => {
+  const listings = Array.from({length: 10}, (_, i) => [
+    job(`seek-${i + 1}`, {searchPage:i + 1,fitReject:true}),
+    job(`indeed-${i + 1}`, {platform:'indeed',searchPage:i + 1,fitReject:true}),
+  ]).flat();
+  const result = run([...listings,job('feed-match',{platform:'pageup',applicationMode:'external'})],
+    {apply:true,platforms:['pageup','seek','indeed'],reviews:4,cap:1});
+  assert.deepEqual(result.events.filter(e=>e.stage==='search').map(e=>[e.id,e.pageNumber]),
+    [['seek',1],['indeed',1],['seek',2],['pageup',1]]);
+  assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['feed-match']);
+});
+
+test('an empty employer page can lead to a match after interleaved board discovery', () => {
+  const result = run([
+    ...Array.from({length: 10}, (_, i) => job(`board-${i + 1}`,{searchPage:i + 1,fitReject:true})),
+    job('feed-page-two',{platform:'pageup',applicationMode:'external',searchPage:2}),
+  ],{apply:true,platforms:['seek','pageup'],reviews:4,cap:1});
+  assert.deepEqual(result.events.filter(e=>e.stage==='search').map(e=>[e.id,e.pageNumber]),
+    [['seek',1],['seek',2],['pageup',1],['seek',3],['pageup',2]]);
+  assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['feed-page-two']);
 });
 
 test('an idle parallel worker does not search employer feeds while hosted applications can fill the target', () => {

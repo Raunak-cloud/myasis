@@ -3,10 +3,14 @@ import test from 'node:test';
 import type { query } from './db/index.js';
 import { expandedPublicEmployerSites } from './public-employer-directory.js';
 
-for (const source of ['pageup', 'smartrecruiters'] as const) test(`${source}: all users reuse public roots from settings/history/index/search within the existing global allowance`, async () => {
+for (const source of ['pageup', 'smartrecruiters', 'greenhouse'] as const) test(`${source}: all users reuse public roots from settings/history/index/search within the existing global allowance`, async () => {
   const sites = new Map<string, { target: string; label: string }>(), claims = new Set<string>(); let calls = 0, reservations = 0;
   const target = (n: number) => source === 'pageup' ? `https://careers.pageuppeople.com/${n}/cw/en` : `Employer${n}`;
-  const url = (n: number) => source === 'pageup' ? `${target(n)}/job/123/analyst?token=fictional-private` : `https://jobs.smartrecruiters.com/${target(n)}/123-analyst?token=fictional-private`;
+  const url = (n: number) => ({
+    pageup: `${target(n)}/job/123/analyst?token=fictional-private`,
+    smartrecruiters: `https://jobs.smartrecruiters.com/${target(n)}/123-analyst?token=fictional-private`,
+    greenhouse: `https://job-boards.greenhouse.io/${target(n)}/jobs/123?token=fictional-private`,
+  })[source];
   const db = (async (sql: string, params: any[] = []) => {
     if (sql.includes('SELECT DISTINCT url,company')) return [{ url: url(2), company: 'Public Employer' }];
     if (sql.startsWith('SELECT DISTINCT value')) return [{ value: target(3) }];
@@ -17,7 +21,13 @@ for (const source of ['pageup', 'smartrecruiters'] as const) test(`${source}: al
     throw Error(sql);
   }) as typeof query;
   const catalog = { key: 'fixture-only', reserveSearch: async () => { reservations++; return true; }, targets: async () => [target(4)] };
-  const network: typeof fetch = async input => { calls++; const u = new URL(String(input)); assert.equal(u.searchParams.get('country'), 'au'); return Response.json({ web: { results: [{ url: url(5) }, { url: 'https://private.invalid/company' }] } }); };
+  const network: typeof fetch = async input => {
+    calls++;
+    const u = new URL(String(input));
+    assert.equal(u.searchParams.get('country'), 'au');
+    assert.match(u.searchParams.get('q')!, new RegExp(`^site:${new URL(url(5)).hostname.replaceAll('.', '\\.')} "Australia"`));
+    return Response.json({ web: { results: [{ url: url(5) }, { url: 'https://private.invalid/company' }] } });
+  };
   const options = { db, catalog, network, now: () => 0 };
   const first = await expandedPublicEmployerSites(source, target(1), 'Data Analyst', true, options);
   assert.equal(first.length, 5); assert.ok(first.every(item => !item.includes('token='))); assert.equal(calls, 2); assert.equal(reservations, 2);

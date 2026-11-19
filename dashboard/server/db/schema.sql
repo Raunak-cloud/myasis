@@ -1185,15 +1185,21 @@ CREATE TABLE IF NOT EXISTS workday_directory_searches (
  query TEXT NOT NULL,day DATE NOT NULL DEFAULT current_date,PRIMARY KEY(query,day)
 );
 CREATE TABLE IF NOT EXISTS public_employer_directory (
- source TEXT NOT NULL CHECK(source IN ('pageup','smartrecruiters')),identity TEXT NOT NULL,
+ source TEXT NOT NULL,identity TEXT NOT NULL,
  target TEXT NOT NULL,label TEXT NOT NULL DEFAULT '',
  first_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
  PRIMARY KEY(source,identity)
 );
 CREATE TABLE IF NOT EXISTS public_employer_directory_searches (
- source TEXT NOT NULL CHECK(source IN ('pageup','smartrecruiters')),query TEXT NOT NULL,
+ source TEXT NOT NULL,query TEXT NOT NULL,
  day DATE NOT NULL DEFAULT current_date,PRIMARY KEY(source,query,day)
 );
+ALTER TABLE public_employer_directory
+ DROP CONSTRAINT IF EXISTS public_employer_directory_source_check,
+ ADD CONSTRAINT public_employer_directory_source_check CHECK (source IN ('pageup','smartrecruiters','greenhouse'));
+ALTER TABLE public_employer_directory_searches
+ DROP CONSTRAINT IF EXISTS public_employer_directory_searches_source_check,
+ ADD CONSTRAINT public_employer_directory_searches_source_check CHECK (source IN ('pageup','smartrecruiters','greenhouse'));
 
 -- Employer-first trial for accounts still getting started. Do not reset usage,
 -- choices or paid access, and never re-enrol accounts on later migrations.

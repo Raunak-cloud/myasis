@@ -22,8 +22,13 @@ export async function expandedPublicEmployerSites(source: PublicDirectorySource,
   const db = options.db ?? query, network = options.network ?? fetch;
   const spec = EMPLOYER_SOURCES.find(item => item.id === source)!;
   const configured = publicEmployerTargets(source, raw.split(','));
+  const sourceDomain = {
+    pageup: 'pageuppeople.com',
+    smartrecruiters: 'smartrecruiters.com',
+    greenhouse: 'greenhouse.io',
+  }[source];
   const rows = await db<{ url: string; company: string }>(`SELECT DISTINCT url,company FROM applications WHERE url LIKE $1
-    UNION SELECT DISTINCT application_url AS url,company FROM applications WHERE application_url LIKE $1`, [source === 'pageup' ? '%pageuppeople.com/%' : '%smartrecruiters.com/%']);
+    UNION SELECT DISTINCT application_url AS url,company FROM applications WHERE application_url LIKE $1`, [`%${sourceDomain}/%`]);
   const settings = await db<{ value: string }>('SELECT DISTINCT value FROM settings WHERE key=$1', [spec.key]);
   const savedTargets = settings.flatMap(row => publicEmployerTargets(source, row.value.split(',')));
   const candidates = publicEmployerCandidates(source, rows);
@@ -39,7 +44,7 @@ export async function expandedPublicEmployerSites(source: PublicDirectorySource,
   }
   if (catalog) { try { include(await catalog.targets(source)); } catch { /* The shared index may be unavailable; saved companies remain usable. */ } }
   if (discover && catalog?.key) {
-    const domain = source === 'pageup' ? 'careers.pageuppeople.com' : 'jobs.smartrecruiters.com';
+    const domain = new URL(spec.baseUrl).hostname;
     for (const term of ['', ...safeKeywords(keywords)].slice(0, 2)) {
       const text = `site:${domain} "Australia" ${term}`;
       const claim = await db('INSERT INTO public_employer_directory_searches(source,query) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING query', [source, text]);
