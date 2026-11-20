@@ -17,7 +17,7 @@ const job = (id: string, extra: Partial<FixtureJob> = {}): FixtureJob => ({
 
 /** Exercise the compiled main loop with offline boundary adapters, real history
  * and a one-review budget. No browser, model or employer is contacted. */
-function run(jobs: FixtureJob[], options: { targetedIds?:string[]; scope?: 'all' | 'external' | 'hosted'; waiting?: Array<{ job: FixtureJob; questions: BlockedQuestion[] }>; savedAnswers?: unknown[]; attentionOnFit?: { job: FixtureJob; questions: BlockedQuestion[] }; repairTarget?: FixtureJob; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; completed?: Array<{job:FixtureJob;decision:'apply'|'skip'|'uncertain'}>; retries?:TechnicalRetryCandidate[]; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[]; workArrangements?: string[]; onsiteCity?: string; platforms?: string[] } = {}) {
+function run(jobs: FixtureJob[], options: { targetedIds?:string[]; scope?: 'all' | 'external' | 'hosted'; waiting?: Array<{ job: FixtureJob; questions: BlockedQuestion[] }>; savedAnswers?: unknown[]; attentionOnFit?: { job: FixtureJob; questions: BlockedQuestion[] }; repairTarget?: FixtureJob; priorReviews?: Array<{ job: FixtureJob; description?: string; changedContext?: boolean }>; completed?: Array<{job:FixtureJob;decision:'apply'|'skip'|'uncertain'}>; retries?:TechnicalRetryCandidate[]; prepare?: boolean; approvedIds?: string[]; pendingKeys?: string[]; externalLimit?: number; instructions?: string; history?: AppliedRecord[]; apply?: boolean; queue?: boolean; platform?: 'seek' | 'indeed'; concurrency?: number; workers?: number; cap?: number; reviews?: number; failedParallelSignin?: boolean; cooldownMs?: number; dailyCap?: number; minScore?: number; maxAgeDays?: number; excludedCompanies?: string[]; workArrangements?: string[]; onsiteCity?: string; platforms?: string[]; model?: 'celeris' | 'minimax' } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'owtomate-review-budget-'));
   const url = (file: string) => pathToFileURL(join(directory, file)).href;
   try {
@@ -199,7 +199,7 @@ ${options.queue ? "process.argv[1]='queue.js';" : ''} await import('./main.mjs')
     const output = execFileSync(process.execPath, [join(directory, 'start.mjs'), ...(options.apply ? [] : ['--search-only'])], {
       encoding: 'utf8', timeout: 10_000,
       env: { ...process.env, DATA_DIR: directory, PROFILE_PATH: join(directory, 'profile.txt'),
-        CELERIS_API_KEY: 'fixture-only', COVER_LETTER_MODE: 'tailored',
+        APPLICATION_AI_MODEL: options.model ?? 'celeris', CELERIS_API_KEY: 'fixture-only', OPENROUTER_API_KEY: 'fixture-only', COVER_LETTER_MODE: 'tailored',
         APPLICATION_REVIEW_MODE: options.prepare ? 'prepare' : options.approvedIds ? 'approved' : '', APPLY_ONLY: options.scope ?? 'all',
         APPLICATION_WORKERS: String(options.workers ?? 1), DIRECT_EXTERNAL_JOB_URL: '', TARGETED_JOBS_JSON: '', TARGET_SEEK_JOBS: JSON.stringify(jobs.filter(item=>options.platform!=='indeed'&&options.targetedIds?.includes(item.id)).map(item=>({job_id:item.id,title:item.title,company:item.company}))), TARGET_INDEED_JOBS:JSON.stringify(jobs.filter(item=>options.platform==='indeed'&&options.targetedIds?.includes(item.id)).map(item=>({job_id:item.id,title:item.title,company:item.company}))), OWTOMATE_REPAIR_CASE_ID: options.repairTarget ? 'fixture-repair' : '', TARGET_REPAIR_JOB_JSON: options.repairTarget ? JSON.stringify(options.repairTarget) : '', EMPLOYER_FEEDS_ADMIN_ENABLED: options.platforms?.some(id => !['seek', 'indeed'].includes(id)) ? 'true' : 'false', SMARTRECRUITERS_ADMIN_ENABLED: 'false' },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -225,6 +225,18 @@ test('an unsuitable first batch resumes discovery but does not delay the next re
   assert.deepEqual(result.events.filter(e=>e.stage==='search').map(e=>e.pageNumber),[1,2]);
   assert.deepEqual(result.events.filter(e=>e.stage==='fit').map(e=>e.id),['rejected','next-match']);
   assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['next-match']);
+});
+
+test('MiniMax searches for an 80-point listing before using a 79-point fallback', () => {
+  const first = job('first-page-fallback', { reviewPriority: 79 });
+  const second = job('second-page-priority', { searchPage: 2, reviewPriority: 80 });
+  const options = { apply: true, cap: 1, reviews: 2 };
+  const minimax = run([first, second], { ...options, model: 'minimax' });
+  const celeris = run([first, second], { ...options, model: 'celeris' });
+  const fallback = run([first], { ...options, model: 'minimax' });
+  assert.deepEqual(minimax.events.filter(e => e.stage === 'apply').map(e => e.id), [second.id]);
+  assert.deepEqual(celeris.events.filter(e => e.stage === 'apply').map(e => e.id), [first.id]);
+  assert.deepEqual(fallback.events.filter(e => e.stage === 'apply').map(e => e.id), [first.id]);
 });
 
 for (const prepare of [false,true]) test(`${prepare?'Semi auto':'Auto apply'} never searches employer feeds when SEEK and Indeed fill the application target`, () => {

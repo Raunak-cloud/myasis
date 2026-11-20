@@ -1,8 +1,11 @@
+import { CUSTOMER_APPLICATION_MODEL, type ApplicationModel } from './application-model-catalog.js';
 import { listingAgeDays } from './listing-age.js';
 import type { JobListing } from './types.js';
 
 /** Lightweight-ranking score that counts as useful discovery yield. */
-export const DISCOVERY_PRIORITY_FLOOR = 50;
+export function discoveryPriorityFloor(model: ApplicationModel): number {
+  return model === 'minimax' ? 80 : 50;
+}
 
 /** Preserve hosted-board preference for promising jobs. Below that band,
  * the matching agent's priority comes before source/recommendation badges:
@@ -10,10 +13,11 @@ export const DISCOVERY_PRIORITY_FLOOR = 50;
 export function discoveryReviewOrder(
   a: { priority: number; hosted: boolean; recommended: boolean },
   b: { priority: number; hosted: boolean; recommended: boolean },
+  priorityFloor = discoveryPriorityFloor(CUSTOMER_APPLICATION_MODEL),
 ): number {
-  const promising = Number(b.priority >= DISCOVERY_PRIORITY_FLOOR) - Number(a.priority >= DISCOVERY_PRIORITY_FLOOR);
+  const promising = Number(b.priority >= priorityFloor) - Number(a.priority >= priorityFloor);
   if (promising) return promising;
-  if (a.priority < DISCOVERY_PRIORITY_FLOOR && a.priority !== b.priority) return b.priority - a.priority;
+  if (a.priority < priorityFloor && a.priority !== b.priority) return b.priority - a.priority;
   return Number(b.hosted) - Number(a.hosted) || Number(b.recommended) - Number(a.recommended) || b.priority - a.priority;
 }
 

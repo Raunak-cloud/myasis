@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { boardAgeWindow, discoveryBatchEnd, discoveryReviewOrder } from './discovery-policy.js';
+import { boardAgeWindow, discoveryBatchEnd, discoveryPriorityFloor, discoveryReviewOrder } from './discovery-policy.js';
 import { parseAgeDays } from './discovery.js';
 import { searchUrl as seekSearchUrl } from './discovery.js';
 import { searchUrl as indeedSearchUrl } from './discovery-indeed.js';
@@ -17,6 +17,15 @@ test('agent ranking beats weak board badges while promising hosted matches retai
   assert.ok(discoveryReviewOrder(rank(40), rank(0, false, true)) < 0);
   const items = [rank(0,true,true),rank(40),rank(90),rank(80,true),rank(10)];
   assert.deepEqual(items.sort(discoveryReviewOrder).map(item => item.priority), [80,90,40,10,0]);
+});
+
+test('MiniMax starts the priority band at 80 while Celeris starts it at 50', () => {
+  const hosted = { priority: 79, hosted: true, recommended: true };
+  const external = { priority: 80, hosted: false, recommended: false };
+  assert.equal(discoveryPriorityFloor('minimax'), 80);
+  assert.equal(discoveryPriorityFloor('celeris'), 50);
+  assert.ok(discoveryReviewOrder(hosted, external, discoveryPriorityFloor('minimax')) > 0);
+  assert.ok(discoveryReviewOrder(hosted, external, discoveryPriorityFloor('celeris')) < 0);
 });
 
 test('age-window discovery continues beyond six short batches, ending only on age, exhaustion or repeats', () => {

@@ -7,7 +7,7 @@ import { applyToJobWithAgent, type ApplyDeps } from './agent/apply-agent.js';
 import { applyToEmployerJob } from './agent/apply-employer-job.js';
 import { withApplicationAllowance } from './application-allowance.js';
 import { applicationFailureContext } from './application-diagnostics.js';
-import { assertReviewModelConfigured, applicationAgentIdentity, assertApplicationBrowserConfigured } from './application-model.js';
+import { assertReviewModelConfigured, applicationAgentIdentity, applicationModelIdentity, assertApplicationBrowserConfigured } from './application-model.js';
 import { applicationWorkerPage } from './application-worker-page.js';
 import { ApplicationSlots, AsyncMutex, nextApplicationCandidate, withApplicationWorker } from './application-workers.js';
 import { applyToIndeedJob } from './apply-indeed.js';
@@ -30,8 +30,8 @@ fetchJobDetail as fetchJobDetailIndeed,
 search as searchIndeed,
 } from './discovery-indeed.js';
 import {
-DISCOVERY_PRIORITY_FLOOR,
 discoveryBatchEnd,
+discoveryPriorityFloor,
 discoveryReviewOrder,
 } from './discovery-policy.js';
 import { fetchJobDetail, search } from './discovery.js';
@@ -265,6 +265,7 @@ async function main() {
     const seen = new Map<string, JobListing>();
     const shortlist: JobListing[] = [];
     const skips = new Map<string, number>();
+    const priorityFloor = discoveryPriorityFloor(applicationModelIdentity().selection);
     const reviewPriorities = new Map<string, { priority: number; reason: string }>();
     const active: PlatformAdapter[] = [];
     /** Each board's own polite gap between searches (seek-bot/src/pacing.ts). */
@@ -412,7 +413,7 @@ async function main() {
      */
     const isPromising = (job: JobListing): boolean =>
       passesListingAge(job, config.rules.maxAgeDays) && !priorRejections.has(listingKey(job)) && !(job.applicationMode && job.applicationMode !== 'unknown' && outsideScope(job.applicationMode))
-      && (!rankingAvailable || (reviewPriorities.get(reviewKey(job))?.priority ?? 0) >= DISCOVERY_PRIORITY_FLOOR);
+      && (!rankingAvailable || (reviewPriorities.get(reviewKey(job))?.priority ?? 0) >= priorityFloor);
 
     // Sign in before querying date-filtered searches. Homepage recommendations
     // have no date filter and are deliberately not part of automatic discovery.
@@ -544,7 +545,7 @@ async function main() {
       const priority = discoveryReviewOrder({ priority: reviewPriorities.get(reviewKey(a))?.priority ?? 0,
         hosted: a.applicationMode === 'hosted', recommended: a.source === 'recommended' },
       { priority: reviewPriorities.get(reviewKey(b))?.priority ?? 0,
-        hosted: b.applicationMode === 'hosted', recommended: b.source === 'recommended' });
+        hosted: b.applicationMode === 'hosted', recommended: b.source === 'recommended' }, priorityFloor);
       if (priority) return priority;
       return runScope() === 'all' ? 0 : Number(!a.applicationMode || a.applicationMode === 'unknown') - Number(!b.applicationMode || b.applicationMode === 'unknown');
     };
