@@ -97,6 +97,7 @@ const GROUPS: GroupSpec[] = [
     keys:[
       {key:'JOB_INDEX_DATABASE_URL',label:'Neon database connection',help:'Direct connection URL for the separate job database. Use TLS; this never changes the application database.',kind:'secret'},
       {key:'BRAVE_SEARCH_API_KEY',label:'Brave Search API key',help:'Public job discovery and optional HR research. The job crawler keeps its separate 20-search daily allowance.',kind:'secret'},
+      {key:'JOOBLE_API_KEY',label:'Jooble Australia API key',help:'Enables Jooble searches in the admin Jobs view. Kept on the server.',kind:'secret'},
     ],
   },
   {

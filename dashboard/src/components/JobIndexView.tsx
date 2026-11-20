@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../adminApi';
-import type { IndexedJob, MatchResult } from '../../server/job-index/types';
+import type { IndexedJob, JoobleSearchResult, MatchResult } from '../../server/job-index/types';
 import './JobIndexView.css';
 
 interface ManualSearch {id:string;provider:'brave'|'codex';state:string;stats:{newJobs?:number;fitUnavailable?:number};error:string|null}
@@ -61,6 +61,87 @@ function JobCard({record}:{record:JobRecord}) {
     </div></details>
   </article>;
 }
+function JoobleSearch() {
+  const [open, setOpen] = useState(false);
+  const [configured, setConfigured] = useState<boolean | null>(null);
+  const [configError, setConfigError] = useState('');
+  const [keywords, setKeywords] = useState('');
+  const [location, setLocation] = useState('');
+  const [results, setResults] = useState<JoobleSearchResult | null>(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let current = true;
+    api<{ configured: boolean }>('/job-index/jooble').then(({ configured }) => {
+      if (!current) return;
+      setConfigured(configured);
+      setConfigError('');
+    }).catch((failure: Error) => {
+      if (current) setConfigError(failure.message);
+    });
+    return () => { current = false; };
+  }, [open]);
+
+  async function search(page: number) {
+    setLoading(true);
+    setError('');
+    try {
+      setResults(await api<JoobleSearchResult>('/job-index/jooble', {
+        method: 'POST',
+        json: { keywords: keywords.trim(), location: location.trim(), page },
+      }));
+    } catch (failure) {
+      setError((failure as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setResults(null);
+    void search(1);
+  }
+
+  return <details className="card job-index jooble-search" onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary>Search Jooble Australia</summary>
+    {configError && <p className="banner banner-bad" role="alert">{configError}</p>}
+    {configured === null && !configError && <p className="job-meta" role="status">Checking Jooble setup…</p>}
+    {configured === false && <p className="job-meta">Add an Australian Jooble API key in Admin → Config → Job discovery.</p>}
+    {configured && <>
+      <form className="jooble-search-form" onSubmit={submit}>
+        <label>Job title or keywords
+          <input className="input" required maxLength={160} value={keywords} disabled={loading}
+            onChange={event => { setKeywords(event.target.value); setResults(null); setError(''); }} />
+        </label>
+        <label>Australian location
+          <input className="input" required maxLength={160} value={location} disabled={loading}
+            onChange={event => { setLocation(event.target.value); setResults(null); setError(''); }} />
+        </label>
+        <button type="submit" className="btn primary" disabled={loading || !keywords.trim() || !location.trim()}>Search</button>
+      </form>
+      {error && <p className="banner banner-bad" role="alert">{error}</p>}
+      <div role="status" className="job-meta">
+        {loading ? 'Searching Jooble…' : results && (results.jobs.length
+          ? `${results.jobs.length} ${results.jobs.length === 1 ? 'job' : 'jobs'} on page ${results.page}`
+          : 'No jobs found on this page.')}
+      </div>
+      {!!results?.jobs.length && <ul className="jooble-search-results" aria-label="Jooble results">
+        {results.jobs.map(job => <li key={job.url}>
+          <h3><a href={job.url} target="_blank" rel="noopener noreferrer">{job.title}</a></h3>
+          <p className="job-meta">{[job.company, job.location, job.type, job.salary, job.source].filter(Boolean).join(' · ')}</p>
+        </li>)}
+      </ul>}
+      {results && (results.page > 1 || results.hasMore) && <div className="job-index-actions job-index-pagination" role="group" aria-label="Jooble result pages">
+        <button className="btn" disabled={loading || results.page <= 1} onClick={() => void search(results.page - 1)}>Previous</button>
+        <button className="btn" disabled={loading || !results.hasMore} onClick={() => void search(results.page + 1)}>Next</button>
+      </div>}
+    </>}
+  </details>;
+}
+
 export function JobIndexView() {
   const [status,setStatus]=useState<Status|null>(null),[results,setResults]=useState<Results|null>(null),[error,setError]=useState('');
   const [query,setQuery]=useState(''),[arrangement,setArrangement]=useState(''),[pay,setPay]=useState(''),[user,setUser]=useState(''),[page,setPage]=useState(0),[revision,setRevision]=useState(0),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true);
@@ -78,7 +159,7 @@ export function JobIndexView() {
   async function toggle(){if(!status)return;setBusy(true);try{await api('/job-index/control',{method:'POST',json:{enabled:!status.enabled}});setRevision(v=>v+1);}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
   async function search(provider:'brave'|'codex'){setBusy(true);setError('');try{await api('/job-index/search',{method:'POST',json:{provider}});setRevision(v=>v+1);}catch(e){setError((e as Error).message);}finally{setBusy(false);}}
   const latest=status?.searches?.[0];
-  return <section className="card job-index" aria-label="Saved jobs" aria-busy={loading}>
+  return <><JoobleSearch /><section className="card job-index" aria-label="Saved jobs" aria-busy={loading}>
     <div className="job-index-toolbar">{status&&<p className="job-meta">{status.counts.fresh_jobs.toLocaleString()} matching {status.counts.fresh_jobs===1?'job':'jobs'} · {status.profiles} paid accounts · {status.enabled?'Manual search':'Paused'}</p>}<div className="job-index-actions"><button className="btn" onClick={()=>setRevision(v=>v+1)}>Refresh</button>{status&&<button className="btn" disabled={busy} onClick={()=>void toggle()}>{status.enabled?'Pause crawler':'Resume crawler'}</button>}</div></div>
     {status&&<div className="job-index-actions job-index-search-controls">
       <button className="btn" disabled={busy||active||!status.enabled||!status.searchConfigured} onClick={()=>void search('brave')}>Search with Brave</button>
@@ -98,5 +179,5 @@ export function JobIndexView() {
     {results?.jobs.map(record=><JobCard key={record.payload.id} record={record}/>)}
     {results&&!results.jobs.length&&<p className="job-meta">No matching jobs found.</p>}
     <div className="job-index-actions job-index-pagination"><button className="btn" disabled={loading||page===0} onClick={()=>setPage(v=>v-1)}>Previous</button><button className="btn" disabled={loading||!results?.hasMore} onClick={()=>setPage(v=>v+1)}>Next</button></div>
-  </section>;
+  </section></>;
 }

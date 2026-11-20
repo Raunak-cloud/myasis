@@ -22,6 +22,7 @@ import { billingStatus, isAdmin } from './billing.js';
 import { adminOverridesFor, entitlementsFor, RUN_TIME_ZONE, setAdminOverrides } from './entitlements.js';
 import { changeSchedule, scheduleFor } from './run-schedule.js';
 import { indexConfig, indexStore } from './job-index/config.js';
+import { JoobleSearchError, searchJooble } from './job-index/jooble.js';
 import {requestSearch,searchStatus,ManualSearchError} from './job-index/manual.js';
 import { applyEnvChanges, envReport, restartDashboard } from './env-settings.js';
 import { readServerLogs, serverHealth } from './health.js';
@@ -490,6 +491,18 @@ export async function handleAdminRequest(
   let match: RegExpMatchArray | null;
 
   try {
+    if (path === '/job-index/jooble') {
+      const apiKey = (process.env.JOOBLE_API_KEY ?? readEnv().JOOBLE_API_KEY ?? '').trim();
+      if (method === 'GET') return send({ configured: Boolean(apiKey) });
+      if (method !== 'POST') return send({ error: 'Method not allowed.' }, 405);
+      if (!apiKey) return send({ error: 'Add the Australian Jooble API key under Admin → Config → Job discovery.' }, 503);
+      try {
+        return send(await searchJooble(apiKey, await readBody()));
+      } catch (error) {
+        if (error instanceof JoobleSearchError) return send({ error: error.message }, error.status);
+        throw error;
+      }
+    }
     if (path === '/job-index' || path.startsWith('/job-index/')) {
       const store=indexStore();
       if(!store)return send({error:'Connect Neon in Admin → Config → Job discovery.'},503);

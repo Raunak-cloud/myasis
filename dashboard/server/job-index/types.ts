@@ -34,3 +34,19 @@ export interface MatchResult extends Omit<PreliminaryMatch,'status'> {
 }
 /** In-memory only; never serialised to the external catalog or search provider. */
 export interface FitEvidence {resume:string;instructions:string}
+
+export interface JoobleJob {
+  title: string;
+  company: string;
+  location: string;
+  salary: string;
+  type: string;
+  source: string;
+  url: string;
+}
+
+export interface JoobleSearchResult {
+  jobs: JoobleJob[];
+  page: number;
+  hasMore: boolean;
+}

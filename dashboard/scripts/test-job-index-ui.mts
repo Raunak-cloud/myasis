@@ -16,10 +16,19 @@ const job=normaliseJob({title:'Graduate Data Analyst',hiringOrganization:{name:'
 const match={status:'matched',keywords:['Data analyst'],skills:['Python','SQL'],reasons:['Relevant work'],preferences:{arrangement:'compatible',location:'mentioned'},review:{policy:'resume-fit-v1',model:'minimax/minimax-m3.1-flash',score:88,reason:'The duties and candidate evidence align.'}};
 const record={payload:{...job,sourceId:'publisher-123',postedAt:'2026-11-01T00:00:00Z',expiresAt:'2026-12-01T00:00:00Z'},first_seen_at:'2026-11-04T00:00:00Z',verified_at:'2026-11-05T00:00:00Z',payload_hash:'fixture-snapshot',candidate_match:null,matches:[{userId:'183',matchedAt:'2026-11-05T00:00:00Z',match}]};
 let enabled=true;let manual:any=null;const providers:string[]=[];const reads:string[]=[];const errors:string[]=[];
+let catalogAvailable=true;
+const joobleRequests: unknown[] = [];
 try{
  const page=await browser.newPage({viewport:{width:1360,height:1000}});page.setDefaultTimeout(5000);page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/*',async route=>{
   const req=route.request(),url=new URL(req.url());if(url.origin!==origin)return route.abort();if(!url.pathname.startsWith('/api/'))return route.continue();
+  if(url.pathname==='/api/admin/job-index/jooble'){
+    if(req.method()==='GET')return route.fulfill({json:{configured:true}});
+    const search=req.postDataJSON();
+    joobleRequests.push(search);
+    return route.fulfill({json:{jobs:search.page===1?[{title:'Casual Chef',company:'Fixture Venue',location:'Sydney NSW',type:'Casual',salary:'',source:'Fixture Careers',url:'https://au.jooble.org/jdp/123'}]:[],page:search.page,hasMore:search.page===1}});
+  }
+  if(!catalogAvailable)return route.fulfill({status:503,json:{error:'Fixture saved jobs unavailable.'}});
   if(req.method()==='POST'){if(url.pathname.endsWith('/search')){const provider=req.postDataJSON().provider;providers.push(provider);manual={id:'manual',provider,state:'queued',stats:{},error:null};return route.fulfill({status:202,json:manual});}assert.equal(url.pathname,'/api/admin/job-index/control');enabled=req.postDataJSON().enabled;return route.fulfill({json:{ok:true}});}
   reads.push(url.search);return route.fulfill({json:url.pathname.endsWith('/status')?{enabled,searchConfigured:true,codexConnected:true,searches:manual?[manual]:[],counts:{jobs:1,fresh_jobs:1},profiles:2,cycles:[]}:{jobs:[record],hasMore:false}});
  });
@@ -33,6 +42,19 @@ try{
  const output=resolve(import.meta.dirname,'../../output/job-index-preview');mkdirSync(output,{recursive:true});await page.screenshot({path:resolve(output,'desktop.png')});
  await page.setViewportSize({width:390,height:844});await page.getByText('Job details',{exact:true}).click();assert.ok(await page.getByText('Students',{exact:false}).first().isVisible());await page.getByText('88% match',{exact:true}).waitFor();assert.ok(await page.getByText('publisher-123',{exact:true}).isVisible());assert.ok(await page.getByText('First found',{exact:true}).isVisible());await page.getByText('Source evidence and record metadata',{exact:true}).click();assert.ok(await page.getByText('fixture-snapshot',{exact:true}).isVisible());
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'mobile layout must not overflow');await page.screenshot({path:resolve(output,'mobile.png'),fullPage:true});assert.equal(errors.length,0);
+ catalogAvailable=false;
+ await page.getByRole('button',{name:'Refresh',exact:true}).click();
+ await page.getByText('Fixture saved jobs unavailable.').waitFor();
+ await page.getByText('Search Jooble Australia',{exact:true}).click();
+ await page.getByLabel('Job title or keywords').fill('  casual chef  ');
+ await page.getByLabel('Australian location').fill('  Sydney  ');
+ await page.getByRole('button',{name:'Search',exact:true}).click();
+ const joobleListing=page.getByRole('link',{name:'Casual Chef',exact:true});
+ await joobleListing.waitFor();
+ assert.equal(await joobleListing.getAttribute('href'),'https://au.jooble.org/jdp/123');
+ await page.getByRole('group',{name:'Jooble result pages'}).getByRole('button',{name:'Next'}).click();
+ await page.getByText('No jobs found on this page.').waitFor();
+ assert.deepEqual(joobleRequests,[1,2].map(page=>({keywords:'casual chef',location:'Sydney',page})));
  // Exercise the actual app shell: only admins can see or load the Jobs tab.
  for(const admin of [true,false]){
    const context=await browser.newContext({viewport:{width:1360,height:1000}});await context.addInitScript(()=>localStorage.setItem('myasis-signed-in','1'));
@@ -62,5 +84,5 @@ try{
    await context.close();
  }
  assert.equal(errors.length,0);
- console.log('PASS: admin-only Jobs sidebar and deep-link guard, complete job metadata/matches, filters, pause/resume and mobile layout. Synthetic APIs only.');
+ console.log('PASS: admin-only Jobs and deep-link guard, catalog controls, Jooble search and pagination, and mobile layout. Synthetic APIs only.');
 }finally{await browser.close();await server.close();}

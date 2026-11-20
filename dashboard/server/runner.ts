@@ -144,7 +144,8 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
     APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: applicationScreenshotsForAccount(selectedSettings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, admin, selected),
     // Only the authorized provider credential enters the account's run context.
     ADZUNA_ENABLED: serverEnv.ADZUNA_ENABLED || '', ADZUNA_APP_ID: serverEnv.ADZUNA_APP_ID || '', ADZUNA_APP_KEY: serverEnv.ADZUNA_APP_KEY || '',
-    ...credentials, WORKDAY_DIRECTORY_FILE: workdayDirectoryFile, PUBLIC_EMPLOYER_DIRECTORY_FILE: publicEmployerDirectoryFile };
+    // Workers load the shared .env file on startup. Keep Jooble's admin credential out of their environment.
+    JOOBLE_API_KEY: '', ...credentials, WORKDAY_DIRECTORY_FILE: workdayDirectoryFile, PUBLIC_EMPLOYER_DIRECTORY_FILE: publicEmployerDirectoryFile };
 }
 
 /** Retired experiment settings and credentials never reach a new worker. */
