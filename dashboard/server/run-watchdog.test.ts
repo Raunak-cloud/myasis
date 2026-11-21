@@ -249,7 +249,9 @@ test('Linux forced stop kills its real worker and descendant while another run s
       try {
         descendantState = readFileSync(`/proc/${descendantPid}/stat`, 'utf8').split(') ')[1].split(' ')[0];
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        const code = (error as NodeJS.ErrnoException).code;
+        // The process can exit after /proc opens the file but before its state is read.
+        if (code !== 'ENOENT' && code !== 'ESRCH') throw error;
         descendantState = undefined;
       }
       if (descendantState === undefined || descendantState === 'Z') break;
