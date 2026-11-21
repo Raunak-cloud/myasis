@@ -18,6 +18,7 @@ const port = (listener.address() as { port: number }).port; await new Promise<vo
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-browser-gmail-'));
 const context = await chromium.launchPersistentContext(directory, { headless: true, args: [`--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1'], ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 let sends = 0, uploads = 0, confirmed = true, wrongAccount = false, mailboxUnavailable = false, emptySearch = false;
+let duplicateAttachmentControl = false;
 let emptyMessage = 'No conversations found.', relevanceSearch = false, chronological = false, sortRejected = false, sortSelections = 0;
 let messageBody = 'Your Fixture verification code: 482913';
 const gmailNavigations: string[] = [];
@@ -28,6 +29,7 @@ await context.route('**/*', route => {
   if (new URL(route.request().url()).pathname === '/fixture-send') { sends++; return route.fulfill({ body: '{}' }); }
   if (new URL(route.request().url()).pathname === '/fixture-sort') { sortSelections++; chronological = !sortRejected; return route.fulfill({ body: '{}' }); }
   let html = pageHtml();
+  if (duplicateAttachmentControl) html = html.replace('</section>', '<input type="file" multiple></section>');
   if (emptySearch) html = html.replace(/<table>.*?<\/table>/, `<div role="grid"><p>${emptyMessage}</p></div>`);
   else if (relevanceSearch) html = html.replace(/<table>.*?<\/table>/, `<button id="sort" onclick="document.getElementById('sort-menu').hidden=false">Showing most ${chronological ? 'recent' : 'relevant'}</button>
     <div id="sort-menu" role="menu" hidden><button role="menuitemradio" onclick="fetch('/fixture-sort').then(()=>{${sortRejected ? '' : "document.getElementById('sort').textContent='Showing most recent';document.getElementById('sort-menu').hidden=true"}})">Most recent Exact matches</button></div>
@@ -136,6 +138,16 @@ try {
   assert.equal(sends, 5); assert.equal(receipts.size, 5);
   const first = drafts.values().next().value!;
   assert.equal((await client.sendApproved(first.id, first.revision)).alreadySent, true); assert.equal(sends, 5);
+  duplicateAttachmentControl = true;
+  diagnostic = '';
+  try {
+    console.warn = (...parts) => { diagnostic = parts.join(' '); };
+    await assert.rejects(withGmailBrowser('browser-owner', page => sendBrowserApplication(page, first,
+      'candidate@fixture.invalid', Buffer.from('CV'), 'CV.txt')), /Gmail form could not be completed/);
+  } finally { console.warn = originalWarn; duplicateAttachmentControl = false; }
+  assert.match(diagnostic, /"phase":"selecting-attachments","failure":"multiple-controls","sendStarted":false/);
+  assert.doesNotMatch(diagnostic, /fixture\.invalid|approved cover letter|CV\.txt/);
+  assert.equal(sends, 5);
   wrongAccount = true; await assert.rejects(client.search('verification'), /authorization|Reconnect/); wrongAccount = false;
   confirmed = false;
   await assert.rejects(withGmailBrowser('browser-owner', page => sendBrowserApplication(page, first, 'candidate@fixture.invalid', Buffer.from('CV'), 'CV.txt')), /did not confirm/);

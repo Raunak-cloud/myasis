@@ -181,37 +181,64 @@ export async function readBrowserGmail(userId: string, threadId: string, signal?
     }, threadId);
   }, `#all/${threadId}`, 55_000, signal);
 }
+
+const COMPOSE_FAILURES = [
+  [/strict mode violation/i, 'multiple-controls'],
+  [/not attached|detached/i, 'detached-control'],
+  [/target page, context or browser has been closed|target closed|session closed/i, 'browser-closed'],
+  [/not editable|not an <input>|not an input element/i, 'not-editable'],
+  [/timeout.*exceeded/i, 'timeout'],
+] as const;
+
 export async function sendBrowserApplication(page: Page, draft: PreparedApplication, account: string, resume: Buffer, filename: string): Promise<{ id: string }> {
   const letter = draft.coverLetter;
   if (!draft.email || !letter || !account) throw new GmailServiceError('unapproved', 'No approved email.');
   let pressed = false;
+  let phase = 'opening-compose';
   try {
     await page.getByRole('button', { name: 'Compose', exact: true }).click({ timeout: 8000 });
     const dialog = page.getByRole('dialog').last();
+    phase = 'checking-sender';
     const from = dialog.locator('input[name="from"]');
     if (await from.count() && (await from.inputValue()).toLowerCase() !== account.toLowerCase()) throw new GmailServiceError('unapproved', 'Gmail selected a different sending address.');
     const recipient = dialog.locator('input[peoplekit-id], input[name="to"], input[aria-label="To recipients"]').first();
-    await recipient.fill(draft.email.to); await recipient.press('Enter');
+    phase = 'entering-recipient';
+    await recipient.fill(draft.email.to);
+    phase = 'confirming-recipient';
+    await recipient.press('Enter');
+    phase = 'entering-subject';
     await dialog.locator('input[name="subjectbox"]').fill(draft.email.subject);
     const body = dialog.locator('[role="textbox"][contenteditable="true"]').first();
+    phase = 'entering-message';
     await body.fill(letter);
     const files = [{ name: filename, mimeType: 'application/octet-stream', buffer: resume },
       ...(draft.email.attachCoverLetter ? [{ name: 'Cover letter.txt', mimeType: 'text/plain', buffer: Buffer.from(letter) }] : [])];
     // Gmail's native file input uploads the exact server-validated approved bytes.
+    phase = 'selecting-attachments';
     await dialog.locator('input[type="file"]').setInputFiles(files, { timeout: 10000 });
+    phase = 'waiting-for-attachments';
     for (const file of files) await dialog.getByText(file.name, { exact: false }).first().waitFor({ timeout: 20000 });
     await dialog.locator('[role="progressbar"]').waitFor({ state: 'hidden', timeout: 30000 });
     const paragraphs = (text: string) => text.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    phase = 'checking-message';
     if ((await dialog.locator('input[name="subjectbox"]').inputValue()) !== draft.email.subject
       || paragraphs(await body.innerText()) !== paragraphs(letter)) throw new GmailServiceError('unapproved', 'The Gmail draft differs from the approved application.');
+    phase = 'checking-recipient';
     const recipients = await dialog.locator('[email], [data-hovercard-id]').evaluateAll(nodes => nodes.map(node => (node as HTMLElement).getAttribute('email') || (node as HTMLElement).getAttribute('data-hovercard-id')).filter(Boolean));
     if (!recipients.length || recipients.some(email => email?.toLowerCase() !== draft.email!.to.toLowerCase())) throw new GmailServiceError('unapproved', 'The Gmail recipient differs from the approved application.');
     // Never accept a queued/scheduled email as a confirmed submission.
     const send = dialog.getByRole('button', { name: /^Send(?: \(|$)/ }).first();
+    phase = 'clicking-send';
     pressed = true; await send.click({ timeout: 10000 });
+    phase = 'waiting-for-send-confirmation';
     await page.locator('[role="alert"], [role="status"]').filter({ hasText: /\bMessage sent\b/ }).first().waitFor({ timeout: 15000 });
     return { id: `browser_${draft.id}_${draft.revision.slice(0, 12)}` };
   } catch (error) {
+    // Playwright's text can include values, attachment names and mailbox URLs.
+    const errorName = error instanceof Error && ERROR_NAMES.has(error.name) ? error.name : 'Error';
+    const failure = error instanceof GmailServiceError ? error.code
+      : COMPOSE_FAILURES.find(([pattern]) => error instanceof Error && pattern.test(error.message))?.[1] ?? errorName;
+    console.warn('[gmail-browser-send]', JSON.stringify({ reviewId: draft.id, phase, failure, sendStarted: pressed }));
     if (pressed) throw new GmailServiceError('uncertain', 'Gmail did not confirm sending. Check Sent before retrying.');
     if (error instanceof GmailServiceError) throw error;
     throw new GmailServiceError('reconnect', 'The Gmail form could not be completed. Reconnect browser Gmail and retry.');
