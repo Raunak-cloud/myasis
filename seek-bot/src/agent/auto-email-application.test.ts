@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'patchright';
 import { GmailMcpService, GmailServiceError } from '../gmail-mcp-service.js';
+import { withApplicationModel } from '../application-model.js';
 import { applicationRevision } from '../application-review-content.js';
 import { applicationEmailMessage } from '../application-email-message.js';
 import type { ToolContext } from './context.js';
@@ -21,6 +22,8 @@ const { runAgentOnlyApplication } = await import('./agent-only.js');
 const { outcomeFromRun } = await import('./outcome.js');
 config.dryRun = false;
 const deliveries = new Map<string, string>(); let requests = 0, uncertain = false;
+let beforeSendFailure = false;
+let failedRevision: string | undefined;
 const service = new GmailMcpService({ search: async () => [], thread: async () => [], send: async () => { throw Error('No manual approval exists'); },
   sendAutomatic: async (owner, run, draft) => {
     assert.equal(owner, 'owner'); assert.equal(run, '1378'); requests++;
@@ -31,6 +34,11 @@ const service = new GmailMcpService({ search: async () => [], thread: async () =
     assert.ok(mime.includes(bytes.toString('base64')));
     assert.ok(mime.replaceAll('\r\n','').includes(Buffer.from(draft.coverLetter!).toString('base64')));
     if (uncertain) throw new GmailServiceError('uncertain', 'No confirmed receipt');
+    if (beforeSendFailure) {
+      beforeSendFailure = false;
+      failedRevision = draft.revision;
+      throw new GmailServiceError('pre-send', 'Gmail stopped before Send at waiting-for-attachments. Resume listed, one upload indicator visible.');
+    }
     const key = draft.job.id + ':' + draft.revision;
     if (deliveries.has(key)) return { messageId: deliveries.get(key)!, alreadySent: true };
     deliveries.set(key, `receipt-${deliveries.size}`); return { messageId: deliveries.get(key)! };
@@ -71,24 +79,41 @@ try {
   const unauthorized = await prepareEmailApplication(context('read-only'), args);
   assert.ok(unauthorized.kind === 'terminal' && unauthorized.outcome.status === 'error'); assert.equal(requests, before, 'read-only leases cannot turn themselves into Auto permission');
   process.env.GMAIL_MCP_TOKEN = automatic.connection.token; uncertain = true;
-  const missingReceipt = await prepareEmailApplication(context('uncertain'), args);
+  const uncertainContext = context('uncertain');
+  const missingReceipt = await prepareEmailApplication(uncertainContext, args);
   assert.ok(missingReceipt.kind === 'terminal' && missingReceipt.outcome.status === 'error');
+  assert.equal(uncertainContext.submissionAttempted, true, 'a lost receipt never becomes permission to repeat a send');
   assert.equal(requests, before + 1, 'an uncertain send stops instead of preparing or sending again');
   const forged = await prepareEmailApplication(context('wrong-recipient'), {...args,to:'other@fixture.invalid'});
   assert.ok(forged.kind === 'ok' && forged.disposition === 'failed'); assert.equal(requests, before + 1);
   uncertain = false; config.allowExternalApply = true;
+  beforeSendFailure = true;
+  const retryContext = context('pre-send');
+  const recoverable = await prepareEmailApplication(retryContext, args);
+  assert.ok(recoverable.kind === 'ok' && recoverable.disposition === 'failed');
+  assert.match(recoverable.message, /"sendAttempted":false.*waiting-for-attachments/);
+  assert.equal(retryContext.submissionAttempted, false);
   const originalFetch = globalThis.fetch;
   try {
-    globalThis.fetch = async (url, init) => {
-      if (String(url).startsWith('http://127.0.0.1:')) return originalFetch(url, init);
-      return Response.json({choices:[{message:{role:'assistant',content:null,tool_calls:[{id:'auto-fixture',type:'function',function:{name:'prepare_email_application',arguments:JSON.stringify(args)}}]}}]});
-    };
-    const job = {id:'agent-auto',title:'Developer',company:'Fixture',location:'Sydney',url:page.url()};
-    const run = await runAgentOnlyApplication({page,job,profile:{name:'Fixture Candidate',email:'candidate@fixture.invalid',skills:[]} as never,log:()=>{}});
-    assert.equal(run.outcome.status,'applied');assert.equal(run.submitPressed,true);
-    const outcome = outcomeFromRun(run,job.id,page.url());
-    assert.equal(outcome.status,'applied');assert.equal(outcome.prepaid,true);
-    assert.equal(outcome.resume,'CV.txt');assert.equal(outcome.coverLetter,args.cover_letter);
+    for (const model of ['celeris', 'minimax']) {
+      beforeSendFailure = true;
+      const requestsBeforeRecovery = requests;
+      let modelTurns = 0;
+      globalThis.fetch = async (url, init) => {
+        if (String(url).startsWith('http://127.0.0.1:')) return originalFetch(url, init);
+        if (++modelTurns === 2) assert.match(String(init?.body), /failed-before-send.*waiting-for-attachments/);
+        return Response.json({choices:[{message:{role:'assistant',content:null,tool_calls:[{id:`auto-fixture-${modelTurns}`,type:'function',function:{name:'prepare_email_application',arguments:JSON.stringify(args)}}]}}]});
+      };
+      const job = {id:`agent-auto-${model}`,title:'Developer',company:'Fixture',location:'Sydney',url:page.url()};
+      const run = await withApplicationModel({ ...process.env, APPLICATION_AI_MODEL: model, OPENROUTER_API_KEY: 'fixture-only' },
+        () => runAgentOnlyApplication({page,job,profile:{name:'Fixture Candidate',email:'candidate@fixture.invalid',skills:[]} as never,log:()=>{}}));
+      assert.equal(run.outcome.status,'applied');assert.equal(run.submitPressed,true);
+      const outcome = outcomeFromRun(run,job.id,page.url());
+      assert.equal(outcome.status,'applied');assert.equal(outcome.prepaid,true);
+      assert.equal(outcome.resume,'CV.txt');assert.equal(outcome.coverLetter,args.cover_letter);
+      assert.equal(requests, requestsBeforeRecovery + 2, 'the agent receives a fresh turn and chooses to retry the same draft');
+      assert.ok(deliveries.has(`${job.id}:${failedRevision}`), 'recovery retains the exact draft revision');
+    }
   } finally { globalThis.fetch=originalFetch; }
   console.log('PASS: Auto email sends selected resume/letter through real MCP and records a receipt; Semi auto prepares only; duplicates, missing receipts, read-only leases, dry runs, allowance and recipient boundaries preserved.');
 } finally { await browser.close(); automatic.revoke(); readOnly.revoke(); await service.close(); rmSync(directory,{recursive:true,force:true}); }

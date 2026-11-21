@@ -9,7 +9,7 @@ import { readSavedForm } from './saved-form.js';
 import { ok, type ToolContext, type ToolResult } from './context.js';
 import type { PreparedApplication } from '../application-review-types.js';
 import { reviewingApplications, preparingApplications } from '../application-review.js';
-import { GmailMcpClient, safeGmailError } from '../gmail-mcp-client.js';
+import { GmailMcpClient, GmailPreSendError, safeGmailError } from '../gmail-mcp-client.js';
 import { config } from '../config.js';
 import { applicationAllowance } from '../application-allowance.js';
 
@@ -37,12 +37,20 @@ export async function prepareEmailApplication(ctx: ToolContext, args: Record<str
     if (!await applicationAllowance(true)) return { kind: 'terminal', outcome: { status: 'skipped', reason: 'The account application allowance has been reached.' } };
     const client = new GmailMcpClient({url: process.env.GMAIL_MCP_URL!, token: process.env.GMAIL_MCP_TOKEN!, account: process.env.GMAIL_MCP_ACCOUNT!});
     ctx.coverLetter = letter; ctx.resumeUsed = document.id; ctx.resumeName = document.fileName;
+    const previouslyAttempted = Boolean(ctx.submissionAttempted);
     ctx.submissionAttempted = true;
     try {
       const receipt = await client.sendAutomatic(draft);
       ctx.log(`  Gmail confirmed the Auto application email${receipt.alreadySent ? ' (already sent; no duplicate)' : ''}.`);
       return { kind: 'terminal', outcome: { status: 'applied', prepaid: true } };
     } catch (error) {
+      if (error instanceof GmailPreSendError && !previouslyAttempted) {
+        ctx.submissionAttempted = false;
+        return ok(JSON.stringify({
+          status: 'failed-before-send', sendAttempted: false, reason: error.message,
+          recovery: 'Use this evidence to decide whether to retry the exact same email or finish with the blocker. A retry opens a fresh Gmail compose. Preserve the recipient, message and documents. Stop if the same failure repeats without progress.',
+        }), 'failed');
+      }
       return { kind: 'terminal', outcome: { status: 'error', reason: safeGmailError(error).message, retryable: false } };
     } finally { await client.close(); }
   }

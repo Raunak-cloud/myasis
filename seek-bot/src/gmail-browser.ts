@@ -193,6 +193,10 @@ const COMPOSE_FAILURES = [
 export async function sendBrowserApplication(page: Page, draft: PreparedApplication, account: string, resume: Buffer, filename: string): Promise<{ id: string }> {
   const letter = draft.coverLetter;
   if (!draft.email || !letter || !account) throw new GmailServiceError('unapproved', 'No approved email.');
+  const files = [{ role: 'resume', name: filename, mimeType: 'application/octet-stream', buffer: resume },
+    ...(draft.email.attachCoverLetter ? [{ role: 'cover letter', name: 'Cover letter.txt', mimeType: 'text/plain', buffer: Buffer.from(letter) }] : [])];
+  const attachmentChecks = files.map(file => ({ role: file.role, state: 'unverified' }));
+  let visibleUploads: number | undefined;
   let pressed = false;
   let phase = 'opening-compose';
   try {
@@ -211,14 +215,29 @@ export async function sendBrowserApplication(page: Page, draft: PreparedApplicat
     const body = dialog.locator('[role="textbox"][contenteditable="true"]').first();
     phase = 'entering-message';
     await body.fill(letter);
-    const files = [{ name: filename, mimeType: 'application/octet-stream', buffer: resume },
-      ...(draft.email.attachCoverLetter ? [{ name: 'Cover letter.txt', mimeType: 'text/plain', buffer: Buffer.from(letter) }] : [])];
     // Gmail's native file input uploads the exact server-validated approved bytes.
     phase = 'selecting-attachments';
-    await dialog.locator('input[type="file"]').setInputFiles(files, { timeout: 10000 });
+    await dialog.locator('input[type="file"]').setInputFiles(files.map(({ name, mimeType, buffer }) => ({ name, mimeType, buffer })), { timeout: 10000 });
+    const attachmentLabels = files.map(file => dialog.getByText(file.name, { exact: false }).first());
     phase = 'waiting-for-attachments';
-    for (const file of files) await dialog.getByText(file.name, { exact: false }).first().waitFor({ timeout: 20000 });
-    await dialog.locator('[role="progressbar"]').waitFor({ state: 'hidden', timeout: 30000 });
+    const uploads = dialog.locator('[role="progressbar"]:visible');
+    try {
+      for (const [index, label] of attachmentLabels.entries()) {
+        await label.waitFor({ timeout: 20000 });
+        attachmentChecks[index].state = 'listed, upload unverified';
+      }
+      // This locator keeps resolving to an active bar as individual uploads finish.
+      await uploads.first().waitFor({ state: 'hidden', timeout: 30000 });
+    } catch (error) {
+      visibleUploads = await uploads.count().catch(() => undefined);
+      throw error;
+    }
+    phase = 'checking-attachments';
+    for (const [index, label] of attachmentLabels.entries()) {
+      const visible = await label.isVisible();
+      attachmentChecks[index].state = visible ? 'ready' : 'missing after upload';
+    }
+    if (attachmentChecks.some(attachment => attachment.state !== 'ready')) throw new Error('An expected attachment is missing after upload.');
     const paragraphs = (text: string) => text.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
     phase = 'checking-message';
     if ((await dialog.locator('input[name="subjectbox"]').inputValue()) !== draft.email.subject
@@ -238,9 +257,11 @@ export async function sendBrowserApplication(page: Page, draft: PreparedApplicat
     const errorName = error instanceof Error && ERROR_NAMES.has(error.name) ? error.name : 'Error';
     const failure = error instanceof GmailServiceError ? error.code
       : COMPOSE_FAILURES.find(([pattern]) => error instanceof Error && pattern.test(error.message))?.[1] ?? errorName;
-    console.warn('[gmail-browser-send]', JSON.stringify({ reviewId: draft.id, phase, failure, sendStarted: pressed }));
+    console.warn('[gmail-browser-send]', JSON.stringify({ reviewId: draft.id, phase, failure, sendStarted: pressed, attachmentChecks, visibleUploads }));
     if (pressed) throw new GmailServiceError('uncertain', 'Gmail did not confirm sending. Check Sent before retrying.');
     if (error instanceof GmailServiceError) throw error;
-    throw new GmailServiceError('reconnect', 'The Gmail form could not be completed. Reconnect browser Gmail and retry.');
+    const attachments = attachmentChecks.map(item => `${item.role} ${item.state}`).join(', ');
+    const uploads = visibleUploads === undefined ? '' : ` Upload indicators still visible: ${visibleUploads}.`;
+    throw new GmailServiceError('pre-send', `Gmail stopped before Send at ${phase} (${failure}). Attachments: ${attachments}.${uploads}`);
   }
 }

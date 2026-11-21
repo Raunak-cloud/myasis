@@ -99,7 +99,7 @@ const applicationToolDefinitions: ToolSchema[] = [
     submit_selector: { type: 'string', description: 'CSS selector for that final send control when a ref is unavailable.' },
     answers: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { question: string, answer: string }, required: ['question', 'answer'] } },
   }, ['answers', 'resume_id']),
-  schema('prepare_email_application', "Apply by email to the recipient shown on the employer page, including the resume and letter. Auto sends immediately; Semi auto prepares for confirmation.", {
+  schema('prepare_email_application', "Apply by email to the recipient shown on the employer page, including the resume and letter. Auto sends when ready. Semi auto prepares for confirmation. If Gmail reports a failure before Send, use its evidence to decide whether to retry the same email. Never repeat a possible send.", {
     to: string, subject: string, cover_letter: string, resume_id: string,
     attach_cover_letter: { type: 'boolean', description: 'Also attach the letter as a text document if requested. The letter is always included in the email body.' },
   }, ['to', 'subject', 'cover_letter', 'resume_id']),

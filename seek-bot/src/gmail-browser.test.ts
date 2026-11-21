@@ -19,6 +19,8 @@ const directory = mkdtempSync(join(tmpdir(), 'owtomate-browser-gmail-'));
 const context = await chromium.launchPersistentContext(directory, { headless: true, args: [`--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1'], ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
 let sends = 0, uploads = 0, confirmed = true, wrongAccount = false, mailboxUnavailable = false, emptySearch = false;
 let duplicateAttachmentControl = false;
+let staggerUploads = false;
+let uploadsAtSend: number | undefined;
 let emptyMessage = 'No conversations found.', relevanceSearch = false, chronological = false, sortRejected = false, sortSelections = 0;
 let messageBody = 'Your Fixture verification code: 482913';
 const gmailNavigations: string[] = [];
@@ -26,10 +28,24 @@ const letter = 'Dear team,\n\nThis is the exact approved cover letter.';
 const pageHtml = () => `<!doctype html><a aria-label="Google Account: ${wrongAccount ? 'other' : 'candidate'}@fixture.invalid"></a><main role="main"><table><tr><td data-thread-id="#thread-f:123456789" data-legacy-thread-id="fixturethread">Fixture code</td></tr></table><article data-message-id="message"><h2>Fixture verification</h2><span email="noreply@fixture.invalid"></span><div class="a3s">${messageBody}</div></article></main><button onclick="document.querySelector('[role=dialog]').hidden=false">Compose</button><section role="dialog" hidden><input name="to" onkeydown="if(event.key==='Enter'){const p=document.createElement('span');p.setAttribute('email',this.value);this.parentElement.append(p)}"><input name="subjectbox"><div role="textbox" contenteditable="true"></div><input type="file" multiple onchange="for(const f of this.files){const p=document.createElement('span');p.textContent=f.name;this.parentElement.append(p)}"><button onclick="fetch('/fixture-send',{method:'POST'}).then(()=>{${confirmed ? 'document.body.insertAdjacentHTML(\'beforeend\',\'<p role=status>Message sent</p>\')' : ''}})">Send</button></section>`;
 await context.route('**/*', route => {
   if (mailboxUnavailable) return route.abort();
-  if (new URL(route.request().url()).pathname === '/fixture-send') { sends++; return route.fulfill({ body: '{}' }); }
+  if (new URL(route.request().url()).pathname === '/fixture-send') {
+    if (staggerUploads) uploadsAtSend = Number(route.request().postData());
+    sends++; return route.fulfill({ body: '{}' });
+  }
   if (new URL(route.request().url()).pathname === '/fixture-sort') { sortSelections++; chronological = !sortRejected; return route.fulfill({ body: '{}' }); }
   let html = pageHtml();
   if (duplicateAttachmentControl) html = html.replace('</section>', '<input type="file" multiple></section>');
+  if (staggerUploads) {
+    html = html.replace("{method:'POST'}", "{method:'POST',body:String(document.querySelectorAll('[role=progressbar]').length)}");
+    html += `<script>document.querySelector('input[type=file]').addEventListener('change', event => {
+      for (const [index, file] of Array.from(event.target.files).entries()) {
+        const bar = document.createElement('div');
+        bar.setAttribute('role', 'progressbar'); bar.textContent = 'Uploading';
+        event.target.parentElement.append(bar);
+        setTimeout(() => bar.remove(), 700 + index * 900);
+      }
+    });</script>`;
+  }
   if (emptySearch) html = html.replace(/<table>.*?<\/table>/, `<div role="grid"><p>${emptyMessage}</p></div>`);
   else if (relevanceSearch) html = html.replace(/<table>.*?<\/table>/, `<button id="sort" onclick="document.getElementById('sort-menu').hidden=false">Showing most ${chronological ? 'recent' : 'relevant'}</button>
     <div id="sort-menu" role="menu" hidden><button role="menuitemradio" onclick="fetch('/fixture-sort').then(()=>{${sortRejected ? '' : "document.getElementById('sort').textContent='Showing most recent';document.getElementById('sort-menu').hidden=true"}})">Most recent Exact matches</button></div>
@@ -143,11 +159,19 @@ try {
   try {
     console.warn = (...parts) => { diagnostic = parts.join(' '); };
     await assert.rejects(withGmailBrowser('browser-owner', page => sendBrowserApplication(page, first,
-      'candidate@fixture.invalid', Buffer.from('CV'), 'CV.txt')), /Gmail form could not be completed/);
+      'candidate@fixture.invalid', Buffer.from('CV'), 'CV.txt')), /Gmail stopped before Send at selecting-attachments/);
   } finally { console.warn = originalWarn; duplicateAttachmentControl = false; }
   assert.match(diagnostic, /"phase":"selecting-attachments","failure":"multiple-controls","sendStarted":false/);
   assert.doesNotMatch(diagnostic, /fixture\.invalid|approved cover letter|CV\.txt/);
   assert.equal(sends, 5);
+  staggerUploads = true;
+  try {
+    const receipt = await withGmailBrowser('browser-owner', page => sendBrowserApplication(page, first,
+      'candidate@fixture.invalid', Buffer.from('CV'), 'CV.txt'));
+    assert.ok(receipt.id);
+    assert.equal(uploadsAtSend, 0, 'wait for the second file after the first progress bar disappears');
+    assert.equal(sends, 6);
+  } finally { staggerUploads = false; }
   wrongAccount = true; await assert.rejects(client.search('verification'), /authorization|Reconnect/); wrongAccount = false;
   confirmed = false;
   await assert.rejects(withGmailBrowser('browser-owner', page => sendBrowserApplication(page, first, 'candidate@fixture.invalid', Buffer.from('CV'), 'CV.txt')), /did not confirm/);

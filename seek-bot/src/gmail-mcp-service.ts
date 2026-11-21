@@ -8,8 +8,7 @@ import { GmailReadCancelledError } from './gmail-mcp-client.js';
 import type { PreparedApplication } from './application-review-types.js';
 
 export class GmailServiceError extends Error {
-  code: 'reconnect' | 'unavailable' | 'unapproved' | 'uncertain';
-  constructor(code: 'reconnect' | 'unavailable' | 'unapproved' | 'uncertain', message: string) { super(message); this.code = code; }
+  constructor(readonly code: 'reconnect' | 'unavailable' | 'unapproved' | 'pre-send' | 'uncertain', message: string) { super(message); }
 }
 export interface GmailBackend {
   search(userId: string, query: string, signal?: AbortSignal): Promise<GmailThread[]>;

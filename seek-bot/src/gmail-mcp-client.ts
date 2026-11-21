@@ -9,6 +9,8 @@ export const GMAIL_READ_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly'
 export const GMAIL_SEND_SCOPE = 'https://www.googleapis.com/auth/gmail.send';
 export const GMAIL_IO_TIMEOUT_MS = 120_000;
 export class GmailConnectionError extends Error {}
+/** The Gmail service confirmed that it stopped before trying to send. */
+export class GmailPreSendError extends GmailConnectionError {}
 export class GmailRequestTimeoutError extends GmailConnectionError {
   constructor() { super('The Gmail mailbox request timed out independently of the verification-email wait. Its result is incomplete.'); this.name = 'GmailRequestTimeoutError'; }
 }
@@ -80,6 +82,7 @@ export class GmailMcpClient {
         const message = typeof failure?.message === 'string' ? failure.message.slice(0, 500) : '';
         if (code === 'reconnect') throw new GmailConnectionError(`Reconnect Gmail in Settings. ${message || 'Mailbox authorization is unavailable.'}`);
         if (code === 'unavailable') throw new GmailConnectionError(message || 'Gmail is temporarily unavailable. Retry the mailbox request.');
+        if (code === 'pre-send') throw new GmailPreSendError(message || 'Gmail stopped before Send.');
         if (code === 'uncertain') throw new GmailConnectionError('The email send could not be confirmed. Check Gmail Sent before retrying; Owtomate will not send a duplicate.');
         if (code === 'unapproved') throw new GmailConnectionError(String((result.structuredContent as Record<string, unknown>)?.message || 'Review and confirm this email application again.').slice(0, 300));
         throw new GmailConnectionError('Gmail MCP could not complete this request. Check the Gmail connection and approved application.');
