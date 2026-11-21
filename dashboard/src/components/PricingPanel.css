@@ -45,12 +45,18 @@
   .pricing-dashboard .pricing-page { display: flex; flex-direction: column; flex: 1; }
   .pricing-page .pricing-grid { flex: 1; }
 }
+@media (min-width: 1200px) and (max-height: 900px) {
+  .pricing-page .pricing-features { gap: 9px; }
+}
 @media (min-width: 1200px) and (max-width: 1400px) {
   .main-shell.pricing-dashboard { padding-block: 12px; }
   .pricing-page .pricing-card { gap: 8px; padding: 12px 14px; }
   .pricing-plan-sources { min-height: 70px; padding-top: 8px; }
   .pricing-page .pricing-features { font-size: 13px; line-height: 1.35; gap: 6px; }
   .pricing-page .pricing-card .pricing-cta { height: 44px; min-height: 44px; padding-block: 6px; line-height: 1.25; }
+}
+@media (min-width: 1200px) and (max-width: 1300px) and (max-height: 900px) {
+  .pricing-page .pricing-features { line-height: 1.25; gap: 4px; }
 }
 
 @container pricing (max-width: 940px) {

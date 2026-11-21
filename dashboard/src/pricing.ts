@@ -126,7 +126,7 @@ export const PLAN_PRESENTATION = {
 const PLAN_FEATURE_HELP = [
   [/^\d+ free employer-site applications$/, 'Use these to apply on employer websites with guest forms.'],
   [/^Connect SEEK for \d+ extra free applications/, 'Get extra application credits when you connect your SEEK account.'],
-  [/scheduled runs? each day/, 'Owtomate starts these runs automatically when your schedule is on. Your mode determines whether it sends applications or prepares them for your review.'],
+  [/scheduled runs? each day/, 'With scheduling on, Owtomate starts this many runs automatically each day.'],
   [/^AI reviews up to \d+ jobs each run$/, 'How many job listings Owtomate can check for fit in one run.'],
   [/^Jobs that match your resume by at least /, 'A job needs this match score before Owtomate can apply or prepare it.'],
   [/^Only employer forms that do not require an account$/, 'Owtomate uses guest forms you can submit without signing in.'],
