@@ -67,6 +67,7 @@ try {
     const card = (name: string) => page.locator('article.pricing-card').filter({ has: page.getByRole('heading', { name, exact: true }) });
     await card('Essential Pass').getByRole('button', { name: 'Your pass is active' }).waitFor();
     const free=card('Free');assert.match(await free.innerText(),/5 free employer-site applications/);assert.match(await free.innerText(),/6 extra with SEEK \(11 total\)/);assert.match(await free.innerText(),/Forms without an account/);
+    assert.equal(await free.locator('.pricing-cta').count(), 0, 'Free has no plan action button');
     assert.equal(await free.locator('img[src="/platforms/jora.svg"]').count(),0);assert.equal(await free.locator('img[src="/platforms/indeed.svg"]').count(),0);
     for (const plan of ['Essential Pass', 'Active Search']) {
       for (const name of ['SEEK', 'Indeed', 'Jora', 'SmartRecruiters', 'Greenhouse']) {

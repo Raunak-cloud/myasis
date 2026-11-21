@@ -185,17 +185,15 @@ export function PricingPanel() {
       <div className="pricing-grid">
         {PLAN_CARDS.map((card) => {
           const isCurrent = card.key === current;
-          const paid = card.key !== 'free';
-          const offer = card.key !== 'free' ? status?.offers?.[card.key] : undefined;
+          const paidPlan = card.key !== 'free' ? card.key : undefined;
+          const offer = paidPlan ? status?.offers?.[paidPlan] : undefined;
           const upgrade = offer?.kind === 'upgrade' && offer.expiresAt ? offer : undefined;
-          const lowerPlan = paid && PLAN_CARDS.findIndex(plan => plan.key === card.key) < PLAN_CARDS.findIndex(plan => plan.key === current);
+          const lowerPlan = paidPlan !== undefined && PLAN_CARDS.findIndex(plan => plan.key === paidPlan) < PLAN_CARDS.findIndex(plan => plan.key === current);
           const unavailable = isCurrent || lowerPlan || offer?.kind === 'blocked';
-          const label = !paid
-            ? 'Included with every account'
-            : buying === card.key
-              ? 'Opening checkout…'
-              : isCurrent
-                ? 'Your pass is active'
+          const label = buying === card.key
+            ? 'Opening checkout…'
+            : isCurrent
+              ? 'Your pass is active'
               : lowerPlan
                 ? 'Lower plan unavailable'
               : offer?.kind === 'blocked'
@@ -268,14 +266,16 @@ export function PricingPanel() {
                   {card.key === 'intensive-pass' && featureItem('Email employers', true)}
                 </ul>
               </section>
-              <button
-                className={`btn pricing-cta ${card.recommended && !isCurrent ? 'primary' : ''}`}
-                disabled={!paid || checkoutDisabled || unavailable}
-                title={offer?.reason}
-                onClick={() => card.key !== 'free' && void buy(card.key)}
-              >
-                {label}
-              </button>
+              {paidPlan && (
+                <button
+                  className={`btn pricing-cta ${card.recommended && !isCurrent ? 'primary' : ''}`}
+                  disabled={checkoutDisabled || unavailable}
+                  title={offer?.reason}
+                  onClick={() => void buy(paidPlan)}
+                >
+                  {label}
+                </button>
+              )}
             </article>
           );
         })}
