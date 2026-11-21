@@ -32,7 +32,7 @@ const browser = await chromium.launch({ headless: true, ...(process.platform ===
 try {
   mkdirSync(resolve(dashboard, '../output'), { recursive: true });
   for (const {width,height} of [{width:1440,height:900},{width:1366,height:768},{width:1280,height:800},{width:900,height:1000},{width:390,height:844}]) {
-    const context = await browser.newContext({ viewport: { width, height } });
+    const context = await browser.newContext({ viewport: { width, height }, hasTouch: width <= 600 });
     const page = await context.newPage();
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));
@@ -88,6 +88,24 @@ try {
     assert.doesNotMatch(await card('Active Search').innerText(),/Web search/);
     assert.equal(await page.locator('.pricing-card details, .pricing-card summary').count(),0,'plan details have no accordion controls');
     assert.equal(await page.locator('.pricing-plan-details:visible').count(),4,'every plan shows its details immediately');
+    const featureRows = page.locator('.pricing-plan-details li');
+    assert.ok(await featureRows.evaluateAll(rows => rows.length > 0 && rows.every(row => {
+      const tips = row.querySelectorAll('.field-info[role="button"]');
+      return tips.length === 1 && tips[0].textContent?.trim() === '?' && (tips[0].getAttribute('aria-label')?.length ?? 0) > 20;
+    })), 'every plan detail includes one labelled question mark');
+    const reviewHelp = free.getByRole('button', { name: /^Reviews up to 30 jobs\/run/ });
+    await reviewHelp.scrollIntoViewIfNeeded();
+    if (width <= 600) await reviewHelp.tap();
+    else await reviewHelp.press('Enter');
+    const tip = page.getByRole('tooltip').filter({ hasText: 'How many job listings Owtomate can check for fit' });
+    await tip.waitFor({ state: 'visible' });
+    assert.ok(await tip.evaluate(el => {
+      const rect = el.getBoundingClientRect();
+      return rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight;
+    }), 'plan help stays inside the viewport');
+    await reviewHelp.press('Escape');
+    await tip.waitFor({ state: 'hidden' });
+    await reviewHelp.blur();
     assert.ok(await page.locator('.pricing-features').first().evaluate(el=>parseFloat(getComputedStyle(el).fontSize)>=13),'plan details are readable at every screen size');
     assert.ok(await page.locator('.pricing-source-brands img[src="/platforms/seek.svg"]').first().evaluate(el=>el.getBoundingClientRect().width<=48),'pricing logos stay compact');
     const ctaTops=await page.locator('.pricing-card .pricing-cta').evaluateAll(nodes=>nodes.map(n=>n.getBoundingClientRect().top));
@@ -100,7 +118,7 @@ try {
     }
     assert.match(await card('Essential Pass').locator('.pricing-price').innerText(),/30 days/);
     assert.equal(await page.getByRole('region',{name:'Free application offer'}).count(),0,'Plans and pricing omits the promotional banner');
-    assert.equal(await card('Essential Pass').getByRole('button').isDisabled(), true);
+    assert.equal(await card('Essential Pass').locator('button.pricing-cta').isDisabled(), true);
     assert.match(await card('Active Search').innerText(), /A\$8\.00/);
     assert.match(await card('Active Search').innerText(), /75 additional application credits/);
     assert.match(await card('Active Search').innerText(), /5 extra employer-site applications \(guest forms only\)/);
@@ -118,8 +136,8 @@ try {
     active.planKey = 'job-search-pass'; active.priceCents = 3499; active.applications = 200;
     await page.reload();
     await card('Essential Pass').getByRole('button', { name: 'Lower plan unavailable' }).waitFor();
-    assert.equal(await card('Essential Pass').getByRole('button').isDisabled(), true);
-    assert.equal(await card('Active Search').getByRole('button').isDisabled(), true);
+    assert.equal(await card('Essential Pass').locator('button.pricing-cta').isDisabled(), true);
+    assert.equal(await card('Active Search').locator('button.pricing-cta').isDisabled(), true);
     assert.equal(await card('Get Owtomated').getByRole('button', { name: 'Upgrade to Get Owtomated' }).isEnabled(), true);
     assert.equal(await page.locator('.pricing-topup').count(),0);
     await page.goto(origin + '/pricing-fixture.html?payment=success&session_id=fixture');

@@ -1,6 +1,6 @@
 import {dashboardGet} from '../dashboard-requests.js';
 import { useCallback, useEffect, useState } from 'react';
-import { aud, PAID_PLANS, PLAN_PRESENTATION, type PaidPlanKey, type PassPlanKey } from '../pricing';
+import { aud, PAID_PLANS, PLAN_PRESENTATION, planFeatureHelp, type PaidPlanKey, type PassPlanKey } from '../pricing';
 import { BILLING_CHANGED, type BillingStatus } from '../billing';
 import { trackRedditEvent } from '../redditPixel';
 import { trackMetaEvent } from '../metaPixel';
@@ -216,10 +216,8 @@ export function PricingPanel() {
           // Access dates sit beside the price; source names sit in the logo row.
           // Shared features are stated once below the comparison.
           const details = features.filter(feature => !/^\d+ days of access$|^Access until |^SEEK.* applications$|^SmartRecruiters, Greenhouse|^Personalised cover letters/.test(feature));
-          const featureItem = (feature: string, beta = false) => (
-            <li key={feature}>
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
-              <span>{feature.replace(/ · Auto apply or Semi auto$/, '').replace(/^Up to /, '')
+          const featureItem = (feature: string, beta = false) => {
+            const label = feature.replace(/ · Auto apply or Semi auto$/, '').replace(/^Up to /, '')
                 .replace(/ scheduled (runs?) each day$/, ' scheduled $1/day')
                 .replace(/^AI reviews up to (\d+) jobs each run$/, 'Reviews up to $1 jobs/run')
                 .replace(/^Connect SEEK for (\d+) extra free applications \((\d+) total\)$/, '$1 extra with SEEK ($2 total)')
@@ -227,13 +225,22 @@ export function PricingPanel() {
                 .replace(/^Choose your minimum match score: (\d+)% to (\d+)%$/, 'Adjustable match: $1–$2%')
                 .replace('Only employer forms that do not require an account', 'Forms without an account')
                 .replace('Advanced match and listing-age filters', 'Match & listing-age filters')
-                .replace('Supported employer-site applications', 'Employer-site applications')}
-                {beta && <> <span className="beta-flag">Beta</span>{' '}
-                  <InfoTip label="Email employers (beta)" icon="?" help="When enabled, Owtomate emails a short introduction from your connected Gmail after a run finishes, for new submitted applications where a suitable public hiring contact is found." />
-                </>}
-              </span>
-            </li>
-          );
+                .replace('Supported employer-site applications', 'Employer-site applications');
+            const help = planFeatureHelp(feature);
+            const lastWordStart = label.lastIndexOf(' ') + 1;
+            return (
+              <li key={feature}>
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+                <span>
+                  {label.slice(0, lastWordStart)}
+                  <span className="pricing-feature-end">
+                    {label.slice(lastWordStart)}{beta && <> <span className="beta-flag">Beta</span></>}
+                    {help && <> <InfoTip label={beta ? `${label} (beta)` : label} icon="?" help={help} /></>}
+                  </span>
+                </span>
+              </li>
+            );
+          };
           return (
             <article className={`pricing-card ${card.key === 'intensive-pass' ? 'premium' : ''} ${card.recommended ? 'recommended' : ''} ${isCurrent ? 'current' : ''}`} key={card.key}>
               <div className="pricing-plan-summary">

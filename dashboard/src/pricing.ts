@@ -123,6 +123,29 @@ export const PLAN_PRESENTATION = {
   },
 } as const;
 
+const PLAN_FEATURE_HELP = [
+  [/^\d+ free employer-site applications$/, 'Use these to apply on employer websites with guest forms.'],
+  [/^Connect SEEK for \d+ extra free applications/, 'Get extra application credits when you connect your SEEK account.'],
+  [/scheduled runs? each day/, 'Owtomate starts these runs automatically when your schedule is on. Your mode determines whether it sends applications or prepares them for your review.'],
+  [/^AI reviews up to \d+ jobs each run$/, 'How many job listings Owtomate can check for fit in one run.'],
+  [/^Jobs that match your resume by at least /, 'A job needs this match score before Owtomate can apply or prepare it.'],
+  [/^Only employer forms that do not require an account$/, 'Owtomate uses guest forms you can submit without signing in.'],
+  [/^\d+(?: additional)? application credits$/, 'One credit covers an application submitted for you or prepared for your review.'],
+  [/^Daily limit: \d+ applications$/, 'The most applications Owtomate can submit in one day.'],
+  [/^Choose your minimum match score:/, 'Choose the lowest match score a job needs to be considered for application.'],
+  [/^\d+(?: extra)? employer-site applications? \(guest forms only\)$/, 'You can use this many of your credits on employer forms that don’t require an account.'],
+  [/^Advanced match and listing-age filters$/, 'Choose how closely jobs should match and how recently they were posted.'],
+  [/^Unlimited applications$/, 'Use your daily application allowance throughout the pass with no total credit cap.'],
+  [/^No separate employer-site limit$/, 'Applications on employer websites count towards the daily application limit.'],
+  [/^Account creation with connected Gmail$/, 'Owtomate can create an employer account using your connected Gmail for verification.'],
+  [/^Web search for employer-site jobs$/, 'Owtomate searches the web for vacancies on employer careers pages.'],
+  [/^Priority support$/, 'Support requests from this plan are prioritised.'],
+  [/^Email employers$/, 'After your run, Owtomate can send an introduction from your Gmail for submitted applications when a public hiring contact is available.'],
+] as const;
+
+export const planFeatureHelp = (feature: string): string | undefined =>
+  PLAN_FEATURE_HELP.find(([label]) => label.test(feature))?.[1];
+
 export type PaidPlanKey = keyof typeof PAID_PLANS;
 
 export function isPaidPlanKey(value: unknown): value is PaidPlanKey {
