@@ -90,6 +90,9 @@ try {
     assert.equal(await page.locator('.pricing-card details, .pricing-card summary').count(),0,'plan details have no accordion controls');
     assert.equal(await page.locator('.pricing-plan-details:visible').count(),4,'every plan shows its details immediately');
     const featureRows = page.locator('.pricing-plan-details li');
+    assert.equal(await featureRows.filter({
+      hasText: /minimum match|adjustable match|jobs that match your resume by at least/i,
+    }).count(), 0, 'plan details omit match threshold rows');
     assert.ok(await featureRows.evaluateAll(rows => rows.length > 0 && rows.every(row => {
       const tips = row.querySelectorAll('.field-info[role="button"]');
       return tips.length === 1 && tips[0].textContent?.trim() === '?' && (tips[0].getAttribute('aria-label')?.length ?? 0) > 20;

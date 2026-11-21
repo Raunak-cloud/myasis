@@ -212,15 +212,14 @@ export function PricingPanel() {
             return feature;
           });
           // Access dates sit beside the price; source names sit in the logo row.
-          // Shared features are stated once below the comparison.
-          const details = features.filter(feature => !/^\d+ days of access$|^Access until |^SEEK.* applications$|^SmartRecruiters, Greenhouse|^Personalised cover letters/.test(feature));
+          const details = features.filter(feature =>
+            !/^\d+ days of access$|^Access until |^SEEK.* applications$|^SmartRecruiters, Greenhouse|^Personalised cover letters/.test(feature)
+            && !/^Jobs that match your resume by at least |^Choose your minimum match score:/.test(feature));
           const featureItem = (feature: string, beta = false) => {
             const label = feature.replace(/ · Auto apply or Semi auto$/, '').replace(/^Up to /, '')
                 .replace(/ scheduled (runs?) each day$/, ' scheduled $1/day')
                 .replace(/^AI reviews up to (\d+) jobs each run$/, 'Reviews up to $1 jobs/run')
                 .replace(/^Connect SEEK for (\d+) extra free applications \((\d+) total\)$/, '$1 extra with SEEK ($2 total)')
-                .replace(/^Jobs that match your resume by at least (\d+)%$/, 'Minimum match: $1%')
-                .replace(/^Choose your minimum match score: (\d+)% to (\d+)%$/, 'Adjustable match: $1–$2%')
                 .replace('Only employer forms that do not require an account', 'Forms without an account')
                 .replace('Advanced match and listing-age filters', 'Match & listing-age filters')
                 .replace('Supported employer-site applications', 'Employer-site applications');
