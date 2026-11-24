@@ -118,7 +118,7 @@ if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(
     case "$path" in
       dashboard/src/components/ApplicationsPanel.tsx|dashboard/src/components/RunPanel.tsx|dashboard/src/components/HrOutreachPanel.tsx|dashboard/src/components/HrOutreachActivity.tsx|dashboard/src/components/ApplicationOverview.tsx|dashboard/src/components/BoardBrand.tsx|dashboard/src/App.tsx|dashboard/src/index.css) email_preference_changed=1 ;;
       dashboard/vite.config.ts|dashboard/server/hr-outreach/store.ts|dashboard/server/hr-outreach/store.test.ts) ;;
-      dashboard/scripts/test-hr-outreach-ui.mts|dashboard/scripts/test-hr-outreach-access.mts|dashboard/scripts/test-jora-beta-ui.mts|deploy/check-release.sh) ;;
+      dashboard/src/format.ts|dashboard/scripts/test-hr-outreach-ui.mts|dashboard/scripts/test-hr-outreach-access.mts|dashboard/scripts/test-jora-beta-ui.mts|deploy/check-release.sh) ;;
       dashboard/public/platforms/pageup.svg|dashboard/public/platforms/workday.svg|dashboard/public/platforms/greenhouse.svg|dashboard/public/platforms/smartrecruiters.svg|dashboard/public/platforms/README.md) ;;
       *) email_preference_only=0 ;;
     esac

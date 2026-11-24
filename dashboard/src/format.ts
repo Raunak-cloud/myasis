@@ -10,17 +10,32 @@ export function fmtDateTime(iso: string): string {
   });
 }
 
-/** Just the clock time, e.g. "3:42 pm" — the date is shown alongside it. */
-export function fmtTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  return d.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' });
+const applicationTimeZone = 'Australia/Sydney';
+const applicationDate = new Intl.DateTimeFormat('en-AU', {
+  timeZone: applicationTimeZone, day: 'numeric', month: 'short', year: 'numeric',
+});
+const applicationTime = new Intl.DateTimeFormat('en-AU', {
+  timeZone: applicationTimeZone, hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
+});
+const applicationCalendar = new Intl.DateTimeFormat('en-AU', {
+  timeZone: applicationTimeZone, day: 'numeric', month: 'numeric', year: 'numeric',
+});
+
+function sydneyCalendarDay(timestamp: number): number {
+  const parts = applicationCalendar.formatToParts(timestamp);
+  const year = Number(parts.find(part => part.type === 'year')?.value);
+  const month = Number(parts.find(part => part.type === 'month')?.value);
+  const day = Number(parts.find(part => part.type === 'day')?.value);
+  // Encode the local calendar date as a day number, independent of the day's elapsed hours.
+  return Date.UTC(year, month - 1, day) / 86_400_000;
 }
 
-export function fmtDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+export function formatApplicationWhen(iso: string, now: number): { date: string; time: string; dayLabel: string } {
+  const timestamp = Date.parse(iso);
+  if (Number.isNaN(timestamp)) return { date: iso, time: '', dayLabel: '' };
+  const days = Math.max(0, sydneyCalendarDay(now) - sydneyCalendarDay(timestamp));
+  const dayLabel = days === 0 ? 'today' : days === 1 ? 'yesterday' : `${days}d ago`;
+  return { date: applicationDate.format(timestamp), time: applicationTime.format(timestamp), dayLabel };
 }
 
 export function relative(iso: string): string {

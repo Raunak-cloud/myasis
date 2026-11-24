@@ -62,7 +62,12 @@ const reportingItems: Array<typeof items[number] & { lookupOutcome?: string; loo
 ];
 let runAdmin = true, runIntensive = false, setupReady = true;
 const writes: unknown[] = [];
-const html = `<!doctype html><html><body><div id="root"></div><script type="module">import React from'react';import{createRoot}from'react-dom/client';import{ApplicationsPanel}from'/src/components/ApplicationsPanel.tsx';import'/src/index.css';const mode=new URLSearchParams(location.search).get('hr');createRoot(document.getElementById('root')).render(React.createElement(ApplicationsPanel,{apps:${JSON.stringify(apps)},onChange:()=>{},followUpDays:10,...(mode==='default'?{}:{showHrOutreach:mode!=='off'})}));</script></body></html>`;
+const dates = [
+  { ...apps[0], jobId: 'sydney-evening', title: 'Sydney evening submission', appliedAt: '2026-11-24T06:42:00Z' },
+  { ...apps[0], jobId: 'sydney-morning', title: 'Sydney morning submission', appliedAt: '2026-11-23T22:00:00Z' },
+  { ...apps[0], jobId: 'sydney-winter', title: 'Sydney winter submission', appliedAt: '2026-06-24T06:42:00Z' },
+];
+const html = `<!doctype html><html><body><div id="root"></div><script type="module">import React from'react';import{createRoot}from'react-dom/client';import{ApplicationsPanel}from'/src/components/ApplicationsPanel.tsx';import'/src/index.css';const mode=new URLSearchParams(location.search).get('hr');createRoot(document.getElementById('root')).render(React.createElement(ApplicationsPanel,{apps:mode==='dates'?${JSON.stringify(dates)}:${JSON.stringify(apps)},onChange:()=>{},followUpDays:10,...(mode==='default'?{}:{showHrOutreach:mode!=='off'&&mode!=='dates'})}));</script></body></html>`;
 const liveHtml = `<!doctype html><html><body><main class="main-shell run-dashboard"><header class="page-header"><h1>Apply for jobs</h1></header><div id="root" class="page-content"></div></main><script type="module">import React from'react';import{createRoot}from'react-dom/client';import{RunPanel}from'/src/components/RunPanel.tsx';import'/src/index.css';createRoot(document.getElementById('root')).render(React.createElement(RunPanel,{lastRunAt:null,onFinished:()=>{},onGoPricing:()=>{}}));</script></body></html>`;
 const shellHtml = `<!doctype html><html><body><div id="root"></div><script type="module">import React from'react';import{createRoot}from'react-dom/client';import App from'/src/App.tsx';import'/src/index.css';createRoot(document.getElementById('root')).render(React.createElement(App));</script></body></html>`;
 const vite = await createServer({ configFile: false, root: resolve(import.meta.dirname, '..'),
@@ -116,6 +121,25 @@ const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_P
 const screenshotDir = resolve(import.meta.dirname, '../../output/hr-outreach-ui');
 await mkdir(screenshotDir, { recursive: true });
 try {
+  const datesPage = await browser.newPage({ timezoneId: 'UTC' });
+  await datesPage.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+  await datesPage.clock.install({ time: new Date('2026-11-24T12:59:00Z') });
+  await datesPage.clock.pauseAt(new Date('2026-11-24T12:59:45Z'));
+  await datesPage.goto(origin + '/hr-preview.html?hr=dates');
+  const evening = datesPage.getByRole('row').filter({ hasText: 'Sydney evening submission' });
+  await evening.getByText('5:42 pm AEDT · today', { exact: true }).waitFor();
+  const morning = datesPage.getByRole('row').filter({ hasText: 'Sydney morning submission' });
+  await morning.getByText('24 Nov 2026', { exact: true }).waitFor();
+  await morning.getByText('9:00 am AEDT · today', { exact: true }).waitFor();
+  await datesPage.getByRole('row').filter({ hasText: 'Sydney winter submission' }).getByText(/4:42 pm AEST/).waitFor();
+  await datesPage.clock.fastForward(30_000);
+  await evening.getByText('5:42 pm AEDT · yesterday', { exact: true }).waitFor();
+  await morning.getByText('9:00 am AEDT · yesterday', { exact: true }).waitFor();
+  await evening.click();
+  await datesPage.locator('.drawer-head').getByText(/applied 24 Nov 2026 at 5:42 pm AEDT \(yesterday\)/).waitFor();
+  await datesPage.close();
+  console.log('PASS: application dates use Sydney time and roll over at Sydney midnight in a UTC browser.');
+
   const page=await browser.newPage({viewport:{width:1150,height:950}});
   await page.addInitScript(()=>{const interval=window.setInterval.bind(window);window.setInterval=((handler:TimerHandler,delay?:number,...args:unknown[])=>interval(handler,[5000,30000].includes(delay??0)?150:delay,...args)) as typeof window.setInterval;});
   await page.route('**/*',route=>new URL(route.request().url()).origin===origin?route.continue():route.abort());

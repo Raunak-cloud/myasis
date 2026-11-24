@@ -4,7 +4,8 @@ import {BoardBrand,EmployerSitesLabel} from './BoardBrand';
 import { lazy, Suspense, useEffect, useId, useMemo, useState } from 'react';
 import type { Application, ApplicationAction, Outcome, SiteAccount } from '../types';
 import type { SkippedJob } from './SkippedPanel';
-import { fmtDate, fmtTime, daysSince, scoreClass } from '../format';
+import { daysSince, formatApplicationWhen, scoreClass } from '../format';
+import { useNow } from '../useNow';
 import { formatApplicationCost, type ApplicationCost } from '../application-cost';
 import { HrEmailIndicator, HrEmailMessage, HrEmailStages, isHrEmailSent, type HrEmailStatusItem, type HrOutreachEmail } from './HrOutreachPanel';
 
@@ -135,6 +136,7 @@ const OUTCOMES: Array<{ id: Outcome; label: string; tone: string }> = [
  * has, and nothing else in the product surfaces it.
  */
 export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = false, showCosts = false, showHrOutreach = false, loading = false, loadError = null }: Props) {
+  const now = useNow();
   const [costs, setCosts] = useState<Record<string, ApplicationCost>>({});
   const [costError, setCostError] = useState(false);
   const costsEnabled = showCosts && !loading && !loadError;
@@ -317,6 +319,7 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
     [apps, followUpDays],
   );
 
+  const openWhen = open ? formatApplicationWhen(open.appliedAt, now) : null;
   const sent = (
     <div className="applications-panel">
       {showHrOutreach && hrError && <p className="job-meta" role="alert">{hrError} <button type="button" className="btn btn-small" onClick={()=>setHrRefresh(value=>value+1)}>Refresh email status</button></p>}
@@ -382,8 +385,8 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
             </thead>
             <tbody>
               {rows.map((a, index) => {
-                const age = daysSince(a.appliedAt);
-                const stale = !a.confirmationStatus && !a.outcome && age >= followUpDays;
+                const when = formatApplicationWhen(a.appliedAt, now);
+                const stale = !a.confirmationStatus && !a.outcome && daysSince(a.appliedAt) >= followUpDays;
                 const email = hrStatusByRole.get(hrRoleKey(a));
                 const indicatorId = `${hrStatusId}-${index}`;
                 return (
@@ -406,9 +409,9 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
                       </>}
                     </td>
                     <td className="nowrap application-when">
-                      <div>{fmtDate(a.appliedAt)}</div>
+                      <div>{when.date}</div>
                       <div className="job-meta">
-                        {fmtTime(a.appliedAt)} · {age === 0 ? 'today' : `${age}d ago`}
+                        {[when.time, when.dayLabel].filter(Boolean).join(' · ')}
                       </div>
                     </td>
                     <td className="application-status">
@@ -450,14 +453,14 @@ export function ApplicationsPanel({ apps, onChange, followUpDays, showSkipped = 
         </div>
       )}
 
-      {open && (
+      {open && openWhen && (
         <div className="overlay" onClick={() => setOpen(null)}>
           <aside className="drawer" onClick={(e) => e.stopPropagation()}>
             <div className="drawer-head">
               <div className="minw">
                 <h2>{open.title}</h2>
                 <div className="job-meta">
-                  {open.company} · applied {fmtDate(open.appliedAt)} at {fmtTime(open.appliedAt)} ({daysSince(open.appliedAt)}d ago)
+                  {open.company} · applied {openWhen.date}{openWhen.time && ` at ${openWhen.time} (${openWhen.dayLabel})`}
                   <AdzunaAttribution platform={open.platform} />
                 </div>
               </div>
