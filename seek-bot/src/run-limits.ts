@@ -4,6 +4,9 @@ export const USER_RUN_LIMITS = {
   MAX_APPS_PER_DAY: 100,
 } as const;
 
+/** Get Owtomated's per-run allowance and the default for administrators. */
+export const EXTENDED_JOB_REVIEW_LIMIT = 300;
+
 type LimitKey = keyof typeof USER_RUN_LIMITS;
 const LABELS: Record<LimitKey, string> = {
   MAX_AGE_DAYS: 'Max listing age',

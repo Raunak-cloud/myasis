@@ -6,7 +6,7 @@ import { PLAN_LIMITS, SCHEDULED_MIN_SCORE, CUSTOM_MIN_SCORE, MAX_MATCH_SCORE, pl
 import type { RunDevice } from '../src/run-device.js';
 import { countedRunSql, RUN_TIME_ZONE } from './run-accounting.js';
 import { limitSearchTerms } from '../src/search-limits.js';
-import { boundedUserRunLimit, dailyApplicationLimit, USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
+import { boundedUserRunLimit, dailyApplicationLimit, EXTENDED_JOB_REVIEW_LIMIT, USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
 import { EMPLOYER_SOURCES, isEmployerSource } from '../../seek-bot/src/employer-source-config.js';
 import { retiredDiscoveryPlatform } from '../../seek-bot/src/retired-job-sources.js';
 import {GUEST_EMPLOYER_SOURCES} from '../../seek-bot/src/guest-applications.js';
@@ -233,7 +233,7 @@ export function applyRunPolicy(
   // An empty operator review limit means no review ceiling.
   if (entitlement.tier === 'admin') {
     for (const key of OPTIONAL_LIMIT_KEYS) {
-      const value = (resolved[key] ?? '').trim();
+      const value = (resolved[key] ?? String(EXTENDED_JOB_REVIEW_LIMIT)).trim();
       resolved[key] = /^\d+$/.test(value) && Number(value) > 0 ? String(Number(value)) : 'none';
     }
   }
@@ -442,8 +442,8 @@ export function deriveEntitlements(facts: EntitlementFacts): Entitlements {
    * set, on an operator's own account as much as a customer's: a number typed
    * against an account was typed deliberately. Discarding it for admins meant
    * an account whose Limits panel read 51 reviewed every listing it found,
-   * because nothing downstream ever saw the number. An admin with no override
-   * still has no limit — that is what the empty field means for them.
+   * because nothing downstream ever saw the number. Admins without an override
+   * use their own run setting, which defaults to 300 and can be left empty for unlimited reviews.
    */
   const evaluationsPerRun = tier === 'admin'
     ? overrides.evaluationsPerRun

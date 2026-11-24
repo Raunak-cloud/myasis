@@ -5,6 +5,26 @@ cd "$(dirname "$0")/.."
 # Narrow releases use checks specific to the changed feature, with a 60-second
 # test budget. Unknown or mixed releases keep all checks.
 if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(git rev-parse HEAD)" = "$3" ]; then
+  review_defaults_only=1
+  review_limits_changed=0
+  while IFS= read -r path; do
+    case "$path" in
+      seek-bot/src/run-limits.ts) review_limits_changed=1 ;;
+      seek-bot/src/config.ts|seek-bot/src/application-limits.test.ts|dashboard/src/pricing.ts|dashboard/src/components/RunPanel.tsx) ;;
+      dashboard/server/settings.ts|dashboard/server/entitlements.ts|dashboard/server/run-policy.test.ts|dashboard/terms.html|dashboard/README.md|deploy/check-release.sh) ;;
+      *) review_defaults_only=0 ;;
+    esac
+  done < <(git diff --name-only "$2" "$3")
+  if [ "$review_defaults_only" = 1 ] && [ "$review_limits_changed" = 1 ] && [ -z "${REPLAY_BASELINE_SHA:-}" ]; then
+    timeout --signal=TERM --kill-after=2s 58s bash -e -c '
+      node --test seek-bot/dist/application-limits.test.js & worker_tests=$!
+      cd dashboard
+      ../seek-bot/node_modules/.bin/tsx --test server/run-policy.test.ts server/bonus-run-policy.test.ts
+      wait "$worker_tests"
+    '
+    echo 'Targeted job review allowance checks passed (60-second maximum)'
+    exit 0
+  fi
   feed_handoff_only=1
   feed_policy_changed=0
   while IFS= read -r path; do

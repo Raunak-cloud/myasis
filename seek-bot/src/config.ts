@@ -5,7 +5,7 @@ import dotenv from 'dotenv';
 import type { CandidateProfile } from './types.js';
 import { applicationModelEnvironment } from './application-model.js';
 import { APPLICATION_BUDGET_DEFAULTS } from './application-budget.js';
-import { USER_RUN_LIMITS, boundedUserRunLimit, dailyApplicationLimit } from './run-limits.js';
+import { EXTENDED_JOB_REVIEW_LIMIT, USER_RUN_LIMITS, boundedUserRunLimit, dailyApplicationLimit } from './run-limits.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -246,7 +246,11 @@ export const config = {
     maxApplicationsPerRun: ceiling(USER_RUN_LIMITS.MAX_APPS_PER_DAY, process.env.MAX_APPS_PER_RUN, USER_RUN_LIMITS.MAX_APPS_PER_DAY, true),
     /** Detail pages opened per run — bounds both wall-clock and model spend. */
     // Keep an accidentally large dashboard value from creating an hour-long crawl.
-    maxEvaluations: ceiling(process.env.OPERATOR_MAX_EVALUATIONS === '400' ? 400 : 200, process.env.MAX_EVALUATIONS, 40),
+    maxEvaluations: ceiling(
+      process.env.OPERATOR_MAX_EVALUATIONS === '400' ? 400 : EXTENDED_JOB_REVIEW_LIMIT,
+      process.env.MAX_EVALUATIONS,
+      adminUnlimited ? EXTENDED_JOB_REVIEW_LIMIT : 40,
+    ),
     maxApplicationsPerDay: dailyApplicationLimit(process.env.MAX_APPS_PER_DAY),
     /**
      * Run allowance expressed as today's employer-site submissions plus

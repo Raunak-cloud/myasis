@@ -5,7 +5,7 @@ import { query } from './db/index.js';
 import { upsertSettingRow } from './db/records.js';
 import { limitSearchTerms } from '../src/search-limits.js';
 import { validateCoverLetterInstructions } from '../../seek-bot/src/cover-letter-policy.js';
-import { USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
+import { EXTENDED_JOB_REVIEW_LIMIT, USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
 
 /**
  * Per-run search/apply preferences (job titles, work arrangement, run
@@ -47,7 +47,7 @@ export const DAILY_APPLICATION_CAP_CHOSEN = 'DAILY_APPLICATION_CAP_CHOSEN';
 const KEEP_SET = new Set<string>(KEEP_SETTINGS_KEYS);
 /** Mirrors seek-bot's own clamps, so the dashboard shows what a run will really use. */
 export const RUN_LIMITS: Record<string, number> = {
-  MAX_EVALUATIONS: 200,
+  MAX_EVALUATIONS: EXTENDED_JOB_REVIEW_LIMIT,
   MAX_APPS_PER_RUN: USER_RUN_LIMITS.MAX_APPS_PER_DAY,
   ...USER_RUN_LIMITS,
 };
@@ -139,9 +139,8 @@ export async function runSettingsSnapshotForUser(
   const saved = await loadUserSettings(userId);
   const out: Record<string, string> = {};
   for (const key of KEEP_SETTINGS_KEYS) {
-    // Operators may leave review capacity unbounded. Applications always
-    // use the shared daily allowance, including with legacy saved values.
-    const fallback = options.unlimited && (OPTIONAL_LIMIT_KEYS as readonly string[]).includes(key) ? '' : RUN_SETTING_DEFAULTS[key] ?? '';
+    const fallback = options.unlimited && key === 'MAX_EVALUATIONS'
+      ? String(EXTENDED_JOB_REVIEW_LIMIT) : RUN_SETTING_DEFAULTS[key] ?? '';
     const value = saved[key] ?? fallback;
     // Review limits can be overridden. Listing age, selected
     // daily caps, search terms and pages stay bounded for everyone.

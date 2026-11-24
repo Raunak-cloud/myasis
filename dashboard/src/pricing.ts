@@ -1,4 +1,4 @@
-import { USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
+import { EXTENDED_JOB_REVIEW_LIMIT, USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
 import {SEEK_CONNECTION_APPLICATIONS} from './free-trial.js';
 
 export const FREE_APPLICATIONS = 5;
@@ -36,7 +36,7 @@ export const PLAN_LIMITS = {
   free: { autoRunsPerDay: 1, evaluationsPerRun: 30 },
   'essential-pass': { autoRunsPerDay: 2, evaluationsPerRun: 25 },
   'job-search-pass': { autoRunsPerDay: 3, evaluationsPerRun: 70, applicationsPerDay: 50 },
-  'intensive-pass': { autoRunsPerDay: 3, evaluationsPerRun: 200 },
+  'intensive-pass': { autoRunsPerDay: 3, evaluationsPerRun: EXTENDED_JOB_REVIEW_LIMIT },
 } as const;
 
 /** Highest active pass wins; the global admin/Intensive ceiling remains 100. */

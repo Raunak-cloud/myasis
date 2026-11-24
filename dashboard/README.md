@@ -98,7 +98,7 @@ Plans are defined in `src/pricing.ts`. `PLAN_LIMITS` there is what the server en
 | Free | A$0 | 5 application credits, 1 scheduled run daily, up to 30 jobs reviewed per run, SEEK | Once per account |
 | Essential Pass | A$19.00 | 50 application credits including up to 10 guest employer-site applications, 2 scheduled runs daily, up to 25 jobs reviewed per run, SEEK, Indeed and Jora | 30 days |
 | Active Search | A$34.99 | 200 application credits including up to 20 guest employer-site applications, 50 applications per day, 3 scheduled runs daily, up to 70 jobs reviewed per run, SEEK, Indeed and Jora | 30 days |
-| Get Owtomated | A$99.50 | Unlimited application credits, up to 100 applications per day, 3 scheduled runs daily, up to 200 jobs reviewed per run, SEEK, Indeed, Jora and supported employer sites | 30 days |
+| Get Owtomated | A$99.50 | Unlimited application credits, up to 100 applications per day, 3 scheduled runs daily, up to 300 jobs reviewed per run, SEEK, Indeed, Jora and supported employer sites | 30 days |
 
 Passes are one-time payments and do not auto-renew. Existing no-expiry purchases remain grandfathered.
 

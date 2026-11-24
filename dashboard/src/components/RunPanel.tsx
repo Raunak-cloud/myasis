@@ -12,7 +12,7 @@ import { ResumeSourceNote } from './ResumeSourceNote';
 import { FieldLabel, InfoTip } from './FieldLabel';
 import { AUSTRALIAN_CITIES, decodeSettingText, encodeSettingText, matchThresholdError } from '../runSettings';
 import { CUSTOM_MIN_SCORE, MAX_MATCH_SCORE } from '../pricing';
-import { USER_RUN_LIMITS, userRunLimitError } from '../../../seek-bot/src/run-limits.js';
+import { EXTENDED_JOB_REVIEW_LIMIT, USER_RUN_LIMITS, userRunLimitError } from '../../../seek-bot/src/run-limits.js';
 import { SearchTermsGenerator } from './SearchTermsGenerator';
 import { TermsInput } from './TermsInput';
 import { EmployerSourceEditor } from './EmployerSourceEditor';
@@ -374,15 +374,15 @@ export function RunPanel({
   const elapsedMs = Number.isFinite(startedAtMs)
     ? Math.max(0, (running || !Number.isFinite(finishedAtMs) ? clock : finishedAtMs) - startedAtMs)
     : null;
-  /** An operator's application and review limits have no default: empty means none. */
+  /** Operators can clear their review limit to review without a ceiling. */
   const optionalLimit = (key: string) => isAdmin && key === 'MAX_EVALUATIONS';
   /**
    * A number an operator set against this account, which runs use whatever is
    * typed here. Shown in the field rather than left to contradict it: the
-   * review limit is one only for an admin, where the plan sets no number.
+   * admin can edit the review limit unless it was set against the account.
    */
   const forcedEvaluations = isAdmin ? entitlements?.evaluationsPerRun ?? null : null;
-  const val = (k: string, d = optionalLimit(k) ? '' : RUN_DEFAULTS[k] ?? '') => {
+  const val = (k: string, d = optionalLimit(k) ? String(EXTENDED_JOB_REVIEW_LIMIT) : RUN_DEFAULTS[k] ?? '') => {
     const value = edits[k] ?? settings[k] ?? d;
     if (k === 'MAX_APPS_PER_DAY' && edits[k] === undefined && (!value.trim() || value === 'none')) return String(USER_RUN_LIMITS.MAX_APPS_PER_DAY);
     return optionalLimit(k) && value === 'none' ? '' : value;
