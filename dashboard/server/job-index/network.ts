@@ -4,7 +4,6 @@ import { isIP, type LookupFunction } from 'node:net';
 import { createRequire } from 'node:module';
 import { canonicalUrl } from './extract.js';
 import { parseHTML } from 'linkedom';
-import { retiredEmployerFeed } from '../../../seek-bot/src/retired-job-sources.js';
 
 export const AGENT = 'OwtomateJobIndex/1.0 (+https://owtomate.com)';
 export class CrawlBlocked extends Error {}
@@ -27,7 +26,6 @@ export function crawlUrl(raw: string): URL {
   // before every request creates a synthetic redirect loop.
   canonicalUrl(raw);
   const u = new URL(raw);u.hash='';
-  if (retiredEmployerFeed({ url: u.href })) throw new CrawlBlocked('This career feed has been retired.');
   if (isIP(u.hostname) || /(^|\.)(localhost|local|internal|test|invalid|example|onion)$|^(?:metadata|instance-data)\./i.test(u.hostname)) throw new CrawlBlocked('Private and non-public destinations are excluded.');
   if (/\/(?:login|sign[-_]?in|register|applications?|apply)(?:[/?]|$)/i.test(u.pathname)) throw new CrawlBlocked('Account and application forms are excluded from indexing.');
   return u;
@@ -86,23 +84,30 @@ export async function publicRequest(raw: string, init: { body?: string; signal?:
   });
 }
 
+type CrawlerOptions = { allowLoginWidgets?: boolean; validateUrl?: (url: URL) => void };
+
 /** Process-local host pacing plus durable single-worker ownership in the index DB. */
 export class PublicCrawler {
   private robots = new Map<string, { parser: Robots; until: number }>();
   private next = new Map<string, number>();
   requests = 0;
   readonly maxRequests:number;private readonly read:typeof publicRequest;
-  private readonly options:{allowLoginWidgets?:boolean};
-  constructor(read=publicRequest,maxRequests=160,options:{allowLoginWidgets?:boolean}={}) {this.read=read;this.maxRequests=maxRequests;this.options=options;}
+  private readonly options: CrawlerOptions;
+  constructor(read=publicRequest,maxRequests=160,options: CrawlerOptions = {}) {this.read=read;this.maxRequests=maxRequests;this.options=options;}
+  private approvedUrl(raw: string): URL {
+    const url = crawlUrl(raw);
+    this.options.validateUrl?.(url);
+    return url;
+  }
   private async request(url: string, init?: {body?:string;signal?:AbortSignal}): Promise<PageResponse> {
     if (++this.requests>this.maxRequests) throw new CrawlDeferred(60_000);
     return this.read(url,init);
   }
   async get(raw: string, init?: {body?:string;signal?:AbortSignal;redirect?:RequestRedirect;returnChallenge?:boolean},redirects=0): Promise<PageResponse> {
-    const u=crawlUrl(raw); let rules=this.robots.get(u.origin);
+    const u=this.approvedUrl(raw); let rules=this.robots.get(u.origin);
     if(!rules || rules.until<Date.now()) {
       let r=await this.request(`${u.origin}/robots.txt`, {signal:init?.signal});
-      for(let n=0;r.location&&n<5;n++)r=await this.request(crawlUrl(r.location).href,{signal:init?.signal});
+      for(let n=0;r.location&&n<5;n++)r=await this.request(this.approvedUrl(r.location).href,{signal:init?.signal});
       if(r.location)throw new CrawlBlocked('Robots redirect limit reached.');
       if(r.status>=200&&r.status<300&&/<html\b|<!doctype/i.test(r.text))throw new CrawlBlocked('The robots address returned an HTML access page.');
       if(r.status===429 || r.status>=500)throw new CrawlDeferred(15*60_000);

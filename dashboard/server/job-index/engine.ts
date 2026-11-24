@@ -15,13 +15,22 @@ import {leverApiUrl,leverPublisherJob} from './lever.js';
 interface Feed { search:(keyword:string,page:number)=>Promise<JobListing[]>;detail:(job:JobListing)=>Promise<JobListing> }
 type FeedConstructor=new(source:EmployerSourceId,raw:string,options:Record<string,unknown>)=>Feed;
 
+function checkIndexDestination(url: URL): void {
+  if (retiredEmployerFeed({ url: url.href })) throw new CrawlBlocked('This career feed has been retired.');
+}
+function indexDestination(raw: string): URL {
+  const url = crawlUrl(raw);
+  checkIndexDestination(url);
+  return url;
+}
+
 export function fromFeed(job:JobListing) {
   return normaliseJob({title:job.title,hiringOrganization:{name:job.company},description:job.description,url:job.url,identifier:job.id,datePosted:job.listedAt,jobLocation:{name:job.location,...(job.locationCountry?{address:{addressCountry:job.locationCountry}}:{})},workArrangement:job.workArrangement},job.url,job.platform);
 }
 /** New employers observed on the web join the same validated public-feed queue. */
 export function discoveredFeed(raw:string):{source:EmployerSourceId;target:string}|null {
   try {
-    const u=crawlUrl(raw),parts=u.pathname.split('/').filter(Boolean);let source:EmployerSourceId,target:string;
+    const u=indexDestination(raw),parts=u.pathname.split('/').filter(Boolean);let source:EmployerSourceId,target:string;
     if(['boards.greenhouse.io','job-boards.greenhouse.io'].includes(u.hostname)){source='greenhouse';target=parts[0];}
     else if(/\.myworkdayjobs\.com$/.test(u.hostname)){source='workday';target=`${u.origin}/${parts.slice(0,2).join('/')}`;}
     else return null;
@@ -52,6 +61,7 @@ export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{sch
     const reviewsByOwner=new Map<string,number>();
     const ownerAllowance=Math.max(1,Math.ceil((options.maxReviews??8)/Math.max(1,profiles.length)));
     const admit=async(job:IndexedJob)=>{
+      if (retiredEmployerFeed({ platform: job.source, url: job.url })) return;
       await store.invalidate(job);
       const eligibility=australianEligibility(job);
       if(eligibility.status!=='eligible'){stats.filtered++;if(eligibility.status==='excluded')stats.locationExcluded++;else stats.locationUnknown++;return;}
@@ -80,7 +90,7 @@ export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{sch
       if(pendingWait)throw new CrawlDeferred(pendingWait,'Some owner reviews remain uncertain, unavailable or over their cycle allowance; remaining work is queued.');
       if(!saved)stats.filtered++;
     };
-    const crawler=options.crawler??new PublicCrawler();
+    const crawler=options.crawler ?? new PublicCrawler(undefined, undefined, { validateUrl: checkIndexDestination });
     const {EmployerFeedDiscovery}=await import(/* @vite-ignore */ new URL('../../../seek-bot/dist/employer-feeds.js',import.meta.url).href) as {EmployerFeedDiscovery:FeedConstructor};
     const keys=[...new Set(profiles.flatMap(p=>p.keywords))];
     if(profiles.length) for(const source of EMPLOYER_SOURCES) {
@@ -90,7 +100,7 @@ export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{sch
         else for(const keyword of keys)await store.enqueue('feed',{source:source.id,target,keyword},2);
       }
     }
-    for(const url of seeds)try{await store.enqueue('page',{url:crawlUrl(url).href,depth:0},1);}catch{/* private/apply destination */}
+    for(const url of seeds)try{await store.enqueue('page',{url:indexDestination(url).href,depth:0},1);}catch{/* private/apply destination */}
     const savePage=async(page:PageResponse,depth:number)=>{
       if(page.status>=400)throw Error('Public source returned an error.');
       // Public employer discovery is independent of any one candidate's fit.
@@ -99,7 +109,7 @@ export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{sch
       if(sitemap) {
         const parsed=new XMLParser({processEntities:false,ignoreAttributes:true}).parse(page.text);
         const entries=parsed.urlset?.url??parsed.sitemapindex?.sitemap??[];
-        for(const entry of (Array.isArray(entries)?entries:[entries]).slice(0,200))try{const url=crawlUrl(entry.loc).href;if(depth<2&&(/sitemap/i.test(url)||/career|jobs?|vacanc|opportunit/i.test(url)))await store.enqueue('page',{url,depth:depth+1},0);}catch{/* invalid publisher lead */}
+        for(const entry of (Array.isArray(entries)?entries:[entries]).slice(0,200))try{const url=indexDestination(entry.loc).href;if(depth<2&&(/sitemap/i.test(url)||/career|jobs?|vacanc|opportunit/i.test(url)))await store.enqueue('page',{url,depth:depth+1},0);}catch{/* invalid publisher lead */}
       } else {
         const found=extractPage(page.text,page.url);
         const api=leverApiUrl(page.url);
@@ -107,7 +117,7 @@ export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{sch
         for(const closed of found.closedUrls)await store.close(closed);
         for(const job of found.jobs)try{await admit(job);}catch(e){if(e instanceof CrawlDeferred)await store.enqueue('page',{url:job.url,depth:0},1);throw e;}
         // Only links actually found on the fetched publisher page enter the queue.
-        if(depth<2)for(const url of found.links)try{await store.enqueue('page',{url:crawlUrl(url).href,depth:depth+1},0);}catch{/* non-public destination */}
+        if(depth<2)for(const url of found.links)try{await store.enqueue('page',{url:indexDestination(url).href,depth:depth+1},0);}catch{/* non-public destination */}
         if(depth===0)await store.enqueue('page',{url:`${new URL(page.url).origin}/sitemap.xml`,depth:1},0);
       }
     };
@@ -143,7 +153,7 @@ export async function crawlCycle(store:JobIndexStore,reader:pg.Pool,options:{sch
           }
           }catch(e){throw lastIssue??e;}
         } else {
-          const page=await crawler.get(p.url,{signal:options.signal});
+          const page=await crawler.get(indexDestination(p.url).href,{signal:options.signal});
           if([404,410].includes(page.status))await store.close(canonicalUrl(p.url));
           else await savePage(page,p.depth??0);
         }

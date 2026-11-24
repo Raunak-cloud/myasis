@@ -95,3 +95,22 @@ test('robots outages, long host delays and request ceilings defer instead of hid
   await c.get('https://public.org/jobs');await assert.rejects(()=>c.get('https://public.org/jobs/next'),CrawlDeferred);
   const limited=new PublicCrawler(async url=>response(url,'User-agent: *\nAllow: /'),1);await assert.rejects(()=>limited.get('https://public.org/jobs'),CrawlDeferred);
 });
+
+test('crawler destination policy follows publisher and robots redirects per consumer', async () => {
+ const disabled='https://careers.pageuppeople.com/jobs/1';
+ const calls:string[]=[];
+ const transport:ConstructorParameters<typeof PublicCrawler>[0]=async url=>{
+  calls.push(url);
+  if(url==='https://robots.publisher.org/robots.txt')return response(url,'',302,disabled);
+  if(url.endsWith('/robots.txt'))return response(url,'User-agent: *\nAllow: /');
+  if(url==='https://careers.publisher.org/jobs/1')return response(url,'',302,disabled);
+  return response(url,'Vacancy and public contact');
+ };
+ const crawler=new PublicCrawler(transport,160,{validateUrl:url=>{if(url.hostname==='careers.pageuppeople.com')throw new CrawlBlocked('Disabled source.');}});
+ await assert.rejects(crawler.get(disabled),/Disabled source/);
+ await assert.rejects(crawler.get('https://careers.publisher.org/jobs/1'),/Disabled source/);
+ await assert.rejects(crawler.get('https://robots.publisher.org/jobs/1'),/Disabled source/);
+ assert.ok(!calls.some(url=>url.includes('pageuppeople.com')));
+ const research=new PublicCrawler(transport);
+ assert.equal((await research.get(disabled)).text,'Vacancy and public contact');
+});
