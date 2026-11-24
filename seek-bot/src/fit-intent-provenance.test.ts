@@ -5,7 +5,7 @@ import { join, resolve, sep } from 'node:path';
 import { roleFitProvenanceError, type FitProvenanceSources, type RoleFitCheck, type CurrentOccupationIntent, type PrimaryWorkOutput } from './role-fit.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-fit-intent-'));
-Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', COST_TRACKING: 'false' });
+Object.assign(process.env, { DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', OPENROUTER_JOB_REVIEW_API_KEY: 'fictional-review-key', COST_TRACKING: 'false' });
 const { config } = await import('./config.js');
 const { assessFit, normalizeFitAssessment } = await import('./llm.js');
 const { withApplicationModel } = await import('./application-model.js');
@@ -37,7 +37,7 @@ const cases = [
   { id: 'missing-description', title: 'Data Analyst', duties: '', expected: 'uncertain', relationship: 'uncertain', mapping: 'No employer duties were supplied; there is no primary output to quote.' },
   { id: 'no-duties-in-description', title: 'Data Analyst', duties: 'Apply online.', expected: 'uncertain', relationship: 'uncertain', mapping: 'The supplied text has no actual duties. Preserve uncertainty instead of inventing a data deliverable.' },
 ] as const;
-let active: typeof cases[number], calls = 0, mode = 'valid', selectedModel = 'celeris';
+let active: typeof cases[number], calls = 0, mode = 'valid';
 function roleForCurrentCase(): RoleFitCheck & { currentIntent: CurrentOccupationIntent; primaryOutputs: PrimaryWorkOutput[] } {
   return { alignment: active.expected === 'apply' ? 'aligned' : active.expected === 'uncertain' ? 'uncertain' : 'mismatch', employerEvidence: 'The agent identifies the primary employer function from its deliverables.',
     candidateEvidence: capability, explanation: active.mapping,
@@ -48,15 +48,15 @@ function roleForCurrentCase(): RoleFitCheck & { currentIntent: CurrentOccupation
 globalThis.fetch = async (url, init) => {
   calls++;
   const body = JSON.parse(String(init?.body));
-  assert.equal(body.model, selectedModel === 'minimax' ? 'minimax/minimax-m3.1-flash' : 'celeris-1-magnus');
-  assert.equal(String(url).includes('openrouter.ai'), selectedModel === 'minimax', 'fit uses the authorized whole-run provider without a second provider');
+  assert.equal(body.model, 'qwen/qwen3.7-flash');
+  assert.equal(String(url), 'https://openrouter.ai/api/v1/chat/completions');
   const prompt = body.messages.find((message: { role: string }) => message.role === 'user').content;
-  assert.match(body.messages[0].content, /sole matching decision maker/);
+  assert.ok(body.messages.some((message: { content: string }) => /sole matching decision maker/.test(message.content)));
   assert.match(prompt, /Current bounded intent governs over an older or broader/);
   assert.match(prompt, /discarding its defining qualifier/);
   assert.match(prompt, /Search keywords define requested job functions/);
   assert.ok(prompt.includes(oldLetter) && prompt.includes(active.duties));
-  const schema = body.response_format.json_schema.schema.properties.roleFitCheck;
+  const schema = JSON.parse(body.messages[0].content.slice('Return exactly one JSON object satisfying this JSON schema: '.length)).properties.roleFitCheck;
   assert.ok(schema.required.includes('currentIntent') && schema.required.includes('primaryOutputs'));
   assert.ok(!schema.properties.currentIntent.properties.source.enum.includes('cover-letter'));
   assert.equal(schema.properties.currentIntent.properties.quote, undefined);
@@ -74,12 +74,11 @@ globalThis.fetch = async (url, init) => {
 };
 try {
   for (const model of ['celeris', 'minimax']) await withApplicationModel({ DATA_DIR: directory, APPLICATION_AI_MODEL: model, OPENROUTER_API_KEY: 'fixture-only', CELERIS_API_KEY: 'fixture-only' }, async () => {
-    selectedModel = model;
     for (const fixture of cases) {
       active = fixture; mode = 'valid';
       config.aiInstructions = 'instruction' in fixture ? fixture.instruction : bounded;
       config.targetRole = ''; config.keywords = [];
-      const job = { id: `${model}-${fixture.id}`, title: fixture.title, company: 'Synthetic employer', location: 'Sydney', description: fixture.duties, url: `https://fixture.invalid/${fixture.id}` };
+      const job = { id: `${model}-${fixture.id}`, title: fixture.title, company: 'Synthetic employer', location: 'Sydney', description: fixture.duties, url: `https://fixture.invalid/${model}/${fixture.id}` };
       const before = calls, result = await assessFit(job, profile);
       assert.equal(result.decision, fixture.expected); assert.equal(calls - before, 1, 'one existing fitter call for a valid response; no second reviewer');
       assert.equal(result.roleFitCheck?.currentIntent?.quote, config.aiInstructions, 'canonical stored evidence is dereferenced from the exact current source');
@@ -88,13 +87,13 @@ try {
     }
     active = cases[0]; config.aiInstructions = bounded;
     mode = 'misattributed'; const before = calls;
-    assert.equal((await assessFit({ id: `${model}-wrong-intent-source`, title: active.title, company: 'Synthetic employer', location: 'Sydney', description: active.duties, url: 'https://fixture.invalid/source' }, profile)).decision, 'skip');
+    assert.equal((await assessFit({ id: `${model}-wrong-intent-source`, title: active.title, company: 'Synthetic employer', location: 'Sydney', description: active.duties, url: `https://fixture.invalid/${model}/source` }, profile)).decision, 'skip');
     assert.equal(calls - before, 2, 'misattributed provenance uses only the existing bounded format correction');
     mode = 'invented-employer'; const invalid = calls;
-    await assert.rejects(assessFit({ id: `${model}-invented-duty`, title: active.title, company: 'Synthetic employer', location: 'Sydney', description: active.duties, url: 'https://fixture.invalid/duty' }, profile), /usable decision after a format retry/);
+    await assert.rejects(assessFit({ id: `${model}-invented-duty`, title: active.title, company: 'Synthetic employer', location: 'Sydney', description: active.duties, url: `https://fixture.invalid/${model}/duty` }, profile), /usable decision after a format retry/);
     assert.equal(calls - invalid, 2, 'ungrounded employer evidence cannot add an unbounded retry or another semantic classifier');
     active = cases[0]; mode = 'valid';
-    const sourceJob = { id: `${model}-source-change`, title: active.title, company: 'Synthetic employer', location: 'Sydney', description: active.duties, url: 'https://fixture.invalid/source-change' };
+    const sourceJob = { id: `${model}-source-change`, title: active.title, company: 'Synthetic employer', location: 'Sydney', description: active.duties, url: `https://fixture.invalid/${model}/source-change` };
     await assessFit(sourceJob, profile);
     const sourceCalls = calls;
     await assessFit(sourceJob, profile); assert.equal(calls, sourceCalls);

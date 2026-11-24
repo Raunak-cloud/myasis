@@ -18,7 +18,7 @@ const PLAIN: Array<[RegExp, string]> = [
   [/capmonster|captcha|cloudflare|security (?:check|verification)|anti-bot/i,
     "The site's security check could not be completed."],
   [/\bGmail\s+MCP\b[\s\S]*\b(?:unreachable|unavailable|failed|timeout|timed out|could not|cannot)\b/i, 'Email verification is pending.'],
-  [/CELERIS_API_KEY|matching service is not configured|\bAPI[ _-]?key\b/i,
+  [/CELERIS_API_KEY|OPENROUTER_(?:JOB_REVIEW_)?API_KEY|matching service is not configured|\bAPI[ _-]?key\b/i,
     'A service needed for this run is unavailable. Please try again later.'],
   [/browser has disconnected|has been closed|Target closed/i,
     'The application stopped unexpectedly. Please try again.'],
@@ -75,7 +75,7 @@ export function plainReason(reason: string): string {
   if (/\b(?:[A-Z][A-Z_]+_(?:KEY|TOKEN|URL)|[A-Za-z]+Error|HTTP\s*\d{3}|status(?: code)?[\s:=]+[45]\d{2})\b|\b(?:token|prompt|completion)\s*(?:count|budget|limit|[:=]\s*\d)|https?:\/\/|\bat .+\.(?:ts|js):\d+|\b(?:locator|page|browser|context)\.[a-z]+|Call log:|\b(?:selector|stack trace)\b/i.test(plain)) {
     return 'This step could not be completed. Please try again later.';
   }
-  if (/\b(?:Celeris|Magnus|MiniMax|MiMo|Gemini|Claude|Anthropic|OpenAI|GPT(?:-[a-z0-9.]+)?|Patchright|Playwright|ECONNREFUSED|ENOENT|EACCES)\b|(?:[A-Z]:\\|\/home\/|\/var\/)|^\s*[{[]/i.test(plain)) {
+  if (/\b(?:Celeris|Magnus|MiniMax|MiMo|Qwen[a-z0-9.-]*|OpenRouter|Gemini|Claude|Anthropic|OpenAI|GPT(?:-[a-z0-9.]+)?|Patchright|Playwright|ECONNREFUSED|ENOENT|EACCES)\b|(?:[A-Z]:\\|\/home\/|\/var\/)|^\s*[{[]/i.test(plain)) {
     return 'This step could not be completed. Please try again later.';
   }
   if (/\b(?:model|LLM|inference|provider|token(?:s)?|DOM|CDP|VNC|WebSocket|proxy|stack|stderr|stdout)\b/i.test(plain)) {

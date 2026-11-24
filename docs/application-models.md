@@ -1,6 +1,6 @@
 # Application models
 
-Admins can choose **Celeris Magnus** or **MiniMax M3.1** on Apply. The choice is saved immediately and applies to the next run. An operator can also select a model in a single admin request without changing saved preferences. Ordinary accounts always use Celeris, including when an old saved preference or a client override requests another provider. Model identities keep fit and draft caches separate.
+Admins can choose **Celeris Magnus** or **MiniMax M3.1** as the applying agent. The choice is saved immediately and applies to the next run. An operator can also select a model in a single admin request without changing saved preferences. Ordinary accounts default to Celeris for applying. All runs use Qwen3.7 Flash for job ranking and fit review. Drafts and reviews are keyed by their respective model identities.
 
 MiniMax uses `minimax/minimax-m3.1-flash` through OpenRouter. The admin-only `/forms` lab also offers both models. Configure `OPENROUTER_API_KEY` in Admin → Config → Models. The server rechecks the active account's admin status and selects credentials before spawning a worker. API keys never go into account settings or the dashboard bundle. An unavailable selected provider fails explicitly; it does not silently fall back to a different model.
 

@@ -15,7 +15,6 @@ import { browserBenchmarkInProgress } from './browser-benchmark-lock.js';
 import { applicationWorkerEnvironment } from './application-worker-policy.js';
 import { loadUserSettings } from './settings.js';
 import {employerApplicationsEnabled} from '../src/employer-applications.js';
-import { applicationModelLabel } from '../../seek-bot/src/application-model-catalog.js';
 import { EMPLOYER_SOURCES } from '../../seek-bot/src/employer-source-config.js';
 import {priorRunRepairMessage} from '../src/priorRunRepair.js';
 import { applicationModelCredentials, applicationModelForAccount } from './application-model-policy.js';
@@ -134,6 +133,7 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
   }
   const agentMode = applicationAgentModeForAccount(selectedSettings.APPLICATION_AGENT_MODE, admin);
   const credentials = applicationModelCredentials(selected, serverEnv);
+  const reviewKey = serverEnv.OPENROUTER_JOB_REVIEW_API_KEY?.trim() || serverEnv.OPENROUTER_API_KEY?.trim() || '';
   const queuePolicy = Object.fromEntries(['CELERIS_WORKSPACE_ID', 'CELERIS_QUEUE_FILE', 'CELERIS_MAX_CONCURRENT_REQUESTS', 'CELERIS_MIN_INTERVAL_MS']
     .flatMap(key => serverEnv[key]?.trim() ? [[key, serverEnv[key]!]] : []));
   return { ...queuePolicy, ...applicationBudget, ...bonusEnvironment, OPERATOR_MAX_EVALUATIONS:operatorReviewLimit, OPERATOR_RUN_TIMEOUT_MINUTES:operatorTimeout, DATA_DIR: userDir(userId), APPLICATION_AI_MODEL: selected,
@@ -142,7 +142,8 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
     ...(!employerApplicationsEnabled(persistedSettings)?{ALLOW_EXTERNAL_APPLY:'false'}:{}),
     APPLICATION_AGENT_MODE: agentMode,
     APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN: applicationScreenshotsForAccount(selectedSettings.APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN, admin, selected),
-    // Only the authorized provider credential enters the account's run context.
+    // Ranking and fit receive a separate credential from the applying agent.
+    OPENROUTER_JOB_REVIEW_API_KEY: reviewKey,
     ADZUNA_ENABLED: serverEnv.ADZUNA_ENABLED || '', ADZUNA_APP_ID: serverEnv.ADZUNA_APP_ID || '', ADZUNA_APP_KEY: serverEnv.ADZUNA_APP_KEY || '',
     // Workers load the shared .env file on startup. Keep Jooble's admin credential out of their environment.
     JOOBLE_API_KEY: '', ...credentials, WORKDAY_DIRECTORY_FILE: workdayDirectoryFile, PUBLIC_EMPLOYER_DIRECTORY_FILE: publicEmployerDirectoryFile };
@@ -569,7 +570,6 @@ class Run {
     if (emailOnly) this.push('sys', '  Sending your confirmed email applications.');
     else {
       this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
-      this.push('sys', `  job review/applying/recovery review: ${applicationModelLabel(env.APPLICATION_AI_MODEL)}`);
       this.push('sys', '  application decisions: Agent-only');
     }
     const shown = Object.entries(overrides)
@@ -672,7 +672,6 @@ class Run {
       COST_TRACKING: 'true',
     };
     this.push('sys', `  browser: ${env.HEADLESS === 'true' ? 'headless (admin discovery pilot)' : 'headed'}`);
-    this.push('sys', `  job review/applying/recovery review: ${applicationModelLabel(env.APPLICATION_AI_MODEL)}`);
     this.push('sys', '  application decisions: Agent-only');
     // Set only once the scan is really starting: a refused start must not overwrite the record of one in flight.
     this.runStartId = runStartId ?? null;

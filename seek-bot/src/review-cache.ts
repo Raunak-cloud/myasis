@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { config } from './config.js';
 import { reviewModelIdentity } from './application-model.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
-import { FIT_ASSESSMENT_VERSION, FIT_CLASSIFIER_MODEL } from './model-versions.js';
+import { FIT_ASSESSMENT_VERSION } from './model-versions.js';
 import { loadReviewVerdicts, verdictContext } from './review-verdicts.js';
 
 export type ReviewDisposition = 'external' | 'fit-mismatch' | 'below-score';
@@ -91,8 +91,6 @@ export function reviewContextFingerprint(profile: CandidateProfile): string {
     rules: config.rules,
     search: config.search,
     minScore: config.rules.minScore,
-    model: FIT_CLASSIFIER_MODEL,
-    endpoint: config.celeris.baseUrl,
     applicationModel: reviewModelIdentity(),
   });
 }

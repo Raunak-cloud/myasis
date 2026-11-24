@@ -1,6 +1,6 @@
 import { setTimeout as pause } from 'node:timers/promises';
-import { applicationModelEnvironment, applicationAgentIdentity } from '../application-model.js';
-import { OPENROUTER_APPLICATION_MODELS } from '../application-model-catalog.js';
+import { applicationModelEnvironment, applicationAgentIdentity, jobReviewCredential } from '../application-model.js';
+import { JOB_REVIEW_MODEL, OPENROUTER_APPLICATION_MODELS } from '../application-model-catalog.js';
 import { beginCostRequest, recordCost } from '../cost-ledger.js';
 import { providerOutOfCredit } from '../run-health.js';
 import { metric } from '../pipeline.js';
@@ -66,26 +66,56 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
       type: 'json_schema', json_schema: { name: 'reply', schema: request.responseSchema },
     };
   }
+  return sendOpenrouter(request, body, key, model.rates, {
+    serializedTools: model.serializedTools,
+    prepareAttempt: () => {
+      const reasoning = body.reasoning as { effort: string };
+      if (!(model.efforts as readonly string[]).includes(reasoning.effort)) body.reasoning = { effort: model.reducedEffort };
+    },
+  });
+}
+
+/** Qwen supports JSON objects. Put the schema in a trusted message and keep
+ * the local fit and ranking validators authoritative for accepting a reply. */
+export async function qwenReviewChat(request: CelerisRequest): Promise<CelerisReply> {
+  const key = jobReviewCredential();
+  if (!key) throw new Error('OPENROUTER_API_KEY is required for job ranking and review.');
+  const messages: ChatMessage[] = request.responseSchema
+    ? [{ role: 'system', content: 'Return exactly one JSON object satisfying this JSON schema: ' + JSON.stringify(request.responseSchema) }, ...request.messages]
+    : request.messages;
+  const body = {
+    model: JOB_REVIEW_MODEL, messages, temperature: request.temperature ?? 0,
+    max_tokens: request.maxTokens ?? 4096, reasoning: { enabled: false },
+    provider: { require_parameters: true, sort: 'price', max_price: { prompt: 0.04, completion: 0.16 } },
+    ...(request.responseSchema ? { response_format: { type: 'json_object' } } : {}),
+  };
+  return sendOpenrouter({ ...request, preserveReasoningEffort: true }, body, key,
+    { prompt: 0.00000003, cached: 0.000000006, completion: 0.00000013 },
+    { title: 'Owtomate job ranking and review' });
+}
+
+async function sendOpenrouter(
+  request: CelerisRequest, body: Record<string, unknown>, key: string, rates: ModelRates,
+  options: { serializedTools?: boolean; prepareAttempt?: () => void; title?: string },
+): Promise<CelerisReply> {
+  const model = String(body.model);
   const recovery = new GenerationRecovery({ ...request, messages: body.messages as ChatMessage[] }, 60_000, Number(body.max_tokens));
   const started = performance.now();
   let lastError: unknown, unusableReply: unknown;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (request.meter?.exhausted) throw new ApplicationBudgetExhaustedError();
     let status: number | undefined, retryAfter: string | null = null, sent = false, recorded = false;
-    const endCost = beginCostRequest('OpenRouter', model.model);
+    const endCost = beginCostRequest('OpenRouter', model);
     try {
       recovery.assertWindow(attempt);
-      // Recovery can lower high to medium; providers with low/high only must
-      // receive their supported reduced effort, including in diagnostics.
-      const reasoning = body.reasoning as { effort: string };
-      if (!(model.efforts as readonly string[]).includes(reasoning.effort)) body.reasoning = { effort: model.reducedEffort };
-      recordDiagnostic({ severity: 'info', category: 'generation_attempt', stage: 'model_request', tool: model.model,
+      options.prepareAttempt?.();
+      recordDiagnostic({ severity: 'info', category: 'generation_attempt', stage: 'model_request', tool: model,
         retry: attempt + 1, message: JSON.stringify({ maxTokens: body.max_tokens, timeoutMs: recovery.timeoutMs,
           remainingMs: Math.max(0, recovery.deadline - Date.now()), reasoning: body.reasoning }) });
       sent = true;
       const response = await fetch(ENDPOINT, {
         method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${key}`,
-          'HTTP-Referer': 'https://owtomate.com', 'X-Title': 'Owtomate admin application agent' },
+          'HTTP-Referer': 'https://owtomate.com', 'X-Title': options.title ?? 'Owtomate admin application agent' },
         body: JSON.stringify(body), signal: AbortSignal.timeout(Math.max(1, Math.min(recovery.timeoutMs, recovery.deadline - Date.now()))),
       });
       status = response.status;
@@ -93,7 +123,7 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
       const payload = await response.json().catch(() => null) as Payload | null;
       const choice = payload?.choices?.[0], providerError = payload?.error ?? choice?.error;
       if (!response.ok || providerError) {
-        if (payload?.usage) recordUsage(request, body, model.rates, payload.usage);
+        if (payload?.usage) recordUsage(request, body, rates, payload.usage);
         else recordCost({ provider: 'OpenRouter', model: String(body.model), amountUsd: null, basis: 'unknown',
           detail: `HTTP ${status}: rejected or failed request; provider charge not reported.` });
         recorded = true;
@@ -105,7 +135,7 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
         const detail = String(providerError?.message ?? response.statusText).replaceAll(key, '[credential withheld]');
         throw new Error(`OpenRouter ${status}: ${detail.slice(0, 300)}`);
       }
-      recordUsage(request, body, model.rates, payload?.usage);
+      recordUsage(request, body, rates, payload?.usage);
       recorded = true;
       endCost();
       // HTTP 200 can still end in a failed generation. Never execute partial
@@ -125,7 +155,7 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
         try { args = JSON.parse(call.function.arguments || '{}'); }
         catch { args = { __parseError: call.function.arguments }; }
         const tool = request.tools?.find(tool => tool.name === call.function.name);
-        if (model.serializedTools && tool) args = minimaxToolArguments(tool, args);
+        if (options.serializedTools && tool) args = minimaxToolArguments(tool, args);
         return { id: call.id, name: call.function.name, args };
       });
       metric('model', performance.now() - started, { model: String(body.model), attempts: attempt + 1,
@@ -137,10 +167,10 @@ export async function openrouterChat(request: CelerisRequest): Promise<CelerisRe
           : message.reasoning !== undefined ? { reasoning: message.reasoning } : {}),
       } };
     } catch (error) {
-      if (sent && !recorded) recordUsage(request, body, model.rates);
+      if (sent && !recorded) recordUsage(request, body, rates);
       endCost();
       if (!(error instanceof ApplicationBudgetExhaustedError)) recordDiagnostic({ severity: 'warning', category: 'provider_error',
-        stage: 'model_request', tool: model.model, retry: attempt + 1,
+        stage: 'model_request', tool: model, retry: attempt + 1,
         message: error instanceof Error ? error.message : String(error), error });
       if (error instanceof GenerationWindowError) throw generationFailure('OpenRouter', lastError ?? error, unusableReply);
       lastError = error;

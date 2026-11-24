@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-assessment-reuse-'));
 process.env.DATA_DIR = directory;
-process.env.CELERIS_API_KEY = 'fixture-only';
+process.env.OPENROUTER_JOB_REVIEW_API_KEY = 'fictional-review-key';
 const { config } = await import('./config.js');
 const { reviewModelIdentity, withApplicationModel } = await import('./application-model.js');
 const { cachedAssessment } = await import('./pipeline.js');
@@ -24,7 +24,7 @@ let malformed: 'none' | 'missing' | 'duplicate' | 'foreign' | 'score' = 'none';
 globalThis.fetch = async (_url, init) => {
   calls++;
   const body = JSON.parse(String(init?.body));
-  const schema = body.response_format.json_schema.schema;
+  const schema = JSON.parse(body.messages[0].content.slice('Return exactly one JSON object satisfying this JSON schema: '.length));
   let value: unknown;
   if (schema.properties.jobs) {
     const ids: string[] = schema.properties.jobs.items.properties.reviewId.enum;
@@ -110,18 +110,18 @@ try {
   config.celeris.baseUrl = oldEndpoint;
   writeFileSync(join(directory, 'review-history.jsonl'), JSON.stringify({ ts: new Date().toISOString(), jobId: jobs[0].id, title: jobs[0].title, company: jobs[0].company, status: 'skipped', reason: 'New history evidence' }) + '\n');
   await rankJobsForReview(jobs, profile);
-  assert.equal(calls - before, 11, 'instructions, search, constraints, endpoint and history invalidate reuse');
+  assert.equal(calls - before, 10, 'instructions, search, constraints and history invalidate reuse, while the other provider endpoint does not');
   await withApplicationModel({ ...process.env, DATA_DIR: join(directory, 'ranking-other-owner') },
     () => rankJobsForReview(jobs, profile));
-  assert.equal(calls - before, 12);
+  assert.equal(calls - before, 11);
 
   for (const kind of ['missing', 'duplicate', 'foreign', 'score'] as const) {
     malformed = kind;
     const changed = jobs.map(job => ({ ...job, id: `${job.id}-${kind}` }));
     const count = calls;
-    await rankJobsForReview(changed, profile);
-    await rankJobsForReview(changed, profile);
-    assert.equal(calls - count, 2, `${kind} rankings must not be cached`);
+    assert.equal((await rankJobsForReview(changed, profile)).size, 0);
+    assert.equal((await rankJobsForReview(changed, profile)).size, 0);
+    assert.equal(calls - count, 6, `${kind} ranking is retried in smaller batches and never cached`);
   }
   malformed = 'none';
   const metrics = readFileSync(join(directory, 'pipeline-metrics.jsonl'), 'utf8');

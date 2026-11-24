@@ -5,27 +5,28 @@ import { applicationModelAvailable, applicationModelEnvironment,
   assertApplicationModelConfigured, assertApplicationBrowserConfigured, applicationAgentIdentity, reviewModelIdentity, reviewModelAvailable, assertReviewModelConfigured, withApplicationModel } from './application-model.js';
 import { config } from './config.js';
 
-test('Magnus is the default; authorized MiniMax selection covers review and applications', () => {
+test('Qwen ranks and reviews independently of the selected applying agent', () => {
   for (const value of [undefined, 'retired', 'deepseek', 'glm', 'celeris']) {
     assert.equal(applicationAgentIdentity({APPLICATION_AI_MODEL:value}).model,'celeris-1-magnus');
   }
   assert.equal(applicationAgentIdentity({APPLICATION_AI_MODEL:'minimax'}).model,'minimax/minimax-m3.1-flash');
-  assert.equal(reviewModelIdentity().model,'celeris-1-magnus');
-  assert.equal(reviewModelIdentity({APPLICATION_AI_MODEL:'minimax'}).model,'minimax/minimax-m3.1-flash');
+  assert.equal(reviewModelIdentity().model,'qwen/qwen3.7-flash');
   assert.equal(applicationModelAvailable({CELERIS_API_KEY:'fixture'}),true);
   assert.equal(applicationModelAvailable({OPENROUTER_API_KEY:'fixture'}),false);
-  assert.equal(reviewModelAvailable({OPENROUTER_API_KEY:'fixture'}),false);
+  assert.equal(reviewModelAvailable({OPENROUTER_API_KEY:'fixture'}),true);
+  assert.equal(reviewModelAvailable({CELERIS_API_KEY:'fixture'}),false);
 });
 
-test('each whole-run provider needs only its own credential without fallback', () => {
+test('browser runs require the respective review and applying credentials', () => {
   for (const env of [{}, {OPENROUTER_API_KEY:'fixture'}, {CELERIS_API_KEY:' '}]) {
     assert.throws(()=>assertApplicationBrowserConfigured(env),/API_KEY/);
   }
-  assert.doesNotThrow(()=>assertApplicationBrowserConfigured({CELERIS_API_KEY:'review-and-apply'}));
+  assert.throws(()=>assertApplicationBrowserConfigured({CELERIS_API_KEY:'apply'}),/OPENROUTER_API_KEY/);
+  assert.doesNotThrow(()=>assertApplicationBrowserConfigured({CELERIS_API_KEY:'apply',OPENROUTER_JOB_REVIEW_API_KEY:'review'}));
   assert.throws(()=>assertApplicationBrowserConfigured({APPLICATION_AI_MODEL:'minimax',CELERIS_API_KEY:'review'}),/OPENROUTER_API_KEY/);
   assert.doesNotThrow(()=>assertApplicationBrowserConfigured({APPLICATION_AI_MODEL:'minimax',CELERIS_API_KEY:'review',OPENROUTER_API_KEY:'apply'}));
   assert.doesNotThrow(()=>assertApplicationBrowserConfigured({APPLICATION_AI_MODEL:'minimax',OPENROUTER_API_KEY:'apply'}));
-  assert.throws(()=>assertReviewModelConfigured({}),/CELERIS_API_KEY.*job review/);
+  assert.throws(()=>assertReviewModelConfigured({}),/OPENROUTER_API_KEY.*job ranking and review/);
   assert.throws(()=>assertReviewModelConfigured({APPLICATION_AI_MODEL:'minimax',CELERIS_API_KEY:'unused'}),/OPENROUTER_API_KEY/);
 });
 

@@ -3,6 +3,7 @@ export const APPLICATION_MODELS = ['celeris', 'minimax'] as const;
 export type ApplicationModel = typeof APPLICATION_MODELS[number];
 /** Customer application, writing and supervision route. Comparisons stay isolated. */
 export const CUSTOMER_APPLICATION_MODEL: ApplicationModel = 'celeris';
+export const JOB_REVIEW_MODEL = 'qwen/qwen3.7-flash' as const;
 export const isApplicationModel = (value: unknown): value is ApplicationModel =>
   (APPLICATION_MODELS as readonly unknown[]).includes(value);
 export const applicationModelLabel = (value: unknown): string =>

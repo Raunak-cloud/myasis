@@ -747,7 +747,7 @@ export function RunPanel({
               disabled={starting || modelSaving || autoToggling} onChange={event => void saveApplicationModel(event.target.value)}>
               {APPLICATION_MODELS.map(model => <option key={model} value={model}>{applicationModelLabel(model)}</option>)}
             </select>
-            <p className="job-meta">{modelSaving ? 'Saving…' : 'Used for the whole next run.'}</p>
+            <p className="job-meta">{modelSaving ? 'Saving…' : 'Used for applying and recovery in the next run.'}</p>
             {modelError && <p className="field-error" role="alert">{modelError}</p>}
           </div>}
           <p className="job-meta run-mode-description">{applicationMode === 'auto'

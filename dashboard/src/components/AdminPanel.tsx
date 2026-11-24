@@ -539,7 +539,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
                       {busy === 'application-model' ? 'Saving…' : 'Save model'}
                     </button>
                   </div>
-                  <p className="job-meta">Used for future manual and scheduled runs, including job review, applying and recovery review. A run already in progress keeps its current model.</p>
+                  <p className="job-meta">Used for applying and recovery review in future manual and scheduled runs.</p>
                   {user.autoApply.runsPerDay > 0 && (
                     <label className="admin-switch-row">
                       <button

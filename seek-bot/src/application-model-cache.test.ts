@@ -38,17 +38,15 @@ try {
 
   await withApplicationModel(owners[0], async () => {
     let calls=0;
-    const input={version:'selected-provider-review'};
-    const magnusFingerprint=reviewContextFingerprint(profile);
+    const input={version:'qwen-job-review'};
+    const reviewFingerprint=reviewContextFingerprint(profile);
     const first=await cachedAssessment(input,async()=>({ok:true,computation:++calls}),accept);
     await withApplicationModel({...owners[0],APPLICATION_AI_MODEL:'minimax'},async()=>{
       const next=await cachedAssessment(input,async()=>({ok:true,computation:++calls}),accept);
-      assert.notDeepEqual(next,first,'MiniMax reviews cannot reuse Magnus assessments');
-      assert.notEqual(reviewContextFingerprint(profile),magnusFingerprint,'fit handoffs remain scoped to their actual review provider');
+      assert.deepEqual(next,first,'the same Qwen review serves either applying model');
+      assert.equal(reviewContextFingerprint(profile),reviewFingerprint,'fit handoffs identify the review model');
     });
-    assert.equal(calls,2);
-    assert.deepEqual(await cachedAssessment(input,async()=>({ok:true,computation:++calls}),accept),first);
-    assert.equal(calls,2,'switching back reuses only the matching provider cache');
+    assert.equal(calls,1);
   });
   let started = 0;
   const releases: Array<() => void> = [];

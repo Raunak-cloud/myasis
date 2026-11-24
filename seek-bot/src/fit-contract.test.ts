@@ -5,7 +5,7 @@ import { join, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-fit-contract-'));
-Object.assign(process.env, { DATA_DIR: directory, APPLICATION_AI_MODEL: 'celeris', CELERIS_API_KEY: 'fixture-only', COST_TRACKING: 'false' });
+Object.assign(process.env, { DATA_DIR: directory, APPLICATION_AI_MODEL: 'celeris', CELERIS_API_KEY: 'fixture-only', OPENROUTER_JOB_REVIEW_API_KEY: 'fictional-review-key', COST_TRACKING: 'false' });
 const { config } = await import('./config.js');
 const { assessFit, rankJobsForReview, reviewKey } = await import('./llm.js');
 const { withApplicationModel } = await import('./application-model.js');
@@ -21,20 +21,20 @@ writeFileSync(join(directory, 'review-history.jsonl'), [
   {jobId: 'different-role', title: 'Retail Manager', company: 'Fixture', status: 'skipped', reason: 'UNRELATED_ROLE_FIXTURE', ts: new Date().toISOString()},
 ].map(row => JSON.stringify(row)).join('\n'));
 const originalFetch = globalThis.fetch;
-let mode = 'apply', calls = 0, selectedModel = 'celeris';
+let mode = 'apply', calls = 0;
 globalThis.fetch = async (url, init) => {
   calls++;
   const body = JSON.parse(String(init?.body)), prompt = body.messages.find((m: { role: string }) => m.role === 'user').content;
-  assert.equal(body.model, selectedModel === 'minimax' ? 'minimax/minimax-m3.1-flash' : 'celeris-1-magnus');
-  assert.equal(String(url).includes('openrouter.ai'), selectedModel === 'minimax', 'fit uses the selected whole-run provider');
-  assert.equal(body.response_format.json_schema.schema.properties.checks, undefined, 'No preliminary instruction classifier.');
-  assert.match(body.messages[0].content, /sole matching decision maker/);
+  assert.equal(body.model, 'qwen/qwen3.7-flash');
+  assert.equal(String(url), 'https://openrouter.ai/api/v1/chat/completions');
+  assert.equal(JSON.parse(body.messages[0].content.slice('Return exactly one JSON object satisfying this JSON schema: '.length)).properties.checks, undefined, 'No preliminary instruction classifier.');
+  assert.ok(body.messages.some((message: { content: string }) => /sole matching decision maker/.test(message.content)));
   for (const evidence of ['FULL CANDIDATE PROFILE', 'CV_TAIL_FIXTURE', 'SAVED_FACT_FIXTURE', config.aiInstructions, 'minimum match score', 'MATCHING-STAGE DUPLICATE DECISION']) assert.ok(prompt.includes(evidence), evidence);
   assert.ok(prompt.includes('RELATED_DISCLOSED_PAY_FIXTURE'), 'a different board ID must not hide related disclosed pay from the matching agent');
   assert.match(prompt, /CURRENT OCCUPATION INTENT PROVENANCE/);
-  assert.ok(body.response_format.json_schema.schema.properties.roleFitCheck.required.includes('currentIntent'));
-  assert.ok(body.response_format.json_schema.schema.properties.roleFitCheck.required.includes('primaryOutputs'));
-  const roleSchema = body.response_format.json_schema.schema.properties.roleFitCheck.properties;
+  assert.ok(JSON.parse(body.messages[0].content.slice('Return exactly one JSON object satisfying this JSON schema: '.length)).properties.roleFitCheck.required.includes('currentIntent'));
+  assert.ok(JSON.parse(body.messages[0].content.slice('Return exactly one JSON object satisfying this JSON schema: '.length)).properties.roleFitCheck.required.includes('primaryOutputs'));
+  const roleSchema = JSON.parse(body.messages[0].content.slice('Return exactly one JSON object satisfying this JSON schema: '.length)).properties.roleFitCheck.properties;
   assert.equal(roleSchema.currentIntent.properties.quote, undefined, 'the wire requests references, not transcribed current instructions');
   assert.equal(roleSchema.primaryOutputs.items.properties.employerQuote, undefined, 'the wire requests references, not transcribed employer prose');
   assert.doesNotMatch(prompt, /UNRELATED_EMPLOYER_FIXTURE|UNRELATED_ROLE_FIXTURE/, 'unrelated employers and roles cannot supply matching evidence');
@@ -75,19 +75,18 @@ try {
   }
   mode = 'apply';
   await withApplicationModel({ DATA_DIR: directory, APPLICATION_AI_MODEL: 'minimax', OPENROUTER_API_KEY: 'fixture-only', CELERIS_API_KEY: 'fixture-only' }, async () => {
-    selectedModel = 'minimax';
     const before = calls;
     assert.equal((await assessFit({ ...job, id: 'minimax-fit' }, profile)).decision, 'apply');
-    assert.equal(calls - before, 1, 'MiniMax supplies the whole run with one fit decision');
+    assert.equal(calls - before, 1, 'Qwen still supplies fit when the applying model is MiniMax');
   });
   config.aiInstructions='Only apply dog walker and stocktaker';mode='mixed-duty';
   for(const selected of ['celeris','minimax'])await withApplicationModel({DATA_DIR:directory,APPLICATION_AI_MODEL:selected,OPENROUTER_API_KEY:'fixture-only',CELERIS_API_KEY:'fixture-only'},async()=>{
-    selectedModel=selected;const before=calls;
+    const before=calls;
     const result=await assessFit({...job,id:selected+'-nespresso-mixed-duty'},profile);
     assert.equal(result.decision,'apply');assert.equal(result.shouldApply,true);assert.equal(calls-before,1,'A bounded stocktaking intent plus a supporting capability-only duty uses the single final agent decision.');
     assert.equal(result.roleFitCheck?.primaryOutputs?.[1].relationship,'capability-only','Preserve diagnostics rather than rewriting them to manufacture agreement.');
   });
-  mode='apply';selectedModel='celeris';
+  mode='apply';
   const completedCalls=calls;
   config.aiInstructions='Changed standing instructions';config.rules.minSalary+=1;
   const cachedJobs=['apply','skip','uncertain'].map(id=>({...job,id}));

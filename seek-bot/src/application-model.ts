@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { CUSTOMER_APPLICATION_MODEL, OPENROUTER_APPLICATION_MODELS, isApplicationModel } from './application-model-catalog.js';
+import { CUSTOMER_APPLICATION_MODEL, JOB_REVIEW_MODEL, OPENROUTER_APPLICATION_MODELS, isApplicationModel } from './application-model-catalog.js';
 
 type ApplicationEnvironment = Readonly<Record<string, string | undefined>>;
 const contexts = new AsyncLocalStorage<ApplicationEnvironment>();
@@ -47,14 +47,17 @@ export function assertApplicationBrowserConfigured(env: ApplicationEnvironment =
   assertApplicationModelConfigured(env);
 }
 
-/** Every stage of an authorized run shares its provider and cache identity. */
-export function reviewModelIdentity(env: ApplicationEnvironment = applicationModelEnvironment()) {
-  const identity = applicationAgentIdentity(env);
-  return { role: 'job-review', model: identity.model, protocol: identity.protocol, provider: identity.provider } as const;
+/** Ranking and fit have their own identity, independent of the applying agent. */
+export function reviewModelIdentity() {
+  return { role: 'job-review', model: JOB_REVIEW_MODEL, protocol: 'openrouter-json-object-v1', provider: 'OpenRouter', reasoning: false } as const;
+}
+
+export function jobReviewCredential(env: ApplicationEnvironment = applicationModelEnvironment()): string | undefined {
+  return env.OPENROUTER_JOB_REVIEW_API_KEY?.trim() || env.OPENROUTER_API_KEY?.trim();
 }
 export function reviewModelAvailable(env: ApplicationEnvironment = applicationModelEnvironment()): boolean {
-  return applicationModelAvailable(env);
+  return Boolean(jobReviewCredential(env));
 }
 export function assertReviewModelConfigured(env: ApplicationEnvironment = applicationModelEnvironment()): void {
-  if (!reviewModelAvailable(env)) throw new Error(`${reviewModelIdentity(env).provider === 'OpenRouter' ? 'OPENROUTER_API_KEY' : 'CELERIS_API_KEY'} is required for job review.`);
+  if (!reviewModelAvailable(env)) throw new Error('OPENROUTER_API_KEY is required for job ranking and review.');
 }

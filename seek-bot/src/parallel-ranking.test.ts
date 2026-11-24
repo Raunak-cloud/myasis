@@ -3,20 +3,15 @@ import { after, test } from 'node:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { closeCelerisQueues } from '../../shared/celeris-queue.mjs';
 
 const directory = mkdtempSync(join(tmpdir(), 'owtomate-parallel-ranking-'));
 Object.assign(process.env, {
-  DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', APPLICATION_AI_MODEL: 'celeris',
-  CELERIS_QUEUE_FILE: join(directory, 'queue.sqlite'),
-  CELERIS_MIN_INTERVAL_MS: '0', CELERIS_MAX_CONCURRENT_REQUESTS: '2',
+  DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', OPENROUTER_JOB_REVIEW_API_KEY: 'fictional-review-key', APPLICATION_AI_MODEL: 'celeris',
 });
 const { rankJobsForReview, reviewKey } = await import('./llm.js');
-const { withApplicationModel } = await import('./application-model.js');
 const originalFetch = globalThis.fetch;
 after(() => {
   globalThis.fetch = originalFetch;
-  closeCelerisQueues();
   rmSync(directory, { recursive: true, force: true });
 });
 const profile = { name: 'Fixture', phone: '', email: '', nationality: '', expectedSalary: '', noticePeriod: '',
@@ -37,7 +32,7 @@ function stub() {
   let active = 0, peak = 0, released = false;
   globalThis.fetch = async (_url, init) => {
     const body = JSON.parse(String(init?.body));
-    const schema = body.response_format.json_schema.schema;
+    const schema = JSON.parse(body.messages[0].content.slice('Return exactly one JSON object satisfying this JSON schema: '.length));
     const ids: string[] = schema.properties.jobs.items.properties.reviewId.enum;
     active++; peak = Math.max(peak, active);
     let reply!: (status?: number) => void;
@@ -56,7 +51,7 @@ function stub() {
   return { calls, peak: () => peak, release: () => { released = true; calls.forEach(call => call.reply()); } };
 }
 
-test('production Celeris defaults overlap two unchanged batches, preserve order and reuse the exact cache', async () => {
+test('production ranking defaults overlap two unchanged batches, preserve order and reuse the exact cache', async () => {
   const fixture = stub(), listings = jobs('parallel', 65);
   let settled = false;
   const work = rankJobsForReview(listings, profile).finally(() => { settled = true; });
@@ -98,14 +93,13 @@ test('an outage stops new batches, drains the other request and keeps its valid 
   } finally { fixture.release(); await work.catch(() => {}); }
 });
 
-test('parallel ranking obeys a lower workspace queue limit', async () => {
+test('parallel ranking obeys a lower requested concurrency', async () => {
   const fixture = stub(), listings = jobs('limited', 41);
-  const work = withApplicationModel({ ...process.env, CELERIS_MAX_CONCURRENT_REQUESTS: '1' },
-    () => rankJobsForReview(listings, profile));
+  const work = rankJobsForReview(listings, profile, { concurrency: 1 });
   try {
     await until(() => fixture.calls.length === 1);
     await pause(50);
-    assert.equal(fixture.calls.length, 1, 'the other logical batch waits in the shared queue');
+    assert.equal(fixture.calls.length, 1, 'the other logical batch waits for the first');
     for (let i = 0; i < 3; i++) {
       await until(() => fixture.calls.length === i + 1);
       fixture.calls[i].reply();

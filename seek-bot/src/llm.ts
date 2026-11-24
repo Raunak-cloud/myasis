@@ -6,7 +6,7 @@ import type { CandidateProfile, JobListing } from './types.js';
 import { cachedAssessment, relevantEvidence, selectedEvidencePassages, measured, metric } from './pipeline.js';
 import { FIT_ASSESSMENT_VERSION, FIT_CLASSIFIER_MODEL } from './model-versions.js';
 import { JOB_FIT_POLICY, jobPreferenceContext } from './job-fit-policy.js';
-import { applicationModelIdentity, applicationModelEnvironment } from './application-model.js';
+import { applicationModelIdentity, applicationModelEnvironment, reviewModelIdentity } from './application-model.js';
 import { cleanCoverLetter, coverLetterInstructionPrompt, COVER_LETTER_TARGET_WORDS, COVER_LETTER_MIN_TARGET_WORDS, COVER_LETTER_MAX_WORDS as MAX_COVER_LETTER_WORDS } from './cover-letter-policy.js';
 import { APPLICATION_WRITING_STYLE, APPLICATION_EVIDENCE_RULES } from './application-answer-policy.js';
 import { buildKnowledgeContext } from './knowledge.js';
@@ -28,7 +28,7 @@ export type { FitInstructionCheck } from './fit-assessment-types.js';
  */
 const llmMeter = new CostMeter(Number.MAX_SAFE_INTEGER);
 const companyIdentity = new CompanyIdentityResolver((prompt,schema) =>
-  json(prompt,schema,FIT_CLASSIFIER_MODEL,1024,'low',Date.now()+25_000,llmMeter,COMPANY_IDENTITY_POLICY,'job-review'));
+  json(prompt,schema,undefined,1024,undefined,Date.now()+25_000,llmMeter,COMPANY_IDENTITY_POLICY,'job-review'));
 
 /**
  * The schemas below are written in the uppercase dialect (`OBJECT`,
@@ -160,7 +160,7 @@ async function json<T>(
     reasoningEffort,
     deadline,
     // Magnus can spend 75% of its output budget reasoning before the JSON.
-    maxTokens: model === 'celeris-1-magnus' && maxTokens ? Math.max(config.celeris.maxOutputTokens, maxTokens * 4) : maxTokens,
+    maxTokens: role === 'application' && model === 'celeris-1-magnus' && maxTokens ? Math.max(config.celeris.maxOutputTokens, maxTokens * 4) : maxTokens,
     messages,
     responseSchema: toJsonSchema(schema) as Record<string, unknown>,
     // The reasoning model is only worth its latency when it is allowed to reason.
@@ -404,7 +404,7 @@ export interface FitAssessment extends SavedFitAssessment {
   duplicateReview?: DuplicateReview;
 }
 
-/** Validate the transport contract only. Magnus owns suitability and evidence judgments. */
+/** Validate the transport contract only. The reviewer owns suitability and evidence judgments. */
 export function fitAssessmentValidationError(value: unknown, sources?: FitProvenanceSources): string | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 'response must be an object';
   const result = value as Record<string, unknown>;
@@ -463,8 +463,7 @@ const RANKING_TOKENS_PER_JOB = 150;
  *
  * The reply is bounded by its schema, not by hope: the ids are an enum of this
  * batch's, there can be no more items than jobs, and a reason has a length.
- * Celeris enforces all three, so a reply cannot repeat, invent ids or write an
- * endless reason — the ways a reply was running to the installation's limit.
+ * Local validation rejects invented or repeated IDs and unbounded reasons.
  * The token limit is sized to the batch for the same reason.
  */
 async function rankBatch(batch: JobListing[], profile: CandidateProfile): Promise<ReviewPriority[]> {
@@ -523,17 +522,20 @@ priority does not reject the job. Return JSON.`;
   // Reuse only the exact batch, ordering, candidate facts, instructions,
   // constraints and recent outcomes the model saw. No per-title/fuzzy reuse:
   // ranking is comparative and a changed batch needs a new decision.
+  const ids = new Set(batch.map(reviewKey));
+  const valid = (value: { jobs: ReviewPriority[] }) =>
+    ids.size === batch.length && Array.isArray(value?.jobs) && value.jobs.length === batch.length
+      && new Set(value.jobs.map(item => item?.reviewId)).size === ids.size
+      && value.jobs.every(item => item && ids.has(item.reviewId) && Number.isInteger(item.priority)
+        && item.priority >= 0 && item.priority <= 100 && typeof item.reason === 'string' && item.reason.length <= 120);
   const result = await cachedAssessment(
-    { version: 'review-ranking-v1', prompt, schema, model: 'celeris-1', endpoint: config.celeris.baseUrl },
-    () => measured('review-ranking', () =>
-      json<{ jobs: ReviewPriority[] }>(prompt, schema, 'celeris-1', 200 + batch.length * RANKING_TOKENS_PER_JOB, undefined, undefined, llmMeter, undefined, 'ranking')),
-    value => {
-      const ids = new Set(batch.map(reviewKey));
-      return ids.size === batch.length && Array.isArray(value?.jobs) && value.jobs.length === batch.length
-        && new Set(value.jobs.map(item => item?.reviewId)).size === ids.size
-        && value.jobs.every(item => item && ids.has(item.reviewId) && Number.isInteger(item.priority)
-          && item.priority >= 0 && item.priority <= 100 && typeof item.reason === 'string' && item.reason.length <= 120);
-    },
+    { version: 'review-ranking-v2', prompt, schema },
+    () => measured('review-ranking', async () => {
+      const value = await json<{ jobs: ReviewPriority[] }>(prompt, schema, undefined, 200 + batch.length * RANKING_TOKENS_PER_JOB, undefined, undefined, llmMeter, undefined, 'ranking');
+      if (!valid(value)) throw new ReplyUnusableError('Model returned an invalid ranking batch.');
+      return value;
+    }),
+    valid,
     24 * 60 * 60_000,
   );
   return result.jobs ?? [];
@@ -571,7 +573,7 @@ export async function rankJobsForReview(
         });
       }
     } catch (error) {
-      // Only a bad reply is worth narrowing down. Celeris being unreachable fails every
+      // Only a bad reply is worth narrowing down. An unreachable provider fails every
       // job alike, and retrying each one would stall the run; that goes to the caller.
       if (!(error instanceof ReplyUnusableError) && !(error instanceof SyntaxError)) throw error;
       if (batch.length === 1) {
@@ -584,7 +586,7 @@ export async function rankJobsForReview(
     }
   };
   const batchSize = Math.max(1, Math.min(20, Math.floor(options.batchSize || 20)));
-  // Overlap independent batches; the shared workspace queue governs admission.
+  // Overlap independent batches within the ranking concurrency limit.
   const concurrency = Math.max(1, Math.min(4, Math.floor(options.concurrency || 2)));
   let cursor = 0;
   let failure: unknown;
@@ -628,7 +630,7 @@ async function assessFitScoped(job: JobListing, profile: CandidateProfile): Prom
     reason: duplicateReview.reason, evidence: [JSON.stringify(duplicateReview.evidence)], injectionSuspected: false,
   };
   if (config.excludedCompanies.length) {
-    const identity = await companyIdentity.resolve({scope:JSON.stringify([config.dataDir,applicationModelIdentity()]),
+    const identity = await companyIdentity.resolve({scope:JSON.stringify([config.dataDir,reviewModelIdentity()]),
       company:job.company,exclusions:config.excludedCompanies,
       employerEvidence:relevantEvidence(job.description ?? job.teaser ?? '', `employer company hiring on behalf client ABN ${config.excludedCompanies.join(' ')}`,6000)});
     metric('employer-identity',0,{jobId:job.id,decision:identity.decision,method:identity.method,matchedExclusion:identity.matchedExclusion,reason:identity.reason,evidence:identity.evidence});
@@ -862,13 +864,14 @@ Return JSON.`;
   }, required: ['instructionCheck','roleFitCheck','workArrangementCheck','opportunityEvidence','credentialChecks','decision','matchScore','reason','evidence','injectionSuspected'] };
   // Only malformed output gets one bounded format repair. A valid agent decision
   // is final; there is no preliminary instruction classifier or second approval veto.
-  return cachedAssessment({ version: FIT_ASSESSMENT_VERSION, prompt, trustedInstructions, schema, model, endpoint: config.celeris.baseUrl }, async () => {
+  return cachedAssessment({ version: FIT_ASSESSMENT_VERSION, prompt, trustedInstructions, schema }, async () => {
     const validateWire = (value: unknown) => {
       const resolved = resolveFitProvenanceWire(value, provenance);
       return { result: resolved.error ? null : normalizeFitAssessment(resolved.value, provenanceSources),
         error: resolved.error ?? fitAssessmentValidationError(resolved.value, provenanceSources) };
     };
-    let raw = await measured('fit', () => json<unknown>(prompt, schema, model, undefined, 'medium', undefined, llmMeter, trustedInstructions, 'job-review'));
+    let raw = await measured('fit', () => json<unknown>(prompt, schema, undefined, undefined, undefined, undefined, llmMeter, trustedInstructions, 'job-review'))
+      .catch((error: unknown) => { if (error instanceof SyntaxError) return null; throw error; });
     let { result, error } = validateWire(raw);
     if (!result) {
       metric('fit-contract-invalid', 0, { jobId: job.id, attempt: 1, model, error });
@@ -878,7 +881,7 @@ RESPONSE FORMAT CORRECTION
 The previous output was malformed: ${error}.
 Return a complete assessment in the requested JSON format. You remain responsible for
 the final decision using the original candidate evidence and preferences above.
-<untrusted role="malformed-response">${JSON.stringify(raw).replace(/</g, '\\u003c').slice(0, 6000)}</untrusted>`, schema, model, undefined, 'medium', undefined, llmMeter, trustedInstructions, 'job-review'));
+<untrusted role="malformed-response">${JSON.stringify(raw).replace(/</g, '\\u003c').slice(0, 6000)}</untrusted>`, schema, undefined, undefined, undefined, undefined, llmMeter, trustedInstructions, 'job-review'));
       ({ result, error } = validateWire(raw));
     }
     if (!result) {
