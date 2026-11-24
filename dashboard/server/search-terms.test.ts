@@ -90,15 +90,41 @@ test('both calls see full source context; only source-verified candidates reach 
   const calls: Array<{ prompt: string; temperature?: number }> = [];
   const ask: Ask = async (_system, prompt, _schema, temperature) => {
     calls.push({ prompt, temperature });
-    if (calls.length === 1) return { ok: true, value: { searches: [generated(), { ...generated('Nurse'), resumeEvidence: [{ resumeId: 'cv1', quote: 'Invented qualification' }] }] } };
+    if (calls.length === 1) return { ok: true, value: { searches: [
+      generated(), generated('Clinic Administrator'), generated('Patient Bookings Officer'),
+      { ...generated('Nurse'), resumeEvidence: [{ resumeId: 'cv1', quote: 'Invented qualification' }] },
+    ] } };
     assert.ok(prompt.includes(resume.text));
     assert.ok(!prompt.includes('Invented qualification'));
-    return { ok: true, value: { decisions: [accepted('s1')] } };
+    return { ok: true, value: { decisions: [accepted('s1'), accepted('s2'), accepted('s3')] } };
   };
   const result = await suggestResumeSearches([resume], [], ask);
   assert.ok(result.ok);
   if (result.ok) assert.deepEqual(result.suggestions[0].evidence, [{ resumeId: 'cv1', resumeLabel: resume.label, quote }]);
   assert.deepEqual(calls.map(c => c.temperature), [0.1, 0]);
+});
+
+test('a short first review fills the third slot with a distinct, independently reviewed title', async () => {
+  let calls = 0;
+  const ask: Ask = async (_system, prompt) => {
+    switch (++calls) {
+      case 1: return { ok: true, value: { searches: [generated(), generated('Clinic Administrator'), generated('Nurse')] } };
+      case 2: return { ok: true, value: { decisions: [accepted('s1'), accepted('s2'), { ...accepted('s3'), supported: false }] } };
+      case 3:
+        assert.match(prompt, /Fill 1 remaining search slots/);
+        assert.ok(prompt.includes('Medical Receptionist') && prompt.includes('Clinic Administrator'));
+        return { ok: true, value: { searches: [generated('medical-receptionist'), generated('Patient Bookings Officer')] } };
+      default:
+        assert.match(prompt, /already accepted searches/);
+        assert.match(prompt, /Patient Bookings Officer/);
+        assert.doesNotMatch(prompt, /"query":"medical-receptionist"/);
+        return { ok: true, value: { decisions: [accepted('s1')] } };
+    }
+  };
+  const result = await suggestResumeSearches([resume], [], ask);
+  assert.ok(result.ok);
+  assert.deepEqual(result.suggestions.map(suggestion => suggestion.query), ['Medical Receptionist', 'Clinic Administrator', 'Patient Bookings Officer']);
+  assert.equal(calls, 4);
 });
 
 test('insufficient evidence abstains without another call or forced new role', async () => {
@@ -136,12 +162,12 @@ test('generation and review receive the same account preferences without leaking
   const ask: Ask = async (_system, prompt) => {
     assert.ok(prompt.includes(instructions));
     assert.match(prompt, /Alternative searches must remain within these preferences/);
-    return ++calls === 1
-      ? { ok: true, value: { searches: [generated()] } }
-      : { ok: true, value: { decisions: [{ ...accepted('s1'), supported: false }] } };
+    if (++calls === 1) return { ok: true, value: { searches: [generated()] } };
+    if (calls === 2) return { ok: true, value: { decisions: [{ ...accepted('s1'), supported: false }] } };
+    return { ok: true, value: { searches: [] } };
   };
   assert.deepEqual(await suggestResumeSearches([resume], [], ask, instructions), { ok: true, suggestions: [] });
-  assert.equal(calls, 2);
+  assert.equal(calls, 3);
   assert.ok(!searchTermsRequest(JSON.stringify([resume]), []).prompt.includes(instructions));
   assert.ok(!searchReviewRequest(JSON.stringify([resume]), []).prompt.includes(instructions));
 });
