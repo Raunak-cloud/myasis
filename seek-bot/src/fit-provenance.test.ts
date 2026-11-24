@@ -29,7 +29,7 @@ test('wire IDs dereference untouched source bytes before the unchanged canonical
   assert.equal(JSON.stringify(raw), retained, 'transport normalization never mutates its source or historical record');
   assert.equal(normalizeFitAssessment(canonical, sources)?.decision, 'apply', 'old canonical quote-shaped records remain accepted');
   assert.equal(resolveFitProvenanceWire(canonical, current).value, undefined, 'fresh wire replies cannot fall back to copied quotation fields');
-  assert.equal(FIT_ASSESSMENT_VERSION, 'magnus-owned-fit-v29-agent-final-decision', 'agent-owned final decisions use a new temporary cache identity without deleting review history');
+  assert.equal(FIT_ASSESSMENT_VERSION, 'agent-fit-v30-qwen-json', 'Qwen reviews use a new cache identity without deleting completed review history');
 });
 
 test('wrong, foreign, stale and cross-source references fail closed without a semantic override', () => {
