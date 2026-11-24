@@ -5,6 +5,37 @@ cd "$(dirname "$0")/.."
 # Narrow releases use checks specific to the changed feature, with a 60-second
 # test budget. Unknown or mixed releases keep all checks.
 if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(git rev-parse HEAD)" = "$3" ]; then
+  feed_handoff_only=1
+  feed_policy_changed=0
+  while IFS= read -r path; do
+    case "$path" in
+      seek-bot/src/retired-job-sources.ts) feed_policy_changed=1 ;;
+      dashboard/server/entitlements.ts|dashboard/server/retired-job-sources.test.ts|seek-bot/src/agent/retired-feed-handoff.test.ts) ;;
+      seek-bot/src/application-skip-memory.ts|seek-bot/src/application-skip-memory.test.ts|deploy/check-release.sh) ;;
+      *) feed_handoff_only=0 ;;
+    esac
+  done < <(git diff --name-only "$2" "$3")
+  if [ "$feed_handoff_only" = 1 ] && [ "$feed_policy_changed" = 1 ] && [ -z "${REPLAY_BASELINE_SHA:-}" ]; then
+    timeout --signal=TERM --kill-after=2s 58s bash -e -c '
+      export CHROME_PATH="${CHROME_PATH:-/usr/bin/google-chrome-stable}"
+      (cd dashboard && ../seek-bot/node_modules/.bin/tsx --test server/retired-job-sources.test.ts) & dashboard_tests=$!
+      cd seek-bot
+      node --test dist/agent/retired-feed-handoff.test.js dist/application-skip-memory.test.js dist/external-navigation.test.js
+      wait "$dashboard_tests"
+      if [ "$1" = 1 ]; then
+        shopt -s nullglob
+        corpora=(data/users/*/form-corpus)
+        if [ "${#corpora[@]}" -gt 0 ]; then
+          scratch=$(mktemp -d ../output/deploy-handoff.XXXXXX)
+          trap '\''rm -rf "$scratch"'\'' EXIT
+          node ../deploy/replay-sample.mjs "$scratch/corpus" 10 "$2" "${corpora[@]}"
+          CELERIS_API_KEY=replay-only node dist/form-replay.js "$scratch/corpus"
+        fi
+      fi
+    ' bash "${1:-0}" "$3"
+    echo 'Targeted employer handoff and discovery checks passed (60-second maximum)'
+    exit 0
+  fi
   hr_research_only=1
   hr_research_changed=0
   while IFS= read -r path; do

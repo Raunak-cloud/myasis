@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { config } from './config.js';
 import { employerName } from './employer-account.js';
 import { listingFingerprint } from './review-cache.js';
+import { RETIRED_SOURCE_MESSAGE } from './retired-job-sources.js';
 import { technicalFailure } from './technical-retry-types.js';
 import type { ApplyOutcome, JobListing } from './types.js';
 import { APPLICATION_OUTCOMES_FILE, applicationOutcomeRows, appendApplicationOutcome, validApplicationJob,
@@ -42,7 +43,10 @@ function accountState(directory: string, job: JobListing): { signature: string; 
 }
 
 function finalSkip(row: Record<string, unknown>): boolean {
-  return row.status === 'skipped' && row.submitPressed !== true && !row.accountAccess
+  // Re-evaluate product source policy on the next run. An old restriction is
+  // not a decision about the listing and may outlive the restriction itself.
+  return row.status === 'skipped' && row.reason !== RETIRED_SOURCE_MESSAGE
+    && row.submitPressed !== true && !row.accountAccess
     && !(Array.isArray(row.questions) && row.questions.length) && !technicalFailure(row);
 }
 

@@ -8,7 +8,7 @@ import { countedRunSql, RUN_TIME_ZONE } from './run-accounting.js';
 import { limitSearchTerms } from '../src/search-limits.js';
 import { boundedUserRunLimit, dailyApplicationLimit, USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
 import { EMPLOYER_SOURCES, isEmployerSource } from '../../seek-bot/src/employer-source-config.js';
-import { retiredJobSource } from '../../seek-bot/src/retired-job-sources.js';
+import { retiredDiscoveryPlatform } from '../../seek-bot/src/retired-job-sources.js';
 import {GUEST_EMPLOYER_SOURCES} from '../../seek-bot/src/guest-applications.js';
 import {employerApplicationsEnabled} from '../src/employer-applications.js';
 import { employerApplicationAllowance } from './employer-site-access.js';
@@ -175,7 +175,7 @@ export function effectivePlatforms(
   ].join(',');
   const value = (saved.PLATFORMS ?? RUN_SETTING_DEFAULTS.PLATFORMS).trim() || RUN_SETTING_DEFAULTS.PLATFORMS;
   const base = saved[PLATFORMS_CHOSEN_KEY] !== '1' && entitlement.indeedApplications && value === RUN_SETTING_DEFAULTS.PLATFORMS ? 'seek,indeed' : value;
-  const selected = base.split(',').map(id => id.trim().toLowerCase()).filter(id => id && !retiredJobSource({platform:id}) && (!isEmployerSource(id) || employersEnabled)
+  const selected = base.split(',').map(id => id.trim().toLowerCase()).filter(id => id && !retiredDiscoveryPlatform(id) && (!isEmployerSource(id) || employersEnabled)
     && (id!=='indeed'||!entitlement.employerTrial||entitlement.indeedApplications)
     && (!entitlement.employerGuestOnly||!isEmployerSource(id)||(GUEST_EMPLOYER_SOURCES as readonly string[]).includes(id))
     && (id !== 'jora' || entitlement.joraSignIn===true && saved.JORA_BETA_ENABLED !== 'false'));

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { ApplicationSkipMemory } from './application-skip-memory.js';
 import { APPLICATION_OUTCOMES_FILE, archiveApplicationOutcomes } from './application-outcome-journal.js';
 import { listingFingerprint } from './review-cache.js';
+import { RETIRED_SOURCE_MESSAGE } from './retired-job-sources.js';
 import type { ApplyOutcome, JobListing } from './types.js';
 
 const job: JobListing = { id: 'vacancy-1', platform: 'indeed', title: 'Data Analyst', company: 'Employer', location: 'Sydney',
@@ -42,6 +43,19 @@ test('changed cards and candidate context release a skip without rewriting compl
   assert.equal(memory.prior({ ...job, discoveryFingerprint: 'changed-advert' }, 'owner-context'), undefined);
   assert.ok(memory.prior(job, 'owner-context'));
   assert.equal(job.fitReview?.score, 90);
+}));
+
+test('a previous source restriction cannot suppress an eligible application in a future run', () => fixture(dir => {
+  const state = new ApplicationSkipMemory(dir).remember(job, skip, 'owner-context');
+  const sourceSkip = { ...skip, reason: RETIRED_SOURCE_MESSAGE };
+  assert.ok(state);
+  for (const priorState of [state, undefined]) {
+    journal(dir, [row(sourceSkip, priorState)]);
+    assert.equal(new ApplicationSkipMemory(dir).prior(job, 'owner-context'), undefined);
+  }
+  const memory = new ApplicationSkipMemory(dir);
+  assert.equal(memory.remember(job, sourceSkip, 'owner-context'), undefined);
+  assert.equal(memory.prior(job, 'owner-context'), undefined);
 }));
 
 test('relevant accepted or pending login changes release skips; another employer does not', () => fixture(dir => {

@@ -1,10 +1,9 @@
-/** Retirement data only; no provider adapters. Old links and saved drafts must
- * not reactivate integrations removed from the supported-source registry. */
+// PageUp and SmartRecruiters are retired as discovery feeds. Their employer
+// forms remain valid destinations for jobs found through supported sources.
 const employerFeeds = ['smartrecruiters', 'pageup'];
 const employerFeedDomains = ['smartrecruiters.com', 'pageuppeople.com'];
-const platforms = new Set(['lever', ...employerFeeds]);
-const domains = ['lever.co', ...employerFeedDomains, 'hub24management.wd105.myworkdayjobs.com', 'hub24.com.au'];
-const companies = new Set(['hub24']);
+const retiredDiscoveryPlatforms = new Set(['lever', 'web-search', ...employerFeeds]);
+const blockedApplicationDomains = ['lever.co', 'hub24management.wd105.myworkdayjobs.com', 'hub24.com.au'];
 export const RETIRED_SOURCE_SETTING_KEYS = ['LEVER_COMPANIES', 'SMARTRECRUITERS_COMPANIES', 'SMARTRECRUITERS_ADMIN_ENABLED', 'PAGEUP_SITES'];
 export const RETIRED_SOURCE_MESSAGE = 'This job source is no longer available.';
 
@@ -16,7 +15,11 @@ function matchesDomain(raw: string, blocked: string[]): boolean {
 }
 
 export function retiredJobDestination(raw: string): boolean {
-  return matchesDomain(raw, domains);
+  return matchesDomain(raw, blockedApplicationDomains);
+}
+
+export function retiredDiscoveryPlatform(platform: string): boolean {
+  return retiredDiscoveryPlatforms.has(platform);
 }
 
 export function retiredEmployerFeed(job: { platform?: string; url?: string }): boolean {
@@ -25,6 +28,6 @@ export function retiredEmployerFeed(job: { platform?: string; url?: string }): b
 
 export function retiredJobSource(job: { platform?: string; company?: string; url?: string; applicationUrl?: string }): boolean {
   const company = (job.company ?? '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/(?:limited|ltd)$/, '');
-  return platforms.has(job.platform ?? '') || companies.has(company)
+  return job.platform === 'lever' || company === 'hub24'
     || [job.url, job.applicationUrl].some(url => Boolean(url && retiredJobDestination(url)));
 }
