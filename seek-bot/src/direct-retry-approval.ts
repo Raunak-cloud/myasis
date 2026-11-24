@@ -5,17 +5,15 @@ import { applicationUrlKey } from './application-identity.js';
 import { currentFitReview, reviewContextFingerprint } from './review-cache.js';
 import { employerJobIdentity, EmployerFeedDiscovery } from './employer-feeds.js';
 import { isEmployerSource } from './employer-source-config.js';
-import { SmartRecruitersDiscovery, smartRecruitersIdentity } from './smartrecruiters.js';
 import type { CandidateProfile, JobListing } from './types.js';
 
 const clean = (text: string) => text.trim().toLowerCase().replace(/\s+/g, ' ');
 const sameUrl = (first: string | undefined, second: string | undefined) => Boolean(first && second && applicationUrlKey(first) && applicationUrlKey(first) === applicationUrlKey(second));
 
 async function refreshEmployerJob(previous: JobListing): Promise<JobListing> {
-  if (previous.platform === 'smartrecruiters') return new SmartRecruitersDiscovery(smartRecruitersIdentity(previous.url).company).detail(previous);
-  if (!isEmployerSource(previous.platform ?? '')) throw Error('No trusted vacancy refresh is available for this source.');
-  const source = previous.platform as 'greenhouse' | 'pageup' | 'workday';
-  const target = previous.sourceCareerSite || employerJobIdentity(source, previous.url).namespace;
+  const source = previous.platform;
+  if (!source || !isEmployerSource(source)) throw Error('No trusted vacancy refresh is available for this source.');
+  const target = employerJobIdentity(source, previous.url).namespace;
   return new EmployerFeedDiscovery(source, target).detail(previous);
 }
 

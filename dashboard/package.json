@@ -7,7 +7,7 @@
     "preview:bonus-run": "node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/preview-bonus-run.mts",
     "test:bonus-run-ui": "node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-bonus-run-ui.mts",
     "job-index:once": "node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/job-index-worker.mts --once",
-    "test:job-index": "node ../seek-bot/node_modules/tsx/dist/cli.mjs --test server/job-index/search-terms.test.ts server/job-index/codex-discovery.test.ts server/job-index/lever.test.ts server/job-index/geography.test.ts server/job-index/config.test.ts server/job-index/extract.test.ts server/job-index/network.test.ts server/job-index/review.test.ts server/job-index/jooble.test.ts server/job-index/jooble-access.test.ts",
+    "test:job-index": "node ../seek-bot/node_modules/tsx/dist/cli.mjs --test server/job-index/search-terms.test.ts server/job-index/lever.test.ts server/job-index/geography.test.ts server/job-index/config.test.ts server/job-index/extract.test.ts server/job-index/network.test.ts server/job-index/review.test.ts server/job-index/jooble.test.ts server/job-index/jooble-access.test.ts",
     "dev": "vite",
     "build": "tsc -b && vite build && node scripts/prerender.mts",
     "lint": "oxlint --deny-warnings",
@@ -17,7 +17,6 @@
     "test:forms-phone": "node scripts/test-form-lab-phone.mjs",
     "test:forms-page": "node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-form-lab-page.mts",
     "test:files-ui": "node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-files-panel-ui.mts",
-    "test:smartrecruiters-ui": "npm run build && node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-smartrecruiters-ui.mts",
     "test:employer-sources-ui": "node ../seek-bot/node_modules/tsx/dist/cli.mjs scripts/test-employer-sources-ui.mts",
     "test:employer-directory": "node ../seek-bot/node_modules/tsx/dist/cli.mjs --test server/public-employer-directory.test.ts server/workday-directory.test.ts",
     "preview": "vite preview"

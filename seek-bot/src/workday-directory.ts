@@ -1,4 +1,4 @@
-import {careerTarget} from './employer-source-config.js';
+import {workdayCareerTarget} from './employer-source-config.js';
 /** Canonical public Workday board root, never a login, application or private URL. */
 export function workdaySite(raw:string):string|null {
  try{const u=new URL(raw);if(u.protocol!=='https:'||u.username||u.password||u.port)return null;
@@ -9,7 +9,7 @@ export function workdaySite(raw:string):string|null {
  // Resolve the old address at read time without rewriting anyone's preferences.
  if(u.hostname==='accenture.wd3.myworkdayjobs.com'&&site==='AccentureCareers')u.hostname='accenture.wd103.myworkdayjobs.com';
  const root=`${u.origin}/${hasLocale?parts[0]:'en-US'}/${site}`;
- return careerTarget('workday',root).url.href;
+ return workdayCareerTarget(root).url.href;
  }catch{return null;}
 }
 export function workdayDirectoryTargets(values:unknown):string[]{

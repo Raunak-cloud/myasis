@@ -49,11 +49,11 @@ const PLATFORMS: Platform[] = [
  * Resolves the configured list, dropping anything without an adapter so a
  * stale setting can never point a run at a board it cannot drive.
  */
-export function enabledPlatforms(configured: string, smartRecruitersAdminEnabled = employerFeedsEnabled(process.env), adzunaAvailable = adzunaConfigured()): Platform[] {
+export function enabledPlatforms(configured: string, feedsEnabled = employerFeedsEnabled(process.env), adzunaAvailable = adzunaConfigured()): Platform[] {
   const wanted = configured
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
-  const chosen = PLATFORMS.filter((p) => p.available && wanted.includes(p.id) && (p.id !== 'adzuna' || adzunaAvailable) && (!isEmployerSource(p.id) || smartRecruitersAdminEnabled));
+  const chosen = PLATFORMS.filter((p) => p.available && wanted.includes(p.id) && (p.id !== 'adzuna' || adzunaAvailable) && (!isEmployerSource(p.id) || feedsEnabled));
   return chosen.length ? chosen : PLATFORMS.filter((p) => p.id === 'seek');
 }

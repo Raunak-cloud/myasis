@@ -9,7 +9,6 @@ cd "$APP"
 for script in deploy/deploy.sh deploy/public-site.sh deploy/smoke-check.sh deploy/install-repair-pilot.sh deploy/repair-pilot-sandbox.sh deploy/install-chrome-update.sh; do bash -n "$script"; done
 REPLAY_REQUIRED=${1:-0}
 node --test deploy/replay-baseline.test.mjs
-node --test deploy/job-index-codex-connector.test.mjs
 python3 -B -m unittest discover -s deploy -p test_chrome_update.py -v
 
 # Each group uses its own process state and fixture directories. Check every
@@ -23,7 +22,7 @@ cd "$APP/dashboard"
 ../seek-bot/node_modules/.bin/tsx scripts/test-dashboard-requests-ui.mts
 ../seek-bot/node_modules/.bin/tsx --test server/signin-sessions.test.ts
 ../seek-bot/node_modules/.bin/tsx scripts/test-jora-beta-ui.mts
-../seek-bot/node_modules/.bin/tsx --test server/job-index/codex-discovery.test.ts server/job-index/geography.test.ts server/job-index/config.test.ts server/job-index/extract.test.ts server/job-index/network.test.ts server/job-index/review.test.ts server/job-index/store.test.ts
+../seek-bot/node_modules/.bin/tsx --test server/job-index/geography.test.ts server/job-index/config.test.ts server/job-index/extract.test.ts server/job-index/network.test.ts server/job-index/review.test.ts server/job-index/store.test.ts
 npm run test:statuses
 ../seek-bot/node_modules/.bin/tsx --test server/billing-unlimited.test.ts server/billing-upgrades.test.ts server/application-email.test.ts server/auto-application-email.test.ts server/auth.test.ts server/free-trial.test.ts server/free-trial-rollout.test.ts
 ../seek-bot/node_modules/.bin/tsx scripts/test-free-trial-ui.mts
@@ -74,7 +73,7 @@ if [ "$REPLAY_REQUIRED" = 1 ]; then
   cd "$APP/seek-bot"
   node dist/company-match.test.js
   node --test dist/company-identity.test.js
-  node --test dist/pageup-public-browser.test.js dist/employer-connectors.test.js dist/employer-feeds.test.js dist/workday-directory.test.js dist/public-employer-directory.test.js
+  node --test dist/employer-connectors.test.js dist/employer-feeds.test.js dist/workday-directory.test.js dist/public-employer-directory.test.js
   node --test dist/external-navigation.test.js
   node --test dist/verification-email-ai.test.js dist/gmail-ai-fallback.test.js
   CHROME_PATH=${CHROME_PATH:-/usr/bin/google-chrome-stable} node --test dist/agent/verification-choices.test.js

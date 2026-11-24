@@ -213,7 +213,7 @@ export function PricingPanel() {
           });
           // Access dates sit beside the price; source names sit in the logo row.
           const details = features.filter(feature =>
-            !/^\d+ days of access$|^Access until |^SEEK.* applications$|^SmartRecruiters, Greenhouse|^Personalised cover letters/.test(feature)
+            !/^\d+ days of access$|^Access until |^SEEK.* applications$|^Greenhouse and Workday job sources$|^Personalised cover letters/.test(feature)
             && !/^Jobs that match your resume by at least |^Choose your minimum match score:/.test(feature));
           const featureItem = (feature: string, beta = false) => {
             const label = feature.replace(/ · Auto apply or Semi auto$/, '').replace(/^Up to /, '')

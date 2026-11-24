@@ -7,7 +7,7 @@ import {doCompleteAuthentication} from './agent/authentication.js';
 import {applyToJoraJob} from './jora-browser.js';
 
 test('free guest policy distinguishes employer pages from connected native boards and leaves paid prompts unchanged',()=>{
- assert.deepEqual([...GUEST_EMPLOYER_SOURCES],['smartrecruiters','greenhouse']);
+ assert.deepEqual([...GUEST_EMPLOYER_SOURCES],['greenhouse']);
  for(const url of ['https://jobs.smartrecruiters.com/Fixture/1','https://fixture.wd1.myworkdayjobs.com/en-US/jobs'])assert.equal(guestEmployerAccountRequired(url,true),true);
  for(const url of ['https://www.seek.com.au/job/123','https://secure.indeed.com/login'])assert.equal(guestEmployerAccountRequired(url,true),false);
  assert.equal(guestEmployerAccountRequired('https://employer.org/signup',false),false);

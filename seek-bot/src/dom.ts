@@ -374,7 +374,7 @@ export async function extractFields(page: Page | Frame): Promise<FormField[]> {
            * What the person sees chosen, not the option's internal value: "No",
            * not "1043". A placeholder ("Please select", or the HTML placeholder
            * option — empty, disabled or hidden) is no answer. Reporting the raw
-           * value made PageUp's "Please select" (value "0") look answered, so
+           * value made a form's "Please select" (value "0") look answered, so
            * the agent was told a required declaration was already done.
            */
           currentValue: (() => {

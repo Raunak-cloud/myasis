@@ -11,14 +11,14 @@ const { chromium } = createRequire(import.meta.url)('../../seek-bot/node_modules
 const dist = resolve(import.meta.dirname, '../dist');
 let admin = true;
 let searchStarted = false;
-let adminBoards = 'smartrecruiters';
+let adminBoards = 'greenhouse';
 let adminSeekSignedIn = false;
 let attentionFixture = false;
 let costReads = 0;
 let costFailure = false;
 const writes: Array<{ path: string; body: any }> = [];
 const settings = () => ({
-  PLATFORMS: admin ? adminBoards : 'seek', SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
+  PLATFORMS: admin ? adminBoards : 'seek', GREENHOUSE_BOARDS: 'theiconic,firmus,futuresecureai',
   KEYWORDS: 'software engineer', WORK_ARRANGEMENTS: 'remote,hybrid,onsite', ONSITE_CITY: 'Sydney',
   MIN_SALARY: '70000', MIN_SCORE: '60', MAX_AGE_DAYS: '14', MAX_APPS_PER_RUN: '5', MAX_APPS_PER_DAY: '20', MAX_EVALUATIONS: '40', PAGES_PER_KEYWORD: '1' });
 // Include an older interrupted provider run for the same listing: it must not

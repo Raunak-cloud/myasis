@@ -86,7 +86,7 @@ async function verify(){const data=await(await fetch('/verify',{method:'POST',bo
     return response;
   };
   const result = await runApplicationAgent({ page, simulation: 'isolated-form',
-    job: { id: 'email-code-guidance', title: 'Data Analyst', company: 'Fictional Employer', location: 'Sydney', url, platform: 'smartrecruiters', source: 'chosen', applicationMode: 'external', description: 'Data Analyst using SQL and Power BI.' },
+    job: { id: 'email-code-guidance', title: 'Data Analyst', company: 'Fictional Employer', location: 'Sydney', url, platform: 'external', source: 'chosen', applicationMode: 'external', description: 'Data Analyst using SQL and Power BI.' },
     profile: { name: 'Alex Fixture', email: 'alex@example.invalid', phone: '0400000000', nationality: 'Australian', workRights: 'Citizen', workRightsCountry: 'Australia', expectedSalary: 'AUD 135000', noticePeriod: 'Two weeks', willingToRelocate: false, skills: ['SQL', 'Power BI'], experienceSummary: 'Data Analyst in Sydney, Australia.', excludedDomains: [], securityClearance: 'None held' }, log: () => {} });
   assert.equal(state.requested, 1);
   assert.ok(state.mailboxReads > 0);

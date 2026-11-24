@@ -5,6 +5,7 @@ import { query } from './db/index.js';
 import { claimApplicationReviews, releaseApplicationReviews } from './application-reviews.js';
 import { applicationKeys, sameApplication } from '../../seek-bot/src/application-identity.js';
 import { listingAgeDays, passesListingAge } from '../../seek-bot/src/listing-age.js';
+import { retiredJobSource } from '../../seek-bot/src/retired-job-sources.js';
 import { matchingExcludedCompany } from '../../seek-bot/src/company-match.js';
 import { isExternalApplicationUrl } from '../../seek-bot/src/job-board-url.js';
 import { TECHNICAL_RETRY_FILE, technicalFailure, type TechnicalAttempt, type TechnicalRetryCandidate } from '../../seek-bot/src/technical-retry-types.js';
@@ -16,7 +17,7 @@ interface RetryRow {job_key:string;payload:RetryPayload;status:string;failed_at:
 export interface TechnicalRetryContext {platforms:string[];maxAgeDays:number;excludedCompanies:string[];external:boolean;scope:string;deadlineAt:number;directory:string;creditsRemaining?:number;externalRemaining?:number}
 
 function validJob(job:JobListing|undefined):job is JobListing {
-  if(!job || !job.id || !job.title || !job.company || !job.platform)return false;
+  if(!job || !job.id || !job.title || !job.company || !job.platform || retiredJobSource(job))return false;
   try{return new URL(job.url).protocol==='https:';}catch{return false;}
 }
 const keyOf=(job:JobListing)=>`${job.platform ?? 'seek'}:${job.id}`;

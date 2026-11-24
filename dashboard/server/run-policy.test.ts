@@ -188,7 +188,7 @@ check('a review override holds for an admin\'s scheduled runs too', adminOverrid
 // What a manual run posts goes through the plan, not around it.
 const posted = applyRunPolicy({ ...saved, MAX_EVALUATIONS: '40', PLATFORMS: 'seek' }, intensivePolicy, 'manual');
 check('a posted evaluation count cannot lower or raise Get Owtomated', posted.MAX_EVALUATIONS === '200');
-check('a posted default board list still includes the Indeed an Intensive Pass pays for', posted.PLATFORMS === 'seek,indeed,smartrecruiters,greenhouse,pageup,workday');
+check('a posted default board list still includes the Indeed an Intensive Pass pays for', posted.PLATFORMS === 'seek,indeed,greenhouse,workday');
 
 // A board list the account picked is used exactly as picked (Rinu Thapa unticked Indeed and got it anyway, 5 Oct).
 const chosenSeek = applyRunPolicy({ ...saved, PLATFORMS: 'seek' }, jobSearchPolicy, 'manual', true);
@@ -200,15 +200,15 @@ check('a picked SEEK-only list is reported as SEEK only', effectivePlatforms({ P
 check('a free account is never given Indeed', effectivePlatforms({ PLATFORMS: 'seek' }, freePolicy) === 'seek');
 
 check('new and existing Get Owtomated accounts default to all employer sources',
-  effectivePlatforms({}, intensivePolicy).endsWith('smartrecruiters,greenhouse,pageup,workday') &&
-  effectivePlatforms({PLATFORMS:'seek', [PLATFORMS_CHOSEN_KEY]:'1'}, intensivePolicy) === 'seek,smartrecruiters,greenhouse,pageup,workday');
+  effectivePlatforms({}, intensivePolicy).endsWith('greenhouse,workday') &&
+  effectivePlatforms({PLATFORMS:'seek', [PLATFORMS_CHOSEN_KEY]:'1'}, intensivePolicy) === 'seek,greenhouse,workday');
 check('both run modes honor explicit employer source opt-out', ['manual','auto'].every(trigger =>
   applyRunPolicy({...saved,PLATFORMS:'seek'}, intensivePolicy, trigger as 'manual'|'auto', true, true).PLATFORMS === 'seek'));
 check('expiry removes employer sources and preserves the saved preference',
   effectivePlatforms({PLATFORMS:'seek,greenhouse,workday',[PLATFORMS_CHOSEN_KEY]:'1',[EMPLOYER_SOURCES_CHOSEN_KEY]:'1'}, freePolicy) === 'seek');
 check('Essential and Active Search include guest employer sites and all three job boards',
   [essentialEntitlements, activeEntitlements].every(plan => plan.employerSources && plan.employerGuestOnly && plan.indeedApplications && plan.joraSignIn
-    && effectivePlatforms({ JORA_BETA_ENABLED: 'true' }, plan) === 'seek,indeed,jora,smartrecruiters,greenhouse'));
+    && effectivePlatforms({ JORA_BETA_ENABLED: 'true' }, plan) === 'seek,indeed,jora,greenhouse'));
 check('Get Owtomated and admin have full employer-source access, and legacy Free keeps its existing sources',
   intensiveEntitlements.employerSources && !intensiveEntitlements.employerGuestOnly && adminEntitlements.employerSources && !freeEntitlements.employerSources);
 

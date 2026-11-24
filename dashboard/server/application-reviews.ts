@@ -1,3 +1,4 @@
+import { retiredJobDestination, retiredJobSource, RETIRED_SOURCE_MESSAGE } from '../../seek-bot/src/retired-job-sources.js';
 import { getPool, query } from './db/index.js';
 import { applicationKeys } from '../../seek-bot/src/application-identity.js';
 import type { PreparedApplication } from '../../seek-bot/src/application-review-types.js';
@@ -253,6 +254,9 @@ function confirmedVersions(rows: ConfirmationRow[], selections: ReviewSelection[
       || row.payload.revision !== selection?.revision;
   })) {
     throw new ApplicationReviewError('An application changed or is no longer ready. Reload and review it again.');
+  }
+  if (rows.some(({ payload }) => retiredJobSource(payload.job) || retiredJobDestination(payload.formUrl))) {
+    throw new ApplicationReviewError(RETIRED_SOURCE_MESSAGE);
   }
   const blocked = rows.find(row => row.security_retry_after && securityRetryRemaining({ reason:'site-security',retryAt:new Date(row.security_retry_after).toISOString() }) > 0);
   if (blocked && !admin) throw new ApplicationReviewError(`To help protect your application, retry is available after ${new Intl.DateTimeFormat('en-AU', { dateStyle:'medium',timeStyle:'short',timeZone:'Australia/Sydney' }).format(new Date(blocked.security_retry_after!))} (Sydney time).`);

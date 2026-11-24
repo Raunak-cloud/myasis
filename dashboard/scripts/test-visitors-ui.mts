@@ -12,7 +12,7 @@ const { chromium } = createRequire(import.meta.url)(
 const dist = resolve(import.meta.dirname, '../dist');
 let admin = true;
 let searchStarted = false;
-let adminBoards = 'smartrecruiters';
+let adminBoards = 'greenhouse';
 let adminSeekSignedIn = false;
 let attentionFixture = false;
 let skippedFixture = false;
@@ -52,7 +52,7 @@ const visit = {
 const writes: Array<{ path: string; body: any }> = [];
 const settings = () => ({
   PLATFORMS: admin ? adminBoards : 'seek',
-  SMARTRECRUITERS_COMPANIES: 'Canva,KPMGAustralia1,Colliers',
+  GREENHOUSE_BOARDS: 'theiconic,firmus,futuresecureai',
   KEYWORDS: 'software engineer',
   WORK_ARRANGEMENTS: 'remote,hybrid,onsite',
   ONSITE_CITY: 'Sydney',

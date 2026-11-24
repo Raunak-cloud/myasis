@@ -101,9 +101,6 @@ export class EmployerFeedDiscovery {
     return fetchJobDetail({worker:'feed-'+this.source},job);
   }
 }
-export class SmartRecruitersDiscovery extends EmployerFeedDiscovery {
-  constructor(){super('smartrecruiters');}
-}
 `);
     writeFileSync(join(directory, 'browser.mjs'), `
 import { record } from './boundary.mjs';
@@ -174,7 +171,7 @@ export const claimTechnicalRetryFallback=async shortfall=>{if(!enabled||!retries
     const overrides: Record<string, string> = {
       './config.js': 'config.mjs', './browser.js': 'browser.mjs', './llm.js': 'llm.mjs', './technical-retry-client.js':'retry.mjs',
       './discovery.js': 'discovery.mjs', './discovery-indeed.js': 'discovery.mjs',
-      './employer-feeds.js':'feeds.mjs', './smartrecruiters.js':'feeds.mjs', './agent/apply-employer-job.js':'apply.mjs',
+      './employer-feeds.js':'feeds.mjs', './agent/apply-employer-job.js':'apply.mjs',
       './agent/apply-agent.js': 'apply.mjs', './apply-indeed.js': 'apply.mjs', './prepare-job.js':'apply.mjs', './blocker.js': 'blocker.mjs',
     };
     const main = readFileSync(new URL(options.queue ? './queue.js' : './main.js', import.meta.url), 'utf8').replace(
@@ -201,7 +198,7 @@ ${options.queue ? "process.argv[1]='queue.js';" : ''} await import('./main.mjs')
       env: { ...process.env, DATA_DIR: directory, PROFILE_PATH: join(directory, 'profile.txt'),
         APPLICATION_AI_MODEL: options.model ?? 'celeris', CELERIS_API_KEY: 'fixture-only', OPENROUTER_API_KEY: 'fixture-only', COVER_LETTER_MODE: 'tailored',
         APPLICATION_REVIEW_MODE: options.prepare ? 'prepare' : options.approvedIds ? 'approved' : '', APPLY_ONLY: options.scope ?? 'all',
-        APPLICATION_WORKERS: String(options.workers ?? 1), DIRECT_EXTERNAL_JOB_URL: '', TARGETED_JOBS_JSON: '', TARGET_SEEK_JOBS: JSON.stringify(jobs.filter(item=>options.platform!=='indeed'&&options.targetedIds?.includes(item.id)).map(item=>({job_id:item.id,title:item.title,company:item.company}))), TARGET_INDEED_JOBS:JSON.stringify(jobs.filter(item=>options.platform==='indeed'&&options.targetedIds?.includes(item.id)).map(item=>({job_id:item.id,title:item.title,company:item.company}))), OWTOMATE_REPAIR_CASE_ID: options.repairTarget ? 'fixture-repair' : '', TARGET_REPAIR_JOB_JSON: options.repairTarget ? JSON.stringify(options.repairTarget) : '', EMPLOYER_FEEDS_ADMIN_ENABLED: options.platforms?.some(id => !['seek', 'indeed'].includes(id)) ? 'true' : 'false', SMARTRECRUITERS_ADMIN_ENABLED: 'false' },
+        APPLICATION_WORKERS: String(options.workers ?? 1), DIRECT_EXTERNAL_JOB_URL: '', TARGETED_JOBS_JSON: '', TARGET_SEEK_JOBS: JSON.stringify(jobs.filter(item=>options.platform!=='indeed'&&options.targetedIds?.includes(item.id)).map(item=>({job_id:item.id,title:item.title,company:item.company}))), TARGET_INDEED_JOBS:JSON.stringify(jobs.filter(item=>options.platform==='indeed'&&options.targetedIds?.includes(item.id)).map(item=>({job_id:item.id,title:item.title,company:item.company}))), OWTOMATE_REPAIR_CASE_ID: options.repairTarget ? 'fixture-repair' : '', TARGET_REPAIR_JOB_JSON: options.repairTarget ? JSON.stringify(options.repairTarget) : '', EMPLOYER_FEEDS_ADMIN_ENABLED: options.platforms?.some(id => !['seek', 'indeed'].includes(id)) ? 'true' : 'false' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     const events = readFileSync(join(directory, 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
@@ -240,19 +237,19 @@ test('MiniMax searches for an 80-point listing before using a 79-point fallback'
 });
 
 for (const prepare of [false,true]) test(`${prepare?'Semi auto':'Auto apply'} never searches employer feeds when SEEK and Indeed fill the application target`, () => {
-  const result=run([job('seek-match'),job('indeed-match',{platform:'indeed'}),job('unneeded-feed',{platform:'pageup',applicationMode:'external'})],
-    {apply:true,prepare,platforms:['pageup','indeed','seek'],reviews:200,cap:2});
+  const result=run([job('seek-match'),job('indeed-match',{platform:'indeed'}),job('unneeded-feed',{platform:'workday',applicationMode:'external'})],
+    {apply:true,prepare,platforms:['workday','indeed','seek'],reviews:200,cap:2});
   assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['seek-match','indeed-match']);
-  assert.equal(result.events.some(e=>e.stage==='search'&&e.id==='pageup'),false);
-  assert.doesNotMatch(result.output,/PageUp public job feed ready/,'the activity panel must not claim to search an unused fallback');
+  assert.equal(result.events.some(e=>e.stage==='search'&&e.id==='workday'),false);
+  assert.doesNotMatch(result.output,/Workday public job feed ready/,'the activity panel must not claim to search an unused fallback');
 });
 
 test('hosted-board pagination gets its chance before the first employer-feed search', () => {
   const result=run([job('seek-rejection',{fitReject:true}),job('indeed-rejection',{platform:'indeed',fitReject:true}),
-    job('later-hosted-match',{searchPage:2}),job('unneeded-feed',{platform:'pageup',applicationMode:'external'})],
-    {apply:true,platforms:['seek','indeed','pageup'],reviews:200,cap:1});
+    job('later-hosted-match',{searchPage:2}),job('unneeded-feed',{platform:'workday',applicationMode:'external'})],
+    {apply:true,platforms:['seek','indeed','workday'],reviews:200,cap:1});
   assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['later-hosted-match']);
-  assert.equal(result.events.some(e=>e.stage==='search'&&e.id==='pageup'),false);
+  assert.equal(result.events.some(e=>e.stage==='search'&&e.id==='workday'),false);
 });
 
 test('employer discovery gets a turn before long unproductive hosted streams use the review budget', () => {
@@ -260,38 +257,38 @@ test('employer discovery gets a turn before long unproductive hosted streams use
     job(`seek-${i + 1}`, {searchPage:i + 1,fitReject:true}),
     job(`indeed-${i + 1}`, {platform:'indeed',searchPage:i + 1,fitReject:true}),
   ]).flat();
-  const result = run([...listings,job('feed-match',{platform:'pageup',applicationMode:'external'})],
-    {apply:true,platforms:['pageup','seek','indeed'],reviews:4,cap:1});
+  const result = run([...listings,job('feed-match',{platform:'workday',applicationMode:'external'})],
+    {apply:true,platforms:['workday','seek','indeed'],reviews:4,cap:1});
   assert.deepEqual(result.events.filter(e=>e.stage==='search').map(e=>[e.id,e.pageNumber]),
-    [['seek',1],['indeed',1],['seek',2],['pageup',1]]);
+    [['seek',1],['indeed',1],['seek',2],['workday',1]]);
   assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['feed-match']);
 });
 
 test('an empty employer page can lead to a match after interleaved board discovery', () => {
   const result = run([
     ...Array.from({length: 10}, (_, i) => job(`board-${i + 1}`,{searchPage:i + 1,fitReject:true})),
-    job('feed-page-two',{platform:'pageup',applicationMode:'external',searchPage:2}),
-  ],{apply:true,platforms:['seek','pageup'],reviews:4,cap:1});
+    job('feed-page-two',{platform:'workday',applicationMode:'external',searchPage:2}),
+  ],{apply:true,platforms:['seek','workday'],reviews:4,cap:1});
   assert.deepEqual(result.events.filter(e=>e.stage==='search').map(e=>[e.id,e.pageNumber]),
-    [['seek',1],['seek',2],['pageup',1],['seek',3],['pageup',2]]);
+    [['seek',1],['seek',2],['workday',1],['seek',3],['workday',2]]);
   assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['feed-page-two']);
 });
 
 test('an idle parallel worker does not search employer feeds while hosted applications can fill the target', () => {
   const result=run([job('hosted-one',{delayMs:80}),job('hosted-two',{delayMs:80}),
-    job('unneeded-feed',{platform:'pageup',applicationMode:'external'})],
-    {apply:true,workers:2,platforms:['seek','indeed','pageup'],reviews:200,cap:2});
+    job('unneeded-feed',{platform:'workday',applicationMode:'external'})],
+    {apply:true,workers:2,platforms:['seek','indeed','workday'],reviews:200,cap:2});
   assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['hosted-one','hosted-two']);
-  assert.equal(result.events.some(e=>e.stage==='search'&&e.id==='pageup'),false);
+  assert.equal(result.events.some(e=>e.stage==='search'&&e.id==='workday'),false);
 });
 
 test('employer feeds fill the remaining shortfall after hosted results and then apply before unrelated feed reviews', () => {
   const result=run([job('seek-rejection',{fitReject:true}),job('indeed-match',{platform:'indeed'}),
-    job('feed-match',{platform:'pageup',applicationMode:'external',reviewPriority:100}),
-    ...Array.from({length:8},(_,i)=>job(`other-feed-review-${i}`,{platform:'pageup',applicationMode:'external',reviewPriority:80,fitReject:true})),
-  ],{apply:true,platforms:['pageup','seek','indeed'],reviews:200,cap:2});
+    job('feed-match',{platform:'workday',applicationMode:'external',reviewPriority:100}),
+    ...Array.from({length:8},(_,i)=>job(`other-feed-review-${i}`,{platform:'workday',applicationMode:'external',reviewPriority:80,fitReject:true})),
+  ],{apply:true,platforms:['workday','seek','indeed'],reviews:200,cap:2});
   assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['indeed-match','feed-match']);
-  const feedSearch=result.events.findIndex(e=>e.stage==='search'&&e.id==='pageup');
+  const feedSearch=result.events.findIndex(e=>e.stage==='search'&&e.id==='workday');
   assert.ok(feedSearch>result.events.findIndex(e=>e.stage==='finish'&&e.id==='indeed-match'));
   assert.ok(result.events.filter(e=>e.stage==='search'&&['seek','indeed'].includes(e.id)).every(e=>result.events.indexOf(e)<feedSearch));
   assert.equal(result.events.some(e=>e.stage==='detail'&&e.id.startsWith('other-feed-review')),false,'a ready employer match must not wait for the entire feed review queue');
@@ -300,20 +297,20 @@ test('employer feeds fill the remaining shortfall after hosted results and then 
 
 test('a worker with weak listings waits for the hosted attempt, then resumes employer discovery without spinning', () => {
   const result=run([job('hosted-match',{delayMs:80}),job('weak-board-result',{platform:'indeed',reviewPriority:10,fitReject:true}),
-    job('feed-shortfall',{platform:'pageup',applicationMode:'external'})],
-    {apply:true,workers:2,platforms:['seek','indeed','pageup'],reviews:200,cap:2});
+    job('feed-shortfall',{platform:'workday',applicationMode:'external'})],
+    {apply:true,workers:2,platforms:['seek','indeed','workday'],reviews:200,cap:2});
   assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['hosted-match','feed-shortfall']);
-  assert.ok(result.events.findIndex(e=>e.stage==='search'&&e.id==='pageup')>result.events.findIndex(e=>e.stage==='finish'&&e.id==='hosted-match'));
+  assert.ok(result.events.findIndex(e=>e.stage==='search'&&e.id==='workday')>result.events.findIndex(e=>e.stage==='finish'&&e.id==='hosted-match'));
   assert.equal(result.events.some(e=>e.stage==='fit'&&e.id==='weak-board-result'),false);
 });
 
 test('a ready SEEK employer form starts before searching for a later hosted match', () => {
   const result=run([job('employer-form',{applicationMode:'external',reviewPriority:100}),
-    job('hosted-next-page',{searchPage:2,reviewPriority:80}),job('unneeded-feed',{platform:'pageup',applicationMode:'external'})],
-    {apply:true,platforms:['pageup','seek'],reviews:200,cap:1});
+    job('hosted-next-page',{searchPage:2,reviewPriority:80}),job('unneeded-feed',{platform:'workday',applicationMode:'external'})],
+    {apply:true,platforms:['workday','seek'],reviews:200,cap:1});
   assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['employer-form']);
   assert.deepEqual(result.events.filter(e=>e.stage==='search'&&e.id==='seek').map(e=>e.pageNumber),[1]);
-  assert.equal(result.events.some(e=>e.stage==='search'&&e.id==='pageup'),false);
+  assert.equal(result.events.some(e=>e.stage==='search'&&e.id==='workday'),false);
 });
 
 for(const prepare of [false,true])test(`${prepare?'Semi auto':'Auto apply'} prioritizes confirmed hosted forms over unknown redirects in the same batch`,()=>{
@@ -325,15 +322,15 @@ for(const prepare of [false,true])test(`${prepare?'Semi auto':'Auto apply'} prio
 
 test('an unknown application link starts when ready without waiting for empty hosted-board searches',()=>{
   const result=run([job('unknown-fallback',{applicationMode:'unknown',reviewPriority:100}),
-    job('unneeded-feed',{platform:'pageup',applicationMode:'external'})],{apply:true,platforms:['seek','pageup'],reviews:200,cap:1});
+    job('unneeded-feed',{platform:'workday',applicationMode:'external'})],{apply:true,platforms:['seek','workday'],reviews:200,cap:1});
   assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['unknown-fallback']);
   assert.deepEqual(result.events.filter(e=>e.stage==='search'&&e.id==='seek').map(e=>e.pageNumber),[1]);
-  assert.equal(result.events.some(e=>e.stage==='search'&&e.id==='pageup'),false,'known board leads are tried before collecting additional employer feeds');
+  assert.equal(result.events.some(e=>e.stage==='search'&&e.id==='workday'),false,'known board leads are tried before collecting additional employer feeds');
 });
 
 test('an unavailable board cannot prevent the employer-source fallback from submitting a matching job', () => {
-  const result=run([job('board-wall',{wall:true}),job('feed-backup',{platform:'pageup',applicationMode:'external'})],
-    {apply:true,platforms:['seek','pageup'],reviews:200,cap:1});
+  const result=run([job('board-wall',{wall:true}),job('feed-backup',{platform:'workday',applicationMode:'external'})],
+    {apply:true,platforms:['seek','workday'],reviews:200,cap:1});
   assert.deepEqual(result.events.filter(e=>e.stage==='apply').map(e=>e.id),['feed-backup']);
   assert.equal(result.history.length,1);
 });

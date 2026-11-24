@@ -8,7 +8,7 @@ type AccessEvidence={preparation?:{version?:unknown;access?:unknown;isolation?:u
 
 /** Public direct-form sources for the free employer-site offer. The applier
  * still checks the actual form: a redirect must not turn into registration. */
-export const GUEST_EMPLOYER_SOURCES = ['smartrecruiters','greenhouse'] as const;
+export const GUEST_EMPLOYER_SOURCES = ['greenhouse'] as const;
 export const GUEST_EMPLOYER_INSTRUCTION = 'GUEST EMPLOYER APPLICATIONS: Use direct or guest application forms only. Never create or recover an employer account. If the employer requires login or registration and offers no guest application, immediately finish skipped with that reason. Ordinary verification of an application email is allowed when it does not create an account. Reuse the candidate’s connected session for native job-board applications.';
 
 /** A listing-only draft or a saved employer login never proves guest access. */

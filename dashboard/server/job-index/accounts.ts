@@ -31,7 +31,7 @@ export async function paidProfiles(db:pg.Pool,readResume=resumeText,cached:Searc
   const evidence=new Map<string,FitEvidence>();
   for(const id of evidenceCache.keys())if(!users.some(u=>u.id===id))evidenceCache.delete(id);
   for(const {id} of users) {
-    const settings={...RUN_SETTING_DEFAULTS,...Object.fromEntries((await db.query<{key:string;value:string}>(`SELECT key,value FROM settings WHERE user_id=$1 AND key IN ('KEYWORDS','WORK_ARRANGEMENTS','ONSITE_CITY','EXCLUDED_COMPANIES','SMARTRECRUITERS_COMPANIES','GREENHOUSE_BOARDS','PAGEUP_SITES','WORKDAY_SITES','MIN_SCORE','MIN_SALARY','MIN_HOURLY_RATE','MAX_AGE_DAYS','JOB_TYPES','AI_INSTRUCTIONS_B64','SEARCH_RADIUS_KM')`,[id])).rows.map(r=>[r.key,r.value]))};
+    const settings={...RUN_SETTING_DEFAULTS,...Object.fromEntries((await db.query<{key:string;value:string}>(`SELECT key,value FROM settings WHERE user_id=$1 AND key IN ('KEYWORDS','WORK_ARRANGEMENTS','ONSITE_CITY','EXCLUDED_COMPANIES','GREENHOUSE_BOARDS','WORKDAY_SITES','MIN_SCORE','MIN_SALARY','MIN_HOURLY_RATE','MAX_AGE_DAYS','JOB_TYPES','AI_INSTRUCTIONS_B64','SEARCH_RADIUS_KM')`,[id])).rows.map(r=>[r.key,r.value]))};
     const profile=(await db.query<{skills:string;headline:string}>('SELECT skills,headline FROM profiles WHERE user_id=$1',[id])).rows[0];
     const resumes=(await db.query<{id:string;file_name:string;uploaded_at:Date}>('SELECT id::text,file_name,uploaded_at FROM resumes WHERE user_id=$1 ORDER BY is_default DESC,uploaded_at DESC LIMIT 3',[id])).rows;
     const fileStates=await Promise.all(resumes.map(async r=>{try{const s=await stat(resolve(userResumeDir(id),basename(r.file_name)));return {id:r.id,mtime:s.mtimeMs,size:s.size};}catch{return {id:r.id,missing:true};}}));
@@ -44,7 +44,7 @@ export async function paidProfiles(db:pg.Pool,readResume=resumeText,cached:Searc
     const text=texts.join('\n').slice(0,120_000);let keywords=safeKeywords(settings.KEYWORDS??'');
     if(!keywords.length)keywords=roles.filter(role=>text.toLowerCase().includes(role.toLowerCase())||(profile?.headline??'').toLowerCase().includes(role.toLowerCase())).slice(0,5);
     const skills=recognisedSkills(`${profile?.skills??''}\n${text}`);
-    const targeting={keywords,skills,location:(settings.ONSITE_CITY??'').trim().slice(0,150),arrangements:(settings.WORK_ARRANGEMENTS??'').split(',').filter(v=>['onsite','hybrid','remote'].includes(v)),excludedCompanies:(settings.EXCLUDED_COMPANIES??'').split(/[,;\n]/).map(v=>v.trim()).filter(Boolean),sources:Object.fromEntries(Object.entries(settings).filter(([k])=>/^(SMARTRECRUITERS_COMPANIES|GREENHOUSE_BOARDS|PAGEUP_SITES|WORKDAY_SITES)$/.test(k)))};
+    const targeting={keywords,skills,location:(settings.ONSITE_CITY??'').trim().slice(0,150),arrangements:(settings.WORK_ARRANGEMENTS??'').split(',').filter(v=>['onsite','hybrid','remote'].includes(v)),excludedCompanies:(settings.EXCLUDED_COMPANIES??'').split(/[,;\n]/).map(v=>v.trim()).filter(Boolean),sources:Object.fromEntries(Object.entries(settings).filter(([k])=>/^(GREENHOUSE_BOARDS|WORKDAY_SITES)$/.test(k)))};
     const number=(key:string)=>Number.isFinite(Number(settings[key]))?Math.max(0,Number(settings[key])):Number(RUN_SETTING_DEFAULTS[key]??0);
     const criteria={minScore:Math.min(100,number('MIN_SCORE')),minSalary:number('MIN_SALARY'),minHourlyRate:number('MIN_HOURLY_RATE'),maxAgeDays:number('MAX_AGE_DAYS'),radiusKm:number('SEARCH_RADIUS_KM'),jobTypes:settings.JOB_TYPES.split(',').filter(Boolean)};
     const instructions=professionalEvidence(Buffer.from(settings.AI_INSTRUCTIONS_B64??'','base64').toString('utf8'));

@@ -440,8 +440,7 @@ tbody tr.clickable { cursor: pointer; }
 .pricing-source-brands { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 12px; font-size: 11px; font-style: normal; margin-top: 2px; }
 .pricing-source-brands .board-brand-logo { width: 48px; height: 20px; padding: 0; border: 0; border-radius: 2px; }
 .pricing-free-reward .board-brand-logo { width: 64px; height: 28px; padding: 0; border: 0; }
-.pricing-source-brands .board-brand-logo-greenhouse, .pricing-source-brands .board-brand-logo-smartrecruiters { width: 80px; }
-.pricing-web-search { display: inline-flex; align-items: center; gap: 5px; color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+.pricing-source-brands .board-brand-logo-greenhouse { width: 80px; }
 .pricing-plan-summary .pricing-source-brands { grid-column: 1 / -1; }
 .pricing-source-note { flex-basis: 100%; color: var(--text-dim); font-size: 11px; }
 .home-price-desc > p { margin: 0 0 12px; }

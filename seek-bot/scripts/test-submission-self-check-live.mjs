@@ -117,7 +117,7 @@ try {
     try {
       const result = await runApplicationAgent({ page, simulation: 'isolated-form',
         job: { id: `submission-self-check-${fixture}`, title: 'Data Analyst', company: 'Fictional Employer', location: 'Sydney', url,
-          platform: 'smartrecruiters', source: 'chosen', applicationMode: 'external', description: 'Data Analyst using SQL, Python and Power BI.' },
+          platform: 'external', source: 'chosen', applicationMode: 'external', description: 'Data Analyst using SQL, Python and Power BI.' },
         profile: { name: 'Alex Fixture', email: 'alex@example.invalid', phone: '0400000000', nationality: 'Australian', workRights: 'Citizen', workRightsCountry: 'Australia',
           expectedSalary: 'AUD 135000', noticePeriod: 'Two weeks', willingToRelocate: false, skills: ['SQL', 'Python', 'Power BI'],
           experienceSummary: history, excludedDomains: [], securityClearance: 'None held' }, log: () => {} });

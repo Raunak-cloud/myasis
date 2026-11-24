@@ -18,7 +18,7 @@ test('exact failed direct retry reaches the agent with its unchanged 82-point ap
  const browser=await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.platform==='win32'?{channel:'chrome'}:{})});
  try { await withApplicationModel({DATA_DIR:dir,COST_TRACKING:'false'},async()=>{
   const url='https://employer.fixture.invalid/approved-analyst',profile={name:'Alex Fixture',email:'fixture@example.invalid',skills:['Analytics']} as CandidateProfile;
-  const base:JobListing={id:'original-matched-vacancy',platform:'smartrecruiters',title:'Data Analyst',company:'Fixture',location:'Sydney',url,source:'search',description:'Analyse data and build reports.',applicationMode:'external'};
+  const base:JobListing={id:'original-matched-vacancy',platform:'greenhouse',title:'Data Analyst',company:'Fixture',location:'Sydney',url,source:'search',description:'Analyse data and build reports.',applicationMode:'external'};
   const job={...base,fitReview:{score:82,reason:'Previously approved.',evidence:['Analytics work.'],contentFingerprint:reviewContentFingerprint(base)!,contextFingerprint:reviewContextFingerprint(profile)}};
   mkdirSync(join(dir,'traces'));writeFileSync(join(dir,'traces','attempt-11111111-1111-4111-8111-111111111111.json'),JSON.stringify({job,outcome:{status:'error',retryable:true},sendAudit:{attempted:false},steps:[]}));
   const page=await browser.newPage();await page.route('**/*',route=>route.fulfill({contentType:'text/html',body:'<meta property="og:site_name" content="Fixture"><main><h1>Data Analyst</h1><p>Analyse data and build reports.</p><input id=name></main>'}));

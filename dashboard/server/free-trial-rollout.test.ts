@@ -30,7 +30,7 @@ test('rollout includes unused existing accounts without resetting balances, prep
   assert.deepEqual((await pool.query('SELECT * FROM application_credit_grants')).rows,paid.rows,'paid grants are not changed');
   const billing=await billingStatus(uid(1),'fixture-1@trial-rollout.invalid');assert.equal(billing.free.remaining,5);assert.equal(billing.free.trial?.seekBonusAwarded,false);
   const ent=deriveEntitlements({admin:false,billing,autoRunsUsedToday:0,autoApplyPaused:true,hasSuccessfulRun:false,overrides:{evaluationsPerRun:null,maxApplicationsPerRun:null},searchTermSuggestionsLeft:1});
-  assert.equal(effectivePlatforms({PLATFORMS:'seek'},ent),'smartrecruiters,greenhouse,jora','an unchanged old SEEK default no longer blocks an unused first-time account');
+  assert.equal(effectivePlatforms({PLATFORMS:'seek'},ent),'greenhouse,jora','an unchanged old SEEK default no longer blocks an unused first-time account');
   await pool.query('DELETE FROM new_user_trials WHERE user_id=$1',[uid(1)]);await pool.query(rollout);assert.equal((await pool.query('SELECT count(*)::int AS n FROM new_user_trials')).rows[0].n,0,'a later schema application cannot re-run the historical rollout');
  }finally{await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await pool.end();}
 });

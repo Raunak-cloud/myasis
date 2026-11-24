@@ -51,7 +51,7 @@ Additional checks:
 # dashboard (uses fixture APIs; no live submissions)
 npm run build
 ../seek-bot/node_modules/.bin/tsx --test server/browser-run-policy.test.ts server/run-watchdog.test.ts test/live-action.test.ts
-../seek-bot/node_modules/.bin/tsx scripts/test-smartrecruiters-ui.mts
+../seek-bot/node_modules/.bin/tsx scripts/test-employer-sources-ui.mts
 
 # seek-bot
 node dist/agent/submit-gate.test.js

@@ -70,23 +70,26 @@ try {
     assert.equal(await free.locator('.pricing-cta').count(), 0, 'Free has no plan action button');
     assert.equal(await free.locator('img[src="/platforms/jora.svg"]').count(),0);assert.equal(await free.locator('img[src="/platforms/indeed.svg"]').count(),0);
     for (const plan of ['Essential Pass', 'Active Search']) {
-      for (const name of ['SEEK', 'Indeed', 'Jora', 'SmartRecruiters', 'Greenhouse']) {
+      for (const name of ['SEEK', 'Indeed', 'Jora', 'Greenhouse']) {
         assert.equal(await card(plan).getByRole('group', { name: 'Supported job sources' }).getByRole('img', { name, exact: true }).count(), 1);
       }
       assert.doesNotMatch(await card(plan).innerText(), /Account creation with connected Gmail/);
     }
-    for(const name of ['SEEK','Indeed','Jora','SmartRecruiters','Greenhouse','PageUp','Workday']) {
+    for(const name of ['SEEK','Indeed','Jora','Greenhouse','Workday']) {
       assert.equal(await card('Get Owtomated').getByRole('group',{name:'Supported job sources'}).getByRole('img',{name,exact:true}).count(),1);
     }
     assert.equal(await card('Active Search').locator('img[src="/platforms/workday.svg"]').count(),0,'Workday remains exclusive to Get Owtomated');
-    assert.match(await card('Get Owtomated').innerText(),/Web search for employer-site jobs/);
+    assert.doesNotMatch(await card('Get Owtomated').innerText(),/Web search for employer-site jobs/);
     assert.match(await card('Get Owtomated').innerText(), /No separate employer-site limit/);
     assert.match(await card('Get Owtomated').innerText(), /Account creation with connected Gmail/);
     const employerEmail = card('Get Owtomated').getByRole('listitem').filter({ hasText: 'Email employers' });
     assert.equal(await employerEmail.getByText('Beta', { exact: true }).isVisible(), true);
     assert.equal(await page.locator('.pricing-card .pricing-features li').filter({ hasText: 'Email employers' }).count(),1);
-    assert.equal(await card('Get Owtomated').getByRole('group',{name:'Supported job sources'}).getByText('Web search',{exact:true}).count(),1);
+    assert.equal(await card('Get Owtomated').getByRole('group',{name:'Supported job sources'}).getByText('Web search',{exact:true}).count(),0);
     assert.doesNotMatch(await card('Active Search').innerText(),/Web search/);
+    for (const retired of ['SmartRecruiters','PageUp','Web search']) {
+      assert.equal(await page.getByRole('group',{name:'Supported job sources'}).getByRole('img',{name:retired,exact:true}).count(),0);
+    }
     assert.equal(await page.locator('.pricing-card details, .pricing-card summary').count(),0,'plan details have no accordion controls');
     assert.equal(await page.locator('.pricing-plan-details:visible').count(),4,'every plan shows its details immediately');
     const featureRows = page.locator('.pricing-plan-details li');
@@ -171,10 +174,10 @@ try {
     for (const [index, price] of ['19.00', '34.99', '99.50'].entries()) {
       assert.ok((await publicPricing.locator('.home-price-row').nth(index + 1).innerText()).includes(`A$${price}`));
     }
-    assert.doesNotMatch(await publicPricing.innerText(),/top-up|A\$6\.90/i);
+    assert.doesNotMatch(await publicPricing.innerText(),/top-up|A\$6\.90|SmartRecruiters|PageUp|Web search/i);
     assert.equal(await publicPricing.locator('.home-price-row').nth(0).locator('img[src="/platforms/jora.svg"]').count(),0);
     assert.equal(await publicPricing.locator('.home-price-row').nth(1).locator('img[src="/platforms/jora.svg"]').count(),1);
-    assert.equal(await publicPricing.locator('.home-price-row').nth(3).getByRole('group',{name:'Supported job sources'}).getByRole('img').count(),7,'public pricing lists the same supported sources');
+    assert.equal(await publicPricing.locator('.home-price-row').nth(3).getByRole('group',{name:'Supported job sources'}).getByRole('img').count(),5,'public pricing lists the same supported sources');
     await page.waitForFunction(()=>[...document.querySelectorAll('#pricing img')].every(n=>(n as HTMLImageElement).complete&&(n as HTMLImageElement).naturalWidth>0));
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'public pricing fits mobile');
     await publicPricing.screenshot({path:resolve(dashboard,'../output/public-pricing-'+width+'.png')});

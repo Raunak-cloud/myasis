@@ -20,14 +20,6 @@ module.exports = {
         ...(process.env.MAX_CONCURRENT_RUNS ? { MAX_CONCURRENT_RUNS: process.env.MAX_CONCURRENT_RUNS } : {}) },
     },
     {
-      name: 'owtomate-job-index', cwd: appRoot,
-      script: path.join(appRoot, 'seek-bot', 'node_modules', 'tsx', 'dist', 'cli.mjs'),
-      args: 'dashboard/scripts/job-index-worker.mts', interpreter: process.execPath,
-      instances: 1, exec_mode: 'fork', autorestart: true, watch: false,
-      max_memory_restart: '250M', kill_timeout: 20_000, restart_delay: 10_000, time: true,
-      env: { NODE_ENV: 'production' },
-    },
-    {
       name: 'owtomate-public-site',
       cwd: path.join(appRoot, 'public-site'),
       script: path.join(appRoot, 'public-site', 'scripts', 'start.mjs'),

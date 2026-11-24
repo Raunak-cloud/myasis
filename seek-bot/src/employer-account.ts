@@ -17,7 +17,7 @@ export function employerAccountSite(url: string, employer = ''): string {
 export function sharedEmployerHost(url: string): boolean {
   const host = new URL(url.includes('://') ? url : `https://${url}`).hostname.toLowerCase();
   if(dedicatedWorkdayHost(host))return false;
-  return /(?:^|\.)(?:successfactors\.(?:com|eu)|taleo\.net|smartrecruiters\.com|myworkdayjobs\.com)$/.test(host);
+  return /(?:^|\.)(?:successfactors\.(?:com|eu)|taleo\.net|myworkdayjobs\.com)$/.test(host);
 }
 export interface AccountAccess {
   version: 1;

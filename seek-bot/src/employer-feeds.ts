@@ -1,20 +1,15 @@
 import { createHash } from 'node:crypto';
 import { parseHTML } from 'linkedom';
-import { careerTarget, employerTargets, EMPLOYER_SOURCES, type EmployerSourceId } from './employer-source-config.js';
-import { smartRecruitersIdentity } from './smartrecruiters.js';
+import { workdayCareerTarget, employerTargets, EMPLOYER_SOURCES, type EmployerSourceId } from './employer-source-config.js';
 import type { JobListing } from './types.js';
 import { parseAgeDays } from './listing-age.js';
 import {workdayDirectoryTargets} from './workday-directory.js';
-import {publicEmployerTarget,publicEmployerTargets} from './public-employer-directory.js';
-import { assertExternalJobUrl } from './external-url.js';
-import { brandedPageupIdentity, brandedPageupSearch, brandedPageupPosting } from './pageup-branded.js';
+import {publicEmployerTargets} from './public-employer-directory.js';
 import { EmployerFeedHealth } from './employer-feed-health.js';
 import { EmployerFeedPaging, type EmployerFeedBatch } from './employer-feed-paging.js';
 
-type NewSource = Exclude<EmployerSourceId, 'smartrecruiters'>;
 type FeedOptions = { fetch?: typeof fetch; warn?: (message: string) => void; timeoutMs?: number; gapMs?: number; retryDelayMs?: number; now?: () => number; additionalTargets?:string[]; shouldStop?:()=>boolean;
-  healthDirectory?: string; validatePublicUrl?: (url: string) => Promise<string>;
-  renderPageup?: false | ((url: string) => Promise<{ url: string; html: string }>) };
+  healthDirectory?: string };
 const key = (source: string, namespace: string, id: string) => `${source}-${createHash('sha256').update(`${namespace}:${id}`).digest('hex').slice(0, 32)}`;
 const clean = (value: unknown, limit = 50_000): string => typeof value === 'string' ? value.trim().slice(0, limit) : '';
 export function feedText(value: unknown): string {
@@ -53,20 +48,14 @@ export function workdayCountryFilter(facets: unknown, country = 'Australia'): Re
 
 /** Identity comes from a provider-owned URL; content cannot choose a network destination. */
 export function employerJobIdentity(source: EmployerSourceId, raw: string): { namespace: string; posting: string } {
-  if (source === 'smartrecruiters') { const id = smartRecruitersIdentity(raw); return { namespace: id.company, posting: id.posting }; }
   const url = new URL(raw);
   if (url.protocol !== 'https:' || url.username || url.password || url.port || url.hash) throw new Error('Use a public employer job URL.');
   const path = url.pathname.split('/').filter(Boolean);
   if (source === 'greenhouse' && ['job-boards.greenhouse.io', 'boards.greenhouse.io'].includes(url.hostname) && path.length === 3 && path[1] === 'jobs' && /^\d{1,20}$/.test(path[2])) {
     employerTargets('greenhouse', path[0]); return { namespace: path[0], posting: path[2] };
   }
-  if (source === 'pageup' && url.hostname === 'careers.pageuppeople.com' && path.length >= 5 && path.length <= 6 && path[3] === 'job' && /^\d{1,20}$/.test(path[4])) {
-    const site = careerTarget('pageup', `${url.origin}/${path.slice(0, 3).join('/')}`).url;
-    return { namespace: site.href, posting: path[4] };
-  }
-  if (source === 'pageup') { const identity = brandedPageupIdentity(raw); if (identity) return identity; }
   if (source === 'workday' && path.length >= 4 && path[2] === 'job' && path.every(part => /^[A-Za-z0-9_.%()-]+$/.test(part))) {
-    const site = careerTarget('workday', `${url.origin}/${path.slice(0, 2).join('/')}`).url;
+    const site = workdayCareerTarget(`${url.origin}/${path.slice(0, 2).join('/')}`).url;
     return { namespace: site.href, posting: `/${path.slice(2).join('/')}` };
   }
   throw new Error(`Invalid ${source} job address.`);
@@ -75,17 +64,6 @@ export function employerJobIdentity(source: EmployerSourceId, raw: string): { na
 class CareerSiteHttpError extends Error {
   constructor(readonly status: number, readonly retryAfterMs = 0) { super(`Public career site returned HTTP ${status}.`); }
 }
-class PageUpCareerRedirect extends Error {
-  constructor(readonly destination: string) { super('PageUp career site moved to its branded public careers page.'); }
-}
-
-function pageupBrand(document: ReturnType<typeof parseHTML>['document']):string {
-  const title=document.title.match(/^(?:(?:Current|Career)\s+)?(?:opportunities|careers|jobs|vacancies|search results)\s*[-|–]\s*(.+)$/i)?.[1]?.trim();
-  const logo=document.querySelector('header img[alt],#header img[alt],.logo img[alt],a.logo img[alt],img[id*="logo"][alt],img[src*="logo"][alt]')?.getAttribute('alt')?.trim();
-  const name=title&&!/^(search results?|job search|listing|pageup(?:people)?)$/i.test(title)?title:logo;
-  return name&&name.length<=100&&!/^(logo|home|pageup(?:people)?|email|facebook|twitter|linkedin)$/i.test(name)?name.replace(/\s+logo$/i,''):'';
-}
-
 class PublicReader {
   private readyAt = 0;
   constructor(private options: FeedOptions) {}
@@ -105,25 +83,14 @@ class PublicReader {
       }
     }
   }
-  private async readOnce(url: string, body?: object, redirects = 0): Promise<string> {
+  private async readOnce(url: string, body?: object): Promise<string> {
     const wait = this.readyAt - Date.now();
     if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
     this.readyAt = Date.now() + (this.options.gapMs ?? 250);
-    const pageupRoot = publicEmployerTarget('pageup', url);
-    const response = await (this.options.fetch ?? fetch)(url, { redirect: pageupRoot ? 'manual' : 'error', signal: AbortSignal.timeout(this.options.timeoutMs ?? 15_000),
+    const response = await (this.options.fetch ?? fetch)(url, { redirect: 'error', signal: AbortSignal.timeout(this.options.timeoutMs ?? 15_000),
       headers: { Accept: 'application/json,text/html', ...(body ? { 'Content-Type': 'application/json' } : {}) },
       ...(body ? { method: 'POST', body: JSON.stringify(body) } : {}),
     });
-    if (pageupRoot && [301,302,303,307,308].includes(response.status)) {
-      await response.body?.cancel();
-      const location = response.headers.get('location');
-      const next = location ? new URL(location, url) : null;
-      if (next && next.hostname !== 'careers.pageuppeople.com' && redirects < 2) throw new PageUpCareerRedirect(next.href);
-      if (redirects >= 2 || !next || publicEmployerTarget('pageup', next.href) !== pageupRoot || !/\/(search|listing)\/?$/i.test(next.pathname)) throw Error('PageUp career-site redirect is outside this public results page.');
-      // Some PageUp themes redirect search/ to listing/ and omit the filters.
-      for (const [key,value] of new URL(url).searchParams) if(!next.searchParams.has(key))next.searchParams.set(key,value);
-      return this.readOnce(next.href, undefined, redirects + 1);
-    }
     return this.responseText(response);
   }
   private async responseText(response: Response): Promise<string> {
@@ -147,31 +114,6 @@ class PublicReader {
     }
     return Buffer.concat(chunks).toString('utf8');
   }
-  async branded(url: string, origin: string, redirects = 0): Promise<{ url: string; html: string }> {
-    const destination = new URL(url);
-    if (destination.origin !== origin || !/^\/(?:[a-z]{2}(?:-[A-Z]{2})?\/)?(?:jobs(?:\/[^/?#]+)?)?\/?$/.test(destination.pathname)) throw Error('Branded PageUp redirect left its public career pages.');
-    await (this.options.validatePublicUrl ?? assertExternalJobUrl)(destination.href);
-    const response = await (this.options.fetch ?? fetch)(destination.href, { redirect: 'manual', signal: AbortSignal.timeout(this.options.timeoutMs ?? 15_000), headers: { Accept: 'text/html' } });
-    if ([301,302,303,307,308].includes(response.status)) {
-      await response.body?.cancel();const location=response.headers.get('location');
-      if (!location || redirects >= 3) throw Error('Branded PageUp redirect limit reached.');
-      return this.branded(new URL(location, destination).href, origin, redirects + 1);
-    }
-    if (response.status === 202 && response.headers.get('x-amzn-waf-action')?.toLowerCase() === 'challenge') {
-      await response.body?.cancel();
-      if (this.options.shouldStop?.()) throw Error('Public career-site read cancelled.');
-      // Applies equally to normal reads and cached/indexed HTTP readers.
-      // Simulations can explicitly disable or replace browser rendering.
-      const render = this.options.renderPageup ?? (await import('./pageup-public-browser.js')).renderPublicPageup;
-      if (!render) throw Error('Public career site requires security verification.');
-      const result = await render(destination.href), final = new URL(result.url);
-      if (final.origin !== origin || final.pathname.replace(/\/$/, '') !== destination.pathname.replace(/\/$/, '') || final.search !== destination.search) {
-        throw Error('Public PageUp browser left the requested employer page.');
-      }
-      return result;
-    }
-    return { url: destination.href, html: await this.responseText(response) };
-  }
   async json(url: string, body?: object): Promise<any> { return JSON.parse(await this.read(url, body)); }
 }
 
@@ -180,104 +122,50 @@ export class EmployerFeedDiscovery {
   private readonly reader: PublicReader;
   private readonly boardCache = new Map<string, Promise<any[]>>();
   private readonly countryFilters = new Map<string, Record<string, string[]>>();
-  private readonly employerNames = new Map<string,string>();
-  private readonly brandedSearches = new Map<string, string>();
   private readonly paging = new EmployerFeedPaging();
-  private readonly pageupSnapshots = new Map<string, Promise<JobListing[]>>();
   private readonly health: EmployerFeedHealth;
   private readonly now: () => number;
-  constructor(readonly source: NewSource, raw?: string, private options: FeedOptions = {}) {
+  constructor(readonly source: EmployerSourceId, raw?: string, private options: FeedOptions = {}) {
     const spec = EMPLOYER_SOURCES.find(item => item.id === source)!;
     if (!spec) throw new Error('This job source is no longer available.');
     this.targets = employerTargets(source, raw ?? spec.defaults);
     if(source==='workday') this.targets = workdayDirectoryTargets([...this.targets,...(options.additionalTargets??[])]);
-    if(source==='pageup'||source==='greenhouse') this.targets = publicEmployerTargets(source,[...this.targets,...(options.additionalTargets??[])]);
+    if (source === 'greenhouse') this.targets = publicEmployerTargets([...this.targets,...(options.additionalTargets??[])]);
     this.reader = new PublicReader(options); this.now = options.now ?? Date.now;
     this.health = new EmployerFeedHealth(options.healthDirectory, this.now);
   }
 
   private healthKey(target: string): string {
-    const url = careerTarget(this.source as 'pageup' | 'workday', target).url;
-    return this.source + ':' + (this.source === 'workday' ? `${url.origin}/wday/cxs/${url.hostname.split('.')[0]}/${url.pathname.split('/')[2]}/jobs` : url.href);
-  }
-
-  private pageupSnapshot(target: string): Promise<JobListing[]> {
-    if (!this.pageupSnapshots.has(target)) {
-      const task = (async () => {
-        const root = careerTarget('pageup', target).url.href;
-        const data = await this.reader.json(root + '/jobs.json');
-        if (!Array.isArray(data)) throw Error('PageUp complete job feed is not a JSON array.');
-        return this.normalise(target, data.filter(raw=>raw&&typeof raw==='object').map(raw => ({ url: root + '/job/' + String(raw.Id), title: raw.Title,
-          location: raw.Locations || (Array.isArray(raw.LocationList) ? raw.LocationList.join('; ') : ''),
-          overview: raw.Overview, teaser: raw.Summary, published: raw.OpeningDateUtc, closes: raw.ClosingDateUtc })));
-      })();
-      this.pageupSnapshots.set(target, task);void task.catch(() => this.pageupSnapshots.delete(target));
-    }
-    return this.pageupSnapshots.get(target)!;
-  }
-
-  private async brandedSearch(target: string, keyword: string, page: number, movedTo?: string): Promise<JobListing[]> {
-    let search = this.brandedSearches.get(target);
-    let result: {url:string;html:string} | undefined;
-    if (!search) {
-      if (!movedTo) throw Error('PageUp branded career site has not been verified.');
-      const destination = new URL(movedTo);
-      // Clinch's public search lives at /jobs/search. A provider redirect to
-      // the home page must not make us parse that home page as job results.
-      if (destination.pathname === '/') destination.pathname = '/jobs/search';
-      destination.searchParams.set('query',keyword);destination.searchParams.set('page',String(page));
-      result = await this.reader.branded(destination.href, destination.origin);
-      search = brandedPageupSearch(result.html, result.url).action;
-      this.brandedSearches.set(target, search);
-    }
-    const url = new URL(search);url.searchParams.set('query', keyword);url.searchParams.set('page', String(page));
-    if (!result || result.url !== url.href) result = await this.reader.branded(url.href, url.origin);
-    const parsed = brandedPageupSearch(result.html, result.url);
-    const queryKey = target + '\n' + keyword;
-    if (parsed.exhausted || !parsed.postingIds.length || this.paging.repeated(queryKey, page, parsed.postingIds)) {
-      this.paging.end(queryKey, page);
-    }
-    const configured = careerTarget('pageup', target);
-    return parsed.jobs.map(raw => {
-      const identity = employerJobIdentity('pageup', raw.url);
-      return { id: key('pageup', identity.namespace, identity.posting), ...raw,
-        company: configured.name || `PageUp employer ${configured.url.pathname.split('/')[1]}`,
-        sourceCareerSite: configured.url.href, platform: 'pageup', applicationMode: 'external', source: 'search', applicationUrl: raw.url };
-    });
+    const { url } = workdayCareerTarget(target);
+    return `workday:${url.origin}/wday/cxs/${url.hostname.split('.')[0]}/${url.pathname.split('/')[2]}/jobs`;
   }
 
   private listing(target: string, raw: any): JobListing | null {
     if (!raw || typeof raw !== 'object') return null;
-    let id: string, title: string, company: string, location: string, url: string, description = '', at: unknown, arrangement: string | undefined;
+    let id: string, title: string, company: string, location: string, url: string, description = '', at: unknown;
     if (this.source === 'greenhouse') {
       if (!/^\d{1,20}$/.test(String(raw.id)) || expired(raw.application_deadline, this.now())) return null;
       id = String(raw.id); title = clean(raw.title, 300); company = clean(raw.company_name, 300) || target;
       location = clean(raw.location?.name, 500); url = `https://job-boards.greenhouse.io/${target}/jobs/${id}`;
       description = feedText(raw.content); at = raw.first_published;
       // updated_at is an edit timestamp, not the date the vacancy was advertised.
-    } else if (this.source === 'workday') {
-      const site = careerTarget('workday', target); const path = clean(raw.externalPath, 1500);
+    } else {
+      const site = workdayCareerTarget(target); const path = clean(raw.externalPath, 1500);
       url = `${site.url.href}${path}`; const identity = employerJobIdentity('workday', url);
       if (identity.namespace !== site.url.href || !path.startsWith('/job/')) throw new Error('Different Workday career site.');
       id = identity.posting; title = clean(raw.title, 300); company = site.name || site.url.hostname.split('.')[0];
       // Some employers omit locationsText and supply configurable bullet fields.
       // Keep the card eligible for its authoritative detail read without guessing.
       location = clean(raw.locationsText, 500) || 'Location not disclosed';
-    } else {
-      const site = careerTarget('pageup', target); url = new URL(raw.url, site.url).href;
-      const identity = employerJobIdentity('pageup', url);
-      if (identity.namespace !== site.url.href || expired(raw.closes, this.now())) return null;
-      id = identity.posting; title = clean(raw.title, 300); company = site.name || this.employerNames.get(target) || `PageUp employer ${site.url.pathname.split('/')[1]}`;
-      location = clean(raw.location, 500); description = raw.overview ? feedText(raw.overview) : clean(raw.teaser, 1000); at = raw.published;
     }
     if (!title || !location) return null;
-    const namespace = this.source === 'pageup' || this.source === 'workday' ? careerTarget(this.source, target).url.href : target;
+    const namespace = this.source === 'workday' ? workdayCareerTarget(target).url.href : target;
     return { id: key(this.source, namespace, id), title, company, location, url, applicationUrl: url,
       ...(this.source==='workday' && typeof raw.country?.descriptor==='string' ? {locationCountry:clean(raw.country.descriptor,100)} : {}),
       ...(this.source==='workday' && Array.isArray(raw.bulletFields) ? {teaser:raw.bulletFields.filter((s:unknown)=>typeof s==='string').join(' · ').slice(0,1000)} : {}),
       platform: this.source, applicationMode: 'external', source: 'search', ...dates(at, this.now()),
       ...(this.source === 'workday' && parseAgeDays(raw.postedOn) !== undefined ? { ageDays: parseAgeDays(raw.postedOn), listedAt: clean(raw.postedOn) } : {}),
-      ...(description ? { description, teaser: description.slice(0, 1000) } : {}), ...(arrangement ? { workArrangement: arrangement } : {}),
+      ...(description ? { description, teaser: description.slice(0, 1000) } : {}),
     };
   }
 
@@ -315,15 +203,15 @@ export class EmployerFeedDiscovery {
         if (await this.health.unavailable(this.healthKey(target))) continue;
       }
       try {
-        let rows: any[];
+        let rows: JobListing[];
         if (this.source === 'greenhouse') {
           // A board is a bounded snapshot, not a keyword result page. Artificial
           // paging let adaptive discovery stop before later vacancies were even
           // ranked. Give AI the whole snapshot once; normal review/apply limits
           // still govern what it does with it. No relevance filter belongs here.
           rows = page === 1 ? this.normalise(target, await this.board(target)) : [];
-        } else if (this.source === 'workday') {
-          const { url } = careerTarget('workday', target); const site = url.pathname.split('/')[2]; const tenant = url.hostname.split('.')[0];
+        } else {
+          const { url } = workdayCareerTarget(target); const site = url.pathname.split('/')[2]; const tenant = url.hostname.split('.')[0];
           const endpoint = `${url.origin}/wday/cxs/${tenant}/${site}/jobs`;
           const request = { limit: 20, offset: (page - 1) * 20, searchText: keyword.slice(0, 150), appliedFacets: this.countryFilters.get(target) ?? {} };
           let data = await this.reader.json(endpoint, request);
@@ -341,58 +229,12 @@ export class EmployerFeedDiscovery {
             || this.paging.repeated(queryKey, page, data.jobPostings.map((item: any) => item?.externalPath))) {
             this.paging.end(queryKey, page);
           }
-        } else {
-          if (this.brandedSearches.has(target)) {
-            rows = await this.brandedSearch(target, keyword, page);
-            hasMore ||= !this.paging.exhausted(queryKey, page + 1);
-            successful++; for (const job of rows) jobs.set(job.id, job); await this.health.healthy(this.healthKey(target));continue;
-          }
-          const { url } = careerTarget('pageup', target);
-          const search = new URL(`${url.href}/search/`);
-          search.search = new URLSearchParams({ 'search-keyword': keyword.slice(0, 150), page: String(page), 'page-items': '20' }).toString();
-          let html: string;
-          try { html = await this.reader.read(search.href); }
-          catch (error) {
-            if (!(error instanceof PageUpCareerRedirect)) throw error;
-            rows = await this.brandedSearch(target, keyword, page, error.destination);
-            hasMore ||= !this.paging.exhausted(queryKey, page + 1);
-            successful++; for (const job of rows) jobs.set(job.id, job); await this.health.healthy(this.healthKey(target));continue;
-          }
-          const { document } = parseHTML(html);
-          // The background index's public reader may already have followed a verified redirect.
-          const brandedForm = document.querySelector('form.job-search-results-form[action]')?.getAttribute('action');
-          if (brandedForm && new URL(brandedForm, search).hostname !== url.hostname) {
-            rows = await this.brandedSearch(target, keyword, page, new URL(brandedForm, search).href);
-            hasMore ||= !this.paging.exhausted(queryKey, page + 1);
-            successful++;for (const job of rows) jobs.set(job.id, job);await this.health.healthy(this.healthKey(target));continue;
-          }
-          if (!document.querySelector('#search-results-content')) throw new Error('PageUp search layout is not recognised; no jobs were assumed.');
-          const brand=pageupBrand(document);if(brand)this.employerNames.set(target,brand);
-          rows = [...document.querySelectorAll('#search-results-content a.job-link')].slice(0, 20).map(anchor => {
-            const row = anchor.closest('tr,.job-listing');
-            return { url: anchor.getAttribute('href'), title: anchor.textContent, location: row?.querySelector('.location')?.textContent,
-              published: row?.querySelector('.open-date time')?.getAttribute('datetime'),
-              closes: row?.querySelector('.close-date time')?.getAttribute('datetime'), teaser: row?.querySelector('.job-listing-left > p')?.textContent ?? (row?.nextElementSibling?.classList.contains('summary') ? row.nextElementSibling.textContent : '') };
-          });
-          const rawIds = rows.map(row => {
-            if (!row.url) return undefined;
-            try { return employerJobIdentity('pageup', new URL(row.url, url).href).posting; }
-            catch { return undefined; }
-          });
-          rows = this.normalise(target, rows);
-          if (!rawIds.length) this.paging.end(queryKey, page);
-          else if (this.paging.repeated(queryKey, page, rawIds)) {
-            // Some themes ignore page/filter parameters. Recover the publisher's
-            // complete public feed rather than silently hiding later vacancies.
-            this.paging.end(queryKey, page);
-            rows = await this.pageupSnapshot(target);
-          }
         }
         if (this.source !== 'greenhouse') {
           hasMore ||= !this.paging.exhausted(queryKey, page + 1);
           await this.health.healthy(this.healthKey(target));
         }
-        successful++; for (const job of rows as JobListing[]) jobs.set(job.id, job);
+        successful++; for (const job of rows) jobs.set(job.id, job);
       } catch (error) {
         if (this.source !== 'greenhouse') await this.health.failed(this.healthKey(target), (error as Error).message,
           error instanceof CareerSiteHttpError && error.retryAfterMs > 0 ? error.retryAfterMs : error instanceof CareerSiteHttpError && [404,410,422].includes(error.status) ? 3600_000 : 5 * 60_000);
@@ -405,58 +247,18 @@ export class EmployerFeedDiscovery {
 
   async detail(stub: JobListing): Promise<JobListing> {
     const identity = employerJobIdentity(this.source, stub.url);
-    if (this.source === 'pageup' && new URL(stub.url).hostname !== 'careers.pageuppeople.com') {
-      const target = this.targets.find(value => careerTarget('pageup', value).url.href === stub.sourceCareerSite)
-        ?? (!stub.sourceCareerSite && this.targets.length === 1 ? this.targets[0] : undefined);
-      if (!target || key('pageup', identity.namespace, identity.posting) !== stub.id) throw Error('The branded job is outside its verified PageUp board.');
-      if (!this.brandedSearches.has(target)) {
-        try {
-          const root=careerTarget('pageup', target).url.href;
-          const html=await this.reader.read(root + '/search/');
-          const {document}=parseHTML(html),action=document.querySelector('form.job-search-results-form[action]')?.getAttribute('action');
-          if(action)this.brandedSearches.set(target,brandedPageupSearch(html,new URL(action,root).href).action);
-        }
-        catch (error) { if (error instanceof PageUpCareerRedirect) await this.brandedSearch(target, '', 1, error.destination); else throw error; }
-      }
-      const verified = this.brandedSearches.get(target);
-      if (!verified || new URL(verified).origin !== new URL(stub.url).origin) throw Error('PageUp job changed employer site.');
-      const page = await this.reader.branded(stub.url, new URL(verified).origin), posting = brandedPageupPosting(page.html, page.url);
-      if (employerJobIdentity('pageup', page.url).posting !== identity.posting || expired(posting.validThrough, this.now())) throw Error('Branded PageUp job is closed or changed.');
-      const addresses = [posting.jobLocation].flat().filter(Boolean).map(place => place.address ?? {});
-      const country = (address:Record<string,any>) => typeof address.addressCountry==='string'?address.addressCountry:address.addressCountry?.name;
-      const countries = [...new Set(addresses.map(country).filter((value):value is string=>typeof value==='string'&&Boolean(value)))];
-      const locations = addresses.map(address => [address.addressLocality,address.addressRegion,country(address)].filter(Boolean).join(', ')).filter(Boolean);
-      const name = careerTarget('pageup', target).name || clean(posting.hiringOrganization?.name, 300) || stub.company;
-      return { ...stub, title: clean(posting.title,300), company: name, location: locations.join('; ') || stub.location,
-        ...(countries.length===1?{locationCountry:countries[0]}:{}),
-        description: feedText(posting.description), ...dates(posting.datePosted, this.now()) };
-    }
-    const target = this.targets.find(value => (this.source === 'pageup' || this.source === 'workday' ? careerTarget(this.source, value).url.href : value) === identity.namespace);
+    const target = this.targets.find(value => (this.source === 'workday' ? workdayCareerTarget(value).url.href : value) === identity.namespace);
     if (!target || key(this.source, identity.namespace, identity.posting) !== stub.id) throw new Error('The job is outside the employer watchlist or its identity changed.');
     let job: JobListing | null;
     if (this.source === 'greenhouse') {
       const raw = await this.reader.json(`https://boards-api.greenhouse.io/v1/boards/${target}/jobs/${identity.posting}?content=true`);
       job = this.listing(target, raw);
-    } else if (this.source === 'workday') {
-      const { url } = careerTarget('workday', target); const site = url.pathname.split('/')[2]; const tenant = url.hostname.split('.')[0];
+    } else {
+      const { url } = workdayCareerTarget(target); const site = url.pathname.split('/')[2]; const tenant = url.hostname.split('.')[0];
       const raw = (await this.reader.json(`${url.origin}/wday/cxs/${tenant}/${site}${identity.posting}`)).jobPostingInfo;
       if (!raw || raw.country?.descriptor !== 'Australia' || expired(raw.endDate, this.now())) throw new Error('Workday job is closed or not in Australia.');
       job = this.listing(target, { ...raw, externalPath: identity.posting, locationsText: raw.location });
       if (job) job = { ...job, description: feedText(raw.jobDescription), ...dates(raw.startDate, this.now()), ...(raw.remoteType ? { workArrangement: clean(raw.remoteType) } : {}) };
-    } else {
-      const { document } = parseHTML(await this.reader.read(stub.url));
-      const brand=pageupBrand(document);if(brand)this.employerNames.set(target,brand);
-      const content = document.querySelector('#job-content');
-      const jobNo = clean(content?.querySelector('.job-externalJobNo')?.textContent);
-      const closes = content?.querySelector('.close-date time')?.getAttribute('datetime');
-      const apply = content?.querySelector('a.apply-link') || [...(content?.querySelectorAll('a[href]')??[])].find(anchor=>{
-        try{const u=new URL(anchor.getAttribute('href')!,stub.url);return u.protocol==='https:'&&!u.username&&!u.password&&!u.port&&/^secure(?:\.dc\d+)?\.pageuppeople\.com$/.test(u.hostname)
-          &&u.pathname===`/apply/${new URL(identity.namespace).pathname.split('/')[1]}/gateway/default.aspx`&&u.searchParams.get('c')==='apply'&&u.searchParams.get('lJobID')===identity.posting;}catch{return false;}
-      });
-      if (jobNo !== identity.posting || !apply || expired(closes, this.now())) throw new Error('PageUp job is closed or its identity changed.');
-      job = this.listing(target, { url: stub.url, title: content!.querySelector('h1,h2')?.textContent, location: content!.querySelector('.location')?.textContent });
-      if(job&&!careerTarget('pageup',target).name&&!this.employerNames.has(target)&&stub.company&&!/^PageUp employer \d+$/i.test(stub.company))job.company=stub.company;
-      if (job) job = { ...job, description: feedText(content!.querySelector('#job-details,.section-job-overview')?.innerHTML), ...dates(content!.querySelector('.open-date time')?.getAttribute('datetime'), this.now()) };
     }
     if (!job || job.id !== stub.id || !job.description) throw new Error('Employer job is closed, changed or missing its description.');
     return { ...job, source: stub.source ?? 'search' };

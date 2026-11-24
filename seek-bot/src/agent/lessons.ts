@@ -5,8 +5,6 @@ const PLATFORMS: Array<[RegExp, string]> = [
   [/livehire|humanforce/i, 'LiveHire'],
   [/ashbyhq/i, 'Ashby'],
   [/successfactors|sapsf/i, 'SAP SuccessFactors'],
-  [/pageuppeople|pageup/i, 'PageUp'],
-  [/smartrecruiters/i, 'SmartRecruiters'],
   [/greenhouse/i, 'Greenhouse'],
   [/jobadder/i, 'JobAdder'],
   [/icims/i, 'iCIMS'],

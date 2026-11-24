@@ -4,6 +4,7 @@ import { isIP, type LookupFunction } from 'node:net';
 import { createRequire } from 'node:module';
 import { canonicalUrl } from './extract.js';
 import { parseHTML } from 'linkedom';
+import { retiredEmployerFeed } from '../../../seek-bot/src/retired-job-sources.js';
 
 export const AGENT = 'OwtomateJobIndex/1.0 (+https://owtomate.com)';
 export class CrawlBlocked extends Error {}
@@ -26,6 +27,7 @@ export function crawlUrl(raw: string): URL {
   // before every request creates a synthetic redirect loop.
   canonicalUrl(raw);
   const u = new URL(raw);u.hash='';
+  if (retiredEmployerFeed({ url: u.href })) throw new CrawlBlocked('This career feed has been retired.');
   if (isIP(u.hostname) || /(^|\.)(localhost|local|internal|test|invalid|example|onion)$|^(?:metadata|instance-data)\./i.test(u.hostname)) throw new CrawlBlocked('Private and non-public destinations are excluded.');
   if (/\/(?:login|sign[-_]?in|register|applications?|apply)(?:[/?]|$)/i.test(u.pathname)) throw new CrawlBlocked('Account and application forms are excluded from indexing.');
   return u;

@@ -35,7 +35,7 @@ test('new-user trial: atomic signup, employer-only defaults, shared five credits
   const facts={admin:false,billing:initial,autoRunsUsedToday:0,autoApplyPaused:true,hasSuccessfulRun:false,overrides:{evaluationsPerRun:null,maxApplicationsPerRun:null},searchTermSuggestionsLeft:1};
   const entitled=deriveEntitlements(facts);assert.equal(entitled.employerSources,true);assert.equal(entitled.indeedApplications,false);assert.equal(entitled.fineTune,false);
   const settings=applyRunPolicy({...RUN_SETTING_DEFAULTS},entitled,'auto');applyJobSourceAccess(settings,false,entitled.employerSources);
-  const sources=settings.PLATFORMS.split(',');assert.deepEqual(sources,['smartrecruiters','greenhouse','jora']);assert.equal(entitled.joraSignIn,false);assert(!sources.includes('seek')&&!sources.includes('indeed'));
+  const sources=settings.PLATFORMS.split(',');assert.deepEqual(sources,['greenhouse','jora']);assert.equal(entitled.joraSignIn,false);assert(!sources.includes('seek')&&!sources.includes('indeed'));
   assert.deepEqual(availableJobSources(sources,true,()=>false).usable,sources,'no job-board sign-in is required');
   assert.equal(applyRunPolicy({...RUN_SETTING_DEFAULTS,PLATFORMS:'greenhouse'},entitled,'auto',true,true).PLATFORMS,'greenhouse,jora','trial source choices are saved without changing other plan controls');
   assert.equal(effectivePlatforms({PLATFORMS:'greenhouse,pageup,workday,indeed',PLATFORMS_CHOSEN:'1'},entitled),'greenhouse,jora','free choices exclude account-based sources and paid Indeed access');

@@ -30,7 +30,7 @@ ALTER TABLE candidate_job_matches ADD COLUMN IF NOT EXISTS job_fingerprint text 
 CREATE INDEX IF NOT EXISTS candidate_job_matches_owner ON candidate_job_matches(user_id,matched_at DESC);
 CREATE INDEX IF NOT EXISTS candidate_job_matches_job ON candidate_job_matches(job_id,user_id);
 CREATE TABLE IF NOT EXISTS crawl_tasks (
- key text PRIMARY KEY, kind text NOT NULL CHECK(kind IN ('page','feed','search')),
+ key text PRIMARY KEY, kind text NOT NULL CHECK(kind IN ('page','feed')),
  payload jsonb NOT NULL, state text NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','running','done','blocked','failed')),
  priority integer NOT NULL DEFAULT 0, due_at timestamptz NOT NULL DEFAULT now(),
  attempts integer NOT NULL DEFAULT 0, lease uuid, lease_until timestamptz, last_error text,
@@ -48,7 +48,6 @@ INSERT INTO job_index_config(singleton) VALUES(true) ON CONFLICT DO NOTHING;
 CREATE TABLE IF NOT EXISTS job_index_actions (
  id bigserial PRIMARY KEY, actor_id bigint NOT NULL, action text NOT NULL, created_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE TABLE IF NOT EXISTS search_usage (day date PRIMARY KEY,calls integer NOT NULL CHECK(calls>=0 AND calls<=20));
 -- Rejected/uncertain reviews retain only hashes and a verdict, never vacancies or CVs.
 CREATE TABLE IF NOT EXISTS fit_decisions (
  user_id bigint NOT NULL REFERENCES search_profiles(user_id) ON DELETE CASCADE,
@@ -74,10 +73,10 @@ UPDATE crawl_tasks SET payload=jsonb_set(payload,'{job}',jsonb_strip_nulls(jsonb
 -- Legacy/unverified geography is quarantined until the shared admission policy checks it.
 ALTER TABLE indexed_jobs ADD COLUMN IF NOT EXISTS country_policy text;
 
-CREATE TABLE IF NOT EXISTS manual_searches (
- id uuid PRIMARY KEY,provider text NOT NULL CHECK(provider IN ('brave','codex')),actor_id bigint NOT NULL,
- state text NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','searching','running','completed','failed')),
- created_at timestamptz NOT NULL DEFAULT now(),started_at timestamptz,finished_at timestamptz,
- lease uuid,lease_until timestamptz,stats jsonb NOT NULL DEFAULT '{}',error text
-);
-CREATE UNIQUE INDEX IF NOT EXISTS manual_searches_one_active ON manual_searches((true)) WHERE state IN ('queued','searching','running');
+-- Retired collection tasks must not consume the live queue or replenish the catalog.
+DELETE FROM crawl_tasks WHERE kind='search' OR (kind='feed' AND payload->>'source' IN ('smartrecruiters','pageup'))
+ OR (kind='page' AND payload->>'url' ~* '^https?://([^/]+\.)?(smartrecruiters\.com|pageuppeople\.com)([:/?#]|$)');
+ALTER TABLE crawl_tasks DROP CONSTRAINT IF EXISTS crawl_tasks_kind_check,
+ ADD CONSTRAINT crawl_tasks_kind_check CHECK (kind IN ('page','feed'));
+UPDATE indexed_jobs SET closed_at=now() WHERE closed_at IS NULL
+ AND (lower(source) IN ('smartrecruiters','pageup') OR canonical_url ~* '^https?://([^/]+\.)?(smartrecruiters\.com|pageuppeople\.com)([:/?#]|$)');

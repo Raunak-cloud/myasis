@@ -21,8 +21,8 @@ test('Ashby board links come from public publisher IDs without executing embedde
 
 test('publisher microdata admits actual role facts without borrowing employer HQ or unrelated page data',()=>{
   const html=`<link rel="canonical" href="${url}"><section itemscope itemtype="http://schema.org/JobPosting"><meta itemprop="hiringOrganization" content="Fixture employer"><h1 itemprop="title">Senior Data Analyst</h1><div itemprop="description">Use Python and SQL to build trusted business intelligence, reporting and analytics. Hybrid working.</div><meta itemprop="datePosted" content="2026-11-01"><div itemprop="jobLocation" itemscope itemtype="https://schema.org/Place"><span itemprop="address" itemscope itemtype="https://schema.org/PostalAddress"><meta itemprop="addressLocality" content="Sydney"><meta itemprop="addressRegion" content="NSW"><meta itemprop="addressCountry" content="AU"></span><span itemprop="address" itemscope itemtype="https://schema.org/PostalAddress"><meta itemprop="addressLocality" content="Melbourne"><meta itemprop="addressCountry" content="AU"></span></div></section><footer><span itemprop="addressCountry">CA</span></footer>`;
-  const j=extractPage(html,url,true).jobs[0];assert.ok(j);assert.equal(j.title,'Senior Data Analyst');assert.equal(j.company,'Fixture employer');assert.deepEqual(j.locations,['Sydney, NSW, AU','Melbourne, AU']);assert.deepEqual(j.locationCountries,['AU']);assert.equal(j.postedAt,'2026-11-01T00:00:00.000Z');assert.equal(j.workArrangement,'hybrid');
-  assert.equal(extractPage(html.replace(/<link[^>]+>/,''),url,true).jobs.length,0);
+  const j=extractPage(html,url).jobs[0];assert.ok(j);assert.equal(j.title,'Senior Data Analyst');assert.equal(j.company,'Fixture employer');assert.deepEqual(j.locations,['Sydney, NSW, AU','Melbourne, AU']);assert.deepEqual(j.locationCountries,['AU']);assert.equal(j.postedAt,'2026-11-01T00:00:00.000Z');assert.equal(j.workArrangement,'hybrid');
+  assert.equal(extractPage(html.replace(/<link[^>]+>/,''),url).jobs[0].url,url);
   const expired=html.replace('itemprop="datePosted"','itemprop="validThrough"').replace('2026-11-01','2020-01-01');assert.deepEqual(extractPage(expired,url).closedUrls,[url]);
   const hq=`<section itemscope itemtype="https://schema.org/JobPosting"><span itemprop="title">Data Analyst</span><div itemprop="description">Analyse SQL data and maintain accurate Power BI reporting for enterprise users.</div><div itemprop="hiringOrganization" itemscope itemtype="https://schema.org/Organization"><span itemprop="name">Fixture employer</span><div itemprop="address" itemscope><meta itemprop="addressCountry" content="AU"></div></div></section>`;
   assert.deepEqual(extractPage(hq,url).jobs[0].locationCountries,[]);
@@ -72,17 +72,9 @@ test('external discovery terms omit emails, phone numbers and raw resume facts',
   assert.deepEqual(safeKeywords('Data analyst, person@example.org, 0400123456, https://profile.org, Software engineer'),['Data analyst','Software engineer']);
 });
 
-test('transient search URLs are not stored as implicit job identities',()=>{
-  const markup=`<script type="application/ld+json">${JSON.stringify({'@type':'JobPosting',...raw})}</script>`;
-  assert.equal(extractPage(markup,url,true).jobs.length,0);
-  const publisher='https://careers.fixture.org/jobs/publisher-canonical';
-  assert.equal(extractPage(`<link rel="canonical" href="${publisher}">${markup}`,url,true).jobs[0].url,publisher);
-  assert.equal(extractPage(`<script type="application/ld+json">${JSON.stringify({'@type':'JobPosting',...raw,url:publisher})}</script>`,url,true).jobs[0].url,publisher);
-});
-
 test('publisher links discover ATS vacancies whose titles and paths do not say job',()=>{
   const lever='https://jobs.lever.co/fixture/12345678-abcd-1234-abcd-123456789abc';
-  const smart='https://jobs.smartrecruiters.com/Fixture/12345-data-engineer';
-  const result=extractPage(`<a href="${lever}">Data engineer</a><a href="${smart}">Analyst</a><a href="${lever}/apply">Apply</a>`,url);
-  assert.deepEqual(result.links,[lever,smart]);
+  const ashby='https://jobs.ashbyhq.com/fixture/516a2eb6-db64-4019-961d-eae58524831a';
+  const result=extractPage(`<a href="${lever}">Data engineer</a><a href="${ashby}">Analyst</a><a href="${lever}/apply">Apply</a>`,url);
+  assert.deepEqual(result.links,[lever,ashby]);
 });

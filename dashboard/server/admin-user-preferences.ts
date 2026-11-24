@@ -7,8 +7,8 @@ import { isCredentialQuestion } from '../../seek-bot/src/blocked-questions.js';
 import { EMPLOYER_SOURCES } from '../../seek-bot/src/employer-source-config.js';
 
 const names: Record<string, string> = {
-  seek: 'SEEK', indeed: 'Indeed', smartrecruiters: 'SmartRecruiters', greenhouse: 'Greenhouse',
-  pageup: 'PageUp', workday: 'Workday', onsite: 'Onsite', hybrid: 'Hybrid', remote: 'Remote',
+  seek: 'SEEK', indeed: 'Indeed', greenhouse: 'Greenhouse',
+  workday: 'Workday', onsite: 'Onsite', hybrid: 'Hybrid', remote: 'Remote',
   fulltime: 'Full time', parttime: 'Part time', contract: 'Contract', casual: 'Casual',
   tailored: 'AI tailored', reuse: 'Saved letter', none: 'None',
 };

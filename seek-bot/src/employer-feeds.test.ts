@@ -1,16 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { EmployerFeedDiscovery, employerJobIdentity, feedText, workdayCountryFilter } from './employer-feeds.js';
+import { EmployerFeedDiscovery, feedText, workdayCountryFilter } from './employer-feeds.js';
 import { employerTargets, EMPLOYER_SOURCES } from './employer-source-config.js';
 
 const greenhouse = { id: 123, title: 'Product Engineer', company_name: 'Fixture Company', location: { name: 'Sydney, Australia' }, content: '&lt;p&gt;Build products&lt;/p&gt;', first_published: '2026-10-01T00:00:00Z', updated_at: '2026-10-12T00:00:00Z' };
 const wdRoot = 'https://fixture.wd105.myworkdayjobs.com/en-US/External';
-const puRoot = 'https://careers.pageuppeople.com/999/cw/en';
 const now = () => Date.parse('2026-10-12T00:00:00Z');
 const response = (data: unknown) => new Response(typeof data === 'string' ? data : JSON.stringify(data), { status: 200 });
 
 test('removed providers cannot instantiate a discovery adapter', () => {
-  assert.throws(() => new EmployerFeedDiscovery('lever' as never), /no longer available/);
+  for (const source of ['lever', 'smartrecruiters', 'pageup']) {
+    assert.throws(() => new EmployerFeedDiscovery(source as never), /no longer available/);
+  }
 });
 
 for (const failure of ['timeout', 'network', 'server', 'body-timeout'] as const) test(`public career reads recover once from a transient ${failure}`, async () => {
@@ -54,10 +55,7 @@ test('a native fetch redirect refusal is not treated as a transient network outa
 test('all source target contracts refuse local, credentialed, cross-provider and malformed addresses', () => {
   for (const source of EMPLOYER_SOURCES) assert.ok(employerTargets(source.id, source.defaults).length);
   for (const source of ['greenhouse'] as const) assert.throws(() => employerTargets(source, 'https://localhost'));
-  for (const [source, bad] of [['workday', 'https://localhost/en-US/External'], ['workday', 'https://fixture.wd105.myworkdayjobs.com.evil.test/en-US/External'], ['pageup', 'https://careers.pageuppeople.com/999/cw/en/job/123'], ['pageup', 'https://user:password@careers.pageuppeople.com/999/cw/en']] as const) assert.throws(() => employerTargets(source, bad));
-  assert.deepEqual(employerTargets('pageup', 'Fixture Company|https://careers.pageuppeople.com/547/eon/en'), ['Fixture Company|https://careers.pageuppeople.com/547/eon/en']);
-  assert.deepEqual(employerJobIdentity('pageup', 'https://careers.pageuppeople.com/547/eon/en/job/123/software-engineer'), { namespace: 'https://careers.pageuppeople.com/547/eon/en', posting: '123' });
-  assert.throws(() => employerTargets('pageup', 'https://careers.pageuppeople.com/547/../en'));
+  for (const [source, bad] of [['workday', 'https://localhost/en-US/External'], ['workday', 'https://fixture.wd105.myworkdayjobs.com.evil.test/en-US/External'], ['workday', 'https://fixture.wd105.myworkdayjobs.com/en-US/External/job/Sydney/123'], ['workday', 'https://user:password@fixture.wd105.myworkdayjobs.com/en-US/External']] as const) assert.throws(() => employerTargets(source, bad));
 });
 
 test('complete board snapshots reach AI even when a vacancy follows the old discovery page limit', async () => {
@@ -145,18 +143,6 @@ test('Workday bounds a repeating raw page even when none of its jobs can be read
   assert.deepEqual(await api.searchBatch('software', 2), { jobs: [], hasMore: false });
   assert.deepEqual(await api.searchBatch('software', 3), { jobs: [], hasMore: false });
   assert.equal(calls, 2);
-});
-
-test('PageUp follows public search paging and requires an active job, stable identity and description', async () => {
-  const path = '/999/cw/en/job/123/product-engineer'; let active = true;
-  const list = `<table><tbody id="search-results-content"><tr><td><a class="job-link" href="${path}">Product Engineer</a></td><td><span class="location">Sydney, NSW</span></td><td><span class="close-date"><time datetime="2026-11-01">1 Nov</time></span></td></tr><tr class="summary"><td>Build things</td></tr></tbody></table>`;
-  const api = new EmployerFeedDiscovery('pageup', `Fixture Company|${puRoot}`, { now, gapMs: 0, fetch: async url => {
-    const parsed = new URL(String(url));
-    if (parsed.pathname.endsWith('/search/')) { assert.equal(parsed.searchParams.get('search-keyword'), 'software'); assert.equal(parsed.searchParams.get('page'), '1'); return response(list); }
-    return response(`<div id="job-content"><h2>Product Engineer</h2><span class="job-externalJobNo">123</span><span class="location">Sydney, NSW</span><div id="job-details"><p>Build products</p></div><span class="open-date"><time datetime="2026-10-09"></time></span><span class="close-date"><time datetime="2026-11-01"></time></span>${active ? '<a class="apply-link" href="https://secure.dc2.pageuppeople.com/apply/999">Apply now</a>' : ''}</div>`);
-  } });
-  const jobs = await api.search('software', 1); assert.equal(jobs[0].company, 'Fixture Company');
-  assert.equal((await api.detail(jobs[0])).ageDays, 3); active = false; await assert.rejects(api.detail(jobs[0]), /closed/);
 });
 
 test('one broken employer does not hide working feeds; total failure is visible, not an empty success', async () => {

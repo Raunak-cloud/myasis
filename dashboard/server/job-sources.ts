@@ -38,7 +38,6 @@ export function applyJobSourceAccess(settings: Record<string, string>, targetIsA
   const platforms = [...new Set((settings.PLATFORMS || 'seek').split(',').map(value => value.trim().toLowerCase()))].filter(value => allowed.includes(value));
   settings.PLATFORMS = platforms.join(',') || 'seek';
   settings.EMPLOYER_FEEDS_ADMIN_ENABLED = employerSources ? 'true' : 'false';
-  settings.SMARTRECRUITERS_ADMIN_ENABLED = employerSources ? 'true' : 'false';
   for (const source of EMPLOYER_SOURCES) {
     settings[source.key] = employerSources ? employerTargets(source.id, targetIsAdmin ? settings[source.key] || source.defaults : source.defaults).join(',') : '';
     if (employerSources && !settings[source.key]) settings.PLATFORMS = settings.PLATFORMS.split(',').filter(id => id !== source.id).join(',');

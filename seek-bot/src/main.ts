@@ -42,7 +42,6 @@ import { EmployerFeedDiscovery } from './employer-feeds.js';
 import type { EmployerFeedBatch } from './employer-feed-paging.js';
 import {workdaySearchCache} from './workday-search-cache.js';
 import {publicEmployerSearchCache} from './public-employer-search-cache.js';
-import type {PublicDirectorySource} from './public-employer-directory.js';
 import {resolve} from 'node:path';
 import {readFileSync} from 'node:fs';
 import { EMPLOYER_SOURCES, employerFeedsEnabled } from './employer-source-config.js';
@@ -59,7 +58,6 @@ import { chosenListings, loadReviewVerdicts } from './review-verdicts.js';
 import { countHealth } from './run-health.js';
 import { outsideScope, runScope, SCOPE_LABEL, scopeSkipReason } from './run-scope.js';
 import { deterministicExclusion, scoreJob } from './scoring.js';
-import { SmartRecruitersDiscovery } from './smartrecruiters.js';
 import { AppliedIndex, logOutcome, saveRunSummary, syncFromSeek, recordUnconfirmedApplication } from './store.js';
 import { reviewDuplicate, DuplicateReviewQueue } from './duplicate-review.js';
 import type { ApplyOutcome, CandidateProfile, JobListing } from './types.js';
@@ -81,8 +79,8 @@ function discoveredWorkdaySites(): string[] {
   try {const sites=JSON.parse(readFileSync(process.env.WORKDAY_DIRECTORY_FILE??'','utf8'));return Array.isArray(sites)?sites:[];}
   catch{return [];}
 }
-function discoveredPublicSites(source:PublicDirectorySource):string[] {
-  try {const sites=JSON.parse(readFileSync(process.env.PUBLIC_EMPLOYER_DIRECTORY_FILE??'','utf8'));return Array.isArray(sites[source])?sites[source]:[];}
+function discoveredPublicSites():string[] {
+  try {const sites=JSON.parse(readFileSync(process.env.PUBLIC_EMPLOYER_DIRECTORY_FILE??'','utf8'));return Array.isArray(sites?.greenhouse)?sites?.greenhouse:[];}
   catch{return [];}
 }
 
@@ -145,28 +143,14 @@ if (adzunaConfigured()) {
   });
 }
 
-if (employerFeedsEnabled(process.env)) {
-  const discovery = new SmartRecruitersDiscovery(process.env.SMARTRECRUITERS_COMPANIES || undefined, {
-    warn: message => console.warn(`  ! ${message}`), maxAgeDays: config.rules.maxAgeDays,
-    additionalTargets:discoveredPublicSites('smartrecruiters'),shouldStop:()=>runDeadline.reached,
-    fetch:publicEmployerSearchCache(resolve(import.meta.dirname,'../data/public-employer-search-cache')),
-  });
-  ADAPTERS.set('smartrecruiters', {
-    id: 'smartrecruiters', label: 'SmartRecruiters', apiDiscovery: true,
-    assertSignedIn: async () => {},
-    search: (_page, keyword, page) => discovery.searchBatch(keyword, page),
-    fetchJobDetail: (_page, job) => discovery.detail(job),
-    apply: async (page, job, profile, deps) => applyToEmployerJob(page, job, profile, deps, { refresh: job => discovery.detail(job) }),
-  });
-}
 
 if (employerFeedsEnabled(process.env)) {
   for (const source of EMPLOYER_SOURCES) {
-    if (source.id === 'smartrecruiters' || !config.platforms.includes(source.id)) continue;
+    if (!config.platforms.includes(source.id)) continue;
     const discovery = new EmployerFeedDiscovery(source.id, process.env[source.key] || undefined, {
       warn: message => console.warn(`  ! ${message}`), shouldStop:()=>runDeadline.reached,
-      ...(source.id === 'pageup' || source.id === 'workday' ? { healthDirectory: resolve(import.meta.dirname, '../data/public-employer-feed-health') } : {}),
-      additionalTargets: source.id === 'workday' ? discoveredWorkdaySites() : discoveredPublicSites(source.id),
+      ...(source.id === 'workday' ? { healthDirectory: resolve(import.meta.dirname, '../data/public-employer-feed-health') } : {}),
+      additionalTargets: source.id === 'workday' ? discoveredWorkdaySites() : discoveredPublicSites(),
       ...(source.id==='workday'?{fetch:workdaySearchCache(resolve(import.meta.dirname,'../data/public-workday-search-cache'))}
         :{fetch:publicEmployerSearchCache(resolve(import.meta.dirname,'../data/public-employer-search-cache'))}) });
     ADAPTERS.set(source.id, {

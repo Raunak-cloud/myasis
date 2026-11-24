@@ -1,32 +1,25 @@
 import { retiredJobDestination } from './retired-job-sources.js';
 /** Shared source contracts: configuration and access, never candidate-fit decisions. */
 export const EMPLOYER_SOURCES = [
-  { id: 'smartrecruiters', label: 'SmartRecruiters', key: 'SMARTRECRUITERS_COMPANIES', baseUrl: 'https://jobs.smartrecruiters.com',
-    defaults: 'Canva,KPMGAustralia1,Colliers', kind: 'identifiers', help: 'Employer identifiers from SmartRecruiters careers URLs.' },
   { id: 'greenhouse', label: 'Greenhouse', key: 'GREENHOUSE_BOARDS', baseUrl: 'https://job-boards.greenhouse.io',
     defaults: 'theiconic,firmus,futuresecureai', kind: 'identifiers', help: 'Board identifiers from job-boards.greenhouse.io careers URLs.' },
-  { id: 'pageup', label: 'PageUp', key: 'PAGEUP_SITES', baseUrl: 'https://careers.pageuppeople.com',
-    defaults: 'UNSW|https://careers.pageuppeople.com/841/cw/en,Built|https://careers.pageuppeople.com/1166/cw/en',
-    kind: 'urls', help: 'Employer name|PageUp career-site URL, separated by commas. Use careers.pageuppeople.com roots; custom employer domains are not supported in this pilot.' },
   { id: 'workday', label: 'Workday', key: 'WORKDAY_SITES', baseUrl: 'https://myworkdayjobs.com',
     defaults: 'Nine|https://nine.wd105.myworkdayjobs.com/en-US/Nine_External_Career_Site,Garvan Institute|https://garvan.wd3.myworkdayjobs.com/en-US/garvan_institute',
-    kind: 'urls', help: 'Publicly discovered Workday employers are included automatically. Add extra sites as Employer name|Workday career-site URL, separated by commas. Include the myworkdayjobs.com host, locale and career-site name.' },
+    kind: 'urls', help: 'Known Workday career sites are included automatically. Add extra sites as Employer name|Workday career-site URL, separated by commas. Include the myworkdayjobs.com host, locale and career-site name.' },
 ] as const;
 
 export type EmployerSourceId = typeof EMPLOYER_SOURCES[number]['id'];
 /** @public Shared with the dashboard settings and run controls. */
 export const EMPLOYER_SOURCE_DEFAULTS = Object.fromEntries(EMPLOYER_SOURCES.map(source => [source.key, source.defaults]));
 export const isEmployerSource = (id: string): id is EmployerSourceId => EMPLOYER_SOURCES.some(source => source.id === id);
-export const employerFeedsEnabled = (environment: Record<string, string | undefined>) => environment.EMPLOYER_FEEDS_ADMIN_ENABLED === 'true' || environment.SMARTRECRUITERS_ADMIN_ENABLED === 'true';
+export const employerFeedsEnabled = (environment: Record<string, string | undefined>) => environment.EMPLOYER_FEEDS_ADMIN_ENABLED === 'true';
 
-function careerSite(source: 'pageup' | 'workday', raw: string): URL {
+function workdayCareerSite(raw: string): URL {
   const url = new URL(raw);
   if (retiredJobDestination(url.href)) throw new Error('This employer career site is no longer available.');
   if (url.protocol !== 'https:' || url.username || url.password || url.port || url.search || url.hash) throw new Error('Use a public HTTPS career-site URL without credentials, query parameters or fragments.');
-  const valid = source === 'pageup'
-    ? url.hostname === 'careers.pageuppeople.com' && /^\/\d{1,8}\/[a-z][a-z0-9_-]{0,31}\/en\/?$/.test(url.pathname)
-    : /^[a-z0-9-]+\.wd\d{1,3}\.myworkdayjobs\.com$/.test(url.hostname) && /^\/[a-z]{2}-[A-Z]{2}\/[A-Za-z0-9_-]{1,100}\/?$/.test(url.pathname);
-  if (!valid) throw new Error(`Use the ${source === 'pageup' ? 'PageUp' : 'Workday'} career-site root shown in the example, rather than an individual job or a custom website.`);
+  const valid = /^[a-z0-9-]+\.wd\d{1,3}\.myworkdayjobs\.com$/.test(url.hostname) && /^\/[a-z]{2}-[A-Z]{2}\/[A-Za-z0-9_-]{1,100}\/?$/.test(url.pathname);
+  if (!valid) throw new Error('Use the Workday career-site root shown in the example, rather than an individual job or a custom website.');
   url.pathname = url.pathname.replace(/\/$/, '');
   return url;
 }
@@ -40,7 +33,7 @@ export function employerTargets(id: EmployerSourceId, raw: string): string[] {
   if (!values.length || values.length > 20) throw new Error(`Choose 1–20 ${source.label} employers, separated by commas.`);
   return values.map(value => {
     if (source.kind === 'urls') {
-      const target = careerTarget(id as 'pageup' | 'workday', value);
+      const target = workdayCareerTarget(value);
       return `${target.name ? `${target.name}|` : ''}${target.url.href}`;
     }
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,49}$/.test(value)) throw new Error(`Use ${source.label} employer identifiers, not URLs.`);
@@ -48,8 +41,8 @@ export function employerTargets(id: EmployerSourceId, raw: string): string[] {
   });
 }
 
-export function careerTarget(id: 'pageup' | 'workday', raw: string): { name: string; url: URL } {
+export function workdayCareerTarget(raw: string): { name: string; url: URL } {
   const parts = raw.split('|');
   if (parts.length > 2 || (parts.length === 2 && (!parts[0].trim() || parts[0].length > 100))) throw new Error('Use Employer name|career-site URL.');
-  return { name: parts.length === 2 ? parts[0].trim() : '', url: careerSite(id, parts.at(-1)!.trim()) };
+  return { name: parts.length === 2 ? parts[0].trim() : '', url: workdayCareerSite(parts.at(-1)!.trim()) };
 }

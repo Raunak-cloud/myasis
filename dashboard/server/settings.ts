@@ -1,3 +1,4 @@
+import { RETIRED_SOURCE_SETTING_KEYS } from '../../seek-bot/src/retired-job-sources.js';
 import { CUSTOMER_APPLICATION_MODEL, isApplicationModel } from '../../seek-bot/src/application-model-catalog.js';
 import { EMPLOYER_SOURCE_DEFAULTS } from '../../seek-bot/src/employer-source-config.js';
 import { query } from './db/index.js';
@@ -26,7 +27,7 @@ import { USER_RUN_LIMITS } from '../../seek-bot/src/run-limits.js';
 export const KEEP_SETTINGS_KEYS = [
   'APPLICATION_AI_MODEL', 'APPLICATION_AGENT_MODE',
   'APPLICATION_AGENT_SCREENSHOTS_EVERY_TURN',
-  'KEYWORDS', 'TARGET_ROLE', 'EXCLUDED_COMPANIES', 'PLATFORMS', 'SMARTRECRUITERS_COMPANIES', 'GREENHOUSE_BOARDS', 'PAGEUP_SITES', 'WORKDAY_SITES', 'WORK_ARRANGEMENTS', 'JOB_TYPES', 'ONSITE_CITY',
+  'KEYWORDS', 'TARGET_ROLE', 'EXCLUDED_COMPANIES', 'PLATFORMS', 'GREENHOUSE_BOARDS', 'WORKDAY_SITES', 'WORK_ARRANGEMENTS', 'JOB_TYPES', 'ONSITE_CITY',
   'SEARCH_RADIUS_KM',
   'MIN_SALARY', 'MIN_HOURLY_RATE', 'MIN_SCORE', 'MAX_AGE_DAYS', 'MAX_APPS_PER_RUN',
   'MAX_APPS_PER_DAY', 'MAX_EVALUATIONS',
@@ -161,7 +162,7 @@ export async function loadUserSettings(userId: string): Promise<Record<string, s
   // Stored verbatim; the ceilings are applied when a run is built, which is
   // the only place they can be waived for an operator of this installation.
   for (const row of rows) {
-    if (row.key === 'PAGES_PER_KEYWORD') continue; // Retired; old saved values have no effect.
+    if (row.key === 'PAGES_PER_KEYWORD' || RETIRED_SOURCE_SETTING_KEYS.includes(row.key)) continue; // Retired; old saved values have no effect.
     // This is storage normalization. Account access is enforced on API responses and execution.
     if (row.key === 'APPLICATION_AI_MODEL') out[row.key] = isApplicationModel(row.value) ? row.value : CUSTOMER_APPLICATION_MODEL;
     else if (row.key === 'APPLICATION_AGENT_MODE') out[row.key] = 'agent-only';

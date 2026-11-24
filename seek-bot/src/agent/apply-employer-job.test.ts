@@ -4,25 +4,23 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { chromium, type Page } from 'patchright';
 
-const directory = mkdtempSync(join(tmpdir(), 'owtomate-smartrecruiters-fixture-'));
+const directory = mkdtempSync(join(tmpdir(), 'owtomate-employer-feed-fixture-'));
 process.env.DATA_DIR = directory;
 process.env.CELERIS_API_KEY = 'fixture-only';
 process.env.ALLOW_EXTERNAL_APPLY = 'true';
-process.env.SMARTRECRUITERS_ADMIN_ENABLED = 'true';
+process.env.EMPLOYER_FEEDS_ADMIN_ENABLED = 'true';
 process.env.DRY_RUN = 'false';
 process.env.APPLY_ONLY = 'all';
 const { applyToEmployerJob } = await import('./apply-employer-job.js');
-const { smartRecruitersListing } = await import('../smartrecruiters.js');
 const { config } = await import('../config.js');
 const { reviewContentFingerprint, reviewContextFingerprint, currentFitReview } = await import('../review-cache.js');
-const job = smartRecruitersListing({
-  id: '123456789', name: 'Fixture Developer', company: { identifier: 'FixtureEmployer', name: 'Fixture Employer' },
-  location: { city: 'Sydney', country: 'au' }, visibility: 'PUBLIC',
-}, 'FixtureEmployer')!;
+const url = 'https://job-boards.greenhouse.io/FixtureEmployer/jobs/123456789';
+const job: import('../types.js').JobListing = {
+  id: 'fixture-developer', title: 'Fixture Developer', company: 'Fixture Employer', location: 'Sydney',
+  platform: 'greenhouse', url, applicationUrl: url, applicationMode: 'external',
+};
 const sourceJobs = [
   { platform: 'greenhouse', url: 'https://job-boards.greenhouse.io/FixtureEmployer/jobs/123' },
-  { platform: 'pageup', url: 'https://careers.pageuppeople.com/999/cw/en/job/123/fixture-developer' },
-  { platform: 'pageup', url: 'https://careers.fixture.org/jobs/fixture-developer-sydney' },
   { platform: 'workday', url: 'https://fixture.wd105.myworkdayjobs.com/en-US/External/job/Sydney/Fixture-Developer_JR123' },
 ] as const;
 const fixtureUrls = new Set([job.url, ...sourceJobs.map(source => source.url)]);
@@ -32,9 +30,9 @@ const noBrowser = new Proxy({} as Page, { get: () => { throw new Error('Refused 
 
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
 try {
-  process.env.SMARTRECRUITERS_ADMIN_ENABLED = 'false';
+  process.env.EMPLOYER_FEEDS_ADMIN_ENABLED = 'false';
   assert.equal((await applyToEmployerJob(noBrowser, job, profile, deps)).status, 'skipped');
-  process.env.SMARTRECRUITERS_ADMIN_ENABLED = 'true';
+  process.env.EMPLOYER_FEEDS_ADMIN_ENABLED = 'true';
   config.allowExternalApply = false;
   assert.equal((await applyToEmployerJob(noBrowser, job, profile, deps)).status, 'skipped');
   config.allowExternalApply = true;
@@ -44,7 +42,7 @@ try {
   config.dryRun = true;
   assert.equal((await applyToEmployerJob(noBrowser, job, profile, deps)).status, 'skipped');
   config.dryRun = false;
-  await assert.rejects(applyToEmployerJob(noBrowser, { ...job, applicationUrl: 'https://localhost/private' }, profile, deps), /public jobs website/);
+  await assert.rejects(applyToEmployerJob(noBrowser, { ...job, applicationUrl: 'https://localhost/private' }, profile, deps), /Invalid greenhouse job address/);
 
   browser = await chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : { executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome-stable' }) });
   const context = await browser.newContext();
@@ -71,7 +69,7 @@ try {
     assert.equal(await options.page.title(), 'Fixture submitted');
     await options.page.context().newPage();
     return { outcome: { status: 'applied' }, captured: [{ question: 'Email', answer: profile.email }], actions: [],
-      submitPressed: true, site: 'jobs.smartrecruiters.com', steps: 1, usage: 'local fixture; no model call' };
+      submitPressed: true, site: new URL(job.url).host, steps: 1, usage: 'local fixture; no model call' };
   } });
   assert.equal(result.status, 'applied');
   assert.equal(result.submitPressed, true);
@@ -103,11 +101,11 @@ try {
     } });
     assert.equal(outcome.status, 'applied'); assert.equal(outcome.jobId, target.id);
     await assert.rejects(applyToEmployerJob(noBrowser, { ...target, applicationUrl: 'https://localhost/private' }, profile, deps));
-    process.env.SMARTRECRUITERS_ADMIN_ENABLED = 'false';
+    process.env.EMPLOYER_FEEDS_ADMIN_ENABLED = 'false';
     assert.equal((await applyToEmployerJob(noBrowser, target, profile, deps)).status, 'skipped');
-    process.env.SMARTRECRUITERS_ADMIN_ENABLED = 'true';
+    process.env.EMPLOYER_FEEDS_ADMIN_ENABLED = 'true';
   }
-  assert.equal(released, 6, 'every provider releases its navigation guard');
+  assert.equal(released, 4, 'every provider releases its navigation guard');
   await context.addCookies([{ name: 'account-session', value: 'fixture-private', url: job.url }]);
   await applyToEmployerJob(page, job, profile, deps, { guard, runAgent: async options => {
     assert.equal(options.page, page, 'employer feeds use the existing native page');
@@ -128,6 +126,6 @@ try {
 } finally {
   await browser?.close();
   assert.equal(dirname(resolve(directory)), resolve(tmpdir()));
-  assert.ok(basename(directory).startsWith('owtomate-smartrecruiters-fixture-'));
+  assert.ok(basename(directory).startsWith('owtomate-employer-feed-fixture-'));
   rmSync(directory, { recursive: true, force: true });
 }

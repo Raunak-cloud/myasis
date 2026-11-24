@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 APP=/home/myasis/myasis
-# No job database is ever created on this VPS. The worker waits for Neon.
+# No job database is created on this VPS. The job index uses Neon.
 # The existing application DB only gets a limited read-only login. Its password
 # stays in the protected config and never enters command arguments or output.
 python3 - <<'PY'
@@ -36,5 +36,5 @@ GRANT SELECT(user_id,url,external,applied_at) ON applications TO owtomate_job_re
 subprocess.run(['sudo','-u','postgres','psql','-X','-v','ON_ERROR_STOP=1','-d','myasis'],input=sql,text=True,check=True,stdout=subprocess.DEVNULL)
 PY
 sudo -u myasis -H bash -lc "cd $APP && seek-bot/node_modules/.bin/tsx dashboard/scripts/job-index-worker.mts --migrate"
-sudo -u myasis -H bash -lc "cd $APP && pm2 startOrReload ecosystem.config.cjs --only owtomate-job-index --update-env >/dev/null && pm2 save >/dev/null"
-echo 'External job collector and read-only account connection ready'
+sudo -u myasis -H bash -lc "cd $APP && (pm2 delete owtomate-job-index >/dev/null 2>&1 || true) && pm2 save >/dev/null"
+echo 'External job index and read-only account connection ready'

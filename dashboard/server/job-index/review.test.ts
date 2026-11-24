@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import {test} from 'node:test';
 import {confirmedMatch,minimaxReviewer,REVIEW_MODEL} from './review.js';
 import {normaliseJob,matchJob} from './extract.js';
-import {discoveryQueries} from './discovery.js';
 import type {JobIndexStore} from './store.js';
 import {CrawlDeferred} from './network.js';
 import {professionalEvidence} from './accounts.js';
@@ -14,10 +13,6 @@ test('admission requires a valid score, satisfied constraints and independently 
   assert.equal(confirmedMatch(d,j,p,e,matchJob(j,p)!)?.status,'matched');
   for(const change of [{decision:'uncertain'},{score:20}])assert.equal(confirmedMatch({...d,...change},j,p,e,matchJob(j,p)!),null);
   for(const change of [{constraints:'unknown'},{constraints:'conflict'},{score:NaN},{candidateEvidence:'Invented security clearance'},{employerEvidence:'Invented employer requirement'}])assert.throws(()=>confirmedMatch({...d,...change},j,p,e,matchJob(j,p)!));
-});
-test('discovery rotates ATS hosts and combines derived resume skills without leaking owner identity',()=>{
-  const first=discoveryQueries([p],'2026-11-05'),next=discoveryQueries([p],'2026-11-06');assert.notDeepEqual(first,next);assert.ok(first.some(q=>/Python|SQL/.test(q)));assert.ok(first.some(q=>q.includes('site:')));assert.doesNotMatch(JSON.stringify(first),/userId|fingerprint/);
-  assert.ok(first.filter(q=>!q.includes('remote')).every(q=>q.includes('"Sydney"')),'office searches stay in the selected city');
 });
 test('contact redaction preserves employment date ranges and professional evidence',()=>{
   const redacted=professionalEvidence('Data engineer 2019 - 2024. Call +61 412 345 678 or 0412345678. person@example.org');

@@ -55,11 +55,8 @@ test('Adzuna uses installation availability, needs no board login and never take
 });
 
 test('source access is validated independently of admin-only model and configuration access', () => {
-  assert.equal(jobSourceSettingsError({ PLATFORMS: 'indeed, SmartRecruiters' }, false)?.status, 403);
-  assert.equal(jobSourceSettingsError({ SMARTRECRUITERS_COMPANIES: 'Canva' }, false)?.status, 403);
-  assert.equal(jobSourceSettingsError({ PLATFORMS: 'smartrecruiters', SMARTRECRUITERS_COMPANIES: 'Canva' }, true), null);
-  assert.equal(jobSourceSettingsError({ SMARTRECRUITERS_COMPANIES: 'https://localhost' }, true)?.status, 400);
-  assert.ok(!(USER_SETTABLE_SETTINGS_KEYS as readonly string[]).includes('SMARTRECRUITERS_ADMIN_ENABLED'));
+  assert.equal(jobSourceSettingsError({ PLATFORMS: 'indeed, Greenhouse' }, false)?.status, 403);
+  assert.equal(jobSourceSettingsError({ GREENHOUSE_BOARDS: 'https://localhost' }, true)?.status, 400);
   assert.ok(!(USER_SETTABLE_SETTINGS_KEYS as readonly string[]).includes('EMPLOYER_FEEDS_ADMIN_ENABLED'));
   for (const source of EMPLOYER_SOURCES) {
     assert.equal(jobSourceSettingsError({ PLATFORMS: source.id }, false)?.status, 403);
@@ -75,29 +72,29 @@ test('source access is validated independently of admin-only model and configura
 });
 
 test('old saved settings and server environment cannot enable the feed on customer runs', () => {
-  const settings = { PLATFORMS: 'seek,smartrecruiters', SMARTRECRUITERS_ADMIN_ENABLED: 'true', SMARTRECRUITERS_COMPANIES: 'Canva' };
+  const settings = { PLATFORMS: 'seek,greenhouse', EMPLOYER_FEEDS_ADMIN_ENABLED: 'true', GREENHOUSE_BOARDS: 'Canva' };
   applyJobSourceAccess(settings, false);
   assert.equal(settings.PLATFORMS, 'seek');
-  assert.equal(settings.SMARTRECRUITERS_ADMIN_ENABLED, 'false');
+  assert.equal(settings.EMPLOYER_FEEDS_ADMIN_ENABLED, 'false');
   for (const source of EMPLOYER_SOURCES) assert.equal((settings as Record<string, string>)[source.key], '');
-  const only = { PLATFORMS: 'smartrecruiters' };
+  const only = { PLATFORMS: 'greenhouse' };
   applyJobSourceAccess(only, false);
   assert.equal(only.PLATFORMS, 'seek');
-  const admin: Record<string, string> = { PLATFORMS: 'smartrecruiters' };
+  const admin: Record<string, string> = { PLATFORMS: 'greenhouse' };
   applyJobSourceAccess(admin, true);
-  assert.equal(admin.PLATFORMS, 'smartrecruiters');
-  assert.equal(admin.SMARTRECRUITERS_ADMIN_ENABLED, 'true');
-  assert.equal(admin.SMARTRECRUITERS_COMPANIES, 'Canva,KPMGAustralia1,Colliers');
+  assert.equal(admin.PLATFORMS, 'greenhouse');
+  assert.equal(admin.EMPLOYER_FEEDS_ADMIN_ENABLED, 'true');
+  assert.equal(admin.GREENHOUSE_BOARDS, 'theiconic,firmus,futuresecureai');
 });
 
 test('admin feed-only runs need no SEEK or Indeed session and mixed runs retain signed-in boards', () => {
-  assert.deepEqual(availableJobSources(['smartrecruiters'], true, () => false), {
-    supported: ['smartrecruiters'], usable: ['smartrecruiters'], unavailable: [],
+  assert.deepEqual(availableJobSources(['greenhouse'], true, () => false), {
+    supported: ['greenhouse'], usable: ['greenhouse'], unavailable: [],
   });
-  assert.deepEqual(availableJobSources(['seek', 'indeed', 'smartrecruiters'], true, board => board === 'seek'), {
-    supported: ['seek', 'indeed', 'smartrecruiters'], usable: ['seek', 'smartrecruiters'], unavailable: ['indeed'],
+  assert.deepEqual(availableJobSources(['seek', 'indeed', 'greenhouse'], true, board => board === 'seek'), {
+    supported: ['seek', 'indeed', 'greenhouse'], usable: ['seek', 'greenhouse'], unavailable: ['indeed'],
   });
-  assert.deepEqual(availableJobSources(['smartrecruiters', 'seek'], false, () => false), {
+  assert.deepEqual(availableJobSources(['greenhouse', 'seek'], false, () => false), {
     supported: ['seek'], usable: [], unavailable: ['seek'],
   });
 });
@@ -113,7 +110,7 @@ test('admin feed-only runs need no SEEK or Indeed session and mixed runs retain 
  test('Get Owtomated can use every employer source without a board session, with managed employer lists', () => {
    const feeds = EMPLOYER_SOURCES.map(source => source.id);
    assert.deepEqual(availableJobSources(feeds, true, () => false), { supported: feeds, usable: feeds, unavailable: [] });
-   const settings: Record<string, string> = { PLATFORMS: feeds.join(','), SMARTRECRUITERS_COMPANIES: 'UntrustedOldOverride' };
+   const settings: Record<string, string> = { PLATFORMS: feeds.join(','), GREENHOUSE_BOARDS: 'UntrustedOldOverride' };
    applyJobSourceAccess(settings, false, true);
    assert.equal(settings.PLATFORMS, feeds.join(','));
    assert.equal(settings.EMPLOYER_FEEDS_ADMIN_ENABLED, 'true');

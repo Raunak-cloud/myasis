@@ -15,7 +15,6 @@ import { browserBenchmarkInProgress } from './browser-benchmark-lock.js';
 import { applicationWorkerEnvironment } from './application-worker-policy.js';
 import { loadUserSettings } from './settings.js';
 import {employerApplicationsEnabled} from '../src/employer-applications.js';
-import { EMPLOYER_SOURCES } from '../../seek-bot/src/employer-source-config.js';
 import {priorRunRepairMessage} from '../src/priorRunRepair.js';
 import { applicationModelCredentials, applicationModelForAccount } from './application-model-policy.js';
 import { assignedApplicationModel } from './application-model-assignments.js';
@@ -60,11 +59,10 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
   const persistedSettings=settings?await loadUserSettings(userId):selectedSettings;
   let workdaySites: string[] = [];
   let workdayDirectoryFile = '';
-  if (selectedSettings.PLATFORMS?.split(',').includes('workday') && (selectedSettings.EMPLOYER_FEEDS_ADMIN_ENABLED === 'true' || selectedSettings.SMARTRECRUITERS_ADMIN_ENABLED === 'true')) {
+  if (selectedSettings.PLATFORMS?.split(',').includes('workday') && selectedSettings.EMPLOYER_FEEDS_ADMIN_ENABLED === 'true') {
     try {
       const { expandedWorkdaySites } = await import('./workday-directory.js');
-      const discovery = selectedSettings.APPLICATION_REVIEW_MODE !== 'approved' && !selectedSettings.TARGET_REPAIR_JOB_JSON;
-      workdaySites = await expandedWorkdaySites(selectedSettings.WORKDAY_SITES ?? '', selectedSettings.KEYWORDS ?? '', discovery);
+      workdaySites = await expandedWorkdaySites(selectedSettings.WORKDAY_SITES ?? '');
       mkdirSync(userDir(userId),{recursive:true});
       workdayDirectoryFile=resolve(userDir(userId),'workday-directory.json');
       const temporary=workdayDirectoryFile+'.'+randomUUID()+'.tmp';
@@ -72,24 +70,22 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
     } catch { workdayDirectoryFile=''; console.warn('[workday] Shared employer discovery unavailable; configured career sites remain enabled.'); }
   }
   let publicEmployerDirectoryFile = '';
-  if (selectedSettings.EMPLOYER_FEEDS_ADMIN_ENABLED === 'true' || selectedSettings.SMARTRECRUITERS_ADMIN_ENABLED === 'true') {
-    const { publicDirectorySources } = await import('../../seek-bot/src/public-employer-directory.js');
-    const { expandedPublicEmployerSites } = await import('./public-employer-directory.js');
-    const directory: Record<string,string[]> = {};
-    const discovery = selectedSettings.APPLICATION_REVIEW_MODE !== 'approved' && !selectedSettings.TARGET_REPAIR_JOB_JSON;
-    for (const source of publicDirectorySources.filter(source => selectedSettings.PLATFORMS?.split(',').includes(source))) {
+  if (selectedSettings.EMPLOYER_FEEDS_ADMIN_ENABLED === 'true' && selectedSettings.PLATFORMS?.split(',').includes('greenhouse')) {
+    try {
+      const { expandedPublicEmployerSites } = await import('./public-employer-directory.js');
+      const greenhouse = await expandedPublicEmployerSites(selectedSettings.GREENHOUSE_BOARDS ?? '');
+      mkdirSync(userDir(userId), { recursive: true });
+      publicEmployerDirectoryFile = resolve(userDir(userId), 'public-employer-directory.json');
+      const temporary = publicEmployerDirectoryFile + '.' + randomUUID() + '.tmp';
       try {
-        const sourceSpec=EMPLOYER_SOURCES.find(spec=>spec.id===source)!;
-        directory[source]=await expandedPublicEmployerSites(source,selectedSettings[sourceSpec.key]??'',selectedSettings.KEYWORDS??'',discovery);
-      } catch { console.warn(`[${source}] Shared employer discovery unavailable; configured companies remain enabled.`); }
-    }
-    if(Object.keys(directory).length){
-      try{
-        mkdirSync(userDir(userId),{recursive:true});publicEmployerDirectoryFile=resolve(userDir(userId),'public-employer-directory.json');
-        const temporary=publicEmployerDirectoryFile+'.'+randomUUID()+'.tmp';
-        try{writeFileSync(temporary,JSON.stringify(directory),{mode:0o600});renameSync(temporary,publicEmployerDirectoryFile);}
-        finally{if(existsSync(temporary))unlinkSync(temporary);}
-      }catch{publicEmployerDirectoryFile='';console.warn('[employers] Directory snapshot unavailable; configured companies remain enabled.');}
+        writeFileSync(temporary, JSON.stringify({ greenhouse }), { mode: 0o600 });
+        renameSync(temporary, publicEmployerDirectoryFile);
+      } finally {
+        if (existsSync(temporary)) unlinkSync(temporary);
+      }
+    } catch {
+      publicEmployerDirectoryFile = '';
+      console.warn('[greenhouse] Shared employer directory unavailable; configured companies remain enabled.');
     }
   }
   const bonusEnvironment=selectedSettings.BONUS_RUN_ID ? await (await import('./bonus-runs.js')).bonusRunEnvironment(userId,runStartId,selectedSettings) : {BONUS_RUN_ID:''};

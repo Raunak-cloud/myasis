@@ -2,10 +2,11 @@ import pg from 'pg';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { fingerprint, matchJob } from './extract.js';
+import { retiredEmployerFeed } from '../../../seek-bot/src/retired-job-sources.js';
 import {AUSTRALIA_POLICY,australianEligibility} from './geography.js';
 import {MATCH_POLICY,FIT_CACHE_POLICY,type IndexedJob,type SearchProfile,type MatchResult} from './types.js';
 
-export interface CrawlTask { key: string; kind: 'page'|'feed'|'search'; payload: Record<string, any>; lease: string; attempts: number }
+export interface CrawlTask { key: string; kind: 'page'|'feed'; payload: Record<string, any>; lease: string; attempts: number }
 export class JobIndexStore {
   readonly pool:pg.Pool;constructor(pool: pg.Pool) {this.pool=pool;}
   async migrate(): Promise<void> {
@@ -44,6 +45,7 @@ export class JobIndexStore {
     } catch(e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
   }
   async save(job: IndexedJob,approvals:Array<{profile:SearchProfile;match:MatchResult}>): Promise<boolean> {
+    if (retiredEmployerFeed({ platform: job.source, url: job.url })) return false;
     if(australianEligibility(job).status!=='eligible')return false;
     if(!approvals.length)return false;
     if(approvals.some(a=>a.match.status!=='matched'||a.match.review?.policy!==MATCH_POLICY||!Number.isFinite(a.match.review.score)||a.match.review.score<(a.profile.criteria?.minScore??60)||!matchJob(job,a.profile)))throw Error('Only reviewed matching jobs can enter the catalog.');
@@ -99,21 +101,18 @@ export class JobIndexStore {
   async enqueue(kind:CrawlTask['kind'],payload:Record<string,unknown>,priority=0):Promise<void> {
     const job=payload.job as {id?:string;url?:string;platform?:string;source?:string}|undefined;
     if(job)payload={...payload,job:{id:job.id,url:job.url,platform:job.platform,source:job.source}};
-    const identity=kind==='page'?{kind,url:payload.url}:kind==='feed'&&job?{kind,source:payload.source,target:payload.target,jobId:job.id}:{kind,payload};
+    const identity=kind==='page'?{kind,url:payload.url}:job?{kind,source:payload.source,target:payload.target,jobId:job.id}:{kind,payload};
     const key=fingerprint(identity);
     await this.pool.query(`INSERT INTO crawl_tasks(key,kind,payload,priority) SELECT $1,$2,$3,$4 WHERE (SELECT count(*) FROM crawl_tasks WHERE state IN ('queued','running'))<5000
       ON CONFLICT(key) DO UPDATE SET payload=CASE WHEN crawl_tasks.state='running' THEN crawl_tasks.payload ELSE excluded.payload END,priority=greatest(crawl_tasks.priority,excluded.priority)`,[key,kind,JSON.stringify(payload),priority]);
   }
   async claim(lane?:{kind:CrawlTask['kind'];source?:string}):Promise<CrawlTask|null> {
     const lease=randomUUID();
-    const result=await this.pool.query(`WITH next AS (SELECT key FROM crawl_tasks WHERE due_at<=now() AND (state IN ('queued','done','blocked') OR state='running' AND lease_until<now())
+    const result=await this.pool.query(`WITH next AS (SELECT key FROM crawl_tasks WHERE kind IN ('page','feed') AND due_at<=now() AND (state IN ('queued','done','blocked') OR state='running' AND lease_until<now())
       AND ($2::text IS NULL OR kind=$2) AND ($3::text IS NULL OR payload->>'source'=$3)
       ORDER BY priority DESC,due_at,key FOR UPDATE SKIP LOCKED LIMIT 1)
       UPDATE crawl_tasks t SET state='running',lease=$1,lease_until=now()+interval '10 minutes',updated_at=now() FROM next WHERE t.key=next.key RETURNING t.*`,[lease,lane?.kind??null,lane?.source??null]);
     return result.rows[0]??null;
-  }
-  async reserveSearch():Promise<boolean> {
-    return !!(await this.pool.query(`INSERT INTO search_usage(day,calls) VALUES(current_date,1) ON CONFLICT(day) DO UPDATE SET calls=search_usage.calls+1 WHERE search_usage.calls<20 RETURNING calls`)).rows.length;
   }
   async finish(t:CrawlTask,status:'done'|'blocked'|'failed'|'deferred',reason:string|null=null,waitMs=6*3600_000):Promise<void> {
     const attempts=status==='failed'?t.attempts+1:0;

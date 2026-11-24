@@ -116,8 +116,7 @@ export const PLAN_PRESENTATION = {
       'Advanced match and listing-age filters',
       'No separate employer-site limit',
       'Account creation with connected Gmail',
-      'SmartRecruiters, Greenhouse, PageUp and Workday job sources',
-      'Web search for employer-site jobs',
+      'Greenhouse and Workday job sources',
       'Priority support',
     ],
   },
@@ -136,7 +135,6 @@ const PLAN_FEATURE_HELP = [
   [/^Unlimited applications$/, 'Use your daily application allowance throughout the pass with no total credit cap.'],
   [/^No separate employer-site limit$/, 'Applications on employer websites count towards the daily application limit.'],
   [/^Account creation with connected Gmail$/, 'Owtomate can create an employer account using your connected Gmail for verification.'],
-  [/^Web search for employer-site jobs$/, 'Owtomate searches the web for vacancies on employer careers pages.'],
   [/^Priority support$/, 'Support requests from this plan are prioritised.'],
   [/^Email employers$/, 'After your run, Owtomate can send an introduction from your Gmail for submitted applications when a public hiring contact is available.'],
 ] as const;

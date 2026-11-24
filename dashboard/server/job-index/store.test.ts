@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict';
 import {before,beforeEach,after,test} from 'node:test';
 import {randomUUID} from 'node:crypto';
-import {resolve} from 'node:path';
-import {rmdirSync} from 'node:fs';
 import pg from 'pg';
 import {readEnv} from '../runner.js';
 import {JobIndexStore} from './store.js';
@@ -12,12 +10,7 @@ import {crawlCycle,discoveredFeed} from './engine.js';
 import {PublicCrawler,CrawlDeferred} from './network.js';
 import {confirmedMatch,type FitReviewer} from './review.js';
 import type {SearchProfile} from './types.js';
-import {discoveryQueries} from './discovery.js';
-import {requestSearch,claimSearch,finishSearch,clearSignal} from './manual.js';
-import {importCodexJobs} from './codex-discovery.js';
 const schema=`job_index_test_${randomUUID().replaceAll('-','')}`;
-// Test wake-up files must never clear or activate a live manual request.
-process.env.JOB_INDEX_SIGNAL_DIR=resolve(import.meta.dirname,'../../../output',schema);
 const connectionString=process.env.JOB_INDEX_TEST_URL??process.env.DATABASE_URL??readEnv().DATABASE_URL;
 if(!connectionString)throw Error('A local PostgreSQL test connection is required.');
 const pool=new pg.Pool({connectionString,max:4,options:`-c search_path=${schema}`}),store=new JobIndexStore(pool);
@@ -34,14 +27,14 @@ before(async()=>{await pool.query(`CREATE SCHEMA ${schema}`);await store.migrate
  CREATE TABLE settings(user_id bigint,key text,value text);
  CREATE TABLE resumes(id bigint,user_id bigint,file_name text,is_default boolean,uploaded_at timestamptz);
  CREATE TABLE applications(user_id bigint,url text,external boolean,applied_at timestamptz);`);});
-beforeEach(async()=>{await pool.query(`TRUNCATE manual_searches,search_profiles,indexed_jobs,job_versions,candidate_job_matches,fit_decisions,fit_review_requests,crawl_tasks,crawl_cycles,search_usage,users,application_credit_grants,billing_purchases,profiles,settings,resumes,applications CASCADE;
+beforeEach(async()=>{await pool.query(`TRUNCATE search_profiles,indexed_jobs,job_versions,candidate_job_matches,fit_decisions,fit_review_requests,crawl_tasks,crawl_cycles,users,application_credit_grants,billing_purchases,profiles,settings,resumes,applications CASCADE;
  UPDATE job_index_config SET enabled=true;
  INSERT INTO users VALUES(1,NULL),(2,NULL),(3,now());
  INSERT INTO billing_purchases VALUES(1,1,'essential-pass'),(2,2,'intensive-pass'),(3,3,'job-search-pass');
  INSERT INTO application_credit_grants VALUES(1,1,now()+interval '1 day'),(2,2,now()-interval '1 day'),(3,3,now()+interval '1 day');
  INSERT INTO settings VALUES(1,'KEYWORDS','Data engineer'),(1,'WORK_ARRANGEMENTS','remote'),(2,'KEYWORDS','Never read this owner');
  INSERT INTO profiles VALUES(1,'Python, SQL','Data engineer');`);});
-after(async()=>{await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await pool.end();try{rmdirSync(process.env.JOB_INDEX_SIGNAL_DIR!);}catch{/* no signals created */}});
+after(async()=>{await pool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await pool.end();});
 
 test('only current AI-approved owners can atomically retain jobs and content versions',async()=>{
  await store.migrate();assert.equal(await store.save(job,[]),false);
@@ -121,14 +114,6 @@ test('only active paid evidence is read, redacted and cached; changed criteria i
 function crawlerFor(jobs:any[]){return new PublicCrawler(async address=>({url:address,status:200,type:'text/html',retryAfter:null,text:address.endsWith('/robots.txt')?'User-agent: *\nAllow: /':`<script type="application/ld+json">${JSON.stringify(jobs)}</script>`}));}
 const raw=(title:string,url:string)=>({'@type':'JobPosting',title,hiringOrganization:{name:'Fictional publisher'},jobLocation:{address:{addressCountry:'AU'}},description:job.description,url});
 
-test('Codex review allowance queues verified remaining vacancies instead of losing them',async()=>{
- const leads=Array.from({length:25},(_,i)=>({url:`https://careers.fixture.org/jobs/import-${i}`,title:'Data engineer',company:'Fictional publisher',descriptionQuote:'',locationQuote:'',countryQuote:'',workArrangement:'not-mentioned',postedQuote:'',postedAt:null}));
- const stats=await importCodexJobs(store,pool,leads,pass,crawlerFor(leads.map(l=>raw(l.title,l.url))));
- assert.equal(stats.newJobs,24);assert.equal(stats.fitCalls,24);assert.equal(stats.fitDeferred,1);
- const pending=(await pool.query("SELECT payload FROM crawl_tasks WHERE kind='page'")).rows;
- assert.deepEqual(pending,[{payload:{url:leads[24].url,depth:0}}]);
- assert.equal((await pool.query('SELECT count(*)::int AS count FROM indexed_jobs')).rows[0].count,24);
-});
 test('mixed public discovery reviews only Australian jobs and reports unknown geography separately',async()=>{
  await store.enqueue('page',{url:job.url});let reviews=0;
  const stats=await crawlCycle(store,pool,{maxTasks:1,reviewer:async(...args)=>{reviews++;return pass(...args);},crawler:crawlerFor([
@@ -148,14 +133,6 @@ test('full discovery admits matching jobs only; uncertainty and failures never b
  await pool.query('DELETE FROM crawl_tasks');await store.enqueue('page',{url:url+'-failure'});
  const failed=await crawlCycle(store,pool,{maxTasks:1,reviewer:async()=>{throw new CrawlDeferred(1000);},crawler:crawlerFor([raw('Data engineer',url+'-failure')])});assert.equal(failed.deferred,1);
  assert.equal((await pool.query('SELECT count(*) FROM indexed_jobs')).rows[0].count,'1');assert.equal((await pool.query('SELECT count(*) FROM applications')).rows[0].count,'0');
-});
-
-test('expanded search combines role and resume skills while returned provider URLs stay transient',async()=>{
- const profiles=(await paidProfiles(pool)).profiles,query=discoveryQueries(profiles)[1];assert.match(query,/Python|SQL/);assert.match(query,/Data engineer/);
- await store.enqueue('search',{query},100);let searches=0;
- const stats=await crawlCycle(store,pool,{maxTasks:1,reviewer:pass,braveKey:'fictional',crawler:crawlerFor([raw('Data engineer',job.url)]),searchFetch:async(_url,init)=>{searches++;assert.match(String(_url),/freshness=pm/);assert.doesNotMatch(String(_url),/person@|resume/);assert.match(String(init?.headers&&JSON.stringify(init.headers)),/fictional/);return Response.json({web:{results:[{url:'https://careers.fixture.org/transient-lead',description:'Do not store snippet'}]}});}});
- assert.equal(searches,1);assert.equal(stats.jobsSaved,1);assert.doesNotMatch(JSON.stringify((await pool.query('SELECT payload FROM crawl_tasks')).rows),/transient-lead|Do not store snippet/);
- assert.deepEqual(discoveredFeed('https://job-boards.greenhouse.io/Fixture/jobs/123'),{source:'greenhouse',target:'Fixture'});
 });
 
 test('one uncertain owner cannot prevent a confirmed match for another paid owner',async()=>{
@@ -184,20 +161,17 @@ test('scheduled crawls persist a six-hour start interval and do not rerun after 
  const next=await crawlCycle(restartedStore,pool,options);assert.notEqual(next.status,'waiting');assert.equal((await pool.query('SELECT count(*) FROM crawl_cycles')).rows[0].count,'2');
 });
 
-
-test('manual searches require valid providers, connection, enabled state and one shared request lease',async()=>{
- try{
-  await assert.rejects(()=>requestSearch(store,'99','arbitrary',true),/Choose Brave/);
-  await assert.rejects(()=>requestSearch(store,'99','codex',false),/offline/);
-  await assert.rejects(()=>requestSearch(store,'99','brave',true,false),/Connect Brave/);
-  await store.setEnabled('99',false);await assert.rejects(()=>requestSearch(store,'99','brave',true),/Resume/);await store.setEnabled('99',true);
-  const [a,b]=await Promise.all([requestSearch(store,'99','codex',true),requestSearch(store,'99','codex',true)]);assert.equal(a.id,b.id);
-  assert.equal((await pool.query('SELECT count(*) FROM manual_searches')).rows[0].count,'1');
-  const job=await claimSearch(store,'codex');assert.equal(job.state,'searching');assert.equal(await claimSearch(store,'codex'),null);
-  await finishSearch(store,{...job,lease:randomUUID()},{newJobs:999});assert.equal((await pool.query('SELECT state FROM manual_searches')).rows[0].state,'searching');
-  await finishSearch(store,job,{newJobs:2});assert.equal((await pool.query('SELECT stats FROM manual_searches')).rows[0].stats.newJobs,2);
-  await pool.query('INSERT INTO search_usage VALUES(current_date,20)');await assert.rejects(()=>requestSearch(store,'99','brave',true),/daily search allowance/);
-  await pool.query('UPDATE search_usage SET calls=0');const next=await requestSearch(store,'99','brave',true);assert.notEqual(next.id,a.id);
-  const brave=await claimSearch(store,'brave');assert.equal(brave.state,'running');await finishSearch(store,brave,{},'Synthetic provider unavailable');assert.equal((await pool.query('SELECT state FROM manual_searches WHERE id=$1',[next.id])).rows[0].state,'failed');
- }finally{clearSignal('brave');clearSignal('codex');}
+test('retired feed and web search tasks are purged before collecting publisher jobs',async()=>{
+  await pool.query("ALTER TABLE crawl_tasks DROP CONSTRAINT crawl_tasks_kind_check, ADD CONSTRAINT crawl_tasks_kind_check CHECK (kind IN ('page','feed','search'))");
+  await pool.query(`INSERT INTO crawl_tasks(key,kind,payload) VALUES
+    ('legacy-search','search','{"query":"private local fixture"}'),
+    ('legacy-feed','feed','{"source":"pageup","target":"https://careers.pageuppeople.com/999/cw/en"}'),
+    ('legacy-page','page','{"url":"https://jobs.smartrecruiters.com/fixture/123"}'),
+    ('known-publisher','page',$1)`, [JSON.stringify({ url: job.url })]);
+  await store.migrate();
+  assert.deepEqual((await pool.query('SELECT key FROM crawl_tasks ORDER BY key')).rows,[{key:'known-publisher'}]);
+  assert.deepEqual(discoveredFeed('https://job-boards.greenhouse.io/Fixture/jobs/123'),{source:'greenhouse',target:'Fixture'});
+  assert.equal(discoveredFeed('https://jobs.smartrecruiters.com/fixture/123'),null);
+  assert.equal(discoveredFeed('https://careers.pageuppeople.com/999/cw/en'),null);
+  await assert.rejects(pool.query("INSERT INTO crawl_tasks(key,kind,payload) VALUES ('retired','search','{}')"), /crawl_tasks_kind_check/);
 });

@@ -34,15 +34,15 @@ test('inline Cloudflare bootstrap, challenge headers and JSON security responses
   const c=new PublicCrawler(async url=>url.endsWith('/robots.txt')?response(url,'User-agent: *\nAllow: /'):{...response(url,text),type});assert.equal((await c.get('https://public.org/jobs')).status,200);
  }
 });
-test('employer feed adapter preserves manual PageUp redirects and AWS challenge headers after robots checks',async()=>{
+test('employer feed adapter preserves manual redirects and AWS challenge headers after robots checks',async()=>{
  const calls:string[]=[];
  const c=new PublicCrawler(async url=>{
   calls.push(url);
   if(url.endsWith('/robots.txt'))return response(url,'User-agent: *\nAllow: /');
-  if(url.includes('pageuppeople.com'))return response(url,'',302,'https://careers.publisher.org/jobs/search');
+  if(url.includes('feed.fixture.org'))return response(url,'',302,'https://careers.publisher.org/jobs/search');
   return {...response(url,'Publisher JS verification',202),verification:'challenge'};
  });
- const moved=await c.fetch('https://careers.pageuppeople.com/539/caw/en/search/',{redirect:'manual'});
+ const moved=await c.fetch('https://careers.feed.fixture.org/539/caw/en/search/',{redirect:'manual'});
  assert.equal(moved.status,302);assert.equal(moved.headers.get('location'),'https://careers.publisher.org/jobs/search');
  assert.equal(calls.some(url=>url.includes('publisher.org')),false,'the connector must see and verify the redirect');
  const challenge=await c.fetch('https://careers.publisher.org/jobs/search',{redirect:'manual'});

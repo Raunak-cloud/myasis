@@ -8,8 +8,8 @@ import { EMPLOYER_SOURCES } from '../../seek-bot/src/employer-source-config.js';
 const { chromium } = createRequire(import.meta.url)('../../seek-bot/node_modules/patchright') as typeof import('../../seek-bot/node_modules/patchright/index.js');
 const dashboard = resolve(import.meta.dirname, '..');
 const output = resolve(dashboard, '../output/employer-sources-preview');
-const initial = Object.fromEntries(EMPLOYER_SOURCES.map(source => [source.key, source.id === 'smartrecruiters'
-  ? 'LuxuryEscapes,NCSAustralia,APMGroup,AristaNetworks,Cuscal1,ServiceNow,Blue,carsales,Xplor,Endava,Canva,KPMGAustralia1,Colliers,ALDI1' : source.defaults]));
+const initial = Object.fromEntries(EMPLOYER_SOURCES.map(source => [source.key, source.id === 'greenhouse'
+  ? 'theiconic,firmus,futuresecureai,LuxuryEscapes,NCSAustralia,APMGroup,AristaNetworks,Cuscal1,ServiceNow,Blue,carsales,Xplor,KPMGAustralia1,ALDI1' : source.defaults]));
 const html = `<html><head><meta name="viewport" content="width=device-width,initial-scale=1"/></head><body><div id="root"></div><script type="module">
 import React,{useState} from 'react';import {createRoot} from 'react-dom/client';
 import {EmployerSourceEditor} from '/src/components/EmployerSourceEditor.tsx';import '/src/index.css';
@@ -29,19 +29,19 @@ try {
   page.setDefaultTimeout(8000);
   const errors: string[] = []; page.on('pageerror', issue => errors.push(issue.message));
   await page.goto(`http://127.0.0.1:${port}`);
-  const smart = page.getByRole('region', { name: 'SmartRecruiters', exact: true });
-  await smart.getByRole('button', { name: 'Show all 14 companies' }).waitFor();
+  const greenhouse = page.getByRole('region', { name: 'Greenhouse', exact: true });
+  await greenhouse.getByRole('button', { name: 'Show all 14 companies' }).waitFor();
+  assert.equal(await page.getByRole('region', { name: /SmartRecruiters|PageUp|Web search/i }).count(), 0);
   assert.equal(await page.locator('.employer-source-editor input').count(), 0, 'raw settings are not shown by default');
   assert.doesNotMatch(await page.locator('body').innerText(), /myworkdayjobs\.com|\|https:|KPMGAustralia1|employer identifiers/);
   await page.screenshot({ path: resolve(output, 'desktop.png'), fullPage: true });
-  await smart.getByRole('button', { name: 'Show all 14 companies' }).click();
-  await smart.getByRole('button', { name: 'Remove Canva from SmartRecruiters', exact: true }).click();
-  await smart.getByRole('button', { name: '+ Add company', exact: true }).click();
-  await smart.getByLabel('Company careers page', { exact: true }).fill('https://jobs.smartrecruiters.com/Canva');
-  await smart.getByRole('button', { name: 'Add company', exact: true }).click();
+  await greenhouse.getByRole('button', { name: 'Show all 14 companies' }).click();
+  await greenhouse.getByRole('button', { name: 'Remove THE ICONIC from Greenhouse', exact: true }).click();
+  await greenhouse.getByRole('button', { name: '+ Add company', exact: true }).click();
+  await greenhouse.getByLabel('Company careers page', { exact: true }).fill('https://job-boards.greenhouse.io/theiconic');
+  await greenhouse.getByRole('button', { name: 'Add company', exact: true }).click();
   const values = async () => JSON.parse(await page.locator('#saved').textContent() ?? '{}');
-  assert.ok((await values()).SMARTRECRUITERS_COMPANIES.endsWith(',Canva'));
-  const greenhouse = page.getByRole('region', { name: 'Greenhouse', exact: true });
+  assert.ok((await values()).GREENHOUSE_BOARDS.endsWith(',theiconic'));
   await greenhouse.getByRole('button', { name: '+ Add company', exact: true }).click();
   await greenhouse.getByLabel('Company careers page', { exact: true }).fill('https://boards.greenhouse.io/imc');
   await greenhouse.getByRole('button', { name: 'Add company', exact: true }).click();
@@ -50,7 +50,7 @@ try {
     const card = page.getByRole('region', { name: source.label, exact: true });
     await card.getByRole('button', { name: '+ Add company', exact: true }).click();
     await card.getByLabel('Company name', { exact: true }).fill('Example Company');
-    const link = source.id === 'pageup' ? 'https://careers.pageuppeople.com/999/cw/en' : 'https://example.wd3.myworkdayjobs.com/en-US/External';
+    const link = 'https://example.wd3.myworkdayjobs.com/en-US/External';
     await card.getByLabel('Company careers page', { exact: true }).fill(link);
     await card.getByRole('button', { name: 'Add company', exact: true }).click();
     assert.equal((await values())[source.key], `${source.defaults},Example Company|${link}`, 'existing saved targets are preserved byte for byte');
@@ -63,14 +63,14 @@ try {
     await card.getByRole('button', { name: `Remove Example Company from ${source.label}` }).click();
     assert.equal((await values())[source.key], source.defaults);
   }
-  await smart.getByRole('button', { name: 'Show fewer' }).click();
+  await greenhouse.getByRole('button', { name: 'Show fewer' }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await page.screenshot({ path: resolve(output, 'mobile.png'), fullPage: true });
-  await smart.getByRole('button', { name: '+ Add company', exact: true }).click();
-  await smart.getByLabel('Company careers page', { exact: true }).fill('https://unrelated.invalid/company');
-  await smart.getByRole('button', { name: 'Add company', exact: true }).click();
-  await smart.getByRole('alert').getByText('Use the company’s SmartRecruiters careers page.').waitFor();
+  await greenhouse.getByRole('button', { name: '+ Add company', exact: true }).click();
+  await greenhouse.getByLabel('Company careers page', { exact: true }).fill('https://unrelated.invalid/company');
+  await greenhouse.getByRole('button', { name: 'Add company', exact: true }).click();
+  await greenhouse.getByRole('alert').getByText('Use the company’s Greenhouse careers page.').waitFor();
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ passed: true, checks: ['readable names', 'collapsed lists', 'add/remove', 'careers links', 'saved settings preserved', 'duplicate feedback', 'mobile layout', 'no raw settings'], output }));
 } finally { await browser.close(); await server.close(); }
