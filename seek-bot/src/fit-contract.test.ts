@@ -95,7 +95,7 @@ try {
     assert.equal(reused.decision,listing.id);assert.equal(reused.reviewReused,true);
   }
   const priorities=await rankJobsForReview(cachedJobs,profile);
-  assert.equal(priorities.get(reviewKey(cachedJobs[0]))?.priority,100);
+  assert.equal(priorities.get(reviewKey(cachedJobs[0]))?.priority,85,'the saved fit score is used as the ranking priority');
   assert.equal(priorities.get(reviewKey(cachedJobs[1]))?.priority,0);
   assert.equal(calls,completedCalls,'completed jobs require neither ranking nor matching calls after context changes');
   const alreadyApplied=await assessFit({...job,id:'apply',alreadyApplied:true},profile);

@@ -9,6 +9,7 @@ Object.assign(process.env, {
   DATA_DIR: directory, CELERIS_API_KEY: 'fixture-only', OPENROUTER_JOB_REVIEW_API_KEY: 'fictional-review-key', APPLICATION_AI_MODEL: 'celeris',
 });
 const { rankJobsForReview, reviewKey } = await import('./llm.js');
+const { rememberCompletedReview } = await import('./completed-reviews.js');
 const originalFetch = globalThis.fetch;
 after(() => {
   globalThis.fetch = originalFetch;
@@ -50,6 +51,24 @@ function stub() {
   };
   return { calls, peak: () => peak, release: () => { released = true; calls.forEach(call => call.reply()); } };
 }
+
+test('mixed batches rank only jobs without a saved review and keep the saved passing score', async () => {
+  const [matched, rejected, newJob] = jobs('mixed', 3);
+  rememberCompletedReview(matched, {
+    decision: 'apply', shouldApply: true, matchScore: 73, reason: 'Saved match', evidence: [], injectionSuspected: false,
+  });
+  rememberCompletedReview(rejected, {
+    decision: 'skip', shouldApply: false, matchScore: 25, reason: 'Saved rejection', evidence: [], injectionSuspected: false,
+  });
+  const fixture = stub();
+  fixture.release();
+  const ranked = await rankJobsForReview([matched, rejected, newJob], profile);
+
+  assert.deepEqual(fixture.calls.map(call => call.ids), [[reviewKey(newJob)]]);
+  assert.equal(ranked.get(reviewKey(matched))?.priority, 73);
+  assert.equal(ranked.get(reviewKey(rejected))?.priority, 0);
+  assert.equal(ranked.get(reviewKey(newJob))?.priority, 80);
+});
 
 test('production ranking defaults overlap two unchanged batches, preserve order and reuse the exact cache', async () => {
   const fixture = stub(), listings = jobs('parallel', 65);

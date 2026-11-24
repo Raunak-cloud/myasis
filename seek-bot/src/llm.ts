@@ -558,7 +558,12 @@ export async function rankJobsForReview(
   const unseen = jobs.filter(job => {
     const prior = completedReview(job);
     if (!prior) return true;
-    ranked.set(reviewKey(job), {reviewId:reviewKey(job),priority:prior.assessment.shouldApply ? 100 : 0,reason:prior.assessment.reason});
+    const reviewId = reviewKey(job);
+    ranked.set(reviewId, {
+      reviewId,
+      priority: prior.assessment.shouldApply ? prior.assessment.matchScore : 0,
+      reason: prior.assessment.reason,
+    });
     return false;
   });
   const rank = async (batch: JobListing[]): Promise<void> => {
