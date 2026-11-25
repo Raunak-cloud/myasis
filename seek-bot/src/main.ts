@@ -55,7 +55,8 @@ import { REVIEW_TTL, ReviewCache, applicationRejectionCache, listingFingerprint,
 import { completedReview } from './completed-reviews.js';
 import { ApplicationSkipMemory } from './application-skip-memory.js';
 import { chosenListings, loadReviewVerdicts } from './review-verdicts.js';
-import { countHealth } from './run-health.js';
+import { countHealth, setRunSearchProgress } from './run-health.js';
+import { groupRunFilters } from './run-progress.js';
 import { outsideScope, runScope, SCOPE_LABEL, scopeSkipReason } from './run-scope.js';
 import { deterministicExclusion, scoreJob } from './scoring.js';
 import { AppliedIndex, logOutcome, saveRunSummary, syncFromSeek, recordUnconfirmedApplication } from './store.js';
@@ -252,6 +253,14 @@ async function main() {
     const priorityFloor = discoveryPriorityFloor(applicationModelIdentity().selection);
     const reviewPriorities = new Map<string, { priority: number; reason: string }>();
     const active: PlatformAdapter[] = [];
+    /** Every job that qualified this run, applied for yet or not. */
+    let qualified = 0;
+    const publishSearchProgress = () => setRunSearchProgress({
+      found: seen.size, matched: qualified,
+      reviewLimit: Number.isFinite(config.limits.maxEvaluations) ? config.limits.maxEvaluations : 'unlimited',
+      sources: active.map(adapter => adapter.label), filters: groupRunFilters(skips),
+    });
+    publishSearchProgress();
     /** Each board's own polite gap between searches (seek-bot/src/pacing.ts). */
     const sitePacer = new SitePacer();
     const platformReads = new Map<PlatformId, AsyncMutex>();
@@ -375,6 +384,7 @@ async function main() {
         accepted.push(job);
       }
 
+      publishSearchProgress();
       return accepted;
     };
 
@@ -473,6 +483,7 @@ async function main() {
       console.log('No enabled platform has a working session this run. Nothing to do — sign in and try again.');
       return;
     }
+    publishSearchProgress();
     /**
      * Skipped jobs the candidate said they would have applied to (the
      * dashboard's Skipped view), opened again this run as their choice.
@@ -686,8 +697,6 @@ async function main() {
     const workWaiters = new Set<() => void>();
     const workChanged = () => { for (const resolve of workWaiters) resolve(); workWaiters.clear(); };
     runDeadline.onReached(() => { applicationLimit.abort(); workChanged(); });
-    /** Every job that qualified this run, applied for yet or not. */
-    let qualified = 0;
     const pendingFits: Array<{
       job: JobListing;
       score: number;
@@ -787,6 +796,7 @@ async function main() {
       candidates.push({ job, score: semanticScore, why, reasons: decisionReasons });
       workChanged();
       qualified++;
+      publishSearchProgress();
       console.log(
         `  ✓ ${semanticScore} · ${job.title} @ ${job.company} (${job.location}) [${adapter.label}]` +
           (job.source === 'recommended' ? ' · Recommended' : '') +
@@ -828,6 +838,7 @@ async function main() {
       evaluated--;
       if (completed) {
         qualified--;
+        publishSearchProgress();
         console.log(`  Review slot restored: ${job.title} @ ${job.company}`);
       }
       if (qualified < candidateCap && evaluated < config.limits.maxEvaluations) reviewStopped = false;
@@ -1089,6 +1100,7 @@ async function main() {
         return true;
       } finally {
         workChanged();
+        publishSearchProgress();
         await showLiveActivity({ phase: 'waiting', detail: 'Looking for the next matching job.' });
       }
     };
@@ -1135,6 +1147,7 @@ async function main() {
     };
 
     const printSummary = () => {
+      publishSearchProgress();
       console.log(`\n${seen.size} unique listings discovered across ${active.length} platform(s).`);
       if (!limitReached() && evaluated >= config.limits.maxEvaluations) {
         console.log(`  … evaluation cap (${config.limits.maxEvaluations}) reached`);

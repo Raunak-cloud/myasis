@@ -11,6 +11,7 @@ import { sameApplication } from './application-identity.js';
 import type { JobListing } from './types.js';
 import { blockedQuestionKey, normaliseBlockedQuestions, mergePendingQuestions } from './blocked-questions.js';
 import type { BlockedQuestion } from './types.js';
+import { countHealth } from './run-health.js';
 
 const appliedPath = () => resolve(config.dataDir, 'applied.json');
 const outcomeLogPath = () => resolve(config.dataDir, 'run-log.jsonl');
@@ -106,6 +107,7 @@ export function logOutcome(outcome: ApplyOutcome & { title?: string; company?: s
   ensureDir();
   const line = JSON.stringify({ ts: new Date().toISOString(), ...outcome });
   writeFileSync(outcomeLogPath(), line + '\n', { flag: 'a' });
+  if (process.env.OWTOMATE_RUN_START_ID && outcome.status === 'error') countHealth('errors');
   if (outcome.reviewCache) writeFileSync(resolve(config.dataDir, 'review-cache.jsonl'), JSON.stringify({
     ...outcome.reviewCache, jobId: outcome.jobId, title: outcome.title, company: outcome.company,
     reason: 'reason' in outcome ? outcome.reason : outcome.status, reviewedAt: new Date().toISOString(),

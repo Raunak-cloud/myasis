@@ -4,6 +4,7 @@ import { config } from './config.js';
 import { applicationKeys } from './application-identity.js';
 import type { JobListing } from './types.js';
 import type { SavedFitAssessment } from './fit-assessment-types.js';
+import { countHealth } from './run-health.js';
 
 export const COMPLETED_REVIEWS_FILE = 'completed-job-reviews.jsonl';
 export interface CompletedReview {
@@ -79,6 +80,7 @@ export function rememberCompletedReview(job: JobListing, assessment: SavedFitAss
   mkdirSync(config.dataDir,{recursive:true});
   // A prior crash can leave a partial final line; keep the new record separate.
   appendFileSync(path,'\n'+JSON.stringify(row)+'\n',{mode:0o600});
+  if (process.env.OWTOMATE_RUN_START_ID) countHealth('reviewed');
   const info=statSync(path);saved.size=info.size;saved.mtime=info.mtimeMs;
   for (const key of keys) saved.reviews.set(key,row);
 }

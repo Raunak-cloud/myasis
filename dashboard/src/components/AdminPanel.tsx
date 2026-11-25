@@ -19,6 +19,8 @@ import { StackedTable } from './StackedTable';
 import { runDeviceLabel, type RunDevice } from '../run-device';
 import { formatRunCost,runCostTitle,type RunCost } from '../run-cost';
 import { APPLICATION_MODELS, applicationModelLabel, type ApplicationModel } from '../../../seek-bot/src/application-model-catalog';
+import { RUN_FILTER_LABELS } from '../../../seek-bot/src/run-progress';
+import type { AdminRunProgress } from '../admin-run-progress';
 
 /**
  * The operator's dashboard: the whole installation at a glance, every
@@ -79,6 +81,8 @@ interface AdminRun {
   exitCode: number | null;
   applied: number | null;
   prepared: number;
+  bonus: boolean;
+  progress: AdminRunProgress | null;
   cost: RunCost|null;
   hasLog: boolean;
   running: boolean;
@@ -157,6 +161,40 @@ function runStatus(run: AdminRun): { label: string; tone: string } {
 
 const TRIGGER_LABEL: Record<string, string> = { manual: 'Manually started', onboarding: 'First run', auto: 'Scheduled', admin: 'By an admin' };
 
+const formatRunCount = (count: number | null): string => count === null ? '—' : count.toLocaleString('en-AU');
+
+function RunProgress({ progress, running }: { progress: AdminRunProgress | null; running: boolean }) {
+  if (!progress) return <span className="job-meta">{running ? 'Waiting for progress' : 'Counts unavailable'}</span>;
+  const filters = Object.entries(RUN_FILTER_LABELS)
+    .map(([key, label]) => [label, progress.filters[key as keyof typeof RUN_FILTER_LABELS] ?? 0] as const)
+    .filter(([, count]) => count > 0)
+    .sort((a, b) => b[1] - a[1]);
+  const extras = [
+    ['Sources', progress.sources.join(', ') || null],
+    ['Review limit', progress.reviewLimit === 'unlimited' ? 'Unlimited' : progress.reviewLimit?.toLocaleString('en-AU') ?? null],
+    ['Needs attention', progress.needsAttention?.toLocaleString('en-AU') ?? null],
+    ['Logged errors', progress.errors?.toLocaleString('en-AU') ?? null],
+    ['Unconfirmed sends', progress.unconfirmed?.toLocaleString('en-AU') ?? null],
+  ].filter(([, value]) => value !== null);
+  return <>
+    <dl className="admin-run-totals">
+      <div><dt>Jobs found</dt><dd>{formatRunCount(progress.found)}</dd></div>
+      <div><dt>Reviewed</dt><dd title={progress.reviewedEstimated ? 'Estimated from the saved run log' : 'New AI reviews'}>
+        {progress.reviewedEstimated && progress.reviewed !== null ? '≈' : ''}{formatRunCount(progress.reviewed)}
+      </dd></div>
+      <div><dt>Matched</dt><dd>{formatRunCount(progress.matched)}</dd></div>
+    </dl>
+    {(extras.length > 0 || filters.length > 0 || progress.reviewedEstimated) && <details className="admin-run-details">
+      <summary>More details</summary>
+      <dl className="admin-run-breakdown">
+        {extras.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+        {filters.map(([label, count]) => <div key={label}><dt>{label}</dt><dd>{formatRunCount(count)}</dd></div>)}
+      </dl>
+      {progress.reviewedEstimated && <p className="job-meta">The review count comes from older logs and may include reused reviews.</p>}
+    </details>}
+  </>;
+}
+
 
 // ------------------------------------------------------------------ run screenshots
 function RunLog({ run, onClose }: { run: AdminRun; onClose: () => void }) {
@@ -184,6 +222,7 @@ function RunsTable({ runs, onOpen, showUser = true }: { runs: AdminRun[]; onOpen
             <th>How</th>
             <th title="Device reported by the browser when Start was pressed">Device</th>
             <th>Took</th>
+            <th>Job search</th>
             <th>Submitted</th>
             <th>Prepared</th>
             <th>Total cost</th>
@@ -204,11 +243,12 @@ function RunsTable({ runs, onOpen, showUser = true }: { runs: AdminRun[]; onOpen
                 )}
                 <td className="nowrap">{when(run.startedAt)}</td>
                 <td>
-                  {run.mode === 'scan' ? 'Queue scan' : TRIGGER_LABEL[run.trigger] ?? run.trigger}
+                  {run.bonus ? 'Bonus run' : run.mode === 'scan' ? 'Queue scan' : TRIGGER_LABEL[run.trigger] ?? run.trigger}
                   {run.startedBy && <div className="job-meta">{run.startedBy}</div>}
                 </td>
                 <td>{runDeviceLabel(run.initiatorDevice, run.trigger)}</td>
                 <td className="nowrap">{duration(run)}</td>
+                <td className="admin-run-search"><RunProgress progress={run.progress} running={run.running} /></td>
                 <td>{run.applied ?? '-'}</td>
                 <td>{run.prepared}</td>
                 <td className="nowrap" title={runCostTitle(run.cost)}>{formatRunCost(run.cost)}</td>

@@ -5,6 +5,38 @@ cd "$(dirname "$0")/.."
 # Narrow releases use checks specific to the changed feature, with a 60-second
 # test budget. Unknown or mixed releases keep all checks.
 if [[ "${2:-}" =~ ^[a-f0-9]{40}$ ]] && [[ "${3:-}" =~ ^[a-f0-9]{40}$ ]] && [ "$(git rev-parse HEAD)" = "$3" ]; then
+  run_progress_only=1
+  run_progress_changed=0
+  while IFS= read -r path; do
+    case "$path" in
+      dashboard/server/admin-run-progress.ts) run_progress_changed=1 ;;
+      dashboard/server/admin.ts|dashboard/server/admin-run-progress.test.ts|dashboard/scripts/test-admin-run-progress.mts|dashboard/src/admin-run-progress.ts|dashboard/src/components/AdminPanel.tsx|dashboard/src/index.css) ;;
+      seek-bot/src/run-progress.ts|seek-bot/src/run-health.ts|seek-bot/src/completed-reviews.ts|seek-bot/src/completed-reviews.test.ts|seek-bot/src/main.ts|seek-bot/src/store.ts|deploy/check-release.sh) ;;
+      *) run_progress_only=0 ;;
+    esac
+  done < <(git diff --name-only "$2" "$3")
+  if [ "$run_progress_only" = 1 ] && [ "$run_progress_changed" = 1 ] && [ -z "${REPLAY_BASELINE_SHA:-}" ]; then
+    timeout --signal=TERM --kill-after=2s 58s bash -e -c '
+      export CHROME_PATH="${CHROME_PATH:-/usr/bin/google-chrome-stable}"
+      (cd dashboard && ../seek-bot/node_modules/.bin/tsx --test server/admin-run-progress.test.ts server/admin-run-counts.test.ts && ../seek-bot/node_modules/.bin/tsx scripts/test-admin-run-progress.mts) & dashboard_tests=$!
+      cd seek-bot
+      node --test dist/completed-reviews.test.js
+      node --test --test-name-pattern="first ready job|completed rejections use no model call|parallel discovery skips" dist/review-budget.test.js
+      wait "$dashboard_tests"
+      if [ "$1" = 1 ]; then
+        shopt -s nullglob
+        corpora=(data/users/*/form-corpus)
+        if [ "${#corpora[@]}" -gt 0 ]; then
+          scratch=$(mktemp -d ../output/deploy-run-progress.XXXXXX)
+          trap '\''rm -rf "$scratch"'\'' EXIT
+          node ../deploy/replay-sample.mjs "$scratch/corpus" 10 "$2" "${corpora[@]}"
+          CELERIS_API_KEY=replay-only node dist/form-replay.js "$scratch/corpus"
+        fi
+      fi
+    ' bash "${1:-0}" "$3"
+    echo 'Targeted admin run progress checks passed (60-second maximum)'
+    exit 0
+  fi
   review_defaults_only=1
   review_limits_changed=0
   while IFS= read -r path; do

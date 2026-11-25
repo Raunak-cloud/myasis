@@ -13,6 +13,28 @@ const job: JobListing={id:'123',platform:'seek',title:'Analyst',company:'Fixture
 const fit=(decision:FitAssessment['decision']):FitAssessment=>({decision,shouldApply:decision==='apply',matchScore:decision==='apply'?85:30,
   reason:'Saved completed review',evidence:['Fixture evidence'],injectionSuspected:false});
 
+test('run progress records new completed AI reviews once and preserves search totals', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'owtomate-review-progress-'));
+  try {
+    const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      import { reuseCompletedReview } from ${JSON.stringify(new URL('./completed-reviews.js', import.meta.url).href)};
+      import { setRunSearchProgress } from ${JSON.stringify(new URL('./run-health.js', import.meta.url).href)};
+      const job = ${JSON.stringify(job)};
+      const fit = ${JSON.stringify(fit('apply'))};
+      setRunSearchProgress({ found: 18, matched: 0, sources: ['SEEK'], filters: { listingAge: 12 }, reviewLimit: 300 });
+      await reuseCompletedReview(job, async () => fit);
+      await reuseCompletedReview(job, async () => { throw Error('Must reuse completed review'); });
+      await reuseCompletedReview({...job,id:'456',url:'https://www.seek.com.au/job/456'}, async () => { throw Error('Temporary failure'); }).catch(() => {});
+      setRunSearchProgress({ found: 18, matched: 1, sources: ['SEEK'], filters: { listingAge: 12 }, reviewLimit: 300 });
+    `], { env: { ...process.env, DATA_DIR: directory, OWTOMATE_RUN_START_ID: '200' }, encoding: 'utf8' });
+    assert.equal(child.status, 0, child.stderr);
+    const health = JSON.parse(readFileSync(join(directory, 'run-health.json'), 'utf8'));
+    assert.equal(health.runStartId, '200');
+    assert.equal(health.reviewed, 1);
+    assert.deepEqual(health.search, { found: 18, matched: 1, sources: ['SEEK'], filters: { listingAge: 12 }, reviewLimit: 300 });
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('completed decisions persist across runs, models, profile/advert changes and restarts, with owner/source isolation',async()=>{
   const directory=mkdtempSync(join(tmpdir(),'owtomate-completed-review-'));
   const env={...process.env,DATA_DIR:directory,APPLICATION_AI_MODEL:'celeris'};

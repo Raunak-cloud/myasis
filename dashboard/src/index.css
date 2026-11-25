@@ -2418,6 +2418,22 @@ button.apply-stat > span > span { flex: none; color: var(--text-faint); }
 .admin-section { padding: 14px 16px; }
 .admin-section h3, .admin-drawer .section h3 { margin: 0 0 10px; }
 .admin-empty { padding: 12px 4px; margin: 0; }
+.admin-run-totals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(max-content, 1fr));
+  gap: 6px 14px;
+  margin: 0;
+}
+.admin-run-totals dt { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+.admin-run-totals dd { margin: 2px 0 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.admin-run-details { margin-top: 6px; font-size: 12px; }
+.admin-run-details summary { cursor: pointer; color: var(--accent); padding-block: 4px; }
+.admin-run-breakdown { margin: 6px 0 0; display: grid; gap: 5px; }
+.admin-run-breakdown div { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: start; }
+.admin-run-breakdown dt { color: var(--text-dim); }
+.admin-run-breakdown dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.admin-run-breakdown dd { max-width: 190px; }
+.admin-run-details > p { margin: 8px 0 0; }
 .admin-board { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--surface-2); color: var(--text-faint); }
 .admin-board.on { background: var(--ok-soft); color: var(--ok); }
 .admin-drawer { width: min(720px, 100vw); }
@@ -2615,6 +2631,15 @@ button.apply-stat > span > span { flex: none; color: var(--text-faint); }
   .table-wrap .stacked-table td:first-child::before,
   .table-wrap .stacked-table td:not([data-label])::before { content: none; }
   .table-wrap .stacked-table td:empty { display: none; }
+  .table-wrap .stacked-table td.admin-run-search {
+    padding: 8px 14px;
+    margin: 4px 14px;
+    background: var(--bg);
+    border-radius: 8px;
+  }
+  .table-wrap .stacked-table td.admin-run-search::before { content: none; }
+  .admin-run-totals dd { font-size: 15px; }
+  .admin-run-breakdown dd { max-width: 140px; }
   /* The table is no longer wider than its card, so the scroll shadows and the scrolling go. */
   .table-wrap:has(> .stacked-table) { overflow-x: visible; background: var(--surface); }
   .admin-section.table-wrap:has(> .stacked-table) { padding-inline: 0; }
