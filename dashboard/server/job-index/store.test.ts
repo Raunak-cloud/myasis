@@ -161,7 +161,7 @@ test('scheduled crawls persist a six-hour start interval and do not rerun after 
  const next=await crawlCycle(restartedStore,pool,options);assert.notEqual(next.status,'waiting');assert.equal((await pool.query('SELECT count(*) FROM crawl_cycles')).rows[0].count,'2');
 });
 
-test('retired feed and web search tasks are purged before collecting publisher jobs',async()=>{
+test('retiring a feed preserves individual vacancy pages and their reviewed matches',async()=>{
   await pool.query("ALTER TABLE crawl_tasks DROP CONSTRAINT crawl_tasks_kind_check, ADD CONSTRAINT crawl_tasks_kind_check CHECK (kind IN ('page','feed','search'))");
   await pool.query(`INSERT INTO crawl_tasks(key,kind,payload) VALUES
     ('legacy-search','search','{"query":"private local fixture"}'),
@@ -169,7 +169,13 @@ test('retired feed and web search tasks are purged before collecting publisher j
     ('legacy-page','page','{"url":"https://jobs.smartrecruiters.com/fixture/123"}'),
     ('known-publisher','page',$1)`, [JSON.stringify({ url: job.url })]);
   await store.migrate();
-  assert.deepEqual((await pool.query('SELECT key FROM crawl_tasks ORDER BY key')).rows,[{key:'known-publisher'}]);
+  assert.deepEqual((await pool.query('SELECT key FROM crawl_tasks ORDER BY key')).rows,[{key:'known-publisher'},{key:'legacy-page'}]);
+  const url='https://jobs.smartrecruiters.com/fixture/123';
+  await pool.query("DELETE FROM crawl_tasks WHERE key='known-publisher'");
+  const stats=await crawlCycle(store,pool,{maxTasks:1,crawler:crawlerFor([raw('Data engineer',url)]),reviewer:pass});
+  assert.equal(stats.jobsSaved,1);
+  await store.migrate();
+  assert.deepEqual((await pool.query('SELECT canonical_url,closed_at FROM indexed_jobs')).rows,[{canonical_url:url,closed_at:null}]);
   assert.deepEqual(discoveredFeed('https://job-boards.greenhouse.io/Fixture/jobs/123'),{source:'greenhouse',target:'Fixture'});
   assert.equal(discoveredFeed('https://jobs.smartrecruiters.com/fixture/123'),null);
   assert.equal(discoveredFeed('https://careers.pageuppeople.com/999/cw/en'),null);

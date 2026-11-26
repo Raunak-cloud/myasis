@@ -9,7 +9,6 @@ import { observedApprovedCoverLetter } from '../application-letter.js';
 import { readSavedForm } from './saved-form.js';
 import { waitForChallengeToClear, workingIn } from '../browser.js';
 import { config } from '../config.js';
-import { retiredJobSource, retiredJobDestination, RETIRED_SOURCE_MESSAGE } from '../retired-job-sources.js';
 import { captureApplicationFailure } from '../application-diagnostics.js';
 import { recordFormPage } from '../form-corpus.js';
 import type { DocumentFormat } from '../resume.js';
@@ -52,7 +51,7 @@ import { buildApplicationSystemPrompt, applicationSuitabilityAuthority } from '.
 import { ApplicationReadiness, applicationReviewTool } from './application-readiness.js';
 import { changesBrowserState } from './browser-commands.js';
 import { addIndeedCoverLetter } from './indeed-cover-letter.js';
-import { jobBoardForUrl } from '../job-board-url.js';
+import { jobBoardForUrl, nativeBoardPosting } from '../job-board-url.js';
 import { extractEmployerQuestions } from './question-evidence.js';
 import { browserCommandContract } from './browser-command-schema.js';
 import { browserToolCall, splitBrowserTools, presentBrowserTool } from './browser-tools.js';
@@ -261,7 +260,6 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
   // It is not advertised as a second way to perform the dedicated operations.
   const legacyBrowserTool = modeTools.find(tool => tool.name === 'browser_action')!;
   const helpers=options.continuation?.helpers??new ApplicationHelpers([...executionTools.filter(tool => tool.name !== 'browser_action'), legacyBrowserTool]);
-  if (retiredJobSource(options.job)) return { outcome: { status: 'skipped', reason: RETIRED_SOURCE_MESSAGE }, captured: [], actions: [], submitPressed: false, steps: 0, usage: 'No model calls: job source removed.' };
 
   const isolated = options.simulation === 'isolated-form';
   if (isolated && (!config.dryRun || !new URL(options.job.url).hostname.endsWith('.invalid'))) throw new Error('Isolated tests require dry-run and an invalid domain.');
@@ -480,7 +478,6 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       if (canonicalReview && args.assessment === 'ready') meter.reviewedProgress('canonical-application-review-ready');
       return ok('Your application assessment is recorded. Correct mismatches or ask about unsupported mandatory facts using normal tools. If ready, choose the current send control yourself; no send was queued or executed.');
     }
-    if (retiredJobDestination(ctx.page.url())) return { kind: 'terminal', outcome: { status: 'skipped', reason: RETIRED_SOURCE_MESSAGE } };
     // A native modal blocks renderer inspection, including locator.count().
     // Surface it before any DOM probe; the agent chooses the dialog response.
     const pendingDialog = dialogs.get(ctx.page);
@@ -893,16 +890,30 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
     return ok(`Action executed: ${args.action}${actionLabel ? ` on ${JSON.stringify(actionLabel)}` : ''}. Read the new observation to judge what saved or changed.${waitNote ? ` ${waitNote}` : ''}`, waitNote ? 'reobserve' : undefined);
   };
 
+  // A pasted employer advert can open a board's vacancy on a click, even in
+  // the middle of a tool batch. The board worker owns that posting and its history.
+  const nativeHandoff = (): AgentTermination | undefined => {
+    if (!options.handoffNativePosting || !jobBoardForUrl(ctx.page.url())) return;
+    if (ctx.submissionAttempted) return { status: 'error', reason: 'Submission unconfirmed: the browser reached a job board after an attempted send.' };
+    const posting = nativeBoardPosting(ctx.page.url());
+    return posting ? { status: 'off-platform', redirectedTo: posting.url }
+      : { status: 'error', reason: 'The employer opened a job board without identifying a specific vacancy.' };
+  };
+
   // Condition-based browser operations always return control to the agent.
   const act = async (name: string, args: Record<string, unknown>): Promise<ToolResult> => {
     assertBrowserOperationActive();
+    const handoff = nativeHandoff();
+    if (handoff) return { kind: 'terminal', outcome: handoff };
     ({ name, args } = browserToolCall(name, args));
     // Each batch command already runs through act(). Its finite action count
     // bounds the total; later commands receive their own 30-second allowance.
     // Failed commands still stop the batch and retain completed results.
-    return name === 'browser_action' || name === 'wait_for_submission_result'
-      ? browserDeadline('Browser operation', BROWSER_OPERATION_TIMEOUT_MS, () => execute(name, args))
-      : execute(name, args);
+    const result = name === 'browser_action' || name === 'wait_for_submission_result'
+      ? await browserDeadline('Browser operation', BROWSER_OPERATION_TIMEOUT_MS, () => execute(name, args))
+      : await execute(name, args);
+    const redirected = nativeHandoff();
+    return redirected ? { kind: 'terminal', outcome: redirected } : result;
   };
 
   try {
@@ -911,8 +922,9 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       if(options.continuation&&!isolated&&!ctx.submissionAttempted&&!liveRepairContinuationAllowed(options.continuation)){
         terminal={status:'skipped',reason:'In-run tool recovery was paused or cancelled before another application action.'};break;
       }
-      if (retiredJobDestination(ctx.page.url())) { terminal = { status: 'skipped', reason: RETIRED_SOURCE_MESSAGE }; break; }
       if (await followPopup()) lastNote = 'The previous control opened a new tab. Read the new page before acting.';
+      const handoff = nativeHandoff();
+      if (handoff) { terminal = handoff; finished = true; break; }
       let pendingDialog = dialogs.get(ctx.page);
       const observed = await browserRecovery.observe(ctx.page, async page => {
         pendingDialog = dialogs.get(page);

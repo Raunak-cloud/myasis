@@ -2,7 +2,9 @@ import { lookup } from 'node:dns/promises';
 import { BlockList, isIP } from 'node:net';
 import type { BrowserContext } from 'patchright';
 import { jobBoardForHost } from './job-board-url.js';
-import { retiredJobDestination, RETIRED_SOURCE_MESSAGE } from './retired-job-sources.js';
+import { applicationModelEnvironment } from './application-model.js';
+import { config } from './config.js';
+import { outsideScope } from './run-scope.js';
 
 const PRIVATE = new BlockList();
 for (const [network, prefix] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.0.2.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['198.51.100.0', 24], ['203.0.113.0', 24], ['224.0.0.0', 3]] as const) {
@@ -26,17 +28,17 @@ async function resolvesOnlyPublic(hostname: string): Promise<boolean> {
 }
 
 /** Defense-in-depth validation at the browser process, not only the dashboard API. */
-export async function assertExternalJobUrl(raw: string, resolveHost = resolvesOnlyPublic, allowJobBoards = false): Promise<string> {
+export async function assertExternalJobUrl(raw: string, resolveHost = resolvesOnlyPublic, allowJobBoards = true): Promise<string> {
   return validateExternalUrl(raw, resolveHost, allowJobBoards, 2_048);
 }
 
 /** Authentication redirects carry signed state that is longer than a pasted
  * job link. Validate the destination identically without truncating that state. */
-export async function assertExternalNavigationUrl(raw: string, resolveHost = resolvesOnlyPublic, allowJobBoards = false): Promise<string> {
+export async function assertExternalNavigationUrl(raw: string, resolveHost = resolvesOnlyPublic, allowJobBoards: boolean | readonly string[] = true): Promise<string> {
   return validateExternalUrl(raw, resolveHost, allowJobBoards);
 }
 
-async function validateExternalUrl(raw: string, resolveHost: typeof resolvesOnlyPublic, allowJobBoards: boolean, maxLength?: number): Promise<string> {
+async function validateExternalUrl(raw: string, resolveHost: typeof resolvesOnlyPublic, allowJobBoards: boolean | readonly string[], maxLength?: number): Promise<string> {
   if (!raw || (maxLength !== undefined && raw.length > maxLength)) throw new Error('The direct external job URL is missing or too long.');
   let url: URL;
   try {
@@ -45,30 +47,34 @@ async function validateExternalUrl(raw: string, resolveHost: typeof resolvesOnly
     throw new Error('The direct external job URL is invalid.');
   }
   if (url.protocol !== 'https:') throw new Error('The direct external job URL must use HTTPS.');
-  if (retiredJobDestination(url.href)) throw new Error(RETIRED_SOURCE_MESSAGE);
   if (url.username || url.password || (url.port && url.port !== '443')) throw new Error('The direct external job URL contains credentials or a custom port.');
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
   if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) {
     throw new Error('The direct external job URL is not a public website.');
   }
-  if (!allowJobBoards && jobBoardForHost(host)) throw new Error('A direct external run cannot target a SEEK or Indeed listing.');
+  const board = jobBoardForHost(host);
+  if (board && allowJobBoards !== true && (!allowJobBoards || !allowJobBoards.includes(board))) throw new Error('This job board is outside this run’s enabled application destinations.');
   if (/\/(?:checkout|payment|billing)(?:\/|$)/i.test(url.pathname)) throw new Error('Payment pages cannot be used as a direct job URL.');
   if (!(await resolveHost(host))) throw new Error('The direct external job URL does not resolve only to public internet addresses.');
   return url.href;
 }
 
-/**
- * Re-check every document navigation, including redirects and tabs opened by
- * the ATS. This keeps a public URL from redirecting the production browser to
- * localhost, cloud metadata, a private network, or payment pages.
- */
+export function allowedNativeHandoffBoards(): readonly string[] {
+  const env = applicationModelEnvironment();
+  if (outsideScope('hosted') || env.FREE_EMPLOYER_GUEST_ONLY === 'true') return [];
+  const ids = env.ALLOWED_NATIVE_HANDOFF_BOARDS?.split(',') ?? config.platforms;
+  return ids.filter(id => id === 'seek' || id === 'indeed');
+}
+
+/** Validate redirected documents and new tabs against the same destination rules. */
 export async function guardExternalNavigations(context: BrowserContext, options: { allowJobBoards?: boolean } = {}): Promise<{ blocked: () => string | null; stop: () => Promise<void> }> {
   let blocked: string | null = null;
+  const allowedBoards = options.allowJobBoards ?? allowedNativeHandoffBoards();
   const handler: Parameters<BrowserContext['route']>[1] = async (route) => {
     const request = route.request();
     if (request.resourceType() !== 'document') return route.fallback();
     try {
-      await assertExternalNavigationUrl(request.url(), undefined, options.allowJobBoards);
+      await assertExternalNavigationUrl(request.url(), undefined, allowedBoards);
       return route.fallback();
     } catch (error) {
       blocked = (error as Error).message;

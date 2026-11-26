@@ -73,10 +73,8 @@ UPDATE crawl_tasks SET payload=jsonb_set(payload,'{job}',jsonb_strip_nulls(jsonb
 -- Legacy/unverified geography is quarantined until the shared admission policy checks it.
 ALTER TABLE indexed_jobs ADD COLUMN IF NOT EXISTS country_policy text;
 
--- Retired collection tasks must not consume the live queue or replenish the catalog.
-DELETE FROM crawl_tasks WHERE kind='search' OR (kind='feed' AND payload->>'source' IN ('smartrecruiters','pageup'))
- OR (kind='page' AND payload->>'url' ~* '^https?://([^/]+\.)?(smartrecruiters\.com|pageuppeople\.com)([:/?#]|$)');
+-- Retired feed adapters have no worker. Individual public vacancy pages
+-- discovered on the same sites can still be read by the publisher crawler.
+DELETE FROM crawl_tasks WHERE kind='search' OR (kind='feed' AND payload->>'source' IN ('smartrecruiters','pageup'));
 ALTER TABLE crawl_tasks DROP CONSTRAINT IF EXISTS crawl_tasks_kind_check,
  ADD CONSTRAINT crawl_tasks_kind_check CHECK (kind IN ('page','feed'));
-UPDATE indexed_jobs SET closed_at=now() WHERE closed_at IS NULL
- AND (lower(source) IN ('smartrecruiters','pageup') OR canonical_url ~* '^https?://([^/]+\.)?(smartrecruiters\.com|pageuppeople\.com)([:/?#]|$)');

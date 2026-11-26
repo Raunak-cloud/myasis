@@ -1,8 +1,15 @@
 import { resolvesPublic } from './proxy-address.js';
-import { jobBoardForHost } from '../../seek-bot/src/job-board-url.js';
-import { retiredJobDestination, RETIRED_SOURCE_MESSAGE } from '../../seek-bot/src/retired-job-sources.js';
+import { isApplicationOnlyPlatform } from '../../seek-bot/src/platforms.js';
+import { jobBoardForUrl } from '../../seek-bot/src/job-board-url.js';
+import type { JobListing } from '../../seek-bot/src/types.js';
 
 const MAX_URL_LENGTH = 2_048;
+
+/** Saved public forms do not need a matching discovery adapter. Native boards still need their own access. */
+export function standaloneEmployerForm(job: JobListing, formUrl: string): boolean {
+  return Boolean(job.platform && isApplicationOnlyPlatform(job.platform)
+    && [job.url, formUrl].every(url => /^https:\/\//i.test(url) && !jobBoardForUrl(url)));
+}
 
 /**
  * Validates the one arbitrary destination an operator may hand to a run.
@@ -24,16 +31,12 @@ export async function validateExternalJobUrl(value: unknown, resolveHost = resol
     return { error: 'Enter a complete HTTPS job URL.' };
   }
   if (url.protocol !== 'https:') return { error: 'External job URLs must use HTTPS.' };
-  if (retiredJobDestination(url.href)) return { error: RETIRED_SOURCE_MESSAGE };
   if (url.username || url.password) return { error: 'External job URLs cannot contain a username or password.' };
   if (url.port && url.port !== '443') return { error: 'External job URLs cannot use a custom port.' };
 
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
   if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) {
     return { error: 'The external job URL must be a public website.' };
-  }
-  if (jobBoardForHost(host)) {
-    return { error: 'Use this field for an employer website, not a SEEK or Indeed listing.' };
   }
   if (/\/(?:checkout|payment|billing)(?:\/|$)/i.test(url.pathname)) {
     return { error: 'Use the job page, not a payment page.' };

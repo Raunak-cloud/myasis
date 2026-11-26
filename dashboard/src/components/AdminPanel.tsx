@@ -434,7 +434,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
   function startExternalJob() {
     const url = externalJobUrl.trim();
     if (!url) {
-      setError('Paste the external job URL.');
+      setError('Paste the job URL.');
       return;
     }
     if (!user || busy !== null || user.running) return;
@@ -641,7 +641,7 @@ function UserDrawer({ userId, onClose, onChanged, onOpenRun, onEmail }: {
                     </button>
                   </div>
                   <div className="admin-direct-run">
-                    <label htmlFor={`external-job-${user.id}`}>External job URL</label>
+                    <label htmlFor={`external-job-${user.id}`}>Job URL</label>
                     <div className="admin-button-row">
                       <input
                         id={`external-job-${user.id}`}

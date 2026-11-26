@@ -45,6 +45,10 @@ const PLATFORMS: Platform[] = [
   ...EMPLOYER_SOURCES.map(source => ({ id: source.id, label: source.label, baseUrl: source.baseUrl, available: true })),
 ];
 
+/** Already-discovered forms can be applied to even without a search connector. */
+export const isApplicationOnlyPlatform = (id: string): boolean =>
+  !PLATFORMS.some(platform => platform.id === id);
+
 /**
  * Resolves the configured list, dropping anything without an adapter so a
  * stale setting can never point a run at a board it cannot drive.

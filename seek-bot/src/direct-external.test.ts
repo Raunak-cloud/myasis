@@ -6,11 +6,89 @@ import {join} from 'node:path';
 import {chromium} from 'patchright';
 import {withApplicationModel} from './application-model.js';
 import {config} from './config.js';
-import {identifyDirectJob,runDirectExternalApplication} from './direct-external.js';
+import {identifyDirectJob,readNativeBoardTarget,readSavedEmployerListing,runDirectExternalApplication} from './direct-external.js';
+import {nativeBoardPosting} from './job-board-url.js';
+import {applicationKeys} from './application-identity.js';
 import {captureApplicationFailure} from './application-diagnostics.js';
 import type {FitAssessment} from './llm.js';
 import { reviewContentFingerprint, reviewContextFingerprint } from './review-cache.js';
 import type { JobListing, CandidateProfile } from './types.js';
+
+test('native target reads the exact advertised role, refuses a substituted vacancy and accepts an employer redirect to a board', async () => {
+  const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
+  const directory = mkdtempSync(join(tmpdir(), 'board-target-'));
+  const previousDry = config.dryRun;
+  config.dryRun = true;
+  try {
+    await withApplicationModel({ DATA_DIR: directory, COST_TRACKING: 'false' }, async () => {
+      for (const target of ['https://www.seek.com.au/job/12345678', 'https://au.indeed.com/viewjob?jk=0123456789abcdef'].map(url => nativeBoardPosting(url)!)) {
+        const page = await browser.newPage();
+        const redirected = 'https://employer.fixture.invalid/positions/123';
+        let substitute = false;
+        await page.route('**/*', route => {
+          const url = route.request().url();
+          const transfer = (to: string) => route.fulfill({ contentType: 'text/html', body: `<body><script>setTimeout(() => location.replace(${JSON.stringify(to)}), 50)</script></body>` });
+          if (url === redirected) return transfer(target.url);
+          if (url === target.url && substitute) {
+            const other = target.url.replace(target.id, target.platform === 'seek' ? '12345679' : '1123456789abcdef');
+            return transfer(other);
+          }
+          return route.fulfill({ contentType: 'text/html', body: '<main><h1>Research Engineer</h1><strong data-automation="advertiser-name" data-testid="inlineHeader-companyName">Fixture Employer</strong><p>Develop research systems.</p></main>' });
+        });
+        const job = await readNativeBoardTarget(page, target);
+        assert.equal(job.id, target.id);
+        assert.equal(job.platform, target.platform);
+        assert.equal(job.title, 'Research Engineer');
+        assert.equal(job.company, 'Fixture Employer');
+        assert.match(job.description ?? '', /Develop research systems/);
+        const handoff = await runDirectExternalApplication(page, redirected, {} as CandidateProfile, () => null, {
+          match: async () => { throw Error('Native vacancies use the board matching worker'); },
+          runAgent: async () => { throw Error('A redirected vacancy must use its native application worker'); },
+        });
+        assert.deepEqual(handoff, target);
+        substitute = true;
+        await assert.rejects(readNativeBoardTarget(page, target), /did not open the requested vacancy/);
+        await page.close();
+      }
+    });
+  } finally {
+    config.dryRun = previousDry;
+    await browser.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('pasted job honours a pending decision before matching or preparing and standalone repairs refresh the original vacancy', async () => {
+  const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.platform === 'win32' ? { channel: 'chrome' } : {}) });
+  const directory = mkdtempSync(join(tmpdir(), 'direct-pending-'));
+  const previousDry = config.dryRun;
+  config.dryRun = true;
+  try {
+    await withApplicationModel({ DATA_DIR: directory, COST_TRACKING: 'false' }, async () => {
+      const page = await browser.newPage();
+      const source = 'https://employer.fixture.invalid/jobs/445';
+      const job: JobListing = { id: '445', platform: 'external', url: source, title: 'Project Officer', company: 'Fixture', location: 'Sydney' };
+      const live = '<script type="application/ld+json">{"@type":"JobPosting","title":"Project Officer","hiringOrganization":{"name":"Fixture"},"description":"Manage construction projects.","jobLocation":{"address":{"addressLocality":"Sydney"}}}</script><main><h1>Project Officer</h1><input/></main>';
+      await page.route('**/*', route => route.fulfill({ contentType: 'text/html', body: live }));
+      writeFileSync(join(directory, 'pending-application-keys.json'), JSON.stringify(applicationKeys(job)));
+      await runDirectExternalApplication(page, source, {} as CandidateProfile, () => null, {
+        match: async () => { throw Error('A held application must never reach matching'); },
+        runAgent: async () => { throw Error('A held application must never reach submission'); },
+      });
+      assert.match(readFileSync(join(directory, 'run-log.jsonl'), 'utf8'), /already awaiting a decision/);
+      const refreshed = await readSavedEmployerListing(page, { ...job, url: 'https://93.184.216.34/jobs/445', applicationUrl: 'https://outdated.invalid/apply', description: 'stale' });
+      assert.equal(refreshed.id, job.id);
+      assert.equal(refreshed.description, 'Manage construction projects.');
+      assert.equal(refreshed.applicationUrl, 'https://93.184.216.34/jobs/445');
+      assert.equal(refreshed.applicationMode, 'external');
+      await assert.rejects(readSavedEmployerListing(page, { ...job, url: 'https://localhost/jobs/445' }), /not a public website/);
+    });
+  } finally {
+    config.dryRun = previousDry;
+    await browser.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test('exact failed direct retry reaches the agent with its unchanged 82-point approval and original identity', async () => {
  const dir=mkdtempSync(join(tmpdir(),'direct-approved-retry-')),previous={dry:config.dryRun,external:config.allowExternalApply};
@@ -23,11 +101,14 @@ test('exact failed direct retry reaches the agent with its unchanged 82-point ap
   mkdirSync(join(dir,'traces'));writeFileSync(join(dir,'traces','attempt-11111111-1111-4111-8111-111111111111.json'),JSON.stringify({job,outcome:{status:'error',retryable:true},sendAudit:{attempted:false},steps:[]}));
   const page=await browser.newPage();await page.route('**/*',route=>route.fulfill({contentType:'text/html',body:'<meta property="og:site_name" content="Fixture"><main><h1>Data Analyst</h1><p>Analyse data and build reports.</p><input id=name></main>'}));
   let calls=0;
-  await runDirectExternalApplication(page,url,profile,()=>null,{refreshPrior:async()=>({...base}),match:async()=>{throw Error('Previously approved unchanged job was rematched');},runAgent:async({job:actual})=>{
+  const boardUrl = 'https://www.seek.com.au/job/99887766';
+  const handoff = await runDirectExternalApplication(page,url,profile,()=>null,{refreshPrior:async()=>({...base}),match:async()=>{throw Error('Previously approved unchanged job was rematched');},runAgent:async({job:actual,handoffNativePosting})=>{
    calls++;assert.equal(actual.id,base.id);assert.equal(actual.platform,base.platform);assert.equal(actual.fitReview?.score,82);
-   return {outcome:{status:'needs-human',reason:'Fictional check complete.'},captured:[],actions:[],submitPressed:false,steps:1,usage:'offline fixture'};
+   assert.equal(handoffNativePosting,true);
+   return {outcome:{status:'off-platform',redirectedTo:boardUrl},captured:[],actions:[],submitPressed:false,steps:1,usage:'offline fixture'};
   }});
   assert.equal(calls,1);
+  assert.deepEqual(handoff,nativeBoardPosting(boardUrl));
  }); } finally {await browser.close();config.dryRun=previous.dry;config.allowExternalApply=previous.external;rmSync(dir,{recursive:true,force:true});}
 });
 

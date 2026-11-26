@@ -1,4 +1,3 @@
-import { retiredJobDestination } from './retired-job-sources.js';
 /** Shared source contracts: configuration and access, never candidate-fit decisions. */
 export const EMPLOYER_SOURCES = [
   { id: 'greenhouse', label: 'Greenhouse', key: 'GREENHOUSE_BOARDS', baseUrl: 'https://job-boards.greenhouse.io',
@@ -16,7 +15,6 @@ export const employerFeedsEnabled = (environment: Record<string, string | undefi
 
 function workdayCareerSite(raw: string): URL {
   const url = new URL(raw);
-  if (retiredJobDestination(url.href)) throw new Error('This employer career site is no longer available.');
   if (url.protocol !== 'https:' || url.username || url.password || url.port || url.search || url.hash) throw new Error('Use a public HTTPS career-site URL without credentials, query parameters or fragments.');
   const valid = /^[a-z0-9-]+\.wd\d{1,3}\.myworkdayjobs\.com$/.test(url.hostname) && /^\/[a-z]{2}-[A-Z]{2}\/[A-Za-z0-9_-]{1,100}\/?$/.test(url.pathname);
   if (!valid) throw new Error('Use the Workday career-site root shown in the example, rather than an individual job or a custom website.');
@@ -27,9 +25,7 @@ function workdayCareerSite(raw: string): URL {
 export function employerTargets(id: EmployerSourceId, raw: string): string[] {
   const source = EMPLOYER_SOURCES.find(item => item.id === id)!;
   if (!source) throw new Error('This job source is no longer available.');
-  const supplied = [...new Set(raw.split(',').map(value => value.trim()).filter(Boolean))];
-  const values = supplied.filter(value => !retiredJobDestination(value.split('|').at(-1)!.trim()));
-  if (supplied.length && !values.length) return [];
+  const values = [...new Set(raw.split(',').map(value => value.trim()).filter(Boolean))];
   if (!values.length || values.length > 20) throw new Error(`Choose 1–20 ${source.label} employers, separated by commas.`);
   return values.map(value => {
     if (source.kind === 'urls') {

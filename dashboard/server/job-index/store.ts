@@ -2,7 +2,6 @@ import pg from 'pg';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { fingerprint, matchJob } from './extract.js';
-import { retiredEmployerFeed } from '../../../seek-bot/src/retired-job-sources.js';
 import {AUSTRALIA_POLICY,australianEligibility} from './geography.js';
 import {MATCH_POLICY,FIT_CACHE_POLICY,type IndexedJob,type SearchProfile,type MatchResult} from './types.js';
 
@@ -45,7 +44,6 @@ export class JobIndexStore {
     } catch(e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
   }
   async save(job: IndexedJob,approvals:Array<{profile:SearchProfile;match:MatchResult}>): Promise<boolean> {
-    if (retiredEmployerFeed({ platform: job.source, url: job.url })) return false;
     if(australianEligibility(job).status!=='eligible')return false;
     if(!approvals.length)return false;
     if(approvals.some(a=>a.match.status!=='matched'||a.match.review?.policy!==MATCH_POLICY||!Number.isFinite(a.match.review.score)||a.match.review.score<(a.profile.criteria?.minScore??60)||!matchJob(job,a.profile)))throw Error('Only reviewed matching jobs can enter the catalog.');

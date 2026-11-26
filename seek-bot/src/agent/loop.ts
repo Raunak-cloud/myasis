@@ -28,6 +28,8 @@ export interface AgentRunResult {
 export interface AgentRunOptions {
   /** Local, reserved-domain dry-run fixtures only. */
   simulation?: 'isolated-form';
+  /** Return a pasted employer link's native posting to the board coordinator. */
+  handoffNativePosting?: boolean;
   page: Page;
   job: JobListing;
   profile: CandidateProfile;

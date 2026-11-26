@@ -21,7 +21,7 @@ test('durable technical backlog preserves approvals, isolates owners, respects c
  const listing=(id:string,extra:Partial<JobListing>={}):JobListing=>({id,platform:'seek',title:'Analyst',company:'Fixture',location:'Sydney',url:'https://www.seek.com.au/job/'+id,ageDays:1,
   description:'Analyse data.',fitReview:{score:90,reason:'Saved match',evidence:['Prior evidence'],contentFingerprint:'old',contextFingerprint:'old'},...extra});
  const context:TechnicalRetryContext={platforms:['seek','indeed'],maxAgeDays:10,excludedCompanies:['Excluded Company'],external:true,externalRemaining:0,scope:'all',deadlineAt:Date.now()+60_000,directory,creditsRemaining:20};
- const error=(job:JobListing,ownerRun='100',extra:Record<string,unknown>={})=>({status:'error',error:'Browser disconnected before submission',ts:new Date().toISOString(),
+ const error=(job:Omit<JobListing,'platform'> & {platform?:string},ownerRun='100',extra:Record<string,unknown>={})=>({status:'error',error:'Browser disconnected before submission',ts:new Date().toISOString(),
    technicalAttempt:{job,runId:ownerRun},...extra});
  const state=async(id:string,owner='1')=>(await client.query('SELECT status FROM technical_application_retries WHERE user_id=$1 AND job_key=$2',[owner,'seek:'+id])).rows[0]?.status;
  try{
@@ -114,6 +114,20 @@ test('durable technical backlog preserves approvals, isolates owners, respects c
   await finishTechnicalRetryLeases('1','300',directory);
   assert.equal(await state(interrupted.id),'held','a newer unfinished live trace cannot fall back to an older no-send terminal trace');
   assert.equal(await state(startedOnly.id),'held','a started attempt without a final trace is held after an interruption');
+  const publicJobs=['lever','other-form'].map(platform=>({...listing(platform),platform,url:`https://careers.fixture.invalid/jobs/${platform}`}));
+  for(const job of publicJobs)await rememberTechnicalAttempt('1',error(job),directory);
+  await rememberTechnicalAttempt('1',error({...listing('disguised'),platform:'unknown-form',url:'https://www.seek.com.au/job/95593975'}),directory);
+  const publicRetries=(scope:string,external:boolean,externalRemaining:number)=>claimTechnicalRetries('1','300',5,{
+    ...context,platforms:[],scope,external,externalRemaining,
+  });
+  assert.deepEqual(await publicRetries('hosted',true,2),[]);
+  assert.deepEqual(await publicRetries('all',false,2),[]);
+  assert.deepEqual(await publicRetries('all',true,0),[]);
+  const oneSlot=await publicRetries('all',true,1);
+  assert.equal(oneSlot.length,1,'two off-board forms cannot reserve the same employer slot');
+  const other=await publicRetries('external',true,1);
+  assert.deepEqual([...oneSlot,...other].map(item=>item.job.id).sort(),['lever','other-form']);
+  assert.deepEqual(await publicRetries('all',true,2),[],'an off-board label cannot turn a native board into an independent form');
   await client.query('DELETE FROM users WHERE id=1');
   assert.equal((await client.query('SELECT count(*)::int n FROM technical_application_retries WHERE user_id=1')).rows[0].n,0);
   assert.equal((await client.query('SELECT count(*)::int n FROM technical_application_retries WHERE user_id=2')).rows[0].n,1);

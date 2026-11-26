@@ -24,6 +24,8 @@ const sourceJobs = [
   { platform: 'workday', url: 'https://fixture.wd105.myworkdayjobs.com/en-US/External/job/Sydney/Fixture-Developer_JR123' },
 ] as const;
 const fixtureUrls = new Set([job.url, ...sourceJobs.map(source => source.url)]);
+const employerForm = 'https://93.184.216.34/our-careers/developer/apply';
+fixtureUrls.add(employerForm);
 const profile = { name: 'Fixture Candidate', email: 'fixture@example.test' } as import('../types.js').CandidateProfile;
 const deps = { onFriction: () => {} };
 const noBrowser = new Proxy({} as Page, { get: () => { throw new Error('Refused request reached browser'); } });
@@ -42,7 +44,7 @@ try {
   config.dryRun = true;
   assert.equal((await applyToEmployerJob(noBrowser, job, profile, deps)).status, 'skipped');
   config.dryRun = false;
-  await assert.rejects(applyToEmployerJob(noBrowser, { ...job, applicationUrl: 'https://localhost/private' }, profile, deps), /Invalid greenhouse job address/);
+  await assert.rejects(applyToEmployerJob(noBrowser, { ...job, url: 'https://localhost/private' }, profile, deps), /Invalid greenhouse job address/);
 
   browser = await chromium.launch({ headless: true, ...(process.platform === 'win32' ? { channel: 'chrome' } : { executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome-stable' }) });
   const context = await browser.newContext();
@@ -53,7 +55,7 @@ try {
     networkRequests++;
     if (!fixtureUrls.has(route.request().url())) return route.abort();
     return route.fulfill({ contentType: 'text/html', body: `<!doctype html><main><h1>Fixture Developer</h1>
-      <form onsubmit="event.preventDefault();document.title='Fixture submitted'">
+      <a href="${employerForm}">Continue to the employer form</a><form onsubmit="event.preventDefault();document.title='Fixture submitted'">
       <label>Email<input type="email" name="email" required></label><button type="submit">Submit application</button></form></main>` });
   });
   let guards = 0;
@@ -100,12 +102,40 @@ try {
       return { outcome: { status: 'applied' }, captured: [], actions: [], submitPressed: true, site: new URL(source.url).host, steps: 1, usage: 'local fixture; no employer transmission' };
     } });
     assert.equal(outcome.status, 'applied'); assert.equal(outcome.jobId, target.id);
-    await assert.rejects(applyToEmployerJob(noBrowser, { ...target, applicationUrl: 'https://localhost/private' }, profile, deps));
+    await assert.rejects(applyToEmployerJob(noBrowser, { ...target, url: 'https://localhost/private' }, profile, deps));
     process.env.EMPLOYER_FEEDS_ADMIN_ENABLED = 'false';
     assert.equal((await applyToEmployerJob(noBrowser, target, profile, deps)).status, 'skipped');
     process.env.EMPLOYER_FEEDS_ADMIN_ENABLED = 'true';
   }
   assert.equal(released, 4, 'every provider releases its navigation guard');
+  for (const source of sourceJobs) {
+    const transferred = await applyToEmployerJob(page, { ...job, ...source, applicationUrl: 'https://unused.invalid/old-form' }, profile, deps, {
+      guard, runAgent: async ({ page, job: current }) => {
+        assert.equal(page.url(), source.url);
+        assert.equal(current.applicationUrl, source.url, 'only the live vacancy supplies the handoff');
+        await page.getByRole('link', { name: 'Continue to the employer form' }).click();
+        assert.equal(page.url(), employerForm);
+        await page.getByLabel('Email').fill(profile.email);
+        await page.getByRole('button', { name: 'Submit application' }).click();
+        assert.equal(await page.title(), 'Fixture submitted');
+        return { outcome: { status: 'applied' }, captured: [], actions: [], submitPressed: true, applicationUrl: page.url(), steps: 1, usage: 'fixture' };
+      }
+    });
+    assert.equal(transferred.status, 'applied');
+    assert.equal(transferred.applicationUrl, employerForm);
+  }
+  const standalone = { ...job, platform: 'external' as const, url: employerForm, applicationUrl: employerForm };
+  const generic = await applyToEmployerJob(page, standalone, profile, deps, { guard, runAgent: async ({ page }) => {
+    await page.getByLabel('Email').fill(profile.email);
+    await page.getByRole('button', { name: 'Submit application' }).click();
+    assert.equal(await page.title(), 'Fixture submitted');
+    return { outcome: { status: 'applied' }, captured: [], actions: [], submitPressed: true, steps: 1, usage: 'fixture' };
+  } });
+  assert.equal(generic.status, 'applied');
+  await assert.rejects(applyToEmployerJob(noBrowser, { ...standalone, applicationUrl: 'https://localhost/private' }, profile, deps), /not a public website/);
+  config.allowExternalApply = false;
+  assert.equal((await applyToEmployerJob(noBrowser, standalone, profile, deps)).status, 'skipped');
+  config.allowExternalApply = true;
   await context.addCookies([{ name: 'account-session', value: 'fixture-private', url: job.url }]);
   await applyToEmployerJob(page, job, profile, deps, { guard, runAgent: async options => {
     assert.equal(options.page, page, 'employer feeds use the existing native page');

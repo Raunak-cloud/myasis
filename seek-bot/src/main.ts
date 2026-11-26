@@ -24,7 +24,8 @@ showLiveActivity,
 workingIn,
 } from './browser.js';
 import { config, loadProfile } from './config.js';
-import { runDirectExternalApplication } from './direct-external.js';
+import { readNativeBoardTarget, readSavedEmployerListing, runDirectExternalApplication } from './direct-external.js';
+import { nativeBoardPosting } from './job-board-url.js';
 import {
 fetchJobDetail as fetchJobDetailIndeed,
 search as searchIndeed,
@@ -45,12 +46,12 @@ import {publicEmployerSearchCache} from './public-employer-search-cache.js';
 import {resolve} from 'node:path';
 import {readFileSync} from 'node:fs';
 import { EMPLOYER_SOURCES, employerFeedsEnabled } from './employer-source-config.js';
-import { assertExternalJobUrl, guardExternalNavigations } from './external-url.js';
+import { allowedNativeHandoffBoards, assertExternalJobUrl, guardExternalNavigations } from './external-url.js';
 import { configureLiveWorkers, resetLiveWorkers } from './live-workers.js';
 import { assessFit, rankJobsForReview, reviewKey, type FitAssessment } from './llm.js';
 import { SitePacer } from './pacing.js';
 import { measured, metric } from './pipeline.js';
-import { enabledPlatforms, type PlatformId } from './platforms.js';
+import { enabledPlatforms, isApplicationOnlyPlatform, type PlatformId } from './platforms.js';
 import { REVIEW_TTL, ReviewCache, applicationRejectionCache, listingFingerprint, reviewCacheMetadata, reviewContentFingerprint, reviewContextFingerprint } from './review-cache.js';
 import { completedReview } from './completed-reviews.js';
 import { ApplicationSkipMemory } from './application-skip-memory.js';
@@ -164,15 +165,35 @@ if (employerFeedsEnabled(process.env)) {
   }
 }
 
+/** Historical drafts and known vacancies retain their original source identity.
+ * This adapter never discovers jobs or opens a native board without its login. */
+function applicationAdapter(id: PlatformId): PlatformAdapter | undefined {
+  const configured = ADAPTERS.get(id);
+  if (configured || !isApplicationOnlyPlatform(id)) return configured;
+  return {
+    id, label: id === 'external' ? 'Employer site' : id, apiDiscovery: true,
+    assertSignedIn: async () => {}, search: async () => [],
+    fetchJobDetail: (page, job) => approvedApplication(job)
+      ? Promise.resolve({ ...job, applicationMode: 'external' })
+      : readSavedEmployerListing(page, job),
+    apply: applyToEmployerJob,
+  };
+}
+
 async function main() {
   const startedAt = performance.now();
   if (runDeadline.reached) return;
-  if (!searchOnly && await runApprovedEmailBatch(approvedApplications())) return;
+  const approvals = approvedApplications();
+  if (!searchOnly && await runApprovedEmailBatch(approvals)) return;
   const profile = loadProfile();
   const directExternalUrl = process.env.DIRECT_EXTERNAL_JOB_URL
     ? await assertExternalJobUrl(process.env.DIRECT_EXTERNAL_JOB_URL)
     : null;
-  if (!directExternalUrl && !config.keywords.length && !config.targetRole) throw new Error('Set your job search terms or target role before running.');
+  let boardTarget = process.env.TARGET_BOARD_JOB_URL ? nativeBoardPosting(process.env.TARGET_BOARD_JOB_URL) : null;
+  const repairTarget: JobListing | null = process.env.OWTOMATE_REPAIR_CASE_ID && process.env.TARGET_REPAIR_JOB_JSON
+    ? JSON.parse(process.env.TARGET_REPAIR_JOB_JSON) : null;
+  if (process.env.TARGET_BOARD_JOB_URL && (!boardTarget || !config.platforms.includes(boardTarget.platform))) throw new Error('Invalid or unavailable board posting for this run.');
+  if (!approvals.length && !repairTarget && !boardTarget && !directExternalUrl && !config.keywords.length && !config.targetRole) throw new Error('Set your job search terms or target role before running.');
   console.log(`Profile: ${profile.name} · ${profile.suburb ?? ''} · relocate=${profile.willingToRelocate}`);
 
   assertReviewModelConfigured();
@@ -223,7 +244,11 @@ async function main() {
     return;
   }
 
-  const platforms = directExternalUrl ? [] : enabledPlatforms(config.platforms.join(','));
+  let platforms = approvals.length ? [...new Set(approvals.map(item => item.job.platform ?? 'seek'))]
+    .filter(id => config.platforms.includes(id)).map(id => ({ id, label: applicationAdapter(id)?.label ?? id }))
+    : repairTarget?.platform && isApplicationOnlyPlatform(repairTarget.platform) && config.platforms.includes(repairTarget.platform)
+      ? [{ id: repairTarget.platform, label: applicationAdapter(repairTarget.platform)?.label ?? repairTarget.platform }]
+    : directExternalUrl ? [] : enabledPlatforms(boardTarget?.platform ?? config.platforms.join(','));
   console.log(directExternalUrl ? 'Run target: one direct employer website URL' : `Platforms this run: ${platforms.map((p) => p.label).join(', ')}`);
   if (process.env.BROWSER_ROUTE_NOTE) console.log(`Applying from: ${process.env.BROWSER_ROUTE_NOTE}`);
   // Boards the dashboard left out because the account is signed out of them.
@@ -241,8 +266,13 @@ async function main() {
 
   try {
     if (directExternalUrl) {
-      if (!runDeadline.reached) await runDirectExternalApplication(page, directExternalUrl, profile, () => directNavigation?.blocked() ?? null);
-      return;
+      if (runDeadline.reached) return;
+      const redirected = await runDirectExternalApplication(page, directExternalUrl, profile, () => directNavigation?.blocked() ?? null);
+      if (!redirected) return;
+      if (!allowedNativeHandoffBoards().includes(redirected.platform)) throw new Error('This redirected job board is outside the account’s available destinations.');
+      await directNavigation?.stop();
+      boardTarget = redirected;
+      platforms = enabledPlatforms(redirected.platform);
     }
     // ---- per-platform sign-in and discovery ---------------------
     // A sign-in failure or a stale session on one platform must not take the
@@ -272,6 +302,7 @@ async function main() {
     const targetedAdapters = new Set<PlatformId>();
     const bump = (reason: string) => skips.set(reason, (skips.get(reason) ?? 0) + 1);
     const explicitlyRequested = (job: JobListing): boolean => Boolean(approvedApplication(job) || job.source === 'chosen'
+      || boardTarget && boardTarget.id === job.id && boardTarget.platform === job.platform
       || targeted.some(item => item.job_id === job.id && (job.platform ?? 'seek') === 'seek')
       || targetedIndeed.some(item => item.job_id === job.id && job.platform === 'indeed')
       || repairTarget && repairTarget.id === job.id && repairTarget.platform === (job.platform ?? 'seek'));
@@ -414,14 +445,12 @@ async function main() {
     const targeted: Array<{ job_id: string; title: string; company: string }> = JSON.parse(process.env.TARGET_SEEK_JOBS ?? '[]');
     const targetedIndeed: typeof targeted = JSON.parse(process.env.TARGET_INDEED_JOBS ?? '[]');
     const seeded = discoverySeeds(process.env.DISCOVERY_SEED_JOBS_JSON ? JSON.parse(process.env.DISCOVERY_SEED_JOBS_JSON) : undefined);
-    const repairTarget: JobListing | null = process.env.OWTOMATE_REPAIR_CASE_ID && process.env.TARGET_REPAIR_JOB_JSON
-      ? JSON.parse(process.env.TARGET_REPAIR_JOB_JSON) : null;
     if (repairTarget && (!repairTarget.id || !repairTarget.url || !repairTarget.title || !repairTarget.company
       || !repairTarget.platform || platforms.length !== 1 || platforms[0].id !== repairTarget.platform)) throw new Error('Invalid repair retry target.');
     const selectedAccepted: JobListing[] = [];
     for (const platform of platforms) {
       if (runDeadline.reached) break;
-      const adapter = ADAPTERS.get(platform.id);
+      const adapter = approvals.length || repairTarget ? applicationAdapter(platform.id) : ADAPTERS.get(platform.id);
       if (!adapter) {
         console.warn(`  No adapter registered for ${platform.label} — skipping.`);
         continue;
@@ -437,10 +466,18 @@ async function main() {
       }
       active.push(adapter);
 
-      if (approvedApplications().length) {
+      if (approvals.length) {
         targetedAdapters.add(adapter.id);
-        selectedAccepted.push(...ingest(approvedApplications().filter(item => (item.job.platform ?? 'seek') === adapter.id)
-          .map(item => ({ ...item.job, source: 'chosen' as const })), adapter));
+        selectedAccepted.push(...ingest(approvals.filter(item => (item.job.platform ?? 'seek') === adapter.id)
+          .map(item => isApplicationOnlyPlatform(adapter.id)
+            ? { ...item.job, applicationUrl: item.formUrl || item.job.applicationUrl, applicationMode: 'external' as const, source: 'chosen' as const }
+            : { ...item.job, source: 'chosen' as const }), adapter));
+        continue;
+      }
+
+      if (boardTarget) {
+        targetedAdapters.add(adapter.id);
+        selectedAccepted.push(...ingest([await readNativeBoardTarget(page, boardTarget)], adapter));
         continue;
       }
 
@@ -451,7 +488,9 @@ async function main() {
       }
       if (repairTarget) {
         targetedAdapters.add(adapter.id);
-        selectedAccepted.push(...ingest([await adapter.fetchJobDetail(page, { ...repairTarget, source: 'search', fitReview: undefined })], adapter));
+        const original: JobListing = { ...repairTarget, source: 'search', fitReview: undefined };
+        const stub = isApplicationOnlyPlatform(adapter.id) ? { ...original, applicationMode: 'external' as const } : await adapter.fetchJobDetail(page, original);
+        selectedAccepted.push(...ingest([stub], adapter));
         console.log('  Repair retry: one original listing; normal fit, scope and duplicate checks still apply.');
         continue;
       }
@@ -881,7 +920,7 @@ async function main() {
       if (!isPromising(stub) && !hasPromisingUnreviewed(accept) && searchesLeft()) { await refillReviews(accept); return; }
       if (priorRejections.has(listingKey(stub)) && searchesLeft()) { await refillReviews(accept); return; }
       reviewClaimed.add(reviewReservationKey(stub));
-      const adapter = ADAPTERS.get(stub.platform ?? 'seek');
+      const adapter = applicationAdapter(stub.platform ?? 'seek');
       if (!adapter || reviewBlockedPlatforms.has(adapter.id) || abortedPlatforms.has(adapter.id)) return;
       // History may have changed since discovery while another application was sent.
       if (skipExistingApplication(stub)) return;
@@ -989,7 +1028,7 @@ async function main() {
            * a reasoning-model call each, and over ten days it found six jobs
            * already applied for — which the application step detects on its own.
            */
-          if (!job.description) {
+          if (!job.description && !(approvedApplication(job) && isApplicationOnlyPlatform(adapter.id))) {
             if (adapter.apiDiscovery) {
               bump('listing unavailable');
               logOutcome({ status: 'skipped', jobId: job.id, reason: 'The public job feed did not provide a description.', title: job.title, company: job.company, url: job.url });
@@ -1122,7 +1161,7 @@ async function main() {
     };
     let retryFallback:Promise<void>|undefined;
     const activateRetryFallback=async()=>{
-      if(searchOnly || preparingApplications() || approvedApplications().length || limitReached() || !reviewExhausted()
+      if(searchOnly || boardTarget || repairTarget || preparingApplications() || approvedApplications().length || limitReached() || !reviewExhausted()
         || candidates.some(candidate=>!candidate.retry))return;
       if(!retryFallback)retryFallback=(async()=>{
         const shortfall=retryShortfall(qualified,applicationTarget,applicationTarget);
@@ -1131,6 +1170,7 @@ async function main() {
         if(limitReached())return;
         for(const retry of batch){
           const job={...retry.job,source:'search' as const};
+          if (isApplicationOnlyPlatform(job.platform ?? 'seek')) job.applicationMode = 'external';
           if(skipExistingApplication(job) || waitingOnCandidate(job) || stoppedPlatform(job.platform??'seek')
             || deterministicExclusion(job) || job.applicationMode&&job.applicationMode!=='unknown'&&outsideScope(job.applicationMode))continue;
           const saved=completedReview(job)?.assessment;
@@ -1268,7 +1308,7 @@ async function main() {
             ...(outcome?.applicationUrl?{applicationUrl:outcome.applicationUrl}:{})},runId:process.env.OWTOMATE_RUN_START_ID??'',
             ...(selectedApproval?{approval:{id:selectedApproval.id,revision:selectedApproval.revision}}:{})});
           const platformId = job.platform ?? 'seek';
-          const adapter = ADAPTERS.get(platformId);
+          const adapter = applicationAdapter(platformId);
           if (!adapter) continue;
 
           // A listing whose kind is already known and outside this run's scope is not attempted; an unknown one is left to the board's own panel to decide.

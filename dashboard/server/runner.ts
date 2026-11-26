@@ -570,7 +570,7 @@ class Run {
     }
     const shown = Object.entries(overrides)
       .filter(([key]) => !['APPROVED_APPLICATIONS_JSON', 'PENDING_APPLICATION_KEYS_JSON'].includes(key))
-      .map(([k, v]) => `${k}=${['COVER_LETTER_TEXT_B64', 'AI_INSTRUCTIONS_B64', 'DIRECT_EXTERNAL_JOB_URL'].includes(k) ? '<provided>' : v}`)
+      .map(([k, v]) => `${k}=${['COVER_LETTER_TEXT_B64', 'AI_INSTRUCTIONS_B64', 'DIRECT_EXTERNAL_JOB_URL', 'TARGET_BOARD_JOB_URL'].includes(k) ? '<provided>' : v}`)
       .join('  ');
     if (shown) this.push('sys', `  overrides: ${shown}`);
     if (mode === 'live') this.push('sys', overrides.APPLICATION_REVIEW_MODE === 'prepare'
@@ -579,7 +579,7 @@ class Run {
 
     const timeoutMs = runTimeoutMs(env.OPERATOR_RUN_TIMEOUT_MINUTES || process.env.RUN_TIMEOUT_MINUTES || readEnv().RUN_TIMEOUT_MINUTES);
     env.OWTOMATE_RUN_DEADLINE_AT = String(Date.now() + timeoutMs);
-    const autoRetries=mode==='live' && !env.APPLICATION_REVIEW_MODE && !env.DIRECT_EXTERNAL_JOB_URL
+    const autoRetries=mode==='live' && !env.APPLICATION_REVIEW_MODE && !env.DIRECT_EXTERNAL_JOB_URL && !env.TARGET_BOARD_JOB_URL
       && (!env.TARGET_SEEK_JOBS || env.TARGET_SEEK_JOBS==='[]') && (!env.TARGET_INDEED_JOBS || env.TARGET_INDEED_JOBS==='[]') && !env.TARGET_REPAIR_JOB_JSON && !repairCaseId;
     env.AUTO_TECHNICAL_RETRIES=autoRetries?'true':'false';
     this.prepaidRetryIds.clear();

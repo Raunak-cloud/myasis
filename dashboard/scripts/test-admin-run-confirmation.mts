@@ -46,7 +46,7 @@ try{
   await page.getByRole('button',{name:'Job boards only',exact:true}).click();await dialog.getByRole('button',{name:'Start run'}).click();await page.getByRole('button',{name:'Starting…',exact:true}).waitFor();release!();await page.getByRole('button',{name:'Stop run',exact:true}).waitFor();
   assert.deepEqual(writes.at(-1),{path:'/api/admin/users/999/run',body:{applicationMode:'semi-auto',scope:'hosted'}});
   await page.getByRole('button',{name:'Stop run',exact:true}).click();await dialog.getByRole('button',{name:'Stop run'}).click();await start.waitFor();
-  await page.getByLabel('External job URL',{exact:true}).fill('https://careers.example.invalid/job/42');await page.getByRole('button',{name:'Apply to URL',exact:true}).click();
+  await page.getByLabel('Job URL',{exact:true}).fill('https://careers.example.invalid/job/42');await page.getByRole('button',{name:'Apply to URL',exact:true}).click();
   assert.match(await dialog.innerText(),/can submit a real application/);await dialog.getByRole('button',{name:'Apply to URL'}).click();await page.getByRole('button',{name:'Starting…',exact:true}).waitFor();release!();await page.getByRole('button',{name:'Stop run',exact:true}).waitFor();
   assert.deepEqual(writes.at(-1),{path:'/api/admin/users/999/run',body:{externalUrl:'https://careers.example.invalid/job/42'}});
   await page.getByRole('button',{name:'Stop run',exact:true}).click();await dialog.getByRole('button',{name:'Stop run'}).click();await start.waitFor();

@@ -27,7 +27,7 @@ import { readSiteState } from './seek-state.js';
 import { browserRoute, describeRoute } from './route.js';
 import { releaseFreeProxy } from './proxy-pool.js';
 import { query } from './db/index.js';
-import { validateExternalJobUrl } from './external-job-url.js';
+import { standaloneEmployerForm, validateExternalJobUrl } from './external-job-url.js';
 import { employerApplicationAllowance } from './employer-site-access.js';
 import { applyJobSourceAccess, availableJobSources, jobSourceSettingsError } from './job-sources.js';
 import {employerApplicationsEnabled} from '../src/employer-applications.js';
@@ -36,7 +36,7 @@ import { annualSalaryAmount, EXPECTED_SALARY_REQUIRED } from '../src/salary.js';
 import type { RunDevice } from '../src/run-device.js';
 import { applicationsForConfirmation, claimApplicationReviews, pendingReviewKeys, releaseApplicationReviews, reviewSelection, ApplicationReviewError } from './application-reviews.js';
 import type { PreparedApplication } from '../../seek-bot/src/application-review-types.js';
-import { isExternalApplicationUrl } from '../../seek-bot/src/job-board-url.js';
+import { isExternalApplicationUrl, jobBoardForUrl, nativeBoardPosting } from '../../seek-bot/src/job-board-url.js';
 import { validateCoverLetterInstructions } from '../../seek-bot/src/cover-letter-policy.js';
 import { gmailAccess } from './gmail-access.js';
 import { scheduledStart } from './run-schedule.js';
@@ -104,7 +104,7 @@ interface StartRunRequest {
   scope?: unknown;
   /** Admin diagnostic retries, still subject to normal eligibility and limits. */
   jobIds?: unknown;
-  /** One exact employer job page supplied by an administrator. */
+  /** One exact public job page supplied by an administrator. */
   externalUrl?: unknown;
   /** Explicit operator exception, resolved for this run only; never saved as account settings. */
   oneTime?: { plan?: 'intensive-pass'; seedSeekJobs?: unknown; allowMissingSalary?: boolean; maxApplications?: number; maxEvaluations?: number; applicationModel?: ApplicationModel; applicationBudget?: OperatorApplicationBudget; includeSavedChoices?: boolean };
@@ -351,6 +351,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     if (selections) prepaid = await applicationsForConfirmation(userId, selections);
   } catch (error) { return { ok: false, status: 409, error: (error as Error).message }; }
   const prepaidExternal = prepaid.filter(item => item.job.applicationMode === 'external' || isExternalApplicationUrl(item.formUrl)).length;
+  let handoffSources = overrides.PLATFORMS;
   if(prepaidExternal>0&&!employersEnabled)return {ok:false,status:409,error:'Employer-site applications are off. Turn them on before confirming these applications.'};
   // Preparing an employer application already spent its credit. Allow the
   // exact prepared source even when no unused employer-site allowance remains.
@@ -372,6 +373,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   const narrowedBoards = trigger === 'admin' ? String(request.clientOverrides?.PLATFORMS ?? '').trim() : '';
   if (narrowedBoards && narrowedBoards.split(',').every((board) => ['seek', 'indeed', 'adzuna', 'jora', ...(entitlements.employerSources ? EMPLOYER_SOURCES.map(source => source.id) : [])].includes(board.trim()))) {
     overrides.PLATFORMS = narrowedBoards;
+    handoffSources = narrowedBoards;
   }
   try {
     applyJobSourceAccess(overrides, admin, entitlements.employerSources, adzunaConfigured({ ...readEnv(), ...process.env }));
@@ -379,15 +381,26 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
   catch (error) { return { ok: false, status: 400, error: (error as Error).message }; }
   let directExternalUrl: string | null = null;
   if (request.externalUrl !== undefined) {
-    if(!employersEnabled)return {ok:false,status:409,error:'Employer-site applications are off. Turn them on before starting a direct application.'};
     if (trigger !== 'admin') return { ok: false, status: 403, error: 'Only administrators can start a direct website application.' };
     if (mode !== 'live') return { ok: false, status: 400, error: 'A direct website application must be a live run.' };
-    if (request.jobIds !== undefined) return { ok: false, status: 400, error: 'Choose either a direct website URL or targeted board jobs, not both.' };
+    if (request.jobIds !== undefined || selections) return { ok: false, status: 400, error: 'Choose one job URL or a set of saved jobs.' };
     const checked = await validateExternalJobUrl(request.externalUrl);
     if (typeof checked !== 'string') return { ok: false, status: 400, error: checked.error };
-    directExternalUrl = checked;
-    overrides.DIRECT_EXTERNAL_JOB_URL = checked;
-    overrides.APPLY_ONLY = 'external';
+    const board = jobBoardForUrl(checked);
+    if (board) {
+      const posting = nativeBoardPosting(checked);
+      if (!posting) return {ok:false,status:400,error:'Paste the link to a specific job on this board.'};
+      if (!overrides.PLATFORMS.split(',').includes(board) || (board === 'indeed' && !entitlements.indeedApplications)) {
+        return {ok:false,status:403,error:`${BOARD_NAMES[board]} is outside this account’s selected sources or plan.`};
+      }
+      overrides.TARGET_BOARD_JOB_URL = posting.url;
+      overrides.PLATFORMS = board;
+    } else {
+      if (!employersEnabled) return {ok:false,status:409,error:'Employer-site applications are off. Turn them on before starting a direct application.'};
+      if (request.scope === 'hosted' || overrides.APPLY_ONLY === 'hosted' && request.scope !== 'external') return {ok:false,status:409,error:'An employer job link requires a run that allows employer-site applications.'};
+      directExternalUrl = checked;
+      overrides.DIRECT_EXTERNAL_JOB_URL = checked;
+    }
     overrides.MAX_APPS_PER_RUN = '1';
     overrides.MAX_EVALUATIONS = '1';
   }
@@ -405,18 +418,23 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     overrides.TARGET_INDEED_JOBS = indeed?JSON.stringify(jobs):'[]';
     overrides.PLATFORMS = indeed?'indeed':'seek';
   }
+  let standaloneRepair = false;
   if (request.repairJob) {
     const job = request.repairJob;
+    standaloneRepair = standaloneEmployerForm(job, job.applicationUrl ?? job.url);
     if (!job.id || !job.title || !job.company || !job.url || !job.platform || request.jobIds || request.externalUrl || request.approvals
-      || !String(overrides.PLATFORMS).split(',').includes(job.platform)) return {ok:false,status:409,error:'Repair job source is unavailable under current run settings.'};
+      || (!standaloneRepair && !String(overrides.PLATFORMS).split(',').includes(job.platform))) return {ok:false,status:409,error:'Repair job source is unavailable under current run settings.'};
     overrides.TARGET_REPAIR_JOB_JSON = JSON.stringify({ ...job, source: 'search', fitReview: undefined });
     overrides.PLATFORMS = job.platform;
   }
 
-  if (!directExternalUrl && (request.scope === 'external' || request.scope === 'hosted')) {
+  if (request.scope === 'external' || request.scope === 'hosted') {
     // The authenticated admin route may narrow a customer's run as well.
     // Customer entitlements still control employer-site eligibility below.
     if (entitlements.runScopes || trigger === 'admin') overrides.APPLY_ONLY = request.scope;
+  }
+  if ((prepaidExternal > 0 || standaloneRepair) && overrides.APPLY_ONLY === 'hosted') {
+    return { ok: false, status: 409, error: 'This application uses an employer website. Choose a run that allows employer-site applications.' };
   }
 
   if (consumes) {
@@ -428,7 +446,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
         overrides.APPLICATIONS_UNLIMITED = 'true';
         // Unlimited ordinary runs still honor an administrator's explicit
         // one-time diagnostic cap and a direct single-vacancy preparation.
-        if (request.oneTime?.maxApplications === undefined && !directExternalUrl && !sponsored && !bonus) overrides.MAX_APPS_PER_RUN = 'none';
+        if (request.oneTime?.maxApplications === undefined && request.externalUrl === undefined && !sponsored && !bonus) overrides.MAX_APPS_PER_RUN = 'none';
         // Every account has a daily ceiling, including unlimited passes.
         const chosenDailyCap = String(request.clientOverrides?.MAX_APPS_PER_DAY
           ?? (settingsSnapshot.saved[DAILY_APPLICATION_CAP_CHOSEN] === '1' ? settingsSnapshot.saved.MAX_APPS_PER_DAY : '') ?? '').trim();
@@ -444,7 +462,7 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
       // Decided from the active pass here, never from a supplied override.
       const employerSitesAllowed = employersEnabled && (admin || employerLimit > 0);
       overrides.ALLOW_EXTERNAL_APPLY = employerSitesAllowed ? 'true' : 'false';
-      if (directExternalUrl && overrides.ALLOW_EXTERNAL_APPLY !== 'true') {
+      if ((directExternalUrl || standaloneRepair) && overrides.ALLOW_EXTERNAL_APPLY !== 'true') {
         return { ok: false, status: 403, error: 'No employer-site application allowance is available for this account.' };
       }
       // The worker uses a daily counter with its current baseline plus this
@@ -528,9 +546,12 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
    * is left out of the run and the run says so. With no signed-in board left there is
    * nothing to run, and the reason is given instead of an empty run.
    */
-  const boards = directExternalUrl || emailOnly
-    ? []
-    : (overrides.PLATFORMS || 'seek').split(',').map((board) => board.trim()).filter(Boolean);
+  const suppliedBoards = (overrides.PLATFORMS || 'seek').split(',').map(board => board.trim()).filter(Boolean);
+  const allowStandalone = (draft: PreparedApplication) => overrides.ALLOW_EXTERNAL_APPLY === 'true'
+    && overrides.APPLY_ONLY !== 'hosted' && standaloneEmployerForm(draft.job, draft.formUrl);
+  const approvalPlatforms = new Set<string>(prepaid.map(item => item.job.platform ?? 'seek'));
+  const needsSourceAccess = !directExternalUrl && !emailOnly && !standaloneRepair;
+  const boards = needsSourceAccess ? suppliedBoards.filter(board => !selections || approvalPlatforms.has(board)) : [];
   /**
    * A board last seen signed out gets one fresh check before it is written
    * off. The check signs a lapsed session back in with the account the
@@ -547,17 +568,21 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     if (!state || (state.signedIn === false && !state.signedOutByPerson)) await checkSignin(userId, board);
   }
   const { supported: supportedBoards, unavailable, usable } = availableJobSources(boards, entitlements.employerSources, board => readSiteState(userId, board)?.signedIn === true, adzunaConfigured({ ...readEnv(), ...process.env }));
+  const selectedSources = handoffSources.split(',').map(board => board.trim());
+  overrides.ALLOWED_NATIVE_HANDOFF_BOARDS = (['seek', 'indeed'] as const)
+    .filter(board => selectedSources.includes(board) && (board !== 'indeed' || entitlements.indeedApplications)
+      && readSiteState(userId, board)?.signedIn === true).join(',');
   if (!directExternalUrl && usable.length && usable.every(isEmployerSource) && overrides.APPLY_ONLY === 'hosted') {
     return { ok: false, status: 400, error: 'Employer feeds use employer-site applications. Choose a normal or employer-sites run.' };
   }
-  if (consumes && !directExternalUrl && !emailOnly && !usable.length) {
+  if (consumes && needsSourceAccess && !usable.length && (!selections || boards.length > 0)) {
     return {
       ok: false,
       status: 428,
       error: `${listNames(unavailable.length ? unavailable : supportedBoards)} ${unavailable.length === 1 ? 'is' : 'are'} not confirmed signed in. Sign in on the Apply page, then start the run again.`,
     };
   }
-  if (!directExternalUrl && !emailOnly) overrides.PLATFORMS = usable.join(',');
+  if (needsSourceAccess) overrides.PLATFORMS = usable.join(',');
   if (seeds.length && !usable.includes('seek')) return {ok:false,status:428,error:'Sign in to SEEK before running these discovery leads.'};
   if (unavailable.length) overrides.SKIPPED_BOARDS = unavailable.join(',');
 
@@ -583,8 +608,8 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
         if (error instanceof ApplicationReviewError) return { ok: false, status: 409, error: error.message };
         throw error;
       }
-      const permitted = new Set((overrides.PLATFORMS || 'seek').split(','));
-      if (approved.some(item => !permitted.has(item.job.platform ?? 'seek'))) return { ok: false, status: 403, error: 'One of these applications uses a job board outside your current settings or plan.' };
+      const permitted = new Set(emailOnly ? suppliedBoards : usable);
+      if (approved.some(item => !permitted.has(item.job.platform ?? 'seek') && !allowStandalone(item))) return { ok: false, status: 403, error: 'One of these applications uses a job board outside your current settings or plan.' };
       overrides.PLATFORMS = [...new Set(approved.map(item => item.job.platform ?? 'seek'))].join(',');
       overrides.APPLICATION_REVIEW_MODE = 'approved';
       overrides.APPROVED_APPLICATIONS_JSON = JSON.stringify(approved);

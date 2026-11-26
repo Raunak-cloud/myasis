@@ -3,9 +3,9 @@ import { resolve, relative, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { query } from './db/index.js';
 import { claimApplicationReviews, releaseApplicationReviews } from './application-reviews.js';
+import { standaloneEmployerForm } from './external-job-url.js';
 import { applicationKeys, sameApplication } from '../../seek-bot/src/application-identity.js';
 import { listingAgeDays, passesListingAge } from '../../seek-bot/src/listing-age.js';
-import { retiredJobSource } from '../../seek-bot/src/retired-job-sources.js';
 import { matchingExcludedCompany } from '../../seek-bot/src/company-match.js';
 import { isExternalApplicationUrl } from '../../seek-bot/src/job-board-url.js';
 import { TECHNICAL_RETRY_FILE, technicalFailure, type TechnicalAttempt, type TechnicalRetryCandidate } from '../../seek-bot/src/technical-retry-types.js';
@@ -17,7 +17,7 @@ interface RetryRow {job_key:string;payload:RetryPayload;status:string;failed_at:
 export interface TechnicalRetryContext {platforms:string[];maxAgeDays:number;excludedCompanies:string[];external:boolean;scope:string;deadlineAt:number;directory:string;creditsRemaining?:number;externalRemaining?:number}
 
 function validJob(job:JobListing|undefined):job is JobListing {
-  if(!job || !job.id || !job.title || !job.company || !job.platform || retiredJobSource(job))return false;
+  if(!job || !job.id || !job.title || !job.company || !job.platform)return false;
   try{return new URL(job.url).protocol==='https:';}catch{return false;}
 }
 const keyOf=(job:JobListing)=>`${job.platform ?? 'seek'}:${job.id}`;
@@ -138,6 +138,7 @@ export async function claimTechnicalRetries(userId:string,runId:string,count:num
   ]);
   const claimed:TechnicalRetryCandidate[]=[],keys=new Set<string>();
   let credits=context.creditsRemaining??Infinity;
+  let employerSlots=context.externalRemaining??Infinity;
   rows.sort((a,b)=>Number(externalJob(a.payload.job))-Number(externalJob(b.payload.job)));
   for(const row of rows){
     if(claimed.length>=count || Date.now()>=context.deadlineAt)break;
@@ -147,9 +148,12 @@ export async function claimTechnicalRetries(userId:string,runId:string,count:num
     if(latest && String(latest.runStartId)!==row.payload.runId && (latest.sendAudit?.attempted!==false || !latest.outcome)){
       await query("UPDATE technical_application_retries SET status='held' WHERE user_id=$1 AND job_key=$2 AND status='pending'",[userId,row.job_key]);continue;
     }
-    if(!validJob(job) || !context.platforms.includes(job.platform!) || !passesListingAge(job,context.maxAgeDays)
+    if(!validJob(job))continue;
+    const external=externalJob(job);
+    if(!context.platforms.includes(job.platform!) && !standaloneEmployerForm(job,job.applicationUrl??job.url))continue;
+    if(!passesListingAge(job,context.maxAgeDays)
       || matchingExcludedCompany(job.company,context.excludedCompanies)
-      || externalJob(job)&&(!context.external || (context.externalRemaining??Infinity)<=0)
+      || external&&(!context.external || context.scope==='hosted' || employerSlots<=0)
       || context.scope!=='all'&&job.applicationMode&&job.applicationMode!=='unknown'&&job.applicationMode!==context.scope)continue;
     const aliases=applicationKeys(job);
     if(aliases.some(key=>keys.has(key)) || applications.some(record=>sameApplication(record,job))
@@ -168,6 +172,7 @@ export async function claimTechnicalRetries(userId:string,runId:string,count:num
     }
     for(const key of aliases)keys.add(key);
     if(!approval)credits--;
+    if(external)employerSlots--;
     claimed.push({key:row.job_key,job,reason:row.payload.reason,failedAt:new Date(row.failed_at).toISOString(),...(approval?{approval}:{})});
   }
   return claimed;

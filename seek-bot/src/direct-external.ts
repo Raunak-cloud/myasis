@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
 import type { Page } from 'patchright';
-import { preparingApplications } from './application-review.js';
+import { waitForChallengeToClear } from './browser.js';
+import { jobBoardForUrl, isExternalApplicationUrl, nativeBoardPosting, type JobBoard } from './job-board-url.js';
+import { pendingApplicationKeys, preparingApplications } from './application-review.js';
+import { applicationKeys } from './application-identity.js';
+import { reviewDuplicate } from './duplicate-review.js';
+import { assertExternalJobUrl, guardExternalNavigations } from './external-url.js';
 import { prepareMatchedJob } from './prepare-job.js';
 import { runApplicationAgent } from './agent/loop.js';
 import { waitForApplicationSurface } from './agent/observe.js';
@@ -20,8 +25,8 @@ interface PageIdentity {
   description: string;
 }
 
-export async function identifyDirectJob(page: Page): Promise<PageIdentity> {
-  return page.evaluate(async () => {
+export async function identifyDirectJob(page: Page, board?: JobBoard): Promise<PageIdentity> {
+  return page.evaluate(async (board) => {
     const values: unknown[] = [];
     for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
       try { values.push(JSON.parse(script.textContent ?? 'null')); } catch { /* malformed metadata is only a fallback */ }
@@ -47,6 +52,8 @@ export async function identifyDirectJob(page: Page): Promise<PageIdentity> {
       ?? [...document.querySelectorAll('h1')].find(visible))?.textContent;
     const siteName = document.querySelector('meta[property="og:site_name"]')?.getAttribute('content');
     const host = location.hostname.replace(/^www\./, '');
+    const employer = board === 'seek' ? document.querySelector('[data-automation="advertiser-name"], [data-automation="job-detail-company-name"]')
+      : board === 'indeed' ? document.querySelector('[data-testid="inlineHeader-companyName"], [data-company-name="true"]') : null;
     // Amazon publishes the employing entity beside the vacancy number rather
     // than in JobPosting JSON-LD. Its portal brand is not the employer name.
     const amazonId = host === 'amazon.jobs' ? location.pathname.match(/^\/[a-z]{2}(?:-[A-Z]{2})?\/jobs\/(\d+)(?:\/|$)/)?.[1] : undefined;
@@ -63,18 +70,18 @@ export async function identifyDirectJob(page: Page): Promise<PageIdentity> {
     const googleHeading = googleTitle ? [...document.querySelectorAll('main h2, [role="main"] h2')]
       .find(element => clean(element.textContent) === clean(googleTitle)
         && element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) : undefined;
-    const title = clean(posting?.title || googleHeading?.textContent || heading || document.title || 'Direct employer application');
+    const title = clean((board && heading) || posting?.title || googleHeading?.textContent || heading || (board ? '' : document.title || 'Direct employer application'));
     // Workday's JSON-LD can omit additional advertised locations. Its public
     // posting endpoint supplies them; bind the response to this exact vacancy.
     const tenant = host.match(/^([a-z0-9-]+)\.wd\d+\.myworkdayjobs\.com$/i)?.[1];
     const parts = location.pathname.split('/').filter(Boolean);
     const offset = /^[a-z]{2}-[a-z]{2}$/i.test(parts[0] ?? '') ? 1 : 0;
-    const board = parts[offset];
+    const careerSite = parts[offset];
     const jobPath = parts.slice(offset + 1);
     const requisition = jobPath.at(-1)?.match(/_([a-z0-9-]+)$/i)?.[1];
-    if (tenant && board && /^[a-z0-9_-]+$/i.test(board) && jobPath[0] === 'job' && requisition) {
+    if (tenant && careerSite && /^[a-z0-9_-]+$/i.test(careerSite) && jobPath[0] === 'job' && requisition) {
       try {
-        const endpoint = new URL(`/wday/cxs/${tenant}/${board}/${jobPath.join('/')}`, location.origin);
+        const endpoint = new URL(`/wday/cxs/${tenant}/${careerSite}/${jobPath.join('/')}`, location.origin);
         const response = await fetch(endpoint.href, { credentials: 'omit', signal: AbortSignal.timeout(5_000) });
         if (response.ok) {
           const info = (await response.json())?.jobPostingInfo;
@@ -87,7 +94,7 @@ export async function identifyDirectJob(page: Page): Promise<PageIdentity> {
     }
     return {
       title,
-      company: clean(posting?.hiringOrganization?.name || amazonCompany || (googleHeading ? 'Google' : siteName || host)),
+      company: clean(employer?.textContent || posting?.hiringOrganization?.name || amazonCompany || (board ? '' : googleHeading ? 'Google' : siteName || host)),
       location: [...new Set(locations)].join('; ').slice(0, 2_000),
       description: (() => {
         if (posting?.description) {
@@ -97,7 +104,35 @@ export async function identifyDirectJob(page: Page): Promise<PageIdentity> {
         return (amazonBody || document.querySelector('main, [role="main"]') as HTMLElement | null)?.innerText?.trim().slice(0, 60000) ?? '';
       })(),
     };
-  });
+  }, board);
+}
+
+/** A pasted posting supplies only its identity; live board evidence supplies all matching facts. */
+export async function readNativeBoardTarget(page: Page, target: NonNullable<ReturnType<typeof nativeBoardPosting>>): Promise<JobListing> {
+  await page.goto(target.url, { waitUntil: 'domcontentloaded' });
+  await waitForChallengeToClear(page);
+  await page.locator('h1, script[type="application/ld+json"]').first().waitFor({state:'attached', timeout:15_000}).catch(() => {});
+  const current = nativeBoardPosting(page.url());
+  if (current?.id !== target.id || current.platform !== target.platform) throw new Error('The job board did not open the requested vacancy.');
+  const facts = await identifyDirectJob(page, target.platform);
+  if (!facts.title || !facts.company) throw new Error('The job board did not show a job title and employer for the requested vacancy.');
+  return { ...facts, ...target, source: 'search' };
+}
+
+/** Recover the live advert before matching an unapproved repair from a source without a search adapter. */
+export async function readSavedEmployerListing(page: Page, job: JobListing): Promise<JobListing> {
+  const url = await assertExternalJobUrl(job.url, undefined, false);
+  const guard = await guardExternalNavigations(page.context());
+  try {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 });
+    await page.locator('h1, main, [role="main"], script[type="application/ld+json"]').first().waitFor({state:'attached', timeout:15_000}).catch(() => {});
+    const facts = await identifyDirectJob(page, jobBoardForUrl(page.url()) ?? undefined);
+    const company = facts.company === new URL(page.url()).hostname.replace(/^www\./, '') ? job.company : facts.company || job.company;
+    return { ...job, ...facts, title: facts.title || job.title, company, location: facts.location || job.location,
+      applicationUrl: page.url(), applicationMode: 'external' };
+  } finally {
+    await guard.stop();
+  }
 }
 
 /** Applies to exactly the operator-supplied page, using the same current-preference review as discovered vacancies. */
@@ -107,7 +142,7 @@ export async function runDirectExternalApplication(
   profile: CandidateProfile,
   navigationBlocked: () => string | null,
   test?: { runAgent: typeof runApplicationAgent; match?: typeof assessFit; refreshPrior?: (previous: JobListing) => Promise<JobListing> },
-): Promise<void> {
+): Promise<ReturnType<typeof nativeBoardPosting> | void> {
   if (test && (!config.dryRun || !new URL(url).hostname.endsWith('.invalid'))) {
     throw new Error('Direct application dependency overrides require an isolated dry-run fixture.');
   }
@@ -122,8 +157,9 @@ export async function runDirectExternalApplication(
     throw new Error(blocked ? `Direct website navigation was blocked: ${blocked}` : `Could not open the direct job URL: ${(error as Error).message}`);
   }
   await page.waitForFunction(() => Boolean(document.body?.innerText.trim()), undefined, { timeout: 15_000 }).catch(() => {});
-  if(!preparingApplications())await waitForApplicationSurface(page, 5_000).catch(() => false);
-  const identity = await identifyDirectJob(page);
+  const board = jobBoardForUrl(page.url());
+  if(!board && !preparingApplications())await waitForApplicationSurface(page, 5_000).catch(() => false);
+  const identity = await identifyDirectJob(page, board ?? undefined);
   let job: JobListing = {
     id,
     title: identity.title || 'Direct employer application',
@@ -137,6 +173,22 @@ export async function runDirectExternalApplication(
     description: identity.description,
   };
   const index = new AppliedIndex();
+  const pending = pendingApplicationKeys();
+  const original = { ...job, applicationUrl: job.url };
+  const duplicate = [job, original].map(alias => reviewDuplicate(alias, index.all)).find(review => review.decision === 'duplicate');
+  if ([job, original].some(alias => applicationKeys(alias).some(key => pending.has(key))) || duplicate) {
+    const reason = duplicate?.reason ?? 'This application is already awaiting a decision.';
+    saveRunSummary(0);
+    logOutcome({ status: duplicate ? 'already-applied' : 'skipped', jobId: job.id, title: job.title, company: job.company, url: job.url, reason });
+    console.log(reason);
+    console.log('\n=== Run complete: 0 new application(s) ===');
+    return;
+  }
+  if (board) {
+    const posting = nativeBoardPosting(page.url());
+    if (!posting) throw new Error('The employer redirected to a job board without identifying a specific vacancy.');
+    return posting;
+  }
   if ((!config.allowExternalApply || config.limits.maxApplicationsPerRun < 1
     || index.appliedToday() >= config.limits.maxApplicationsPerDay
     || config.limits.externalAttemptsToday >= config.limits.maxExternalPerDay)) {
@@ -171,9 +223,13 @@ export async function runDirectExternalApplication(
   try {
     if(preparingApplications())outcome=await prepareMatchedJob(job,profile,{page});
     else{
-    const apply = () => (test?.runAgent ?? runApplicationAgent)({ page, job, profile, log: (line: string) => console.log(line) });
+    const apply = () => (test?.runAgent ?? runApplicationAgent)({ page, job, profile, handoffNativePosting: true, log: (line: string) => console.log(line) });
     const run = await apply();
     console.log(`  agent: ${run.steps} steps · ${run.usage}`);
+    if (!run.submitPressed && run.outcome.status === 'off-platform') {
+      const posting = nativeBoardPosting(run.outcome.redirectedTo);
+      if (posting) return posting;
+    }
     outcome = outcomeFromRun(run, job.id, page.url());
     }
   } catch (error) {
@@ -194,12 +250,12 @@ export async function runDirectExternalApplication(
       appliedAt: outcome.at,
       ...(outcome.applicationUrl ? { applicationUrl: outcome.applicationUrl } : {}),
       score: job.fitReview!.score,
-      platform: 'external',
+      platform: job.platform ?? 'external',
       coverLetter: outcome.coverLetter,
       answers: outcome.answers,
       ...(outcome.resume ? { resume: outcome.resume } : {}),
       scoreReasons: job.fitReview!.evidence,
-      external: true,
+      external: isExternalApplicationUrl(outcome.applicationUrl ?? job.applicationUrl ?? job.url),
       ...(outcome.site ? { site: outcome.site } : {}),
       ...(outcome.actions?.length ? { actions: outcome.actions } : {}),
       submittedByMyasis: true,

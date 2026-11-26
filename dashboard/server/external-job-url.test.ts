@@ -12,7 +12,9 @@ for (const host of ['jobs.nsw.gov.au', 'careers.health.qld.gov.au', 'www.apsjobs
   assert.equal(await validateExternalJobUrl(url, async (hostname) => hostname === host), url);
   assert.deepEqual(await validateExternalJobUrl(url, async () => false), { error: 'The external job URL must resolve only to public internet addresses.' });
 }
-assert.deepEqual(await validateExternalJobUrl('https://www.seek.com.au/job/12345678'), { error: 'Use this field for an employer website, not a SEEK or Indeed listing.' });
+for (const url of ['https://www.seek.com.au/job/12345678','https://au.indeed.com/viewjob?jk=0123456789abcdef']) {
+  assert.equal(await validateExternalJobUrl(url, async host => host === new URL(url).hostname), url);
+}
 assert.deepEqual(await validateExternalJobUrl('https://careers.example.com/payment'), { error: 'Use the job page, not a payment page.' });
 
 console.log('external job URL checks passed');
