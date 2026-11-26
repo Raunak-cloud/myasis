@@ -81,9 +81,8 @@ test('browser resolves Adzuna tracking, reads full employer evidence, preserves 
     assert.match(mirror.description!, /^Full SEEK description/);
     assert.equal(mirror.applicationUrl, 'https://www.seek.com.au/job/95593975/apply');
     assert.equal(mirror.ageDays,20,'The board posting age also wins over the new aggregator card.');
-    // Boards are permitted only for this aggregator's existing-board handoff.
-    await assert.rejects(assertExternalJobUrl(destination, async () => true), /cannot target/);
-    assert.equal(await assertExternalJobUrl(destination, async () => true, true), destination);
+    assert.equal(await assertExternalJobUrl(destination, async () => true), destination);
+    await assert.rejects(assertExternalJobUrl(destination, async () => true, false), /outside this run/);
 
     destination='https://au.indeed.com/viewjob?jk=0123456789abcdef';
     const indeed=await detailReader(page,stub);
