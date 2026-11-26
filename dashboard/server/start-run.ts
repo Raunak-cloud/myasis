@@ -435,7 +435,9 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
         overrides.MAX_APPS_PER_DAY = String(dailyApplicationLimit(chosenDailyCap));
       }
       const externalUsedToday = admin ? 0 : await externalSubmittedToday(userId);
-      const externalRemaining = selections ? prepaidExternal : employerApplicationAllowance(allowance);
+      // A pass with no separate employer quota can follow an approved
+      // listing's real application route even when its saved route is unknown.
+      const externalRemaining = selections && !unlimitedApplications ? prepaidExternal : employerApplicationAllowance(allowance);
       const employerLimit = sponsored
         ? Math.min(externalRemaining, Math.max(0, SPONSORED_EMPLOYER_SITES_PER_DAY - externalUsedToday))
         : externalRemaining;

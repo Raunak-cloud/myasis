@@ -174,9 +174,28 @@ export const gmailAccess=async()=>({connected:false}),scheduledStart=async()=>{t
     assert.deepEqual(await startRun(boardRequest),{ok:true,mode:'live'});
     assert.equal(state.starts.at(-1)[1].ALLOW_EXTERNAL_APPLY,'true','re-enabling restores existing employer allowance');
     assert.equal(state.starts.at(-1)[1].MAX_EXTERNAL_PER_DAY, '', 'Get Owtomated has no separate employer cap');
+    const approvalRequest = {...boardRequest, clientOverrides:{PLATFORMS:'indeed'}, approvals:[{id:attemptId,revision:'a'.repeat(64)}]};
+    const knownExternal = state.approvedDrafts[0];
+    const indeedUrl = `https://au.indeed.com/viewjob?jk=${indeedId}`;
+    state.approvedDrafts[0] = {...knownExternal, job:{
+      ...knownExternal.job, id:indeedId, platform:'indeed', url:indeedUrl, applicationMode:'unknown',
+    }, formUrl:indeedUrl};
+    assert.deepEqual(await startRun(approvalRequest),{ok:true,mode:'live'});
+    const approvedUnknown = state.starts.at(-1)[1];
+    assert.equal(approvedUnknown.PLATFORMS,'indeed');
+    assert.equal(approvedUnknown.APPLICATION_REVIEW_MODE,'approved');
+    assert.equal(approvedUnknown.ALLOW_EXTERNAL_APPLY,'true','an unlimited pass can follow an approved listing to the employer');
+    assert.equal(approvedUnknown.MAX_EXTERNAL_PER_DAY,'');
+    state.employersEnabled=false;
+    assert.deepEqual(await startRun(approvalRequest),{ok:true,mode:'live'});
+    assert.equal(state.starts.at(-1)[1].ALLOW_EXTERNAL_APPLY,'false','an unknown route cannot override the saved opt-out');
+    state.employersEnabled=true;
     state.intensive = false;
     state.credits = 50;
     state.externalSent = 2;
+    assert.deepEqual(await startRun(approvalRequest),{ok:true,mode:'live'});
+    assert.equal(state.starts.at(-1)[1].ALLOW_EXTERNAL_APPLY,'false','an unknown route has no prepaid employer slot on a capped pass');
+    state.approvedDrafts[0] = knownExternal;
     for (const applicationMode of ['auto', 'semi-auto'] as const) {
       state.externalRemaining = 8;
       assert.deepEqual(await startRun({ ...boardRequest, applicationMode }), { ok: true, mode: 'live' });
