@@ -1,4 +1,5 @@
 :root {
+  --question-date-scheme: dark;
   --page-max: 1680px;
   --bg: #0b1320;
   --surface: #111c2b;
@@ -23,6 +24,7 @@
 }
 
 :root[data-theme='light'] {
+  --question-date-scheme: light;
   --bg: #f4f8fc;
   --surface: #ffffff;
   --surface-2: #eaf1f8;
@@ -45,6 +47,7 @@
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme='dark']) {
+    --question-date-scheme: light;
     --bg: #f4f8fc;
     --surface: #ffffff;
     --surface-2: #eaf1f8;
@@ -3095,6 +3098,9 @@ button.apply-stat > span > span { flex: none; color: var(--text-faint); }
 .employer-choice { display: flex !important; align-items: flex-start; gap: 8px; }
 .employer-choice input { flex: none; margin-top: 3px; }
 .employer-question .input { width: 100%; box-sizing: border-box; min-width: 0; }
+.employer-question input:is([type='date'], [type='month'], [type='week'], [type='time'], [type='datetime-local']) {
+  color-scheme: var(--question-date-scheme);
+}
 
 .bonus-run-tag { display:inline-flex; padding:4px 8px; border-radius:6px; background:var(--ok-soft); color:var(--ok); font-size:12px; font-weight:600; }
 /* Candidate-visible record of hiring-team outreach. */

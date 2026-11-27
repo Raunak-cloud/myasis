@@ -77,11 +77,16 @@ try {
   const controls:QuestionControl[]=[{...base,kind:'date',label:'Available from',choices:[],constraints:{min:'2026-01-01',max:'2027-12-31'}},{...base,id:'part1',kind:'checkbox-group',label:'Regions',multiple:true},{...base,id:'part2',kind:'select',label:'Work patterns',multiple:true}];
   const complex=sealQuestionSnapshot({...snapshot,prompt:'Availability and preferences',controls});
   await update([{question:complex.prompt,snapshot:complex}]);
-  assert.equal(await page.getByLabel('Available from',{exact:true}).getAttribute('type'),'date');
-  await page.getByLabel('Available from',{exact:true}).fill('2026-11-03');
+  const availableFrom=page.getByLabel('Available from',{exact:true});
+  assert.equal(await availableFrom.getAttribute('type'),'date');
+  assert.equal(await availableFrom.getAttribute('min'),'2026-01-01');
+  assert.equal(await availableFrom.getAttribute('max'),'2027-12-31');
+  await availableFrom.fill('2025-12-31');
   await page.getByRole('checkbox',{name:'None',exact:true}).check();
   await page.getByRole('checkbox',{name:'Baseline',exact:true}).check();
   await page.getByRole('listbox',{name:'Work patterns',exact:true}).selectOption(['choice0','choice1']);
+  assert.equal(await page.getByRole('button',{name:'Save answers',exact:true}).isDisabled(),true,'native employer date limits apply to the saved response');
+  await availableFrom.fill('2026-11-03');
   mkdirSync(resolve(import.meta.dirname,'../../output/attention-review'),{recursive:true});
   for(const width of [1440,390]) {
     await page.setViewportSize({width,height:1000});
@@ -112,9 +117,33 @@ try {
   const place=sealQuestionSnapshot({...birth,prompt:'Place of birth',controls:[{...birth.controls[0],label:'Place of birth'}]});
   await update([{question:place.prompt,snapshot:place}]);
   assert.equal(await page.getByLabel(place.prompt,{exact:true}).getAttribute('type'),'text','birthplace is not a calendar date');
-  const parts=sealQuestionSnapshot({...birth,prompt:'Date of birth',controls:['Day','Month','Year'].map((label,index)=>({...birth.controls[0],id:`part${index}`,label}))});
+  const parts=sealQuestionSnapshot({...birth,prompt:'Date of birth',controls:['Month','Day','Year'].map((label,index)=>({...birth.controls[0],id:`part${index}`,label,constraints:{maxLength:index===2?4:2}}))});
   await update([{question:parts.prompt,snapshot:parts}]);
-  assert.equal(await page.locator('input[type=date]').count(),0,'composite date components are not replaced with three full-date pickers');
+  const datePicker=page.getByLabel(parts.prompt,{exact:true});
+  const save=page.getByRole('button',{name:'Save answers',exact:true});
+  assert.equal(await page.locator('input').count(),1,'three employer text controls are presented as one date picker');
+  assert.equal(await datePicker.getAttribute('type'),'date');
+  assert.equal(await datePicker.inputValue(),'');
+  assert.equal(await save.isDisabled(),true);
+  const colors:string[]=[];
+  for(const [theme,width] of [['light',1440],['dark',390]] as const){
+    await page.setViewportSize({width,height:800});
+    await page.evaluate(theme=>{document.documentElement.dataset.theme=theme;},theme);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+    colors.push(await datePicker.evaluate(input=>getComputedStyle(input).color));
+    assert.equal(await datePicker.evaluate(input=>getComputedStyle(input).colorScheme),theme,'native calendar follows the dashboard theme');
+  }
+  assert.notEqual(colors[0],colors[1],'the calendar text follows light and dark themes');
+  await datePicker.fill('2000-02-29');
+  await save.click();
+  await page.waitForFunction(()=>document.documentElement.dataset.saved==='5');
+  assert.deepEqual(writes.at(-1),{jobId:'fixture-job',answers:[{questionId:parts.id,revision:parts.revision,response:{part0:'02',part1:'29',part2:'2000'}}]},'the save request keeps the original question identity and employer component values');
+  const startDate=sealQuestionSnapshot({...birth,prompt:'Earliest start date',controls:[{...birth.controls[0],label:'Earliest start date'}]});
+  await update([{question:startDate.prompt,snapshot:startDate}]);
+  assert.equal(await page.getByLabel(startDate.prompt,{exact:true}).getAttribute('type'),'date');
+  const patternedParts=sealQuestionSnapshot({...parts,controls:parts.controls.map(c=>c.label==='Year'?{...c,constraints:{...c.constraints,pattern:'[0-9]{4}'}}:c)});
+  await update([{question:patternedParts.prompt,snapshot:patternedParts}]);
+  assert.equal(await page.getByRole('textbox').count(),3,'employer-formatted date components retain their original inputs');
   await update([{question:'Month',kind:'text'}]);
   await page.getByText("Open the application to check the employer's original question before answering.").waitFor();
   assert.equal(await page.getByRole('textbox').count(),0,'legacy fragments are not represented as complete questions');
