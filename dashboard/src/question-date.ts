@@ -1,4 +1,5 @@
-import type { QuestionControl, QuestionResponse, QuestionValue } from '../../seek-bot/src/question-snapshot';
+import { blockedQuestionKey } from '../../seek-bot/src/blocked-question-key';
+import { questionAnswerable, type CapturedQuestion, type QuestionControl, type QuestionResponse, type QuestionSnapshot, type QuestionValue } from '../../seek-bot/src/question-snapshot';
 import { questionValueIssue, questionValueNumber } from '../../seek-bot/src/question-value';
 
 const birthDateLabel = /\b(?:date[\s-]+of[\s-]+birth|birth[\s-]*date|d\.?o\.?b\.?)\b/i;
@@ -80,6 +81,35 @@ export function splitDateInput(controls: QuestionControl[]) {
       return response;
     },
   };
+}
+
+/** Separately captured date parts keep their original question and control IDs. */
+export function groupedDateQuestions(questions: CapturedQuestion[]) {
+  const byContext = new Map<string, QuestionSnapshot[]>();
+  for (const { snapshot } of questions) {
+    if (!snapshot?.source.origin || !snapshot.source.path || !snapshot.context.at(-1)?.trim()) continue;
+    const key = JSON.stringify([snapshot.source.origin, snapshot.source.path, snapshot.context]);
+    const group = byContext.get(key);
+    if (group) group.push(snapshot);
+    else byContext.set(key, [snapshot]);
+  }
+
+  const dates = [...byContext.values()].flatMap(group => {
+    if (group.length !== 3 || new Set(group.map(s => s.id)).size !== 3
+      || !group.every(s => s.controls.length === 1 && s.prompt === s.controls[0].label && questionAnswerable(s))) return [];
+    const context = group[0].context.slice(0, -1);
+    const prompt = group[0].context.at(-1)!;
+    if (!birthDateLabel.test(prompt) && !/\bdate\b/i.test(prompt)) return [];
+    const bindings = group.map((snapshot, index) => ({
+      key: blockedQuestionKey({ snapshot }),
+      originalId: snapshot.controls[0].id,
+      calendarControl: { ...snapshot.controls[0], id: `part${index}` },
+    }));
+    const calendar = splitDateInput(bindings.map(binding => binding.calendarControl));
+    if (!calendar) return [];
+    return [{ prompt, context, help: [...new Set(group.flatMap(s => s.help))], calendar, bindings }];
+  });
+  return new Map(dates.flatMap(date => date.bindings.map(binding => [binding.key, date] as const)));
 }
 
 export function dateAutocomplete(prompt: string) {

@@ -138,6 +138,37 @@ try {
   await save.click();
   await page.waitForFunction(()=>document.documentElement.dataset.saved==='5');
   assert.deepEqual(writes.at(-1),{jobId:'fixture-job',answers:[{questionId:parts.id,revision:parts.revision,response:{part0:'02',part1:'29',part2:'2000'}}]},'the save request keeps the original question identity and employer component values');
+  const dateHeading='Date of Birth *';
+  const separateParts=parts.controls.map(control=>sealQuestionSnapshot({
+    ...parts,context:['Voluntary Disclosures','Personal Data',dateHeading],prompt:control.label,controls:[{...control,id:'part0'}],
+  }));
+  const dateQuestions=separateParts.map(snapshot=>({question:snapshot.prompt,snapshot}));
+  await update(dateQuestions);
+  const groupedPicker=page.getByLabel(dateHeading,{exact:true});
+  assert.equal(await groupedPicker.getAttribute('type'),'date');
+  assert.equal(await page.locator('input').count(),1,'three original single-control questions share one calendar when their employer context matches');
+  assert.equal(await groupedPicker.inputValue(),'');
+  assert.equal(await save.isDisabled(),true);
+  await groupedPicker.fill('2004-01-09');
+  await update(dateQuestions.slice(0,2));
+  assert.equal(await page.locator('input[type=date]').count(),0,'partial sets fall back to the remaining original controls');
+  assert.equal(await page.getByRole('textbox',{name:'Month',exact:true}).inputValue(),'01');
+  assert.equal(await page.getByRole('textbox',{name:'Day',exact:true}).inputValue(),'09');
+  await update(dateQuestions);
+  assert.equal(await groupedPicker.inputValue(),'2004-01-09','refreshing the full group retains the existing draft');
+  await save.click();
+  await page.waitForFunction(()=>document.documentElement.dataset.saved==='6');
+  assert.deepEqual(writes.at(-1),{jobId:'fixture-job',answers:separateParts.map((snapshot,index)=>({
+    questionId:snapshot.id,revision:snapshot.revision,response:{part0:['01','09','2004'][index]},
+  }))},'a grouped calendar saves each original question and its own part0 response');
+  const otherYear=sealQuestionSnapshot({...separateParts[2],source:{...separateParts[2].source,path:'/other'}});
+  await update([...dateQuestions.slice(0,2),{question:otherYear.prompt,snapshot:otherYear}]);
+  assert.equal(await page.locator('input[type=date]').count(),0,'identically labelled controls from different sources stay separate');
+  assert.equal(await page.getByRole('textbox').count(),3);
+  await page.getByRole('textbox',{name:'Month',exact:true}).fill('02');
+  await update(dateQuestions);
+  assert.equal(await page.locator('input[type=date]').count(),0,'restoring the full group keeps a partial draft visible');
+  assert.equal(await page.getByRole('textbox',{name:'Month',exact:true}).inputValue(),'02');
   const startDate=sealQuestionSnapshot({...birth,prompt:'Earliest start date',controls:[{...birth.controls[0],label:'Earliest start date'}]});
   await update([{question:startDate.prompt,snapshot:startDate}]);
   assert.equal(await page.getByLabel(startDate.prompt,{exact:true}).getAttribute('type'),'date');

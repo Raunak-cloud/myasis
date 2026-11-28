@@ -8,8 +8,9 @@ export type AttentionKind = 'captcha' | 'verification' | 'question' | 'off-platf
 
 import type { CapturedQuestion as BlockedQuestion } from '../../../seek-bot/src/question-snapshot';
 import type { QuestionResponse } from '../../../seek-bot/src/question-snapshot';
-import { EmployerQuestion } from './EmployerQuestion';
+import { DateQuestion, EmployerQuestion } from './EmployerQuestion';
 import { questionResponseIssue } from '../../../seek-bot/src/question-snapshot';
+import { groupedDateQuestions } from '../question-date';
 
 export interface AttentionItem {
   jobId: string;
@@ -36,6 +37,7 @@ const questionKey = blockedQuestionKey;
  */
 export function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: () => void }) {
   const questions = item.questions ?? [];
+  const dateGroups = groupedDateQuestions(questions);
   const [values, setValues] = useState<Record<string, QuestionResponse>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +59,33 @@ export function AnswerForm({ item, onSaved }: { item: AttentionItem; onSaved?: (
     }catch{setError(attentionCopy.saveError);}finally{setSaving(false);}
   }
   return <form className="answer-form" noValidate onSubmit={e=>{e.preventDefault();void save();}}>
-    {questions.map(q=>q.snapshot?<EmployerQuestion key={questionKey(q)} snapshot={q.snapshot} value={values[questionKey(q)]??{}} onChange={v=>setValues(current=>({...current,[questionKey(q)]:v}))}/>:<div key={questionKey(q)} className="answer-row"><small>{attentionCopy.recapture}</small></div>)}
+    {questions.map(q => {
+      const key = questionKey(q);
+      const group = dateGroups.get(key);
+      const calendarValue: QuestionResponse = {};
+      for (const binding of group?.bindings ?? []) {
+        const value = values[binding.key]?.[binding.originalId];
+        if (value !== undefined && value !== '') calendarValue[binding.calendarControl.id] = value;
+      }
+      if (!group || (Object.keys(calendarValue).length > 0 && !group.calendar.read(calendarValue))) return q.snapshot
+        ? <EmployerQuestion key={key} snapshot={q.snapshot} value={values[key]??{}} onChange={v=>setValues(current=>({...current,[key]:v}))}/>
+        : <div key={key} className="answer-row"><small>{attentionCopy.recapture}</small></div>;
+      if (key !== group.bindings[0].key) return null;
+      return <fieldset className="employer-question" key={group.bindings.map(binding => binding.key).sort().join('|')}>
+        <legend>{group.prompt}</legend>
+        {group.context.length > 0 && <div className="job-meta">{group.context.join(' · ')}</div>}
+        {group.help.map(text => <div key={text} className="job-meta">{text}</div>)}
+        <DateQuestion prompt={group.prompt} calendar={group.calendar} value={calendarValue} onChange={response => setValues(current => {
+          const next = { ...current };
+          for (const binding of group.bindings) {
+            const value = response[binding.calendarControl.id];
+            if (value === undefined) delete next[binding.key];
+            else next[binding.key] = { [binding.originalId]: value };
+          }
+          return next;
+        })}/>
+      </fieldset>;
+    })}
     {error&&<div role="alert" className="banner banner-bad">{userFacingError(error)}</div>}
     <div className="answer-actions"><button className="btn primary" disabled={saving||!answered.length} type="submit">{saving?'Saving…':'Save answers'}</button></div>
   </form>;

@@ -24,7 +24,7 @@ function Control({control:c,value,hideLabel,prompt,onChange}:{control:QuestionCo
   return <label htmlFor={id}><span className={labelClass}>{c.label}</span><input {...shared} {...htmlConstraints} {...date} className="input" multiple={c.multiple} maxLength={Math.min(c.constraints.maxLength??4000,4000)} value={typeof value==='string'?value:''} onChange={e=>onChange(e.target.value)}/></label>;
 }
 
-function DateQuestion({ prompt, calendar, value, onChange }: {
+export function DateQuestion({ prompt, calendar, value, onChange }: {
   prompt: string;
   calendar: NonNullable<ReturnType<typeof splitDateInput>>;
   value: QuestionResponse;
