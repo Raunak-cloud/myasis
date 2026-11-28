@@ -88,8 +88,10 @@ export async function accountApplicationEnvironment(userId: string, settings?: R
       console.warn('[greenhouse] Shared employer directory unavailable; configured companies remain enabled.');
     }
   }
-  const bonusEnvironment=selectedSettings.BONUS_RUN_ID ? await (await import('./bonus-runs.js')).bonusRunEnvironment(userId,runStartId,selectedSettings) : {BONUS_RUN_ID:''};
-  let operatorReviewLimit = '', operatorTimeout = '';
+  const bonusEnvironment: Record<string,string> = selectedSettings.BONUS_RUN_ID
+    ? await (await import('./bonus-runs.js')).bonusRunEnvironment(userId,runStartId,selectedSettings) : {BONUS_RUN_ID:''};
+  let operatorReviewLimit = bonusEnvironment.OPERATOR_MAX_EVALUATIONS ?? '';
+  let operatorTimeout = bonusEnvironment.OPERATOR_RUN_TIMEOUT_MINUTES ?? '';
   let applicationBudget: Record<string,string> = {};
   if (selectedSettings.OPERATOR_APPLICATION_BASE_USD !== undefined || selectedSettings.OPERATOR_APPLICATION_MAXIMUM_USD !== undefined) {
     if (!runStartId) throw new Error('This run has no valid administrator application budget authorization.');

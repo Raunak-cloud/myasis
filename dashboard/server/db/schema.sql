@@ -1078,6 +1078,7 @@ CREATE TABLE IF NOT EXISTS bonus_runs (
 );
 CREATE INDEX IF NOT EXISTS bonus_runs_owner_idx ON bonus_runs(user_id,created_at DESC);
 ALTER TABLE bonus_runs ADD COLUMN IF NOT EXISTS jora_enabled BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE bonus_runs ADD COLUMN IF NOT EXISTS discovery_plan JSONB;
 CREATE INDEX IF NOT EXISTS bonus_runs_queued_idx ON bonus_runs(created_at) WHERE status IN ('queued','starting','running');
 
 -- BEGIN completed job reviews

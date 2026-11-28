@@ -5,7 +5,7 @@ import dotenv from 'dotenv';
 import type { CandidateProfile } from './types.js';
 import { applicationModelEnvironment } from './application-model.js';
 import { APPLICATION_BUDGET_DEFAULTS } from './application-budget.js';
-import { EXTENDED_JOB_REVIEW_LIMIT, USER_RUN_LIMITS, boundedUserRunLimit, dailyApplicationLimit } from './run-limits.js';
+import { BONUS_DISCOVERY_LIMITS, EXTENDED_JOB_REVIEW_LIMIT, USER_RUN_LIMITS, boundedUserRunLimit, dailyApplicationLimit } from './run-limits.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
@@ -108,6 +108,11 @@ export function loadProfile(path = process.env.PROFILE_PATH ?? resolve(ROOT, '..
 
 /** Search terms honoured per run — see the note on `keywords` below. */
 const MAX_SEARCH_TERMS = 3;
+const bonusSearchTitleLimit = Number(process.env.OPERATOR_BONUS_SEARCH_TITLES);
+const extendedBonusDiscovery = Boolean(process.env.BONUS_RUN_ID)
+  && Number.isSafeInteger(bonusSearchTitleLimit)
+  && bonusSearchTitleLimit > 0 && bonusSearchTitleLimit <= BONUS_DISCOVERY_LIMITS.titles
+  && process.env.OPERATOR_MAX_EVALUATIONS === String(BONUS_DISCOVERY_LIMITS.reviews);
 
 export const config = {
   /**
@@ -169,7 +174,7 @@ export const config = {
      * rarely the ones producing applications anyway. Operators included: the
      * limit is about how a run looks to the job board, not about a plan.
      */
-    .slice(0, MAX_SEARCH_TERMS),
+    .slice(0, extendedBonusDiscovery ? bonusSearchTitleLimit : MAX_SEARCH_TERMS),
 
   /** seek.md rules, as data. */
   rules: {
@@ -247,7 +252,8 @@ export const config = {
     /** Detail pages opened per run — bounds both wall-clock and model spend. */
     // Keep an accidentally large dashboard value from creating an hour-long crawl.
     maxEvaluations: ceiling(
-      process.env.OPERATOR_MAX_EVALUATIONS === '400' ? 400 : EXTENDED_JOB_REVIEW_LIMIT,
+      extendedBonusDiscovery ? BONUS_DISCOVERY_LIMITS.reviews
+        : process.env.OPERATOR_MAX_EVALUATIONS === '400' ? 400 : EXTENDED_JOB_REVIEW_LIMIT,
       process.env.MAX_EVALUATIONS,
       adminUnlimited ? EXTENDED_JOB_REVIEW_LIMIT : 40,
     ),

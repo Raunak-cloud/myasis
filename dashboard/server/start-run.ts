@@ -319,6 +319,10 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
     overrides.BONUS_RUN_ID=bonus.id;
     overrides.MAX_APPS_PER_RUN=String(bonus.max_applications);
     overrides.MIN_SALARY=bonusSalaryFloor(settings.MIN_SALARY,Number(bonus.salary_discount_percent));
+    if(bonus.discovery_plan){
+      overrides.KEYWORDS=bonus.discovery_plan.titles.join(', ');
+      overrides.MAX_EVALUATIONS=String(bonus.discovery_plan.maxReviews);
+    }
     if(bonus.jora_enabled){
       overrides.JORA_BETA_ENABLED='true';
       overrides.PLATFORMS=[...new Set([...overrides.PLATFORMS.split(','),'jora'])].join(',');
@@ -631,7 +635,9 @@ async function prepareAndStart(request: StartRunRequest): Promise<StartRunOutcom
       if(bonus){
         await query("UPDATE run_starts SET operator_options=COALESCE(operator_options,'{}'::jsonb)||$3::jsonb WHERE id=$1 AND user_id=$2",
           [runStartId,userId,JSON.stringify({bonusRunId:bonus.id,bonus:true,complimentary:true,maxApplications:bonus.max_applications,
-            minimumSalary:overrides.MIN_SALARY,originalMinimumSalary:settings.MIN_SALARY,salaryDiscountPercent:Number(bonus.salary_discount_percent),joraEnabled:bonus.jora_enabled})]);
+            minimumSalary:overrides.MIN_SALARY,originalMinimumSalary:settings.MIN_SALARY,salaryDiscountPercent:Number(bonus.salary_discount_percent),joraEnabled:bonus.jora_enabled,
+            ...(bonus.discovery_plan?{bonusDiscovery:bonus.discovery_plan,keywords:overrides.KEYWORDS,
+              maxEvaluations:bonus.discovery_plan.maxReviews,timeoutMinutes:bonus.discovery_plan.timeoutMinutes}:{})})]);
         await bindBonusRun(bonus.id,userId,runStartId);
       }
       if (sponsored) await query('UPDATE run_starts SET operator_options=$3::jsonb WHERE id=$1 AND user_id=$2',

@@ -1,5 +1,27 @@
 import type {BonusRunOptions} from '../src/bonus-run.js';
 import type {BillingStatus} from './billing.js';
+import {BONUS_DISCOVERY_LIMITS} from '../../seek-bot/src/run-limits.js';
+
+export interface BonusDiscoveryPlan {
+ titles: string[];
+ maxReviews: number;
+ timeoutMinutes: number;
+}
+
+/** Internal operator grant. The public bonus request still uses bonusRunOptions. */
+export function bonusDiscoveryPlan(raw: unknown): BonusDiscoveryPlan | null {
+ if(raw===null||raw===undefined)return null;
+ if(typeof raw!=='object'||Array.isArray(raw))throw Error('Invalid bonus discovery grant.');
+ const {titles,maxReviews,timeoutMinutes}=raw as Partial<BonusDiscoveryPlan>;
+ if(!Array.isArray(titles)||!titles.length||titles.length>BONUS_DISCOVERY_LIMITS.titles
+  ||titles.some(title=>typeof title!=='string'||!title.trim()||title.length>100||/[,\r\n\x00]/.test(title))
+  ||!Number.isSafeInteger(maxReviews)||maxReviews!<1||maxReviews!>BONUS_DISCOVERY_LIMITS.reviews
+  ||!Number.isSafeInteger(timeoutMinutes)||timeoutMinutes!<1||timeoutMinutes!>BONUS_DISCOVERY_LIMITS.minutes)
+  throw Error('Invalid bonus discovery grant.');
+ const clean=titles.map(title=>title.trim());
+ if(new Set(clean.map(title=>title.toLowerCase())).size!==clean.length)throw Error('Bonus discovery titles must be unique.');
+ return {titles:clean,maxReviews:maxReviews!,timeoutMinutes:timeoutMinutes!};
+}
 
 export function bonusRunOptions(raw:unknown):BonusRunOptions {
  if(!raw||typeof raw!=='object'||Array.isArray(raw))throw Error('Choose the bonus run settings.');

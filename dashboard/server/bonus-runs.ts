@@ -1,29 +1,32 @@
 import {randomUUID} from 'node:crypto';
 import {query,one} from './db/index.js';
 import {isAdmin} from './billing.js';
-import {bonusRunOptions} from './bonus-run-policy.js';
+import {bonusDiscoveryPlan,bonusRunOptions,type BonusDiscoveryPlan} from './bonus-run-policy.js';
+import {BONUS_DISCOVERY_LIMITS} from '../../seek-bot/src/run-limits.js';
 import type {BonusRun,BonusRunOptions} from '../src/bonus-run.js';
 import type {PoolClient} from 'pg';
 
 interface BonusRow {
  id:string;user_id:string;started_by:string;max_applications:number;application_mode:BonusRunOptions['applicationMode'];
  message:string;salary_discount_percent:string;jora_enabled:boolean;status:BonusRun['status'];created_at:Date;claimed_at:Date|null;
- run_start_id:string|null;finished_at:Date|null;
+ run_start_id:string|null;finished_at:Date|null;discovery_plan:BonusDiscoveryPlan|null;
 }
-export async function createBonusRun(userId:string,actorId:string,raw:unknown,id=randomUUID()):Promise<string> {
+export async function createBonusRun(userId:string,actorId:string,raw:unknown,id:string=randomUUID(),discovery?:BonusDiscoveryPlan):Promise<string> {
  const options=bonusRunOptions(raw);
+ const plan=bonusDiscoveryPlan(discovery);
  const actor=await one<{email:string}>('SELECT email FROM users WHERE id=$1 AND blocked_at IS NULL',[actorId]);
  if(!isAdmin(actor?.email))throw Error('An active administrator is required.');
  const owner=await one('SELECT id FROM users WHERE id=$1 AND blocked_at IS NULL',[userId]);
  if(!owner)throw Error('This account is unavailable.');
  if(!/^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i.test(id))throw Error('Invalid bonus run request.');
- const rows=await query<{id:string}>(`INSERT INTO bonus_runs(id,user_id,started_by,max_applications,application_mode,message,salary_discount_percent,jora_enabled)
-  VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(id) DO NOTHING RETURNING id`,
-  [id,userId,actorId,options.maxApplications,options.applicationMode,options.message,options.salaryDiscountPercent,options.includeJora===true]);
+ const rows=await query<{id:string}>(`INSERT INTO bonus_runs(id,user_id,started_by,max_applications,application_mode,message,salary_discount_percent,jora_enabled,discovery_plan)
+  VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(id) DO NOTHING RETURNING id`,
+  [id,userId,actorId,options.maxApplications,options.applicationMode,options.message,options.salaryDiscountPercent,options.includeJora===true,plan&&JSON.stringify(plan)]);
  if(!rows.length){
   const existing=await one<BonusRow>('SELECT * FROM bonus_runs WHERE id=$1 AND user_id=$2 AND started_by=$3',[id,userId,actorId]);
   if(!existing||existing.max_applications!==options.maxApplications||existing.application_mode!==options.applicationMode
-   ||existing.message!==options.message||Number(existing.salary_discount_percent)!==options.salaryDiscountPercent||existing.jora_enabled!==(options.includeJora===true))throw Error('The bonus run request has changed.');
+   ||existing.message!==options.message||Number(existing.salary_discount_percent)!==options.salaryDiscountPercent||existing.jora_enabled!==(options.includeJora===true)
+   ||JSON.stringify(bonusDiscoveryPlan(existing.discovery_plan))!==JSON.stringify(plan))throw Error('The bonus run request has changed.');
  }
  return id;
 }
@@ -32,7 +35,7 @@ export async function bonusRunForStart(id:string,userId:string,actorId:string|un
   JOIN users u ON u.id=b.started_by AND u.blocked_at IS NULL
   WHERE b.id=$1 AND b.user_id=$2 AND b.started_by=$3 AND b.status='starting' AND b.run_start_id IS NULL`,[id,userId,actorId]);
  if(!row||!isAdmin(row.email))throw Error('This bonus run has no valid administrator authorization.');
- return row;
+ return {...row,discovery_plan:bonusDiscoveryPlan(row.discovery_plan)};
 }
 export async function bindBonusRun(id:string,userId:string,runId:string):Promise<void> {
  const rows=await query(`UPDATE bonus_runs SET status='running',run_start_id=$3 WHERE id=$1 AND user_id=$2 AND status='starting' AND run_start_id IS NULL RETURNING id`,[id,userId,runId]);
@@ -42,7 +45,7 @@ export async function bindBonusRun(id:string,userId:string,runId:string):Promise
 export async function bonusRunEnvironment(userId:string,runId:string|undefined|null,settings:Record<string,string>):Promise<Record<string,string>> {
  if(!settings.BONUS_RUN_ID)return {BONUS_RUN_ID:''};
  if(!runId)throw Error('A bonus run requires its recorded administrator authorization.');
- const row=await one<{email:string;max_applications:number;jora_enabled:boolean;operator_options:{bonusRunId?:string;complimentary?:boolean;minimumSalary?:string;joraEnabled?:boolean}}>(`SELECT actor.email,b.max_applications,b.jora_enabled,r.operator_options
+ const row=await one<{email:string;max_applications:number;jora_enabled:boolean;discovery_plan:BonusDiscoveryPlan|null;operator_options:{bonusRunId?:string;complimentary?:boolean;minimumSalary?:string;joraEnabled?:boolean;bonusDiscovery?:BonusDiscoveryPlan}}>(`SELECT actor.email,b.max_applications,b.jora_enabled,b.discovery_plan,r.operator_options
   FROM bonus_runs b JOIN run_starts r ON r.id=b.run_start_id AND r.user_id=b.user_id
   JOIN users actor ON actor.id=b.started_by AND actor.blocked_at IS NULL
   WHERE b.id=$1 AND b.user_id=$2 AND r.id=$3 AND b.status='running' AND r.finished_at IS NULL
@@ -52,7 +55,13 @@ export async function bonusRunEnvironment(userId:string,runId:string|undefined|n
   ||Boolean(row.operator_options.joraEnabled)!==Boolean(row.jora_enabled)
   ||row.jora_enabled&&(settings.JORA_BETA_ENABLED!=='true'||!settings.PLATFORMS?.split(',').includes('jora')))
   throw Error('This bonus run has no matching administrator authorization.');
- return {BONUS_RUN_ID:settings.BONUS_RUN_ID};
+ const plan=bonusDiscoveryPlan(row.discovery_plan);
+ if(!plan)return {BONUS_RUN_ID:settings.BONUS_RUN_ID};
+ if(JSON.stringify(bonusDiscoveryPlan(row.operator_options.bonusDiscovery))!==JSON.stringify(plan)
+  ||settings.KEYWORDS!==plan.titles.join(', ')||settings.MAX_EVALUATIONS!==String(plan.maxReviews))
+  throw Error('This bonus run has no matching discovery authorization.');
+ return {BONUS_RUN_ID:settings.BONUS_RUN_ID,OPERATOR_BONUS_SEARCH_TITLES:String(plan.titles.length),
+  OPERATOR_MAX_EVALUATIONS:String(BONUS_DISCOVERY_LIMITS.reviews),OPERATOR_RUN_TIMEOUT_MINUTES:String(plan.timeoutMinutes)};
 }
 /** The source run is supplied by its worker's parent, never by a model draft.
  * A later admin/account status change cannot bill a promised complimentary draft. */

@@ -7,6 +7,9 @@ export const USER_RUN_LIMITS = {
 /** Get Owtomated's per-run allowance and the default for administrators. */
 export const EXTENDED_JOB_REVIEW_LIMIT = 300;
 
+/** Administrator-approved discovery limits for an individual bonus run. */
+export const BONUS_DISCOVERY_LIMITS = { titles: 20, reviews: 1000, minutes: 120 } as const;
+
 type LimitKey = keyof typeof USER_RUN_LIMITS;
 const LABELS: Record<LimitKey, string> = {
   MAX_AGE_DAYS: 'Max listing age',

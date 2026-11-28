@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {getPool,query} from './db/index.js';
-import {createBonusRun,dispatchBonusRuns,cancelBonusRun,listBonusRuns,bonusRunForStart,bindBonusRun} from './bonus-runs.js';
+import {createBonusRun,dispatchBonusRuns,cancelBonusRun,listBonusRuns,bonusRunForStart,bindBonusRun,bonusRunEnvironment} from './bonus-runs.js';
 import {saveApplicationReview} from './application-reviews.js';
 import {runner} from './runner.js';
 import type {PreparedApplication} from '../../seek-bot/src/application-review-types.js';
@@ -18,7 +18,7 @@ try{
  await query('CREATE TEMP TABLE new_user_trials(user_id BIGINT PRIMARY KEY,seek_connected_at TIMESTAMPTZ,seek_account TEXT)');
  await query("INSERT INTO users VALUES(1,'admin@bonus.fixture.invalid',NULL),(2,'candidate@bonus.fixture.invalid',NULL),(3,'other@bonus.fixture.invalid',NULL)");
  await query('CREATE TEMP TABLE run_starts(id BIGINT PRIMARY KEY,user_id BIGINT,mode TEXT,trigger TEXT,started_by BIGINT,started_at TIMESTAMPTZ,finished_at TIMESTAMPTZ,operator_options JSONB,stopped BOOLEAN DEFAULT false,applied INTEGER,exit_code INTEGER)');
- await query("CREATE TEMP TABLE bonus_runs(id UUID PRIMARY KEY,user_id BIGINT,started_by BIGINT,max_applications INTEGER,application_mode TEXT,message TEXT,salary_discount_percent NUMERIC,jora_enabled BOOLEAN NOT NULL DEFAULT false,status TEXT DEFAULT 'queued',created_at TIMESTAMPTZ DEFAULT now(),claimed_at TIMESTAMPTZ,run_start_id BIGINT,finished_at TIMESTAMPTZ,failure_detail TEXT)");
+ await query("CREATE TEMP TABLE bonus_runs(id UUID PRIMARY KEY,user_id BIGINT,started_by BIGINT,max_applications INTEGER,application_mode TEXT,message TEXT,salary_discount_percent NUMERIC,jora_enabled BOOLEAN NOT NULL DEFAULT false,status TEXT DEFAULT 'queued',created_at TIMESTAMPTZ DEFAULT now(),claimed_at TIMESTAMPTZ,run_start_id BIGINT,finished_at TIMESTAMPTZ,failure_detail TEXT,discovery_plan JSONB)");
  await query("CREATE TEMP TABLE application_reviews(user_id BIGINT,job_key TEXT,id UUID UNIQUE,payload JSONB,status TEXT,detail TEXT,credit_consumed BOOLEAN DEFAULT false,updated_at TIMESTAMPTZ DEFAULT now(),PRIMARY KEY(user_id,job_key))");
  await query('CREATE TEMP TABLE billing_purchases(id BIGINT,user_id BIGINT,plan_key TEXT); CREATE TEMP TABLE application_credit_grants(id BIGINT,user_id BIGINT,purchase_id BIGINT,credits_total INTEGER,credits_used INTEGER,expires_at TIMESTAMPTZ); CREATE TEMP TABLE monthly_application_usage(user_id BIGINT,month_start DATE,successful_applications INTEGER,PRIMARY KEY(user_id,month_start))');
  await query("INSERT INTO billing_purchases VALUES(1,2,'job-search-pass'); INSERT INTO application_credit_grants VALUES(1,2,1,10,4,NULL); INSERT INTO monthly_application_usage VALUES(2,date_trunc('month',now())::date,5),(3,date_trunc('month',now())::date,5)");
@@ -53,5 +53,24 @@ try{
  await query('UPDATE users SET blocked_at=NULL WHERE id=1');const next=await createBonusRun('2','1',options);await cancelBonusRun(next,'2');
  assert.equal((await query('SELECT status FROM bonus_runs WHERE id=$1',[next]))[0].status,'stopped');
  assert.equal((await query('SELECT count(*)::text AS count FROM run_starts'))[0].count,'1','queue cancellation never starts a worker');
+ const plan={titles:['Lead Analyst','Data Analyst','BI Lead','BI Consultant'],maxReviews:1000,timeoutMinutes:120};
+ const extended=await createBonusRun('2','1',options,randomUUID(),plan);
+ assert.equal(await createBonusRun('2','1',options,extended,plan),extended);
+ await assert.rejects(createBonusRun('2','1',options,extended,{...plan,maxReviews:999}),/changed/);
+ await assert.rejects(createBonusRun('2','1',options,randomUUID(),{...plan,maxReviews:1001}),/grant/);
+ await query("UPDATE bonus_runs SET status='starting' WHERE id=$1",[extended]);
+ assert.deepEqual((await bonusRunForStart(extended,'2','1')).discovery_plan,plan);
+ await query("INSERT INTO run_starts(id,user_id,mode,trigger,started_by,started_at,operator_options) VALUES(11,2,'live','admin',1,now(),$1)",
+   [JSON.stringify({bonusRunId:extended,complimentary:true,minimumSalary:'135000',joraEnabled:true,bonusDiscovery:plan})]);
+ await bindBonusRun(extended,'2','11');
+ const inputs={BONUS_RUN_ID:extended,MAX_APPS_PER_RUN:'2',MIN_SALARY:'135000',JORA_BETA_ENABLED:'true',PLATFORMS:'seek,jora',
+   KEYWORDS:plan.titles.join(', '),MAX_EVALUATIONS:'1000'};
+ assert.deepEqual(await bonusRunEnvironment('2','11',inputs),{
+   BONUS_RUN_ID:extended,OPERATOR_BONUS_SEARCH_TITLES:'4',OPERATOR_MAX_EVALUATIONS:'1000',OPERATOR_RUN_TIMEOUT_MINUTES:'120'});
+ await assert.rejects(bonusRunEnvironment('2','11',{...inputs,KEYWORDS:'A different job'}),/discovery authorization/);
+ await assert.rejects(bonusRunEnvironment('2','11',{...inputs,MAX_EVALUATIONS:'999'}),/discovery authorization/);
+ await assert.rejects(bonusRunEnvironment('3','11',inputs),/administrator authorization/);
+ await assert.rejects(bonusRunEnvironment('2','10',inputs),/administrator authorization/);
+ assert.deepEqual(await bonusRunEnvironment('2','11',{}),{BONUS_RUN_ID:''});
  console.log('PASS: bonus administrator authority, idempotency, queued capacity, owner isolation, durable binding, complimentary prepared applications, ordinary credit protection, cap rollback, historical attribution and safe queue cancellation. TEMP PostgreSQL tables only.');
 }finally{runner.inUse=originalInUse;runner.claimStart=originalClaim;if(oldAdmins===undefined)delete process.env.ADMIN_EMAILS;else process.env.ADMIN_EMAILS=oldAdmins;await pool.end();}
