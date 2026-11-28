@@ -33,6 +33,7 @@ test('candidate evidence focuses the next decision without interrupting ordinary
   });
   writeFileSync(join(directory, 'knowledge.json'), JSON.stringify([
     { id: 'start-date', label: 'Availability note', kind: 'note', enabled: true, text: 'Earliest start: Two weeks after accepting an offer.' },
+    { id: 'citizenship', label: 'Citizenship note', kind: 'note', enabled: true, text: 'Citizenship: New Zealand citizen.' },
   ]));
   const { runAgentOnlyApplication } = await import('./agent-only.js');
   const browser = await chromium.launch({ headless: true, ...(process.env.CHROME_PATH
@@ -47,6 +48,8 @@ test('candidate evidence focuses the next decision without interrupting ordinary
     const scenarios = [
       { ...missing, id: 'anchored-missing-question', plan: 'anchored-batch' },
       { ...missing, id: 'unanchored-sole-lookup', plan: 'single' },
+      { ...missing, id: 'unanchored-evidence-batch', plan: 'evidence-batch', html: `${missing.html}
+        <label>Citizenship<input name="citizenship" required></label>` },
       { ...missing, id: 'unanchored-ordinary-batch', plan: 'ordinary-batch' },
       { id: 'availability-known', plan: 'anchored-batch', known: true, model: 'celeris', question: 'Earliest start', selector: '#available', html: `
         <label>Earliest start<input id="available" required></label>` },
@@ -87,6 +90,8 @@ test('candidate evidence focuses the next decision without interrupting ordinary
               const clickRef = await page.locator('#planned').getAttribute('data-ref-id');
               assert.match(clickRef ?? '', /^a\d+$/);
               calls.push({ name: 'browser_click', args: { ref: clickRef } });
+            } else if (scenario.plan === 'evidence-batch') {
+              calls.push({ name: 'read_candidate_evidence', args: { query: 'citizenship' } });
             } else if (ordinaryBatch) {
               const ref = await page.locator('#kept').getAttribute('data-field-id');
               assert.match(ref ?? '', /^f\d+$/);
@@ -108,6 +113,15 @@ test('candidate evidence focuses the next decision without interrupting ordinary
             assert.ok(!offered.includes('browser_navigate'));
             assert.ok(!offered.includes('browser_run_script'));
             assert.ok(!offered.includes('browser_action'));
+            if (scenario.plan === 'evidence-batch') {
+              const focusedMessage = request.messages.find(message => typeof message.content === 'string'
+                && message.content.startsWith('CANDIDATE QUESTION DECISION.'))?.content;
+              assert.equal(typeof focusedMessage, 'string');
+              assert.match(String(focusedMessage), /"query":"Date of birth","offset":0\}\nOWNER-SCOPED CANDIDATE EVIDENCE\./,
+                'the complete birth date lookup result survives alongside the other lookup');
+              assert.match(String(focusedMessage), /"query":"citizenship","offset":0\}\nOWNER-SCOPED CANDIDATE EVIDENCE\.[\s\S]*Citizenship: New Zealand citizen\./,
+                'the second lookup also ran and its exact result survives');
+            }
             if (scenario.known) {
               assert.ok(context.includes('Two weeks after accepting an offer.'));
               calls = [{ name: 'browser_fill', args: { ref: fieldRef, value: 'Two weeks after accepting an offer.' } }];
