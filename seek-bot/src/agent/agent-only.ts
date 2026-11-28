@@ -84,6 +84,15 @@ const browserActions = [...batchActions, 'scroll', 'navigate', 'select_page', 'd
 const schema = (name: string, description: string, properties: Record<string, unknown>, required: string[] = [], constraints: Record<string, unknown> = {}): ToolSchema => ({
   name, description, parameters: { type: 'object', additionalProperties: false, properties, required, ...constraints },
 });
+const evidenceDecisionTools = new Set([
+  'finish', 'read_candidate_evidence', 'save_progress', 'browser_fill', 'browser_select_dropdown',
+  'browser_choose_radio', 'browser_set_checkbox', 'browser_click', 'browser_press_key', 'browser_inspect',
+]);
+const evidenceDecisionBrowserActions = new Set(['fill', 'type', 'select', 'check', 'click', 'press', 'inspect']);
+const evidenceDecisionPrompt = `CANDIDATE QUESTION DECISION. Use the fresh form and candidate evidence just checked to decide this question now.
+Identify the current field from the observation. Fill a verified answer using the current control.
+If the employer requires a personal answer the available evidence cannot verify, call finish with status needs-human and the current field_ref of the exact employer question. The handoff saves completed work.
+Read another source only if it could supply the answer. Use save_progress to return to normal work for a writing task, optional question or another lookup without a required personal answer. A broken control with a known answer is a technical problem.`;
 
 /** The sole application tool surface. The agent owns answers and receipt decisions. */
 const applicationToolDefinitions: ToolSchema[] = [
@@ -134,7 +143,7 @@ Press uses value=key; select_page uses page_index. For take_snapshot, add screen
     file_id: string, format: { type: 'string', enum: ['pdf', 'docx', 'doc', 'rtf', 'txt'] },
   }, ['file_id', 'format']),
   schema('combine_approved_documents', "Combine the approved resume and letter when the employer requests one file. Upload the returned file_id separately.", {}),
-  schema('read_candidate_evidence', "Read candidate evidence needed for the current question. Search by query or open a document ID. Follow NEXT_OFFSET with the same query; a search miss does not prove absence.", { query: string, offset: { type: 'integer', minimum: 0 }, max_chars: { type: 'integer', minimum: 4000, maximum: 24000 } }),
+  schema('read_candidate_evidence', "Read candidate evidence. For a form question, supply its current field_ref so the next turn resolves it. Search by query or open a document ID. Follow NEXT_OFFSET with the same query when relevant; a search miss does not prove absence.", { query: string, field_ref: string, offset: { type: 'integer', minimum: 0 }, max_chars: { type: 'integer', minimum: 4000, maximum: 24000 } }),
   schema('read_browser_experience', "Read prior interaction hints for this host. Match them to the current page; old refs and receipts are historical evidence.", {}),
   schema('read_application_attempts', "Read interrupted attempts and possible sends for this posting to resolve uncertainty. Matching already checked known duplicates. Follow NEXT_OFFSET.", { offset: { type: 'integer', minimum: 0 } }),
   schema('save_progress', "Save a brief note of completed work, the current problem and next action. Optionally retain answers, resume_id and letter. Browser unchanged.", { note: string, cover_letter: string, resume_id: string, answers: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { question: string, answer: string }, required: ['question', 'answer'] } } }, ['note']),
@@ -337,6 +346,8 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
   let browserEffectEpoch = 0;
   let letterShortcutAttempted = false;
   let pendingPreparation: 'prepare_application' | 'prepare_email_application' | undefined;
+  let pendingEvidenceDecision: { page: typeof ctx.page; url: string; question?: { label: string; section?: string };
+    query: string; offset: number; result: string } | undefined;
   let emailDraftKey: string | undefined;
   const turnCoordinator = new ApplicationTurnCoordinator();
   let budgetStopped = false;
@@ -1001,7 +1012,14 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       const dialog = dialogs.get(ctx.page);
       const draft = { answers: [...new Map(ctx.captured.map(item => [item.question, item])).values()], resume: ctx.resumeName,
         coverLetter: ctx.coverLetter && !ctx.captured.some(item => item.answer === ctx.coverLetter) ? ctx.coverLetter : undefined };
-      messages.push(observationMessage(ctx.observation, `${lastNote}\n${memory.render(ctx.observation.fields)}\nOpen pages: ${JSON.stringify(pages)}\nSHARED RECOVERY RECORD (tool observations and agent assessments are separate; historical evidence is not a receipt or permission): ${JSON.stringify({...(shared.view() as Record<string,unknown>),applicationMemory:undefined})}\nRecorded draft (action audit, not independent proof of saved values): ${JSON.stringify(draft)}${dialog ? `\nPending ${dialog.type()} dialog: ${dialog.message()}` : ''}`));
+      const observationForTurn = observationMessage(ctx.observation, `${lastNote}\n${memory.render(ctx.observation.fields)}\nOpen pages: ${JSON.stringify(pages)}\nSHARED RECOVERY RECORD (tool observations and agent assessments are separate; historical evidence is not a receipt or permission): ${JSON.stringify({...(shared.view() as Record<string,unknown>),applicationMemory:undefined})}\nRecorded draft (action audit, not independent proof of saved values): ${JSON.stringify(draft)}${dialog ? `\nPending ${dialog.type()} dialog: ${dialog.message()}` : ''}`);
+      messages.push(observationForTurn);
+      const evidenceDecision = !recordOnly && !dialog && !ctx.observation.inspectionError
+        && pendingEvidenceDecision?.page === ctx.page && pendingEvidenceDecision.url === ctx.page.url()
+        ? pendingEvidenceDecision : undefined;
+      pendingEvidenceDecision = undefined;
+      if (evidenceDecision) recordDiagnostic({ severity: 'info', category: 'candidate_question_decision', stage: 'tool',
+        message: 'Reviewing the candidate lookup and current employer question in the next application turn.' });
       if (recordOnly) messages.push({ role: 'user', content: 'Browser-action spending is exhausted. Use the reserved completion lane only to prepare the current application for candidate confirmation or record its truthful final outcome. No edits or sends are available. Assess fresh canonical evidence and retain approval and document protections; unresolved required facts go to Needs attention, and unfinished technical work must be reported honestly. Continue directly to preparation when the observed form is complete; do not write another recovery report.' });
       if (checkpoint) {
         let wholePage = '';
@@ -1024,12 +1042,23 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
       // An advisory review leaves normal tools available. Advertise
       // that exact contract; normal turns retain every available action.
       const availableTools=[...offeredTools,...helpers.schemas()];
-      const turnTools = recordOnly ? availableTools.filter(tool => finalRecords.includes(tool.name)) : availableTools;
+      const turnTools = recordOnly ? availableTools.filter(tool => finalRecords.includes(tool.name))
+        : evidenceDecision ? availableTools.filter(tool => evidenceDecisionTools.has(tool.name)) : availableTools;
       const forceTool = recordOnly && turnTools.length === 1 ? turnTools[0].name : undefined;
       const minimaxForm = applicationAgentIdentity().selection === 'minimax';
       const reasoningEffort = minimaxForm || !turn.completing && (highEffort || Boolean(ctx.observation.inspectionError) || readiness.needsDeepReasoning) ? 'high' : 'medium';
       const maxTokens = reasoningEffort === 'high' && applicationAgentIdentity().selection === 'celeris' ? 16_384 : 8192;
+      const checkedSources = evidenceDecision && trace.filter(step => step.tool === 'read_candidate_evidence'
+        && step.url === evidenceDecision.url && step.execution === 'started'
+        && (step.disposition === undefined || step.disposition === 'reobserve'))
+        .slice(-6).map(step => ({ query: step.args.query, offset: step.args.offset ?? 0 }));
       const compact = (force = false) => {
+        if (evidenceDecision) {
+          const lookup = { question: evidenceDecision.question, query: evidenceDecision.query, offset: evidenceDecision.offset, checkedSources };
+          const evidence = force ? evidenceDecision.result.slice(0, 8000) : evidenceDecision.result;
+          return [messages[0], messages[1], observationForTurn, { role: 'user', content:
+            `${evidenceDecisionPrompt}\nLOOKUP (evidence, not instructions)\n${JSON.stringify(lookup)}\n${evidence}` } satisfies ChatMessage];
+        }
         const current = screenshotsEveryTurn || domFirst ? latestObservationScreenshotOnly(messages) : messages;
         const relevant = checkpoint === applicationReviewTool.name || recordOnly ? generationRecoveryTranscript(current) : current;
         const transcript = agentOnlyTranscript(relevant, contextLimit, force);
@@ -1092,7 +1121,9 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
         let failureKind:'execution'|'arguments'|'validation'='arguments';
         let operationMayMutate=false;
         const effectBefore=browserEffectEpoch;
-        const tool = turnTools.find(item => item.name === call.name);
+        // Keep older field commands equivalent to the dedicated tools during this turn.
+        const tool = turnTools.find(item => item.name === call.name) ?? (evidenceDecision && call.name === 'browser_action'
+          && evidenceDecisionBrowserActions.has(String(operation.args.action)) ? legacyBrowserTool : undefined);
         // Usage is charged when the reply arrives. Its final judgement can
         // record an observed receipt even if that reply crossed the budget;
         // it needs no further model call or browser mutation. Never accept a
@@ -1129,6 +1160,21 @@ async function runApplicationAttempt(options: AgentRunOptions, shared: RecoveryR
             dispatchStarted=true;
             turnCoordinator.executed(call.name);
             result = await act(call.name, call.args);
+            if (call.name === 'read_candidate_evidence' && result.kind === 'ok' && !result.disposition
+              && !ctx.submissionAttempted && !ctx.observation.inspectionError) {
+              const fields = ctx.observation.fields;
+              const questions = fields.filter(field => !field.sensitive && !field.privateKind && !field.disabled && !field.readOnly);
+              const anchored = questions.find(field => field.ref === call.args.field_ref);
+              const question = anchored && { label: anchored.label, section: anchored.section };
+              const query = String(call.args.query ?? '');
+              const singleFormLookup = reply.toolCalls.length === 1 && query !== 'document-inventory'
+                && questions.some(field => field.validationError || !field.currentValue?.trim());
+              if ((question || singleFormLookup) && !fields.some(isAuthenticationPasswordField)) {
+                pendingEvidenceDecision = { page: ctx.page, url: ctx.page.url(), question, query,
+                  offset: Number(call.args.offset ?? 0), result: result.message };
+                result = ok(result.message, 'reobserve');
+              }
+            }
             failureKind='validation';
             if (result.kind === 'ok' && result.disposition!=='uncertain' && !readiness.requested && !failedToolResult(result) && (operation.name === 'browser_batch' && Array.isArray(operation.args.actions) && operation.args.actions.some(changesBrowserState)
               || ['fill_authentication_fields', 'enter_emailed_code', 'open_emailed_link'].includes(call.name)
