@@ -85,14 +85,13 @@ const schema = (name: string, description: string, properties: Record<string, un
   name, description, parameters: { type: 'object', additionalProperties: false, properties, required, ...constraints },
 });
 const evidenceDecisionTools = new Set([
-  'finish', 'read_candidate_evidence', 'save_progress', 'browser_fill', 'browser_select_dropdown',
-  'browser_choose_radio', 'browser_set_checkbox', 'browser_click', 'browser_press_key', 'browser_inspect',
+  'finish', 'save_progress', 'browser_fill', 'browser_select_dropdown', 'browser_choose_radio', 'browser_set_checkbox',
 ]);
-const evidenceDecisionBrowserActions = new Set(['fill', 'type', 'select', 'check', 'click', 'press', 'inspect']);
+const evidenceDecisionBrowserActions = new Set(['fill', 'type', 'select', 'check']);
 const evidenceDecisionPrompt = `CANDIDATE QUESTION DECISION. Use the fresh form and candidate evidence just checked to decide this question now.
 Identify the current field from the observation. Fill a verified answer using the current control.
-If the employer requires a personal answer the available evidence cannot verify, call finish with status needs-human and the current field_ref of the exact employer question. The handoff saves completed work.
-Read another source only if it could supply the answer. Use save_progress to return to normal work for a writing task, optional question or another lookup without a required personal answer. A broken control with a known answer is a technical problem.`;
+If the employer requires a personal answer that only the candidate can supply, call finish now with status needs-human and the current field_ref of the exact employer question. The handoff saves completed work.
+Use save_progress to resume normal work for a writing task or an optional question. If the answer is known but the control needs more work, save the verified answer and next form action in a short note. If an unchecked candidate source could supply the required answer, name that specific source in the note.`;
 type CandidateEvidenceLookup = { question?: { label: string; section?: string }; query: string; offset: number; result: string };
 
 /** The sole application tool surface. The agent owns answers and receipt decisions. */

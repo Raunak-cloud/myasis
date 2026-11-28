@@ -48,6 +48,7 @@ test('candidate evidence focuses the next decision without interrupting ordinary
     const scenarios = [
       { ...missing, id: 'anchored-missing-question', plan: 'anchored-batch' },
       { ...missing, id: 'unanchored-sole-lookup', plan: 'single' },
+      { ...missing, id: 'unanchored-trailing-lookup', plan: 'trailing-lookup' },
       { ...missing, id: 'unanchored-evidence-batch', plan: 'evidence-batch', html: `${missing.html}
         <label>Citizenship<input name="citizenship" required></label>` },
       { ...missing, id: 'unanchored-ordinary-batch', plan: 'ordinary-batch' },
@@ -86,10 +87,12 @@ test('candidate evidence focuses the next decision without interrupting ordinary
             calls = [
               { name: 'read_candidate_evidence', args: { query: scenario.question, ...(scenario.plan === 'anchored-batch' ? { field_ref: fieldRef } : {}) } },
             ];
-            if (scenario.plan === 'anchored-batch') {
+            if (scenario.plan === 'anchored-batch' || scenario.plan === 'trailing-lookup') {
               const clickRef = await page.locator('#planned').getAttribute('data-ref-id');
               assert.match(clickRef ?? '', /^a\d+$/);
-              calls.push({ name: 'browser_click', args: { ref: clickRef } });
+              const click = { name: 'browser_click', args: { ref: clickRef } };
+              if (scenario.plan === 'trailing-lookup') calls.unshift(click);
+              else calls.push(click);
             } else if (scenario.plan === 'evidence-batch') {
               calls.push({ name: 'read_candidate_evidence', args: { query: 'citizenship' } });
             } else if (ordinaryBatch) {
@@ -102,17 +105,14 @@ test('candidate evidence focuses the next decision without interrupting ordinary
             assert.ok(offered.includes('browser_navigate'), 'an ordinary unscoped batch does not focus the next decision');
             calls = [finish('The ordinary batch completed.')];
           } else if (turn === 2) {
-            assert.equal(await page.locator('body').getAttribute('data-clicked'), null, 'a click scripted before the lookup result never executes');
+            assert.equal(await page.locator('body').getAttribute('data-clicked'), scenario.plan === 'trailing-lookup' ? 'yes' : null,
+              'a trailing lookup preserves an earlier action and a scoped lookup pauses a later one');
             const context = request.messages.map(message => JSON.stringify(message.content)).join('\n');
             assert.ok(context.includes(scenario.question));
             assert.ok(context.includes('EVIDENCE PASSAGES'), 'the next decision sees the actual lookup result');
             assert.ok(context.includes(fieldRef!), 'the decision sees a current field reference');
-            for (const tool of ['finish', 'read_candidate_evidence', 'save_progress', 'browser_fill', 'browser_select_dropdown', 'browser_click', 'browser_press_key']) {
-              assert.ok(offered.includes(tool), `${tool} remains available for the focused decision`);
-            }
-            assert.ok(!offered.includes('browser_navigate'));
-            assert.ok(!offered.includes('browser_run_script'));
-            assert.ok(!offered.includes('browser_action'));
+            assert.deepEqual(offered.slice().sort(), ['finish', 'save_progress', 'browser_fill', 'browser_select_dropdown',
+              'browser_choose_radio', 'browser_set_checkbox'].sort(), 'the next turn decides from the evidence already supplied');
             if (scenario.plan === 'evidence-batch') {
               const focusedMessage = request.messages.find(message => typeof message.content === 'string'
                 && message.content.startsWith('CANDIDATE QUESTION DECISION.'))?.content;
@@ -155,7 +155,7 @@ test('candidate evidence focuses the next decision without interrupting ordinary
         assert.equal(turn, scenario.known ? 3 : 2);
         assert.equal(run.submitPressed, false);
         assert.equal(await page.locator('#kept').inputValue(), ordinaryBatch ? 'Legacy batch completed' : 'Preserve this');
-        assert.equal(await page.locator('body').getAttribute('data-clicked'), null);
+        assert.equal(await page.locator('body').getAttribute('data-clicked'), scenario.plan === 'trailing-lookup' ? 'yes' : null);
         if (!scenario.known) {
           assert.deepEqual(await page.locator('#month, #day, #year').evaluateAll(inputs => inputs.map(input => (input as HTMLInputElement).value)), ['', '', '']);
         }
